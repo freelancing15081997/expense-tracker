@@ -1,6 +1,6 @@
 {
-  "name": "Shared Sheet Expense Tracker",
-  "description": "Collaborative Google Sheet-style expense tracker with real-time spreadsheet editing, mobile input form, automated monthly email digests, instant email alerts on edits, receipt photo proofs, and daily budget reminders.",
+  "name": "ExpenseShare",
+  "description": "Collaborative SaaS expense tracking with Role-Based Access Control and Email/Password Login.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -24,7 +24,7 @@ export const initialConfiguredEmails: ConfiguredEmail[] = [
 export const initialDailyBudgetSettings: DailyBudgetSettings = {
   dailyLimit: 85,
   monthlyLimit: 2200,
-  currency: '$',
+  currency: '₹',
   reminderTime: '20:00',
   enabled: true,
   pushNotificationsEnabled: false,

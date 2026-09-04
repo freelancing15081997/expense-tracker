@@ -42,7 +42,7 @@ export const DashboardAnalytics: React.FC<Props> = ({
   const [hoveredTrendIndex, setHoveredTrendIndex] = useState<number | null>(null);
   const [hoveredCategory, setHoveredCategory] = useState<string | null>(null);
 
-  const currency = budgetSettings.currency || '$';
+  const currency = budgetSettings.currency || '₹';
   const totalSpend = expenses.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
   const monthlyLimit = budgetSettings.monthlyLimit || 2000;
   const budgetPercent = Math.min(100, Math.round((totalSpend / monthlyLimit) * 100));

@@ -61,7 +61,7 @@ export const MobileExpenseForm: React.FC<Props> = ({
   const isEditMode = !!initialData;
 
   const [amount, setAmount] = useState<string>(initialData ? String(initialData.amount) : '');
-  const [currency, setCurrency] = useState<string>(initialData ? initialData.currency : '$');
+  const [currency, setCurrency] = useState<string>(initialData ? initialData.currency : '₹');
   const [description, setDescription] = useState<string>(initialData?.description || '');
   const [category, setCategory] = useState<string>(initialData?.category || '');
   const [paymentMode, setPaymentMode] = useState<string>(initialData?.paymentMode || '');
@@ -78,7 +78,7 @@ export const MobileExpenseForm: React.FC<Props> = ({
   useEffect(() => {
     if (initialData) {
       setAmount(String(initialData.amount));
-      setCurrency(initialData.currency || '$');
+      setCurrency(initialData.currency || '₹');
       setDescription(initialData.description || '');
       setCategory(initialData.category || '');
       setPaymentMode(initialData.paymentMode || '');
@@ -89,7 +89,7 @@ export const MobileExpenseForm: React.FC<Props> = ({
       setNotes(initialData.notes || '');
     } else {
       setAmount('');
-      setCurrency('$');
+      setCurrency('₹');
       setDescription('');
       setCategory('');
       setPaymentMode('');

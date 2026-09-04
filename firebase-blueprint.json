@@ -1,0 +1,73 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "displayName": { "type": "string" }
+      },
+      "required": ["email", "displayName"]
+    },
+    "Book": {
+      "title": "Book",
+      "description": "An expense ledger book",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "currency": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "roles": { "type": "object", "description": "Map of uid to {role: string, email: string}" }
+      },
+      "required": ["name", "ownerId", "currency", "createdAt", "roles"]
+    },
+    "Expense": {
+      "title": "Expense",
+      "description": "An expense entry",
+      "type": "object",
+      "properties": {
+        "amount": { "type": "number" },
+        "description": { "type": "string" },
+        "category": { "type": "string" },
+        "date": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["amount", "description", "category", "date", "createdBy", "createdAt"]
+    },
+    "Invite": {
+      "title": "Invite",
+      "description": "An invitation to a book",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "bookId": { "type": "string" },
+        "bookName": { "type": "string" },
+        "role": { "type": "string" },
+        "invitedBy": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["email", "bookId", "bookName", "role", "invitedBy", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "#/entities/User",
+      "description": "User profiles"
+    },
+    "/books/{bookId}": {
+      "schema": "#/entities/Book",
+      "description": "Expense books"
+    },
+    "/books/{bookId}/expenses/{expenseId}": {
+      "schema": "#/entities/Expense",
+      "description": "Expenses in a book"
+    },
+    "/invites/{inviteId}": {
+      "schema": "#/entities/Invite",
+      "description": "Pending invitations"
+    }
+  }
+}
