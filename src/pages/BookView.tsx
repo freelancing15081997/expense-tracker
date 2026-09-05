@@ -578,7 +578,7 @@ export default function BookView() {
           {totalPages > 1 && (
             <div className="flex items-center justify-between px-4 py-3 bg-white border border-slate-200 rounded-lg mt-4">
               <span className="text-sm text-slate-500">
-                Showing <span className="font-medium text-slate-900">{((currentPage - 1) * itemsPerPage) + 1}</span> to <span className="font-medium text-slate-900">{Math.min(currentPage * itemsPerPage, filteredExpenses.length)}</span> of <span className="font-medium text-slate-900">{filteredExpenses.length}</span> entries
+                Showing <span className="font-medium text-slate-900">{filteredExpenses.length === 0 ? 0 : ((currentPage - 1) * itemsPerPage) + 1}</span> to <span className="font-medium text-slate-900">{Math.min(currentPage * itemsPerPage, filteredExpenses.length)}</span> of <span className="font-medium text-slate-900">{filteredExpenses.length}</span> entries
               </span>
               <div className="flex gap-1">
                 <button 

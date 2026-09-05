@@ -46,7 +46,43 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       to,
       subject,
       text: textMessage,
-      html: `<!DOCTYPE html><html><head><style>  body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }  .container { padding: 20px; border: 1px solid #eaeaea; border-radius: 5px; background: #fff; }</style></head><body style="background-color: #f9f9f9; padding: 20px;">  <div class="container" style="max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px;">    ${message}    <hr style="border: 0; border-top: 1px solid #eaeaea; margin-top: 20px;">    <p style="font-size: 12px; color: #888;">This is an automated notification from your Shared Ledger App.</p>  </div></body></html>`,
+      html: `
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #1e293b; background-color: #f8fafc; margin: 0; padding: 0; }
+  .wrapper { width: 100%; background-color: #f8fafc; padding: 40px 20px; }
+  .container { max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03); border: 1px solid #e2e8f0; }
+  .header { background: linear-gradient(to right, #ea580c, #d97706); padding: 32px; text-align: center; }
+  .header h1 { margin: 0; color: #ffffff; font-size: 24px; font-weight: 800; letter-spacing: -0.025em; }
+  .header p { margin: 4px 0 0 0; color: #ffedd5; font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; }
+  .content { padding: 40px 32px; font-size: 15px; color: #334155; }
+  .content p { margin: 0 0 16px 0; }
+  .content b { color: #0f172a; font-weight: 600; }
+  .footer { background-color: #f1f5f9; padding: 24px; text-align: center; border-top: 1px solid #e2e8f0; }
+  .footer p { margin: 0; font-size: 13px; color: #64748b; }
+</style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="container">
+      <div class="header">
+        <h1>SET</h1>
+        <p>Secure Expense Tracker</p>
+      </div>
+      <div class="content">
+        ${message.replace(/\n/g, '<br/>')}
+      </div>
+      <div class="footer">
+        <p>This is an automated notification from your Secure Expense Tracker.</p>
+        <p style="margin-top: 8px; font-size: 11px; color: #94a3b8;">&copy; ${new Date().getFullYear()} SET App. All rights reserved.</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+`,
     });
     
     console.log("Message sent: %s", info.messageId);

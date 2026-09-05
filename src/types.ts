@@ -97,3 +97,53 @@ export interface ConfirmationModalState {
   onConfirm: () => void;
   onCancel: () => void;
 }
+
+// --- ERP & BOOKKEEPING TYPES ---
+export type AccountType = 'Asset' | 'Liability' | 'Equity' | 'Revenue' | 'Expense';
+
+export interface Account {
+  id: string;
+  code: string;
+  name: string;
+  type: AccountType;
+  subType?: string;
+  balance: number; // For UI display purposes
+  description?: string;
+  isSystem?: boolean;
+}
+
+export interface JournalLine {
+  id: string;
+  accountId: string;
+  description?: string;
+  debit: number;
+  credit: number;
+}
+
+export interface JournalEntry {
+  id: string;
+  date: string;
+  reference: string;
+  description: string;
+  lines: JournalLine[];
+  status: 'Draft' | 'Posted' | 'Voided';
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Invoice {
+  id: string;
+  invoiceNumber: string;
+  date: string;
+  dueDate: string;
+  clientId: string;
+  clientName: string;
+  items: { description: string; quantity: number; unitPrice: number; amount: number }[];
+  subtotal: number;
+  tax: number;
+  total: number;
+  amountPaid: number;
+  status: 'Draft' | 'Sent' | 'Paid' | 'Overdue' | 'Voided';
+  journalEntryId?: string; // Link to the posted journal entry
+}

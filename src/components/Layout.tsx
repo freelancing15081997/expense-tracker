@@ -50,11 +50,14 @@ export default function Layout() {
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans text-slate-900">
       {/* Mobile Header */}
       <div className="md:hidden bg-slate-900 text-white flex items-center justify-between p-3 sticky top-0 z-50 border-b border-slate-800">
-        <div className="flex items-center gap-2 font-bold tracking-tight">
-          <div className="w-6 h-6 rounded-md bg-gradient-to-tr from-orange-600 to-amber-500 flex items-center justify-center">
-            <Wallet className="w-3.5 h-3.5 text-white" />
+        <div className="flex flex-col">
+          <div className="flex items-center gap-2 font-bold tracking-tight">
+            <div className="w-6 h-6 rounded-md bg-gradient-to-tr from-orange-600 to-amber-500 flex items-center justify-center">
+              <Wallet className="w-3.5 h-3.5 text-white" />
+            </div>
+            <span className="font-black text-lg">SET</span>
           </div>
-          <span>SET</span>
+          <span className="text-[8px] uppercase tracking-widest text-slate-400 font-semibold ml-8 leading-none">Secure Expense Tracker</span>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => setNotificationsPanelOpen(true)} className="relative p-2 text-slate-300 hover:text-white">
@@ -75,13 +78,15 @@ export default function Layout() {
         mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
       )}>
         <div className="p-6 hidden md:flex flex-col gap-1">
-          <div className="flex items-center gap-2.5 font-bold text-xl text-white tracking-tight">
-            <div className="w-7 h-7 rounded-md bg-gradient-to-tr from-orange-600 to-amber-500 flex items-center justify-center shadow-lg shadow-orange-500/20">
-              <Wallet className="w-4 h-4 text-white" />
+          <div className="flex flex-col">
+            <div className="flex items-center gap-2.5 font-bold text-2xl text-white tracking-tight">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-orange-600 to-amber-500 flex items-center justify-center shadow-lg shadow-orange-500/20">
+                <Wallet className="w-5 h-5 text-white" />
+              </div>
+              <span className="font-black">SET</span>
             </div>
-            <span>SET App</span>
+            <p className="text-[9px] uppercase tracking-widest text-slate-400 font-semibold mt-1 ml-11">Secure Expense Tracker</p>
           </div>
-          <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold ml-10">Secure Expense Tracker</p>
         </div>
         <nav className="flex-1 px-4 py-4 space-y-1.5">
           <div className="px-3 pb-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">Modules</div>
