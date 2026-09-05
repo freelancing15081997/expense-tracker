@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../lib/firebase';
-import { collection, query, where, getDocs, addDoc, serverTimestamp, doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, getDoc, addDoc, serverTimestamp, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { Link } from 'react-router-dom';
 import { Plus, Check, X, Users, Building2, Receipt, ArrowRight } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
@@ -111,10 +111,14 @@ export default function Dashboard() {
               `<p>Hello,</p><p><b>${userProfile.displayName || userProfile.email}</b> has accepted the invitation and joined the ledger <b>${invite.bookName}</b>.</p>`
             ].join('\n');
             const encodedEmail = btoa(unescape(encodeURIComponent(emailContent))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-            await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+            await fetch('/api/email/send', {
               method: 'POST',
-              headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ raw: encodedEmail })
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                to: emails.join(", "),
+                subject: `New member joined: ${invite.bookName}`,
+                message: `<p>Hello,</p><p><b>${userProfile.displayName || userProfile.email}</b> has accepted the invitation and joined the ledger <b>${invite.bookName}</b>.</p>`
+              })
             });
           }
         }

@@ -129,7 +129,6 @@ export default function BookView() {
   };
 
   const notifyTeamMembers = async (action: string, detail: string) => {
-    setUnsentEmailChange(null);
     // 1. In-app notifications
     const uidsToNotify = Object.keys(book.roles).filter(uid => uid !== currentUser?.uid);
     for (const uid of uidsToNotify) {
@@ -149,71 +148,23 @@ export default function BookView() {
       }
     }
 
-    // 2. Email notifications (Best Effort)
+    // 2. Email notifications (Now sent reliably via our Node backend)
     const emails = Object.values(book.roles)
       .map((r: any) => r.email)
-      .filter((email: string) => email !== (userProfile?.email || currentUser?.email));
+      ; // Removed self-filter for testing so the user gets their own emails
     
     if (emails.length > 0) {
-      const { getAccessToken } = await import('../lib/firebase');
-      const token = getAccessToken();
-      if (!token) {
-        // Token is missing! Save to state so user can explicitly send it
-        setUnsentEmailChange({ action, detail });
-        return;
-      }
-
       const subject = `Ledger Update: ${book.name}`;
       const message = `<p>Hello,</p><p>A ledger you are a member of has been updated by <b>${userProfile?.displayName || currentUser?.email}</b>.</p><p><b>Action:</b> ${action}</p><p><b>Details:</b> ${detail}</p>`;
       
       for (const email of emails) {
-        // We don't await this so it doesn't block if token is missing
+        // This hits our reliable Express backend which doesn't lose credentials
         sendEmailNotification(email, subject, message).catch(console.error);
       }
     }
   };
 
   
-  const handleManualEmailNotify = async () => {
-    try {
-      const { signInWithGoogle, getAccessToken } = await import('../lib/firebase');
-      let token = getAccessToken();
-      if (!token) {
-        await signInWithGoogle();
-        token = getAccessToken();
-      }
-      
-      if (!token || !unsentEmailChange) return;
-
-      const emails = Object.values(book.roles)
-        .map((r: any) => r.email)
-        .filter((email: string) => email !== (userProfile?.email || currentUser?.email));
-      
-      if (emails.length > 0) {
-        const subject = `Ledger Update: ${book.name}`;
-        const message = `<p>Hello,</p><p>A ledger you are a member of has been updated by <b>${userProfile?.displayName || currentUser?.email}</b>.</p><p><b>Action:</b> ${unsentEmailChange.action}</p><p><b>Details:</b> ${unsentEmailChange.detail}</p>`;
-        
-        let allSent = true;
-        for (const email of emails) {
-          const ok = await sendEmailNotification(email, subject, message);
-          if (!ok) allSent = false;
-        }
-        
-        if (allSent) {
-          setToastMessage('Emails sent successfully!');
-          setUnsentEmailChange(null);
-        } else {
-          setToastMessage('Some emails failed to send.');
-        }
-      } else {
-        setUnsentEmailChange(null);
-      }
-    } catch (err) {
-      console.error(err);
-      alert('Failed to send emails. Please check popup blockers.');
-    }
-  };
-
   const handleSaveExpense = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canWrite) return;
@@ -261,35 +212,16 @@ export default function BookView() {
 
   const sendEmailNotification = async (toEmail: string, subject: string, message: string) => {
     try {
-      const { getAccessToken } = await import('../lib/firebase');
-      const token = getAccessToken();
-      if (!token) {
-        console.warn('No Google OAuth token available for sending email.');
-        return false;
-      }
-      
-      const emailContent = [
-        `To: ${toEmail}`,
-        'Content-Type: text/html; charset=utf-8',
-        `Subject: ${subject}`,
-        '',
-        message
-      ].join('');
-      
-      const encodedEmail = btoa(unescape(encodeURIComponent(emailContent))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-      
-      const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+      const res = await fetch('/api/email/send', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ raw: encodedEmail })
+        body: JSON.stringify({ to: toEmail, subject, message })
       });
-      
       return res.ok;
     } catch (err) {
-      console.error('Failed to send email:', err);
+      console.error('Failed to send email via backend:', err);
       return false;
     }
   };
