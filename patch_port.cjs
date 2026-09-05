@@ -1,5 +1,7 @@
 const fs = require('fs');
 let code = fs.readFileSync('server.ts', 'utf8');
 
-code = code.replace(/const PORT = 3000;/g, 'const PORT = process.env.PORT || 3000;');
+// Change port 587 back to 2525
+code = code.replace(/port: 587,/, 'port: 2525,');
+
 fs.writeFileSync('server.ts', code);
