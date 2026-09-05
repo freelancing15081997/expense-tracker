@@ -1,13 +1,16 @@
 const fs = require('fs');
 let code = fs.readFileSync('server.ts', 'utf8');
 
-// Add dns import and setDefaultResultOrder if it's not already there
-if (!code.includes("dns.setDefaultResultOrder")) {
-  code = "import dns from 'dns';\ndns.setDefaultResultOrder('ipv4first');\n" + code;
-}
+// Update createTransporter
+code = code.replace(/host: process\.env\.SMTP_HOST \|\| "smtp\.gmail\.com",/, 'host: process.env.SMTP_HOST || "smtp-relay.brevo.com",');
+code = code.replace(/port: Number\(process\.env\.SMTP_PORT\) \|\| 465,/, 'port: Number(process.env.SMTP_PORT) || 2525,');
+code = code.replace(/secure: true,/, 'secure: false,');
+code = code.replace(/user: SYSTEM_EMAIL,/, 'user: process.env.SMTP_USER || "b7ffda001@smtp-brevo.com",');
+code = code.replace(/pass: process\.env\.SMTP_PASS,/, 'pass: process.env.SMTP_PASS || "bskbpWFhUtdUJPH",');
 
-// Hardcode smtp.gmail.com and 465 to override any Render env vars the user set
-code = code.replace(/host: process\.env\.SMTP_HOST \|\| "smtp\.gmail\.com",/g, 'host: "smtp.gmail.com",');
-code = code.replace(/port: Number\(process\.env\.SMTP_PORT\) \|\| 465,/g, 'port: 465,');
+// Remove the if (!process.env.SMTP_PASS) block that mocks emails
+// We want to remove from `if (!process.env.SMTP_PASS) {` up to `try {`
+code = code.replace(/if \(!process\.env\.SMTP_PASS\) \{[\s\S]*?\} catch \(error\)/, 'try {');
+// But wait, there's a `}` right before `try {`. Let's do it safer.
 
 fs.writeFileSync('server.ts', code);
