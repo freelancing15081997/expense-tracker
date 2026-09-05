@@ -12,16 +12,16 @@ async function startServer() {
   app.use(express.json());
 
   // Use the exact email you requested as the fallback/system email
-  const SYSTEM_EMAIL = process.env.SMTP_USER || "byjanbooks@gmail.com";
+  const SYSTEM_EMAIL = "byjanbooks@gmail.com";
 
   const createTransporter = () => {
     return nodemailer.createTransport({
-      host: process.env.SMTP_HOST || "smtp-relay.brevo.com",
-      port: Number(process.env.SMTP_PORT) || 2525,
+      host: "smtp-relay.brevo.com",
+      port: 587,
       secure: false, 
       auth: {
-        user: process.env.SMTP_USER || "b7ffda001@smtp-brevo.com", 
-        pass: process.env.SMTP_PASS || "bskbpWFhUtdUJPH", 
+        user: "b7ffda001@smtp-brevo.com", 
+        pass: "bskbpWFhUtdUJPH", 
       },
     });
   };
