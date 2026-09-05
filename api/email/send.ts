@@ -5,12 +5,12 @@ const SYSTEM_EMAIL = "byjanbooks@gmail.com";
 
 const createTransporter = () => {
   return nodemailer.createTransport({
-    host: "smtp-relay.brevo.com",
-    port: 2525,
+    host: process.env.SMTP_HOST || "smtp.gmail.com",
+    port: parseInt(process.env.SMTP_PORT || "587"),
     secure: false, 
     auth: {
-      user: "b7ffda001@smtp-brevo.com", 
-      pass: "bskbpWFhUtdUJPH", 
+      user: process.env.SMTP_USER, 
+      pass: process.env.SMTP_PASS, 
     },
   });
 };
