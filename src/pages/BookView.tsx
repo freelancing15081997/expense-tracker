@@ -217,6 +217,8 @@ export default function BookView() {
 
   const sendEmailNotification = async (toEmail: string, subject: string, message: string) => {
     try {
+      // In production (Render), the frontend might be running under a different URL base if not configured properly, 
+      // but absolute path /api/email/send works if the React app and Node app are on the exact same domain.
       const res = await fetch('/api/email/send', {
         method: 'POST',
         headers: {
@@ -224,9 +226,14 @@ export default function BookView() {
         },
         body: JSON.stringify({ to: toEmail, subject, message })
       });
+      if (!res.ok) {
+         console.error('Email API Error:', res.statusText);
+         alert('Email sending failed on the server. Check Render server logs.');
+      }
       return res.ok;
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to send email via backend:', err);
+      alert('Network error sending email: ' + err.message);
       return false;
     }
   };

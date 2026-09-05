@@ -47,9 +47,7 @@ export default function Dashboard() {
       const fetchedInvites: InviteItem[] = [];
       inviteSnaps.forEach((doc) => fetchedInvites.push({ id: doc.id, ...doc.data() } as InviteItem));
       setInvites(fetchedInvites);
-    } catch (err) {
-      console.error(err);
-    } finally {
+    } catch (err) { console.error("Fetch API error:", err); } finally {
       setLoading(false);
     }
   };
@@ -76,9 +74,7 @@ export default function Dashboard() {
       setNewBookName('');
       setShowNewBook(false);
       fetchData();
-    } catch (err) {
-      console.error(err);
-    } finally {
+    } catch (err) { console.error("Fetch API error:", err); } finally {
       setCreating(false);
     }
   };
@@ -111,7 +107,7 @@ export default function Dashboard() {
               `<p>Hello,</p><p><b>${userProfile.displayName || userProfile.email}</b> has accepted the invitation and joined the ledger <b>${invite.bookName}</b>.</p>`
             ].join('\n');
             const encodedEmail = btoa(unescape(encodeURIComponent(emailContent))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-            await fetch('/api/email/send', {
+            const res = await fetch('/api/email/send', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -120,13 +116,18 @@ export default function Dashboard() {
                 message: `<p>Hello,</p><p><b>${userProfile.displayName || userProfile.email}</b> has accepted the invitation and joined the ledger <b>${invite.bookName}</b>.</p>`
               })
             });
+            
+            if (!res.ok) {
+              alert('Email sending failed on the server. Check Render server logs.');
+            }
           }
         }
       }
       
       fetchData();
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) { 
+      console.error("Dashboard error:", err);
+      alert("Error: " + err.message);
     }
   };
 
@@ -134,9 +135,7 @@ export default function Dashboard() {
     try {
       await deleteDoc(doc(db, 'invites', inviteId));
       fetchData();
-    } catch (err) {
-      console.error(err);
-    }
+    } catch (err) { console.error("Fetch API error:", err); }
   };
 
   const getRoleBadgeColor = (role: string) => {
