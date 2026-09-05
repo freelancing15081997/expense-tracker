@@ -1,6 +1,8 @@
 {
-  "name": "ExpenseShare",
+  "name": "SET (Secure Expense Tracker)",
   "description": "Collaborative SaaS expense tracking with Role-Based Access Control and Email/Password Login.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

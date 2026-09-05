@@ -1,10 +1,13 @@
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import React, { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { db } from '../lib/firebase';
 import { doc, getDoc, collection, query, onSnapshot, addDoc, serverTimestamp, deleteDoc, updateDoc, setDoc, deleteField } from 'firebase/firestore';
-import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus } from 'lucide-react';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Tabs from '@radix-ui/react-tabs';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
@@ -40,6 +43,19 @@ export default function BookView() {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('contributor');
   const [inviting, setInviting] = useState(false);
+
+  // List enhancements
+  const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+  const [visibleColumns, setVisibleColumns] = useState({
+    date: true,
+    category: true,
+    author: true,
+    amount: true
+  });
+  const [sendingReport, setSendingReport] = useState(false);
+
   const { addToast } = useToast();
   const [unsentEmailChange, setUnsentEmailChange] = useState<{action: string, detail: string} | null>(null);  const navigate = useNavigate();
 
@@ -94,6 +110,7 @@ export default function BookView() {
       setLoading(false);
     });
 
+    
     return () => unsubscribe();
   }, [bookId, currentUser]);
 
@@ -114,6 +131,60 @@ export default function BookView() {
     setCategory(defaultCategories[0] || '');
     setCustomCatInput('');
     setIsExpenseModalOpen(true);
+  };
+
+  
+  const generatePDF = (returnBase64 = false) => {
+    const doc = new jsPDF();
+    doc.setFontSize(18);
+    doc.text(`Expense Report: ${book?.name}`, 14, 22);
+    doc.setFontSize(11);
+    doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 14, 30);
+    
+    const tableData = filteredExpenses.map(exp => [
+      exp.createdAt ? new Date(exp.createdAt.toDate()).toLocaleDateString() : exp.date,
+      exp.description,
+      exp.category,
+      exp.createdBy,
+      `${book?.currency} ${exp.amount.toFixed(2)}`
+    ]);
+
+    autoTable(doc, {
+      startY: 36,
+      head: [['Date', 'Description', 'Category', 'Author', 'Amount']],
+      body: tableData,
+    });
+
+    if (returnBase64) {
+      return doc.output('datauristring');
+    } else {
+      doc.save(`${book?.name}_Report.pdf`);
+    }
+  };
+
+  const emailReport = async () => {
+    if (!currentUser?.email) return;
+    setSendingReport(true);
+    try {
+      const pdfBase64 = generatePDF(true).split(',')[1];
+      const res = await fetch('/api/email/send-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: currentUser.email,
+          subject: `${book?.name} - Expense Report`,
+          message: 'Please find the attached PDF report for your ledger.',
+          pdfBase64,
+          filename: 'Expense_Report.pdf'
+        })
+      });
+      if (!res.ok) throw new Error('Failed to send email');
+      addToast({ title: 'Report Sent', description: `PDF report sent to ${currentUser.email}`, type: 'success' });
+    } catch (err) {
+      addToast({ title: 'Error', description: 'Failed to send report email', type: 'error' });
+    } finally {
+      setSendingReport(false);
+    }
   };
 
   const openEditExpense = (exp: any) => {
@@ -282,6 +353,16 @@ export default function BookView() {
     return acc;
   }, []).sort((a, b) => b.total - a.total).slice(0, 5);
 
+  
+  // Filter and Pagination Logic
+  const filteredExpenses = expenses.filter(exp => 
+    exp.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    exp.category?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    exp.createdBy?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+  const totalPages = Math.max(1, Math.ceil(filteredExpenses.length / itemsPerPage));
+  const paginatedExpenses = filteredExpenses.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
   return (
     <div className="max-w-6xl mx-auto space-y-5">
       {/* Header */}
@@ -347,48 +428,98 @@ export default function BookView() {
             )}
           </div>
 
+          
+          {/* Enhanced Action Bar */}
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
+            <div className="relative w-full sm:w-72">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input 
+                type="text" 
+                placeholder="Search expenses..." 
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 outline-none transition-all"
+              />
+            </div>
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <button onClick={() => generatePDF(false)} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
+                <Download className="w-4 h-4" /> <span className="hidden sm:inline">PDF</span>
+              </button>
+              <button onClick={emailReport} disabled={sendingReport} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50">
+                {sendingReport ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} <span className="hidden sm:inline">Email</span>
+              </button>
+              
+              <DropdownMenu.Root>
+                <DropdownMenu.Trigger asChild>
+                  <button className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
+                    <Settings2 className="w-4 h-4" /> <span className="hidden sm:inline">Cols</span>
+                  </button>
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content align="end" className="w-48 bg-white rounded-lg shadow-lg border border-slate-200 p-2 z-50">
+                    <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-2">Visible Columns</div>
+                    {Object.keys(visibleColumns).map((col) => (
+                      <DropdownMenu.CheckboxItem
+                        key={col}
+                        checked={visibleColumns[col as keyof typeof visibleColumns]}
+                        onCheckedChange={(checked) => setVisibleColumns(prev => ({...prev, [col]: checked}))}
+                        className="px-2 py-1.5 text-sm outline-none cursor-pointer hover:bg-slate-50 rounded flex items-center gap-2"
+                      >
+                        <span className="capitalize">{col}</span>
+                      </DropdownMenu.CheckboxItem>
+                    ))}
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
+            </div>
+          </div>
+
           {/* Data Table */}
-          <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse whitespace-nowrap">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+            
+            {/* Desktop / Tablet View */}
+            <div className="hidden sm:block overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
+              <table className="w-full text-left border-collapse whitespace-nowrap min-w-[600px]">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">
-                    <th className="px-4 py-2.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Date</th>
-                    <th className="px-4 py-2.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Description</th>
-                    <th className="px-4 py-2.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Category</th>
-                    <th className="px-4 py-2.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Author</th>
-                    <th className="px-4 py-2.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider text-right">Amount</th>
-                    {canWrite && <th className="px-4 py-2.5 w-16"></th>}
+                    <th className="px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Description</th>
+                    {visibleColumns.date && <th className="px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Date</th>}
+                    {visibleColumns.category && <th className="px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Category</th>}
+                    {visibleColumns.author && <th className="px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Author</th>}
+                    {visibleColumns.amount && <th className="px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider text-right">Amount</th>}
+                    {canWrite && <th className="px-5 py-3 w-16 text-right text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Actions</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {expenses.length === 0 ? (
-                    <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-500">No expenses recorded yet.</td></tr>
+                  {paginatedExpenses.length === 0 ? (
+                    <tr><td colSpan={7} className="px-5 py-8 text-center text-sm text-slate-500">No expenses found matching your criteria.</td></tr>
                   ) : (
-                    expenses.map(exp => (
-                      <tr key={exp.id} className="hover:bg-slate-50 transition-colors group">
-                        <td className="px-4 py-2 text-xs font-medium text-slate-500">
-                          {exp.createdAt ? format(exp.createdAt.toDate(), 'MMM dd, yyyy') : exp.date}
-                        </td>
-                        <td className="px-4 py-2 text-sm font-semibold text-slate-900">{exp.description}</td>
-                        <td className="px-4 py-2">
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-700 border border-slate-200">
-                            {exp.category}
-                          </span>
-                        </td>
-                        <td className="px-4 py-2 text-xs text-slate-500">{exp.createdBy}</td>
-                        <td className="px-4 py-2 text-sm font-bold text-slate-900 text-right">
-                          {book.currency} {exp.amount.toLocaleString(undefined, {minimumFractionDigits: 2})}
-                        </td>
+                    paginatedExpenses.map((exp) => (
+                      <tr key={exp.id} className="hover:bg-slate-50/50 transition-colors group">
+                        <td className="px-5 py-3 font-medium text-slate-900 text-sm max-w-xs truncate" title={exp.description}>{exp.description}</td>
+                        {visibleColumns.date && <td className="px-5 py-3 text-slate-500 text-sm">{exp.createdAt ? format(exp.createdAt.toDate(), 'MMM dd, yyyy') : exp.date}</td>}
+                        {visibleColumns.category && (
+                          <td className="px-5 py-3">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-700 border border-slate-200">
+                              {exp.category}
+                            </span>
+                          </td>
+                        )}
+                        {visibleColumns.author && <td className="px-5 py-3 text-slate-600 text-sm truncate max-w-[120px]" title={exp.createdBy}>{exp.createdBy}</td>}
+                        {visibleColumns.amount && (
+                          <td className="px-5 py-3 text-right">
+                            <span className="font-bold text-slate-900">{book.currency} {exp.amount.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                          </td>
+                        )}
                         {canWrite && (
-                          <td className="px-4 py-2 text-right">
-                            <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button onClick={() => openEditExpense(exp)} className="p-1 text-slate-400 hover:text-orange-500 rounded transition-colors" title="Edit">
-                                <PenSquare className="w-3.5 h-3.5" />
+                          <td className="px-5 py-3 text-right">
+                            <div className="flex items-center justify-end gap-2 text-slate-400">
+                              <button onClick={() => openEditExpense(exp)} className="p-1 hover:text-orange-500 hover:bg-orange-50 rounded transition-colors" title="Edit">
+                                <PenSquare className="w-4 h-4" />
                               </button>
-                              <button onClick={() => handleDeleteExpense(exp.id, exp.description)} disabled={isDeleting === exp.id} className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors disabled:opacity-50" title="Delete">
-  {isDeleting === exp.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-</button>
+                              <button onClick={() => handleDeleteExpense(exp.id, exp.description)} disabled={isDeleting === exp.id} className="p-1 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors disabled:opacity-50" title="Delete">
+                                {isDeleting === exp.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                              </button>
                             </div>
                           </td>
                         )}
@@ -398,9 +529,78 @@ export default function BookView() {
                 </tbody>
               </table>
             </div>
+
+            {/* Mobile Card View */}
+
+            <div className="block sm:hidden divide-y divide-slate-100">
+              {paginatedExpenses.length === 0 ? (
+                <div className="p-6 text-center text-sm text-slate-500">No expenses recorded yet.</div>
+              ) : (
+                paginatedExpenses.map(exp => (
+                  <div key={exp.id} className="p-4 flex flex-col gap-3 bg-white">
+                    <div className="flex justify-between items-start gap-2">
+                      <div className="min-w-0">
+                        <h3 className="text-sm font-semibold text-slate-900 truncate">{exp.description}</h3>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {exp.createdAt ? format(exp.createdAt.toDate(), 'MMM dd, yyyy') : exp.date} &bull; {exp.createdBy}
+                        </p>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <p className="text-sm font-bold text-slate-900">
+                          {book.currency} {exp.amount.toLocaleString(undefined, {minimumFractionDigits: 2})}
+                        </p>
+                      </div>
+                    </div>
+                    
+                    <div className="flex justify-between items-center mt-1">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-700 border border-slate-200">
+                        {exp.category}
+                      </span>
+                      
+                      {canWrite && (
+                        <div className="flex items-center gap-2 border-l pl-3 border-slate-100">
+                          <button onClick={() => openEditExpense(exp)} className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-500 hover:text-orange-600 bg-slate-50 rounded-md transition-colors">
+                            <PenSquare className="w-3 h-3" /> Edit
+                          </button>
+                          <button onClick={() => handleDeleteExpense(exp.id, exp.description)} disabled={isDeleting === exp.id} className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-500 hover:text-rose-600 bg-slate-50 rounded-md transition-colors disabled:opacity-50">
+                            {isDeleting === exp.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />} Delete
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          
           </div>
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-3 bg-white border border-slate-200 rounded-lg mt-4">
+              <span className="text-sm text-slate-500">
+                Showing <span className="font-medium text-slate-900">{((currentPage - 1) * itemsPerPage) + 1}</span> to <span className="font-medium text-slate-900">{Math.min(currentPage * itemsPerPage, filteredExpenses.length)}</span> of <span className="font-medium text-slate-900">{filteredExpenses.length}</span> entries
+              </span>
+              <div className="flex gap-1">
+                <button 
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="p-1.5 rounded border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <button 
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="p-1.5 rounded border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
         </Tabs.Content>
-        
+
+
         <Tabs.Content value="analytics" className="outline-none space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm">

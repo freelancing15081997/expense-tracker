@@ -5,6 +5,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import BookView from './pages/BookView';
+import Bookkeeping from './pages/Bookkeeping';
 import Settings from './pages/Settings';
 import Layout from './components/Layout';
 
@@ -44,6 +45,7 @@ export default function App() {
               <Route index element={<Dashboard />} />
               <Route path="book/:bookId" element={<BookView />} />
               <Route path="settings" element={<Settings />} />
+          <Route path="bookkeeping" element={<Bookkeeping />} />
             </Route>
           </Routes>
         </HashRouter>

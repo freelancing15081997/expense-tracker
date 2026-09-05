@@ -42,6 +42,7 @@ export default function Layout() {
 
   const navigation = [
     { name: 'Dashboard', href: '/', icon: LayoutDashboard },
+    { name: 'Bookkeeping ERP', href: '/bookkeeping', icon: Receipt },
     { name: 'Settings', href: '/settings', icon: Settings },
   ];
 
@@ -49,9 +50,11 @@ export default function Layout() {
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans text-slate-900">
       {/* Mobile Header */}
       <div className="md:hidden bg-slate-900 text-white flex items-center justify-between p-3 sticky top-0 z-50 border-b border-slate-800">
-        <div className="flex items-center gap-2 font-bold">
-          <Wallet className="w-5 h-5 text-orange-500" />
-          <span>ExpenseShare</span>
+        <div className="flex items-center gap-2 font-bold tracking-tight">
+          <div className="w-6 h-6 rounded-md bg-gradient-to-tr from-orange-600 to-amber-500 flex items-center justify-center">
+            <Wallet className="w-3.5 h-3.5 text-white" />
+          </div>
+          <span>SET</span>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => setNotificationsPanelOpen(true)} className="relative p-2 text-slate-300 hover:text-white">
@@ -68,24 +71,30 @@ export default function Layout() {
 
       {/* Sidebar Navigation */}
       <div className={cn(
-        "fixed inset-y-0 left-0 z-40 w-56 bg-slate-900 text-slate-300 transition-transform duration-300 ease-in-out md:translate-x-0 md:static md:flex md:flex-col border-r border-slate-800",
+        "fixed inset-y-0 left-0 z-40 w-64 bg-slate-900 text-slate-300 transition-transform duration-300 ease-in-out md:translate-x-0 md:static md:flex md:flex-col border-r border-slate-800 shadow-xl",
         mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
       )}>
-        <div className="p-5 hidden md:flex items-center gap-2 font-bold text-lg text-white">
-          <Wallet className="w-6 h-6 text-orange-500" />
-          <span>ExpenseShare</span>
+        <div className="p-6 hidden md:flex flex-col gap-1">
+          <div className="flex items-center gap-2.5 font-bold text-xl text-white tracking-tight">
+            <div className="w-7 h-7 rounded-md bg-gradient-to-tr from-orange-600 to-amber-500 flex items-center justify-center shadow-lg shadow-orange-500/20">
+              <Wallet className="w-4 h-4 text-white" />
+            </div>
+            <span>SET App</span>
+          </div>
+          <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold ml-10">Secure Expense Tracker</p>
         </div>
-        <nav className="flex-1 px-3 py-4 space-y-1">
+        <nav className="flex-1 px-4 py-4 space-y-1.5">
+          <div className="px-3 pb-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">Modules</div>
           {navigation.map((item) => {
-            const isActive = location.pathname === item.href || (location.pathname.startsWith('/book') && item.href === '/');
+            const isActive = location.pathname === item.href || (location.pathname.startsWith('/book/') && item.href === '/');
             return (
               <Link
                 key={item.name}
                 to={item.href}
                 onClick={() => setMobileMenuOpen(false)}
                 className={cn(
-                  "flex items-center gap-2.5 px-3 py-2 rounded-md font-medium text-sm transition-colors",
-                  isActive ? "bg-slate-800 text-white" : "hover:bg-slate-800/60 hover:text-white"
+                  "flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium text-sm transition-all duration-200",
+                  isActive ? "bg-orange-500/10 text-orange-400" : "hover:bg-slate-800/80 hover:text-slate-100"
                 )}
               >
                 <item.icon className={cn("w-4 h-4", isActive ? "text-orange-500" : "text-slate-400")} />
@@ -94,26 +103,27 @@ export default function Layout() {
             );
           })}
           
+          <div className="mt-8 px-3 pb-2 pt-6 text-xs font-semibold text-slate-500 uppercase tracking-wider border-t border-slate-800/50">Actions</div>
           <button
             onClick={() => {
               setMobileMenuOpen(false);
               setNotificationsPanelOpen(true);
             }}
-            className="w-full flex items-center justify-between px-3 py-2 rounded-md font-medium text-sm transition-colors hover:bg-slate-800/60 hover:text-white"
+            className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium text-sm transition-colors hover:bg-slate-800/80 hover:text-slate-100"
           >
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-3">
               <Bell className="w-4 h-4 text-slate-400" />
               Notifications
             </div>
             {unreadCount > 0 && (
-              <span className="bg-orange-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+              <span className="bg-orange-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full shadow-lg shadow-orange-500/20">
                 {unreadCount}
               </span>
             )}
           </button>
         </nav>
 
-        <div className="p-3 mt-auto border-t border-slate-800">
+        <div className="p-4 mt-auto border-t border-slate-800/80">
           <div className="flex items-center gap-2.5 px-3 py-2 rounded-md mb-1 border border-slate-800/50 bg-slate-800/20">
             <div className="w-7 h-7 rounded-full bg-orange-500/20 text-orange-500 flex items-center justify-center font-bold text-xs border border-orange-500/30">
               {userProfile?.displayName?.charAt(0).toUpperCase() || userProfile?.email?.charAt(0).toUpperCase()}

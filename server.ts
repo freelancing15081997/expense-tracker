@@ -9,7 +9,8 @@ async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
 
-  app.use(express.json());
+  app.use(express.json({ limit: "50mb" }));
+  app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
   // Use the exact email you requested as the fallback/system email
   const SYSTEM_EMAIL = "byjanbooks@gmail.com";
@@ -34,6 +35,41 @@ async function startServer() {
   // This route is called by the React frontend whenever an email needs to be sent.
   // Because it runs on Node.js, it securely holds the SMTP_PASS and reliably sends
   // the email in the background, completely bypassing the browser's limitations.
+  
+  app.post("/api/email/send-report", async (req, res) => {
+    const { to, subject, message, pdfBase64, filename } = req.body;
+
+    if (!to || !subject || !pdfBase64) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    try {
+      const transporter = createTransporter();
+      const textMessage = message ? message.replace(/<[^>]*>?/gm, '') : 'Please find the attached report.';
+      
+      const info = await transporter.sendMail({
+        from: `"SET App Notifications" <${SYSTEM_EMAIL}>`,
+        to,
+        subject,
+        text: textMessage,
+        html: `<p>${textMessage}</p>`,
+        attachments: [
+          {
+            filename: filename || 'report.pdf',
+            content: pdfBase64,
+            encoding: 'base64'
+          }
+        ]
+      });
+
+      console.log("Report sent: %s", info.messageId);
+      res.json({ success: true, messageId: info.messageId });
+    } catch (error) {
+      console.error("Error sending report:", error);
+      res.status(500).json({ error: "Failed to send report" });
+    }
+  });
+
   app.post("/api/email/send", async (req, res) => {
     const { to, subject, message } = req.body;
 
