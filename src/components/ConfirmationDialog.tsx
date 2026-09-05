@@ -120,8 +120,8 @@ export const ConfirmationDialog: React.FC<Props> = ({ state }) => {
           )}
 
           {/* Email alert notification disclosure */}
-          <div className="flex items-start gap-2.5 bg-blue-50/70 border border-blue-100 rounded-lg p-3 text-xs text-blue-800">
-            <Mail className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+          <div className="flex items-start gap-2.5 bg-orange-50/70 border border-orange-100 rounded-lg p-3 text-xs text-blue-800">
+            <Mail className="w-4 h-4 text-orange-500 shrink-0 mt-0.5" />
             <div>
               <span className="font-semibold">Automatic Mail Broadcast:</span> Upon your confirmation, an instant notification alert will be dispatched to all configured emails in the spreadsheet list.
             </div>

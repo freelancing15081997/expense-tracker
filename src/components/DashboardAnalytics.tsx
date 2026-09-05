@@ -164,7 +164,7 @@ export const DashboardAnalytics: React.FC<Props> = ({
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">Monthly Budget</span>
-            <div className={`p-2 rounded-lg ${isOverBudget ? 'bg-rose-50 text-rose-600' : 'bg-blue-50 text-blue-600'}`}>
+            <div className={`p-2 rounded-lg ${isOverBudget ? 'bg-rose-50 text-rose-600' : 'bg-orange-50 text-orange-500'}`}>
               {isOverBudget ? <AlertCircle className="w-5 h-5" /> : <TrendingUp className="w-5 h-5" />}
             </div>
           </div>

@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { db } from '../lib/firebase';
 import { collection, query, where, getDocs, getDoc, addDoc, serverTimestamp, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { Link } from 'react-router-dom';
-import { Plus, Check, X, Users, Building2, Receipt, ArrowRight } from 'lucide-react';
+import { Loader2, Plus, Check, X, Users, Building2, Receipt, ArrowRight } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 
 interface BookItem {
@@ -24,6 +25,7 @@ interface InviteItem {
 
 export default function Dashboard() {
   const { currentUser, userProfile } = useAuth();
+  const { addToast } = useToast();
   const [books, setBooks] = useState<BookItem[]>([]);
   const [invites, setInvites] = useState<InviteItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -79,8 +81,10 @@ export default function Dashboard() {
     }
   };
 
+  const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const handleAcceptInvite = async (invite: InviteItem) => {
     if (!currentUser || !userProfile) return;
+    setAcceptingId(invite.id);
     try {
       await updateDoc(doc(db, 'books', invite.bookId), {
         [`roles.${currentUser.uid}`]: { role: invite.role, email: userProfile.email }
@@ -118,7 +122,7 @@ export default function Dashboard() {
             });
             
             if (!res.ok) {
-              alert('Email sending failed on the server. Check Render server logs.');
+              addToast('Email sending failed on the server. Check Render server logs.', 'error');
             }
           }
         }
@@ -127,8 +131,8 @@ export default function Dashboard() {
       fetchData();
     } catch (err: any) { 
       console.error("Dashboard error:", err);
-      alert("Error: " + err.message);
-    }
+      addToast("Error: " + err.message, 'error');
+    } finally { setAcceptingId(null); }
   };
 
   const handleDeclineInvite = async (inviteId: string) => {
@@ -141,7 +145,7 @@ export default function Dashboard() {
   const getRoleBadgeColor = (role: string) => {
     switch(role) {
       case 'owner': return 'bg-slate-900 text-white border-transparent';
-      case 'admin': return 'bg-blue-50 text-blue-700 border-blue-200';
+      case 'admin': return 'bg-orange-50 text-orange-600 border-orange-200';
       case 'contributor': return 'bg-emerald-50 text-emerald-700 border-emerald-200';
       case 'auditor': return 'bg-amber-50 text-amber-700 border-amber-200';
       default: return 'bg-slate-50 text-slate-700 border-slate-200';
@@ -157,7 +161,7 @@ export default function Dashboard() {
         </div>
         <button 
           onClick={() => setShowNewBook(true)}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
+          className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-md text-sm font-medium hover:bg-orange-600 transition-colors shadow-sm"
         >
           <Plus className="w-4 h-4" />
           New Ledger
@@ -178,7 +182,7 @@ export default function Dashboard() {
                 <input 
                   type="text" required autoFocus
                   value={newBookName} onChange={e => setNewBookName(e.target.value)}
-                  className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+                  className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-orange-500 outline-none"
                   placeholder="e.g. Acme Corp Q3"
                 />
               </div>
@@ -186,7 +190,7 @@ export default function Dashboard() {
                 <label className="block text-sm font-medium text-slate-700 mb-1">Base Currency</label>
                 <select 
                   value={newCurrency} onChange={e => setNewCurrency(e.target.value)}
-                  className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-blue-500 outline-none bg-white"
+                  className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-orange-500 outline-none bg-white"
                 >
                   <option value="INR">INR (₹)</option>
                   <option value="USD">USD ($)</option>
@@ -199,7 +203,8 @@ export default function Dashboard() {
                 <Dialog.Close asChild>
                   <button type="button" className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 rounded-md">Cancel</button>
                 </Dialog.Close>
-                <button type="submit" disabled={creating || !newBookName.trim()} className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 disabled:opacity-50">
+                <button type="submit" disabled={creating || !newBookName.trim()} className="px-4 py-2 bg-orange-500 text-white text-sm font-medium rounded-md hover:bg-orange-600 disabled:opacity-50 flex items-center gap-2">
+                  {creating && <Loader2 className="w-4 h-4 animate-spin" />}
                   Create Ledger
                 </button>
               </div>
@@ -211,20 +216,20 @@ export default function Dashboard() {
       {invites.length > 0 && (
         <div className="space-y-3">
           <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide text-slate-500 flex items-center gap-1.5">
-            <Users className="w-4 h-4 text-blue-600" />
+            <Users className="w-4 h-4 text-orange-500" />
             Pending Invitations
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {invites.map(invite => (
-              <div key={invite.id} className="bg-white p-4 rounded-lg border border-blue-200 shadow-sm flex flex-col gap-3">
+              <div key={invite.id} className="bg-white p-4 rounded-lg border border-orange-200 shadow-sm flex flex-col gap-3">
                 <div>
                   <h3 className="font-semibold text-slate-900 text-sm truncate">{invite.bookName}</h3>
                   <p className="text-xs text-slate-500 mt-0.5">Invited as <span className="font-semibold text-slate-700 capitalize">{invite.role}</span></p>
                 </div>
                 <div className="flex items-center gap-2 mt-auto pt-1">
-                  <button onClick={() => handleAcceptInvite(invite)} className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-md hover:bg-blue-700 transition">
-                    <Check className="w-3.5 h-3.5" /> Accept
-                  </button>
+                  <button onClick={() => handleAcceptInvite(invite)} disabled={acceptingId === invite.id} className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 bg-orange-500 text-white text-xs font-medium rounded-md hover:bg-orange-600 transition disabled:opacity-50">
+  {acceptingId === invite.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Accept
+</button>
                   <button onClick={() => handleDeclineInvite(invite.id)} className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 bg-slate-100 text-slate-700 text-xs font-medium rounded-md hover:bg-slate-200 transition border border-slate-200">
                     <X className="w-3.5 h-3.5" /> Decline
                   </button>
@@ -237,7 +242,7 @@ export default function Dashboard() {
 
       {loading ? (
         <div className="py-12 flex justify-center">
-          <div className="w-6 h-6 border-2 border-slate-200 border-t-blue-600 rounded-full animate-spin" />
+          <div className="w-6 h-6 border-2 border-slate-200 border-t-orange-500 rounded-full animate-spin" />
         </div>
       ) : books.length === 0 ? (
         <div className="text-center py-16 bg-white rounded-lg border border-slate-200 border-dashed shadow-sm">
@@ -252,8 +257,8 @@ export default function Dashboard() {
             return (
               <Link to={`/book/${book.id}`} key={book.id} className="group flex flex-col bg-white p-5 rounded-lg border border-slate-200 shadow-sm hover:shadow-md hover:border-blue-300 transition-all">
                 <div className="flex items-start justify-between mb-4">
-                  <div className="w-10 h-10 bg-slate-50 rounded-md flex items-center justify-center border border-slate-100 group-hover:bg-blue-50 transition-colors">
-                    <Receipt className="w-5 h-5 text-slate-600 group-hover:text-blue-600" />
+                  <div className="w-10 h-10 bg-slate-50 rounded-md flex items-center justify-center border border-slate-100 group-hover:bg-orange-50 transition-colors">
+                    <Receipt className="w-5 h-5 text-slate-600 group-hover:text-orange-500" />
                   </div>
                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase tracking-wide ${getRoleBadgeColor(role)}`}>
                     {role}

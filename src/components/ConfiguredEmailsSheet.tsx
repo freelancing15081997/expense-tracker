@@ -361,7 +361,7 @@ export const ConfiguredEmailsSheet: React.FC<Props> = ({
         </div>
 
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-3">
-          <div className="flex items-center gap-2 text-blue-700 font-bold text-sm">
+          <div className="flex items-center gap-2 text-orange-600 font-bold text-sm">
             <Bell className="w-4 h-4" />
             <span>Instant Edit & Add Alert Broadcasting</span>
           </div>

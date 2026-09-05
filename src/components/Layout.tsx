@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { signOut, auth, db } from '../lib/firebase';
-import { LogOut, LayoutDashboard, Settings, Menu, X, Receipt, Bell, CheckCircle2 } from 'lucide-react';
+import { Wallet, LogOut, LayoutDashboard, Settings, Menu, X, Receipt, Bell, CheckCircle2 } from 'lucide-react';
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { collection, query, where, onSnapshot, updateDoc, doc } from 'firebase/firestore';
@@ -50,14 +50,14 @@ export default function Layout() {
       {/* Mobile Header */}
       <div className="md:hidden bg-slate-900 text-white flex items-center justify-between p-3 sticky top-0 z-50 border-b border-slate-800">
         <div className="flex items-center gap-2 font-bold">
-          <Receipt className="w-5 h-5 text-blue-400" />
+          <Wallet className="w-5 h-5 text-orange-500" />
           <span>ExpenseShare</span>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => setNotificationsPanelOpen(true)} className="relative p-2 text-slate-300 hover:text-white">
             <Bell className="w-5 h-5" />
             {unreadCount > 0 && (
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-blue-500 rounded-full"></span>
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-orange-500 rounded-full"></span>
             )}
           </button>
           <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="p-2 text-slate-300 hover:text-white">
@@ -72,7 +72,7 @@ export default function Layout() {
         mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
       )}>
         <div className="p-5 hidden md:flex items-center gap-2 font-bold text-lg text-white">
-          <Receipt className="w-6 h-6 text-blue-400" />
+          <Wallet className="w-6 h-6 text-orange-500" />
           <span>ExpenseShare</span>
         </div>
         <nav className="flex-1 px-3 py-4 space-y-1">
@@ -88,7 +88,7 @@ export default function Layout() {
                   isActive ? "bg-slate-800 text-white" : "hover:bg-slate-800/60 hover:text-white"
                 )}
               >
-                <item.icon className={cn("w-4 h-4", isActive ? "text-blue-400" : "text-slate-400")} />
+                <item.icon className={cn("w-4 h-4", isActive ? "text-orange-500" : "text-slate-400")} />
                 {item.name}
               </Link>
             );
@@ -106,7 +106,7 @@ export default function Layout() {
               Notifications
             </div>
             {unreadCount > 0 && (
-              <span className="bg-blue-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+              <span className="bg-orange-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
                 {unreadCount}
               </span>
             )}
@@ -115,7 +115,7 @@ export default function Layout() {
 
         <div className="p-3 mt-auto border-t border-slate-800">
           <div className="flex items-center gap-2.5 px-3 py-2 rounded-md mb-1 border border-slate-800/50 bg-slate-800/20">
-            <div className="w-7 h-7 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center font-bold text-xs border border-blue-500/30">
+            <div className="w-7 h-7 rounded-full bg-orange-500/20 text-orange-500 flex items-center justify-center font-bold text-xs border border-orange-500/30">
               {userProfile?.displayName?.charAt(0).toUpperCase() || userProfile?.email?.charAt(0).toUpperCase()}
             </div>
             <div className="overflow-hidden flex-1">
@@ -168,7 +168,7 @@ export default function Layout() {
                     key={notif.id} 
                     className={cn(
                       "p-3 rounded-lg border text-sm transition-colors",
-                      notif.read ? "bg-white border-slate-200" : "bg-blue-50/50 border-blue-200"
+                      notif.read ? "bg-white border-slate-200" : "bg-orange-50/50 border-orange-200"
                     )}
                   >
                     <div className="flex justify-between items-start mb-1">
@@ -176,7 +176,7 @@ export default function Layout() {
                       {!notif.read && (
                         <button 
                           onClick={() => handleMarkAsRead(notif.id)}
-                          className="text-blue-500 hover:text-blue-700"
+                          className="text-orange-500 hover:text-orange-600"
                           title="Mark as read"
                         >
                           <CheckCircle2 className="w-4 h-4" />

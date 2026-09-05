@@ -1,3 +1,5 @@
+import dns from 'dns';
+dns.setDefaultResultOrder('ipv4first');
 import "dotenv/config";
 import express from "express";
 import path from "path";
@@ -5,7 +7,7 @@ import nodemailer from "nodemailer";
 
 async function startServer() {
   const app = express();
-  const PORT = process.env.PORT || 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json());
 
@@ -14,8 +16,8 @@ async function startServer() {
 
   const createTransporter = () => {
     return nodemailer.createTransport({
-      host: process.env.SMTP_HOST || "smtp.gmail.com",
-      port: Number(process.env.SMTP_PORT) || 465,
+      host: "smtp.gmail.com",
+      port: 465,
       secure: true, 
       auth: {
         user: SYSTEM_EMAIL, 

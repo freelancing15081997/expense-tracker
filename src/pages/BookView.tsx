@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { db } from '../lib/firebase';
 import { doc, getDoc, collection, query, onSnapshot, addDoc, serverTimestamp, deleteDoc, updateDoc, setDoc, deleteField } from 'firebase/firestore';
-import { ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus } from 'lucide-react';
+import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Tabs from '@radix-ui/react-tabs';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
@@ -24,6 +25,8 @@ export default function BookView() {
   
   // Modals state
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState<string | null>(null);
   const [isMembersModalOpen, setIsMembersModalOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<any>(null);
   
@@ -37,7 +40,7 @@ export default function BookView() {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('contributor');
   const [inviting, setInviting] = useState(false);
-  const [toastMessage, setToastMessage] = useState('');
+  const { addToast } = useToast();
   const [unsentEmailChange, setUnsentEmailChange] = useState<{action: string, detail: string} | null>(null);  const navigate = useNavigate();
 
   const handleRemoveMember = async (uidToRemove: string, isSelf: boolean) => {
@@ -47,7 +50,7 @@ export default function BookView() {
     if (book.roles[uidToRemove]?.role === 'owner') {
       const ownerCount = Object.values(book.roles).filter((r: any) => r.role === 'owner').length;
       if (ownerCount <= 1) {
-        alert('You cannot remove the last owner of the ledger.');
+        addToast('You cannot remove the last owner of the ledger.', 'error');
         return;
       }
     }
@@ -59,8 +62,7 @@ export default function BookView() {
           [`roles.${uidToRemove}`]: deleteField()
         });
         
-        setToastMessage(isSelf ? 'You have left the ledger.' : 'Member removed.');
-        setTimeout(() => setToastMessage(''), 4000);
+        addToast(isSelf ? 'You have left the ledger.' : 'Member removed.', 'success');
         
         if (isSelf) {
           navigate('/');
@@ -70,7 +72,7 @@ export default function BookView() {
         }
       } catch (err) {
         console.error(err);
-        alert('Failed to remove member.');
+        addToast('Failed to remove member.', 'error');
       }
     }
   };
@@ -95,7 +97,7 @@ export default function BookView() {
     return () => unsubscribe();
   }, [bookId, currentUser]);
 
-  if (loading) return <div className="p-8 flex justify-center"><div className="w-6 h-6 border-2 border-slate-200 border-t-blue-600 rounded-full animate-spin" /></div>;
+  if (loading) return <div className="p-8 flex justify-center"><div className="w-6 h-6 border-2 border-slate-200 border-t-orange-500 rounded-full animate-spin" /></div>;
   if (!book) return <div className="p-8 text-center text-sm text-slate-500">Book not found or access denied.</div>;
 
   const myRole = book.roles[currentUser!.uid]?.role || 'viewer';
@@ -168,8 +170,9 @@ export default function BookView() {
   const handleSaveExpense = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canWrite) return;
+    setIsSaving(true);
     const finalCategory = category === '__custom__' ? customCatInput.trim() : category;
-    if (!finalCategory) return alert("Please specify a category");
+    if (!finalCategory) return addToast("Please specify a category", 'error');
 
     try {
       if (editingExpense) {
@@ -179,7 +182,7 @@ export default function BookView() {
           category: finalCategory,
         });
         await notifyTeamMembers('Edited an Entry', `Updated expense for ${description} to ${book.currency} ${amount}`);
-        setToastMessage('Entry updated successfully!');
+        addToast('Entry updated successfully!', 'success');
       } else {
         await addDoc(collection(db, `books/${bookId}/expenses`), {
           amount: Number(amount),
@@ -190,28 +193,27 @@ export default function BookView() {
           createdAt: serverTimestamp()
         });
         await notifyTeamMembers('Added a New Entry', `Recorded ${book.currency} ${amount} for ${description}`);
-        setToastMessage('Entry recorded successfully!');
+        addToast('Entry recorded successfully!', 'success');
       }
-      setTimeout(() => setToastMessage(''), 4000);
       setIsExpenseModalOpen(false);
     } catch (err) {
       console.error(err);
-      alert('Error saving expense');
-    }
+      addToast('Error saving expense', 'error');
+    } finally { setIsSaving(false); }
   };
 
   const handleDeleteExpense = async (id: string, description: string) => {
     if (!canWrite) return;
     if (confirm('Delete this entry permanently?')) {
+      setIsDeleting(id);
       try {
         await deleteDoc(doc(db, `books/${bookId}/expenses`, id));
         await notifyTeamMembers('Deleted an Entry', `Removed expense for ${description}`);
-        setToastMessage('Entry deleted successfully!');
-        setTimeout(() => setToastMessage(''), 4000);
+        addToast('Entry deleted successfully!', 'success');
       } catch (err: any) {
         console.error("Delete failed:", err);
-        alert("Delete failed: " + err.message);
-      }
+        addToast("Delete failed: " + err.message, 'error');
+      } finally { setIsDeleting(null); }
     }
   };
 
@@ -228,12 +230,12 @@ export default function BookView() {
       });
       if (!res.ok) {
          console.error('Email API Error:', res.statusText);
-         alert('Email sending failed on the server. Check Render server logs.');
+         addToast('Email sending failed on the server. Check Render server logs.', 'error');
       }
       return res.ok;
     } catch (err: any) {
       console.error('Failed to send email via backend:', err);
-      alert('Network error sending email: ' + err.message);
+      addToast('Network error sending email: ' + err.message, 'error');
       return false;
     }
   };
@@ -253,8 +255,7 @@ export default function BookView() {
         status: 'pending'
       });
       setInviteEmail('');
-      setToastMessage('Invitation added to their dashboard successfully!');
-      setTimeout(() => setToastMessage(''), 4000);
+      addToast('Invitation added to their dashboard successfully!', 'success');
       
       const sent = await sendEmailNotification(
         inviteEmail.toLowerCase(),
@@ -262,11 +263,11 @@ export default function BookView() {
         `<p>Hello,</p><p>You have been invited to join the ledger <b>${book.name}</b> on ExpenseShare.</p><p>Please log in to your dashboard to accept the invitation.</p>`
       );
       if (sent) {
-        setToastMessage('Invitation added and email notification sent!');
+        addToast('Invitation added and email notification sent!', 'success');
       }
     } catch (err) {
       console.error(err);
-      alert('Failed to send invite. Check permissions.');
+      addToast('Failed to send invite. Check permissions.', 'error');
     } finally {
       setInviting(false);
     }
@@ -286,7 +287,7 @@ export default function BookView() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 pb-4 border-b border-slate-200">
         <div>
-          <Link to="/" className="inline-flex items-center text-xs font-semibold text-slate-500 hover:text-blue-600 transition-colors mb-2 uppercase tracking-wide">
+          <Link to="/" className="inline-flex items-center text-xs font-semibold text-slate-500 hover:text-orange-500 transition-colors mb-2 uppercase tracking-wide">
             <ArrowLeft className="w-3 h-3 mr-1" /> Back to Dashboard
           </Link>
           <div className="flex items-center gap-3">
@@ -308,7 +309,7 @@ export default function BookView() {
           {canWrite && (
             <button 
               onClick={openNewExpense}
-              className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
+              className="flex items-center gap-2 px-4 py-1.5 bg-orange-500 text-white rounded-md text-sm font-medium hover:bg-orange-600 transition-colors shadow-sm"
             >
               <Plus className="w-4 h-4" />
               Add Expense
@@ -319,10 +320,10 @@ export default function BookView() {
 
       <Tabs.Root defaultValue="ledger" className="space-y-5">
         <Tabs.List className="flex gap-4 border-b border-slate-200">
-          <Tabs.Trigger value="ledger" className="pb-2 text-sm font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-blue-600 data-[state=active]:border-b-2 data-[state=active]:border-blue-600 transition-colors">
+          <Tabs.Trigger value="ledger" className="pb-2 text-sm font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-orange-500 data-[state=active]:border-b-2 data-[state=active]:border-orange-500 transition-colors">
             Ledger Entries
           </Tabs.Trigger>
-          <Tabs.Trigger value="analytics" className="pb-2 text-sm font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-blue-600 data-[state=active]:border-b-2 data-[state=active]:border-blue-600 transition-colors">
+          <Tabs.Trigger value="analytics" className="pb-2 text-sm font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-orange-500 data-[state=active]:border-b-2 data-[state=active]:border-orange-500 transition-colors">
             Analytics & Reports
           </Tabs.Trigger>
         </Tabs.List>
@@ -382,12 +383,12 @@ export default function BookView() {
                         {canWrite && (
                           <td className="px-4 py-2 text-right">
                             <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button onClick={() => openEditExpense(exp)} className="p-1 text-slate-400 hover:text-blue-600 rounded transition-colors" title="Edit">
+                              <button onClick={() => openEditExpense(exp)} className="p-1 text-slate-400 hover:text-orange-500 rounded transition-colors" title="Edit">
                                 <PenSquare className="w-3.5 h-3.5" />
                               </button>
-                              <button onClick={() => handleDeleteExpense(exp.id, exp.description)} className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors" title="Delete">
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                              <button onClick={() => handleDeleteExpense(exp.id, exp.description)} disabled={isDeleting === exp.id} className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors disabled:opacity-50" title="Delete">
+  {isDeleting === exp.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+</button>
                             </div>
                           </td>
                         )}
@@ -436,7 +437,7 @@ export default function BookView() {
               </h3>
               <p className="text-xs text-slate-500 mb-6 flex-1">Generate comprehensive CSV exports of the ledger for tax filing, audits, or external accounting software integration.</p>
               <button 
-                onClick={() => alert("CSV Export feature would trigger here.")}
+                onClick={() => addToast("CSV Export coming soon.", "info")}
                 className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-md text-sm font-medium hover:bg-slate-800 transition-colors"
               >
                 Download CSV Ledger
@@ -466,7 +467,7 @@ export default function BookView() {
                 <input 
                   type="number" step="0.01" required autoFocus
                   value={amount} onChange={e=>setAmount(e.target.value)} 
-                  className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-blue-500 outline-none" 
+                  className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-orange-500 outline-none" 
                 />
               </div>
               <div>
@@ -474,7 +475,7 @@ export default function BookView() {
                 <input 
                   type="text" required 
                   value={description} onChange={e=>setDescription(e.target.value)} 
-                  className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-blue-500 outline-none" 
+                  className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-orange-500 outline-none" 
                   placeholder="e.g. Server Hosting"
                 />
               </div>
@@ -483,7 +484,7 @@ export default function BookView() {
                 <select 
                   required 
                   value={category} onChange={e=>setCategory(e.target.value)} 
-                  className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm bg-white focus:ring-1 focus:ring-blue-500 outline-none mb-2"
+                  className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm bg-white focus:ring-1 focus:ring-orange-500 outline-none mb-2"
                 >
                   {defaultCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                   <option value="__custom__">-- Add Custom Category --</option>
@@ -492,7 +493,7 @@ export default function BookView() {
                   <input 
                     type="text" required
                     value={customCatInput} onChange={e=>setCustomCatInput(e.target.value)}
-                    className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+                    className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-orange-500 outline-none"
                     placeholder="Enter custom category name"
                   />
                 )}
@@ -501,7 +502,8 @@ export default function BookView() {
                 <Dialog.Close asChild>
                   <button type="button" className="px-4 py-2 rounded-md text-sm font-medium text-slate-600 hover:bg-slate-50 border border-slate-200">Cancel</button>
                 </Dialog.Close>
-                <button type="submit" className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700">
+                <button type="submit" disabled={isSaving} className="px-4 py-2 bg-orange-500 text-white text-sm font-medium rounded-md hover:bg-orange-600 disabled:opacity-50 flex items-center justify-center gap-1.5">
+                  {isSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                   {editingExpense ? 'Save Changes' : 'Record Entry'}
                 </button>
               </div>
@@ -541,7 +543,7 @@ export default function BookView() {
                       <span className={cn(
                         "text-[10px] font-bold px-2 py-0.5 rounded border uppercase tracking-wide",
                         data.role === 'owner' ? "bg-slate-900 text-white border-transparent" :
-                        data.role === 'admin' ? "bg-blue-50 text-blue-700 border-blue-200" :
+                        data.role === 'admin' ? "bg-orange-50 text-orange-600 border-orange-200" :
                         data.role === 'contributor' ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
                         data.role === 'auditor' ? "bg-amber-50 text-amber-700 border-amber-200" :
                         "bg-slate-50 text-slate-700 border-slate-200"
@@ -577,20 +579,21 @@ export default function BookView() {
                   <input 
                     type="email" required placeholder="email@company.com" 
                     value={inviteEmail} onChange={e => setInviteEmail(e.target.value)}
-                    className="flex-1 border border-slate-300 rounded-md px-3 py-1.5 text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+                    className="flex-1 border border-slate-300 rounded-md px-3 py-1.5 text-sm focus:ring-1 focus:ring-orange-500 outline-none"
                   />
                   <select 
                     value={inviteRole} onChange={e => setInviteRole(e.target.value)}
-                    className="w-full sm:w-32 border border-slate-300 rounded-md px-3 py-1.5 text-sm bg-white focus:ring-1 focus:ring-blue-500 outline-none"
+                    className="w-full sm:w-32 border border-slate-300 rounded-md px-3 py-1.5 text-sm bg-white focus:ring-1 focus:ring-orange-500 outline-none"
                   >
                     <option value="admin">Admin</option>
                     <option value="contributor">Contributor</option>
                     <option value="auditor">Auditor</option>
                     <option value="viewer">Viewer</option>
                   </select>
-                  <button type="submit" disabled={inviting} className="px-4 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 disabled:opacity-50">
-                    Invite
-                  </button>
+                  <button type="submit" disabled={inviting} className="px-4 py-1.5 bg-orange-500 text-white text-sm font-medium rounded-md hover:bg-orange-600 disabled:opacity-50 flex items-center justify-center gap-1.5">
+  {inviting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+  Invite
+</button>
                 </form>
               </div>
             )}
@@ -599,14 +602,6 @@ export default function BookView() {
       </Dialog.Root>
 
       {/* Toast Notification */}
-      {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 animate-in slide-in-from-bottom-5 fade-in duration-300">
-          <div className="bg-slate-900 text-white px-4 py-3 rounded-md shadow-lg font-medium text-sm border border-slate-800 flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-            {toastMessage}
-          </div>
-        </div>
-      )}
 
     </div>
   );

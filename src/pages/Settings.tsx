@@ -98,7 +98,7 @@ export default function Settings() {
                     required
                     value={displayName}
                     onChange={e => setDisplayName(e.target.value)}
-                    className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                    className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-orange-500 focus:border-orange-500 outline-none"
                   />
                 </div>
               </div>
@@ -108,7 +108,7 @@ export default function Settings() {
                 <select
                   value={currency}
                   onChange={e => setCurrency(e.target.value)}
-                  className="w-full md:w-1/2 border border-slate-300 rounded-md px-3 py-2 text-sm bg-white focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                  className="w-full md:w-1/2 border border-slate-300 rounded-md px-3 py-2 text-sm bg-white focus:ring-1 focus:ring-orange-500 focus:border-orange-500 outline-none"
                 >
                   <option value="INR">INR (₹)</option>
                   <option value="USD">USD ($)</option>
@@ -138,7 +138,7 @@ export default function Settings() {
                   value={newCategory}
                   onChange={e => setNewCategory(e.target.value)}
                   placeholder="New category..."
-                  className="flex-1 border border-slate-300 rounded-md px-3 py-1.5 text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+                  className="flex-1 border border-slate-300 rounded-md px-3 py-1.5 text-sm focus:ring-1 focus:ring-orange-500 outline-none"
                 />
                 <button type="submit" disabled={!newCategory.trim()} className="px-3 py-1.5 bg-slate-900 text-white rounded-md text-sm font-medium hover:bg-slate-800 disabled:opacity-50">
                   <Plus className="w-4 h-4" />
@@ -171,7 +171,7 @@ export default function Settings() {
           type="submit" 
           form="settings-form"
           disabled={loading}
-          className="flex items-center gap-2 px-5 py-2 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50 text-sm shadow-sm"
+          className="flex items-center gap-2 px-5 py-2 bg-orange-500 text-white font-medium rounded-md hover:bg-orange-600 transition-colors disabled:opacity-50 text-sm shadow-sm"
         >
           <Save className="w-4 h-4" />
           Save All Settings
