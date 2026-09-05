@@ -63,5 +63,9 @@ service cloud.firestore {
       allow update: if isAuthenticated() && (getEmail() == resource.data.email || request.auth.uid == resource.data.invitedBy);
       allow delete: if isAuthenticated() && (getEmail() == resource.data.email || request.auth.uid == resource.data.invitedBy);
     }
+
+    match /erp_workspaces/{userId}/{document=**} {
+      allow read, write: if isAuthenticated() && request.auth.uid == userId;
+    }
   }
 }

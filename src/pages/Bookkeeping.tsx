@@ -14,6 +14,10 @@ import {
   Briefcase
 } from 'lucide-react';
 import * as Tabs from '@radix-ui/react-tabs';
+import Invoices from './erp/Invoices';
+import Bills from './erp/Bills';
+import ChartOfAccounts from './erp/ChartOfAccounts';
+import Clients from './erp/Clients';
 
 export default function Bookkeeping() {
   const { currentUser } = useAuth();
@@ -63,71 +67,13 @@ export default function Bookkeeping() {
           ))}
         </Tabs.List>
 
-        <Tabs.Content value="invoices" className="outline-none space-y-4">
-          <div className="flex flex-col sm:flex-row justify-between gap-3">
-            <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input 
-                type="text" 
-                placeholder="Search invoices by # or client..." 
-                className="w-full pl-9 pr-4 py-2 bg-white border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <button className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
-                <Filter className="w-4 h-4" /> Filter
-              </button>
-              <button className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg text-sm font-medium hover:bg-orange-600 transition-colors shadow-lg shadow-orange-500/20">
-                <Plus className="w-4 h-4" /> Create Invoice
-              </button>
-            </div>
-          </div>
+        <Tabs.Content value="invoices" className="outline-none"><Invoices /></Tabs.Content>
 
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden min-h-[400px] flex items-center justify-center">
-            <div className="p-12 text-center">
-              <div className="w-20 h-20 bg-slate-50 rounded-2xl flex items-center justify-center mx-auto mb-5 border border-slate-100 shadow-inner">
-                <FileText className="w-10 h-10 text-slate-300" />
-              </div>
-              <h3 className="text-lg font-bold text-slate-900 mb-2 tracking-tight">No Invoices Found</h3>
-              <p className="text-slate-500 text-sm max-w-sm mx-auto mb-8 leading-relaxed">
-                You haven't generated any professional invoices yet. Once created, they will be securely stored and isolated within this workspace.
-              </p>
-              <button className="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800 transition-all shadow-lg shadow-slate-900/20">
-                <Plus className="w-4 h-4" /> Generate First Invoice
-              </button>
-            </div>
-          </div>
-        </Tabs.Content>
+        <Tabs.Content value="bills" className="outline-none"><Bills /></Tabs.Content>
 
-        <Tabs.Content value="bills" className="outline-none">
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden p-12 text-center min-h-[400px] flex flex-col items-center justify-center">
-             <div className="w-20 h-20 bg-slate-50 rounded-2xl flex items-center justify-center mx-auto mb-5 border border-slate-100 shadow-inner">
-               <CreditCard className="w-10 h-10 text-slate-300" />
-             </div>
-             <h3 className="text-lg font-bold text-slate-900 tracking-tight">Accounts Payable</h3>
-             <p className="text-slate-500 text-sm mt-2 max-w-sm">Track and manage vendor bills, recurring payments, and supplier credits here.</p>
-          </div>
-        </Tabs.Content>
+        <Tabs.Content value="reports" className="outline-none"><ChartOfAccounts /></Tabs.Content>
 
-        <Tabs.Content value="reports" className="outline-none">
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden p-12 text-center min-h-[400px] flex flex-col items-center justify-center">
-             <div className="w-20 h-20 bg-slate-50 rounded-2xl flex items-center justify-center mx-auto mb-5 border border-slate-100 shadow-inner">
-               <PieChart className="w-10 h-10 text-slate-300" />
-             </div>
-             <h3 className="text-lg font-bold text-slate-900 tracking-tight">Chart of Accounts</h3>
-             <p className="text-slate-500 text-sm mt-2 max-w-sm">Manage standard accounting codes, ledgers, and structural hierarchies for CA review.</p>
-          </div>
-        </Tabs.Content>
-
-        <Tabs.Content value="clients" className="outline-none">
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden p-12 text-center min-h-[400px] flex flex-col items-center justify-center">
-             <div className="w-20 h-20 bg-slate-50 rounded-2xl flex items-center justify-center mx-auto mb-5 border border-slate-100 shadow-inner">
-               <Building2 className="w-10 h-10 text-slate-300" />
-             </div>
-             <h3 className="text-lg font-bold text-slate-900 tracking-tight">Clients & Vendors Database</h3>
-             <p className="text-slate-500 text-sm mt-2 max-w-sm">Manage strictly isolated contacts, terms, and tax IDs for this professional workspace.</p>
-          </div>
-        </Tabs.Content>
+        <Tabs.Content value="clients" className="outline-none"><Clients /></Tabs.Content>
 
       </Tabs.Root>
     </div>
