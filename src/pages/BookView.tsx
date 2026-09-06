@@ -236,7 +236,7 @@ export default function BookView() {
       const message = `
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9fafb; border-radius: 12px; border: 1px solid #e5e7eb;">
           <div style="text-align: center; margin-bottom: 24px;">
-            <div style="background-color: #1f2937; color: white; display: inline-block; padding: 8px 16px; border-radius: 8px; font-weight: bold; font-size: 18px; letter-spacing: 1px;">SET</div>
+            <div style="background-color: #0B1F3A; color: white; display: inline-block; padding: 8px 16px; border-radius: 8px; font-weight: bold; font-size: 18px; letter-spacing: 1px;">Byjan</div>
             <h2 style="color: #111827; margin-top: 16px; margin-bottom: 4px; font-size: 20px;">Expense Tracker Update</h2>
             <p style="color: #6b7280; font-size: 14px; margin: 0;">Ledger: <strong>${book.name}</strong></p>
           </div>
@@ -402,7 +402,7 @@ export default function BookView() {
   return (
     <div className="max-w-6xl mx-auto space-y-5">
       {/* Compact Modern Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-3 border-b border-slate-200/60 relative">
+      <div className="sticky top-0 z-20 -mx-4 md:-mx-6 lg:-mx-8 px-4 md:px-6 lg:px-8 py-3 bg-[#f8f9fa]/95 backdrop-blur border-b border-slate-200/70 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex flex-col gap-1.5">
           <Link to="/" className="inline-flex items-center text-[10px] font-bold text-zinc-400 hover:text-zinc-600 transition-colors uppercase tracking-widest">
             <ArrowLeft className="w-3 h-3 mr-1" /> Back

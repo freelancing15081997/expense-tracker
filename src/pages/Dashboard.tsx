@@ -139,7 +139,7 @@ export default function Dashboard() {
                 message: `
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9fafb; border-radius: 12px; border: 1px solid #e5e7eb;">
           <div style="text-align: center; margin-bottom: 24px;">
-            <div style="background-color: #1f2937; color: white; display: inline-block; padding: 8px 16px; border-radius: 8px; font-weight: bold; font-size: 18px; letter-spacing: 1px;">SET</div>
+            <div style="background-color: #0B1F3A; color: white; display: inline-block; padding: 8px 16px; border-radius: 8px; font-weight: bold; font-size: 18px; letter-spacing: 1px;">Byjan</div>
             <h2 style="color: #111827; margin-top: 16px; margin-bottom: 4px; font-size: 20px;">New Member Joined</h2>
             <p style="color: #6b7280; font-size: 14px; margin: 0;">Ledger: <strong>${invite.bookName}</strong></p>
           </div>
@@ -190,7 +190,7 @@ export default function Dashboard() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="sticky top-0 z-20 -mx-4 md:-mx-6 lg:-mx-8 px-4 md:px-6 lg:px-8 py-3 bg-[#f8f9fa]/95 backdrop-blur border-b border-slate-200/70 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 font-display">Expense Tracker</h1>
           <p className="text-sm text-slate-500 mt-1">Manage your expense trackers.</p>

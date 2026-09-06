@@ -68,5 +68,113 @@ service cloud.firestore {
     match /erp_workspaces/{userId}/{document=**} {
       allow read, write: if isAuthenticated() && request.auth.uid == userId;
     }
+
+    function financeTenant(tenantId) {
+      return get(/databases/$(database)/documents/financeTenants/$(tenantId)).data;
+    }
+
+    function isFinanceMember(tenantId) {
+      return isAuthenticated()
+        && exists(/databases/$(database)/documents/financeTenants/$(tenantId))
+        && request.auth.uid in financeTenant(tenantId).memberIds;
+    }
+
+    function financeRole(tenantId) {
+      return isFinanceMember(tenantId) ? financeTenant(tenantId).members[request.auth.uid].role : 'none';
+    }
+
+    function canFinanceWrite(tenantId) {
+      return financeRole(tenantId) in ['owner', 'admin', 'contributor'];
+    }
+
+    function canFinanceAdmin(tenantId) {
+      return financeRole(tenantId) in ['owner', 'admin'];
+    }
+
+    match /financeMembers/{userId} {
+      allow read, write: if isAuthenticated() && request.auth.uid == userId;
+    }
+
+    match /financeTenants/{tenantId} {
+      allow read: if isFinanceMember(tenantId);
+      allow create: if isAuthenticated()
+        && tenantId == 't_' + request.auth.uid
+        && request.resource.data.ownerId == request.auth.uid
+        && request.auth.uid in request.resource.data.memberIds;
+      allow update: if canFinanceAdmin(tenantId)
+        || (canFinanceWrite(tenantId)
+          && request.resource.data.ownerId == resource.data.ownerId
+          && request.resource.data.memberIds == resource.data.memberIds
+          && request.resource.data.members == resource.data.members);
+      allow delete: if false;
+
+      match /entities/{id} {
+        allow read: if isFinanceMember(tenantId);
+        allow create, update: if canFinanceWrite(tenantId);
+        allow delete: if false;
+      }
+
+      match /accounts/{id} {
+        allow read: if isFinanceMember(tenantId);
+        allow create: if canFinanceWrite(tenantId);
+        allow update: if canFinanceWrite(tenantId);
+        allow delete: if false;
+
+        match /movements/{movementId} {
+          allow read: if isFinanceMember(tenantId);
+          allow create: if canFinanceWrite(tenantId);
+          allow update, delete: if false;
+        }
+      }
+
+      match /taxCodes/{id} {
+        allow read: if isFinanceMember(tenantId);
+        allow create, update: if canFinanceAdmin(tenantId);
+        allow delete: if false;
+      }
+
+      match /periods/{id} {
+        allow read: if isFinanceMember(tenantId);
+        allow create, update: if canFinanceWrite(tenantId);
+        allow delete: if false;
+      }
+
+      match /parties/{id} {
+        allow read: if isFinanceMember(tenantId);
+        allow create, update: if canFinanceWrite(tenantId);
+        allow delete: if false;
+      }
+
+      match /journals/{id} {
+        allow read: if isFinanceMember(tenantId);
+        allow create: if canFinanceWrite(tenantId) && request.resource.data.createdBy == request.auth.uid;
+        allow update: if canFinanceWrite(tenantId)
+          && resource.data.status == 'posted'
+          && request.resource.data.status == 'reversed'
+          && request.resource.data.lines == resource.data.lines;
+        allow delete: if false;
+      }
+
+      match /documents/{id} {
+        allow read: if isFinanceMember(tenantId);
+        allow create: if canFinanceWrite(tenantId) && request.resource.data.createdBy == request.auth.uid;
+        allow update: if canFinanceWrite(tenantId) && (
+          resource.data.status == 'draft'
+          || request.resource.data.lines == resource.data.lines
+        );
+        allow delete: if false;
+      }
+
+      match /audit/{id} {
+        allow read: if isFinanceMember(tenantId);
+        allow create: if canFinanceWrite(tenantId) && request.resource.data.actorId == request.auth.uid;
+        allow update, delete: if false;
+      }
+
+      match /idempotency/{id} {
+        allow read, create: if canFinanceWrite(tenantId);
+        allow update, delete: if false;
+      }
+    }
   }
 }

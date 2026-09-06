@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { signInWithEmailAndPassword, signInWithGoogle, auth } from '../lib/firebase';
-import { Wallet, Mail, Lock, AlertCircle } from 'lucide-react';
+import { Mail, Lock, AlertCircle } from 'lucide-react';
+import BrandLogo from '../components/BrandLogo';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -41,12 +42,13 @@ export default function Login() {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="flex justify-center text-emerald-600">
-          <Wallet className="w-12 h-12" />
+        <div className="flex justify-center">
+          <BrandLogo size="lg" />
         </div>
         <h2 className="mt-6 text-center text-3xl font-extrabold text-slate-900">
-          Sign in to your account
+          Sign in to Byjan
         </h2>
+        <p className="mt-1 text-center text-xs font-semibold tracking-[0.18em] text-slate-500">Trace Financials Easily</p>
         <p className="mt-2 text-center text-sm text-slate-600">
           Or{' '}
           <Link to="/register" className="font-medium text-emerald-600 hover:text-emerald-500">

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { signOut, auth, db } from '../lib/firebase';
@@ -6,6 +6,8 @@ import { Wallet, LogOut, LayoutDashboard, Settings, Menu, X, Receipt, BookOpen, 
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { collection, query, where, onSnapshot, updateDoc, doc } from 'firebase/firestore';
+import BrandLogo from './BrandLogo';
+import { BOOKS_NAV } from '../books/nav';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -15,9 +17,36 @@ export default function Layout() {
   const { currentUser, userProfile } = useAuth();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isPinned, setIsPinned] = useState(false);
+  const [isSidebarHovered, setIsSidebarHovered] = useState(false);
+  const [hoveredMenu, setHoveredMenu] = useState<string | null>(null);
+  const [mobileExpandedMenu, setMobileExpandedMenu] = useState<string | null>(null);
   const [notificationsPanelOpen, setNotificationsPanelOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
+  const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const isExpanded = mobileMenuOpen || isPinned || isSidebarHovered;
+
+  const handleSidebarEnter = () => {
+    if (collapseTimer.current) {
+      clearTimeout(collapseTimer.current);
+      collapseTimer.current = null;
+    }
+    setIsSidebarHovered(true);
+  };
+
+  const handleSidebarLeave = () => {
+    collapseTimer.current = setTimeout(() => {
+      setIsSidebarHovered(false);
+      setHoveredMenu(null);
+    }, 120);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (collapseTimer.current) clearTimeout(collapseTimer.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -47,17 +76,7 @@ export default function Layout() {
       name: 'Books', 
       href: '/books', 
       icon: BookOpen,
-      subItems: [
-        { name: 'Dashboard', href: '/books' },
-        { name: 'Invoicing', href: '/books/invoicing' },
-        { name: 'Billing', href: '/books/billing' },
-        { name: 'Expenses', href: '/books/expenses' },
-        { name: 'Chart of Accounts', href: '/books/chart-of-accounts' },
-        { name: 'Templates', href: '/books/templates' },
-        { name: 'Clients', href: '/books/clients' },
-        { name: 'Vendors', href: '/books/vendors' },
-        { name: 'Reports', href: '/books/reports' }
-      ]
+      groups: BOOKS_NAV,
     },
     { name: 'Notifications', href: '#', icon: Bell, isNotification: true },
     { name: 'Settings', href: '/settings', icon: Settings },
@@ -70,8 +89,8 @@ export default function Layout() {
       {/* Mobile Header */}
       <div className="md:hidden bg-[#161616] text-white flex items-center justify-between p-3 z-50">
         <div className="flex items-center gap-2 font-bold tracking-tight">
-          <Wallet className="w-5 h-5" />
-          <span className="font-black text-lg">SET</span>
+          <BrandLogo size="sm" />
+          <span className="font-black text-lg">Byjan</span>
         </div>
         <div className="flex items-center gap-3">
           <button onClick={() => setNotificationsPanelOpen(true)} className="relative p-2 text-zinc-400 hover:text-white">
@@ -85,32 +104,39 @@ export default function Layout() {
       </div>
 
       {/* Sidebar Navigation */}
-      <div className={cn(
+      <div
+        onMouseEnter={handleSidebarEnter}
+        onMouseLeave={handleSidebarLeave}
+        className={cn(
         "fixed inset-y-0 left-0 z-40 bg-[#161616] text-[#8a8a8a] transition-all duration-300 ease-in-out md:relative md:h-screen flex flex-col shadow-2xl md:shadow-none",
         mobileMenuOpen ? "translate-x-0 w-64" : "-translate-x-full md:translate-x-0",
-        isSidebarCollapsed ? "md:w-20" : "md:w-64"
+        isExpanded ? "md:w-64" : "md:w-20"
       )}>
-        {/* Toggle Button */}
+        {/* Pin / collapse toggle */}
         <button 
-          onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+          onClick={() => setIsPinned(!isPinned)}
           className="hidden md:flex absolute -right-3 top-6 w-6 h-6 bg-[#2a2a2a] text-[#8a8a8a] hover:text-white rounded-full items-center justify-center z-50"
+          title={isPinned ? "Unpin sidebar" : "Pin sidebar open"}
         >
-          {isSidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+          {isExpanded ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
         </button>
 
         {/* Logo */}
-        <div className={cn("p-6 flex items-center", isSidebarCollapsed ? "justify-center" : "gap-3")}>
-          <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center shrink-0">
-            <Wallet className="w-5 h-5 text-[#161616]" />
-          </div>
-          {!isSidebarCollapsed && <span className="font-bold text-xl text-white tracking-tight">SET</span>}
+        <div className={cn("p-6 flex items-center", isExpanded ? "gap-3" : "justify-center")}>
+          <BrandLogo size="sm" />
+          {isExpanded && (
+            <div className="min-w-0">
+              <p className="font-bold text-xl text-white tracking-tight leading-none">Byjan</p>
+              <p className="text-[10px] text-[#8a8a8a] tracking-wide mt-1">Trace Financials Easily</p>
+            </div>
+          )}
         </div>
 
         {/* Search */}
         <div className="px-4 mb-6">
-          <div className={cn("flex items-center bg-[#1f1f1f] rounded-xl border border-[#2a2a2a] transition-all", isSidebarCollapsed ? "p-3 justify-center" : "px-3 py-2.5 gap-2")}>
+          <div className={cn("flex items-center bg-[#1f1f1f] rounded-xl border border-[#2a2a2a] transition-all", isExpanded ? "px-3 py-2.5 gap-2" : "p-3 justify-center")}>
             <Search className="w-4 h-4 text-[#8a8a8a]" />
-            {!isSidebarCollapsed && (
+            {isExpanded && (
               <>
                 <input type="text" placeholder="Search" className="bg-transparent border-none outline-none text-sm text-white w-full placeholder:text-[#8a8a8a]" />
                 <div className="flex items-center gap-1 bg-[#2a2a2a] px-1.5 py-0.5 rounded text-[10px] font-medium text-[#8a8a8a]">
@@ -125,30 +151,45 @@ export default function Layout() {
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto scrollbar-none px-4 space-y-6">
           <div>
-            {!isSidebarCollapsed && <div className="text-[10px] font-bold tracking-widest text-[#5a5a5a] uppercase mb-3 ml-2">Main</div>}
+            {isExpanded && <div className="text-[10px] font-bold tracking-widest text-[#5a5a5a] uppercase mb-3 ml-2">Main</div>}
             <div className="space-y-1">
               {navigation.map((item) => {
-                const isActive = location.pathname === item.href || (location.pathname.startsWith('/book/') && item.href === '/');
+                const isSectionActive = item.groups
+                  ? location.pathname === item.href || location.pathname.startsWith(`${item.href}/`)
+                  : location.pathname === item.href || (location.pathname.startsWith('/book/') && item.href === '/');
+                const showSubItems = Boolean(item.groups) && isExpanded && (
+                  mobileMenuOpen
+                    ? mobileExpandedMenu === item.name
+                    : hoveredMenu === item.name || isSectionActive
+                );
                 
                 return (
-                  <div key={item.name} className="relative">
+                  <div
+                    key={item.name}
+                    className="relative"
+                    onMouseEnter={() => setHoveredMenu(item.name)}
+                    onMouseLeave={() => setHoveredMenu((current) => current === item.name ? null : current)}
+                  >
                     <Link
                       to={item.isNotification ? '#' : item.href}
                       onClick={(e) => {
                         if (item.isNotification) {
                           e.preventDefault();
                           setNotificationsPanelOpen(true);
+                        } else if (item.groups && mobileMenuOpen) {
+                          e.preventDefault();
+                          setMobileExpandedMenu((current) => current === item.name ? null : item.name);
                         } else {
                           setMobileMenuOpen(false);
                         }
                       }}
                       className={cn(
                         "flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-sm transition-all duration-200 group",
-                        isActive && !item.isNotification ? "bg-[#2a2a2a] text-white" : "hover:bg-[#1f1f1f] hover:text-white text-[#8a8a8a]"
+                        isSectionActive && !item.isNotification ? "bg-[#2a2a2a] text-white" : "hover:bg-[#1f1f1f] hover:text-white text-[#8a8a8a]"
                       )}
                     >
-                      <item.icon className={cn("w-5 h-5 shrink-0 transition-colors", isActive && !item.isNotification ? "text-white" : "group-hover:text-white")} />
-                      {!isSidebarCollapsed && (
+                      <item.icon className={cn("w-5 h-5 shrink-0 transition-colors", isSectionActive && !item.isNotification ? "text-white" : "group-hover:text-white")} />
+                      {isExpanded && (
                         <div className="flex-1 flex justify-between items-center">
                           {item.name}
                           {item.isNotification && unreadCount > 0 && (
@@ -158,30 +199,36 @@ export default function Layout() {
                       )}
                     </Link>
                     
-                    {/* Sub-items */}
-                    {!isSidebarCollapsed && item.subItems && (
-                      <div className="ml-5 mt-1 relative pb-1">
-                        {/* Vertical line */}
-                        <div className="absolute left-[9px] top-0 bottom-4 w-px bg-[#2a2a2a]"></div>
-                        {item.subItems.map((sub, idx) => {
-                          const isSubActive = location.pathname === sub.href;
-                          return (
-                            <div key={sub.name} className="relative flex items-center mt-1">
-                              {/* Horizontal branch */}
-                              <div className="absolute left-[9px] top-1/2 w-3 h-px bg-[#2a2a2a]"></div>
-                              <Link
-                                to={sub.href}
-                                onClick={() => setMobileMenuOpen(false)}
-                                className={cn(
-                                  "ml-6 px-3 py-1.5 rounded-lg text-sm w-full transition-colors",
-                                  isSubActive ? "bg-[#2a2a2a] text-white" : "text-[#8a8a8a] hover:text-white hover:bg-[#1f1f1f]"
-                                )}
-                              >
-                                {sub.name}
-                              </Link>
-                            </div>
-                          );
-                        })}
+                    {item.groups && (
+                      <div className={cn('grid transition-[grid-template-rows] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]', showSubItems ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]')}>
+                        <div className="overflow-hidden">
+                          <div className="ml-5 mt-1 relative pb-1">
+                            <div className="absolute left-[9px] top-0 bottom-4 w-px bg-[#2a2a2a]"></div>
+                            {item.groups.map((group) => (
+                              <div key={group.title || 'features'} className="mt-2">
+                                {group.title ? <div className="ml-6 px-3 py-1 text-[10px] uppercase tracking-wider text-[#5a5a5a] font-bold">{group.title}</div> : null}
+                                {group.items.map((sub) => {
+                                  const isSubActive = location.pathname === sub.href;
+                                  return (
+                                    <div key={sub.href} className="relative flex items-center mt-0.5">
+                                      <div className="absolute left-[9px] top-1/2 w-3 h-px bg-[#2a2a2a]"></div>
+                                      <Link
+                                        to={sub.href}
+                                        onClick={() => setMobileMenuOpen(false)}
+                                        className={cn(
+                                          "ml-6 px-3 py-1.5 rounded-lg text-sm w-full transition-colors",
+                                          isSubActive ? "bg-[#2a2a2a] text-white" : "text-[#8a8a8a] hover:text-white hover:bg-[#1f1f1f]"
+                                        )}
+                                      >
+                                        {sub.name}
+                                      </Link>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -193,7 +240,7 @@ export default function Layout() {
 
         {/* Profile */}
         <div className="p-4 mt-auto">
-          <div className={cn("flex items-center bg-[#1f1f1f] border border-[#2a2a2a] rounded-xl cursor-pointer hover:bg-[#2a2a2a] transition-colors relative group", isSidebarCollapsed ? "p-2 justify-center" : "p-3 gap-3")}>
+          <div className={cn("flex items-center bg-[#1f1f1f] border border-[#2a2a2a] rounded-xl cursor-pointer hover:bg-[#2a2a2a] transition-colors relative group", isExpanded ? "p-3 gap-3" : "p-2 justify-center")}>
             <div className="w-8 h-8 rounded-full bg-[#3a3a3a] text-white flex items-center justify-center font-bold text-sm shrink-0 overflow-hidden">
               {userProfile?.photoURL ? (
                 <img src={userProfile.photoURL} alt="Profile" className="w-full h-full object-cover" />
@@ -201,7 +248,7 @@ export default function Layout() {
                 userProfile?.displayName?.charAt(0).toUpperCase() || userProfile?.email?.charAt(0).toUpperCase()
               )}
             </div>
-            {!isSidebarCollapsed && (
+            {isExpanded && (
               <>
                 <div className="flex-1 overflow-hidden">
                   <p className="text-sm font-semibold text-white truncate">{userProfile?.displayName || 'User'}</p>
@@ -218,7 +265,7 @@ export default function Layout() {
                 className="w-full flex items-center gap-2 p-3 text-white hover:bg-[#3a3a3a] rounded-xl text-sm font-medium transition-colors"
               >
                 <LogOut className="w-4 h-4" />
-                {!isSidebarCollapsed && "Sign Out"}
+                {isExpanded && "Sign Out"}
               </button>
             </div>
           </div>
@@ -227,7 +274,12 @@ export default function Layout() {
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-        <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
+        <main className={cn(
+          "flex-1 min-h-0",
+          location.pathname.startsWith('/books')
+            ? "overflow-hidden flex flex-col"
+            : "overflow-y-auto p-4 md:p-6 lg:p-8"
+        )}>
           <Outlet />
         </main>
       </div>

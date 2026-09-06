@@ -1,0 +1,3289 @@
+# SET BOOKS ERP — MASTER CURSOR IMPLEMENTATION PROMPT
+
+## 0. ABSOLUTE PROJECT CONTEXT
+
+You are working directly inside an **EXISTING production-ready SET application**.
+
+The existing SET application is already running and already has infrastructure, authentication, users, navigation, database, APIs, deployment configuration, storage, email capabilities, and an existing **Expense Tracker** feature.
+
+The goal is to implement **Books as a NEW, production-grade ERP / Finance / Accounting module inside SET**.
+
+Books must be a natural extension of SET — NOT a separate application.
+
+### EXISTING INFRASTRUCTURE — DO NOT REPLACE
+
+The existing application is already deployed using:
+
+* Vercel
+* Firebase free-tier services for storage and email-related capabilities where currently used
+
+These existing services and configurations are already working.
+
+### NON-NEGOTIABLE DEPLOYMENT RULE
+
+**DO NOT modify, replace, migrate, remove, reconfigure, or redesign the existing deployment infrastructure unless absolutely required for Books to function and the existing configuration explicitly supports the change.**
+
+Specifically:
+
+* DO NOT replace Vercel.
+* DO NOT migrate away from Vercel.
+* DO NOT introduce another hosting provider.
+* DO NOT replace Firebase.
+* DO NOT introduce another storage provider unnecessarily.
+* DO NOT introduce another email provider unnecessarily.
+* DO NOT change existing deployment pipelines.
+* DO NOT change existing production environment configuration unnecessarily.
+* DO NOT modify existing domains.
+* DO NOT modify existing authentication deployment configuration.
+* DO NOT modify existing storage configuration unless Books requires an additive integration.
+* DO NOT modify existing email configuration unless Books requires an additive integration.
+* DO NOT introduce Docker/Kubernetes/microservices merely because Books is large.
+* DO NOT create a second application.
+
+First inspect the existing infrastructure and **reuse it**.
+
+If Books needs a capability that the existing infrastructure does not currently provide, design an **adapter/interface** so the capability can be added later without coupling the Books domain to a vendor.
+
+---
+
+# 1. CRITICAL — DO NOT TOUCH EXPENSE TRACKER
+
+The existing **Expense Tracker feature in the SET sidebar is COMPLETELY OUT OF SCOPE FOR MODIFICATION.**
+
+This is an extremely important requirement.
+
+### DO NOT:
+
+* rename Expense Tracker
+* remove Expense Tracker
+* move Expense Tracker
+* redesign Expense Tracker
+* change Expense Tracker routes
+* change Expense Tracker APIs
+* change Expense Tracker database tables
+* change Expense Tracker permissions
+* change Expense Tracker behavior
+* replace Expense Tracker with Books
+* merge Books Expenses with the existing Expense Tracker
+* modify existing Expense Tracker business logic
+* change existing Expense Tracker UI
+* change existing Expense Tracker navigation
+
+### BOOKS MUST HAVE ITS OWN FINANCE EXPENSE DOMAIN
+
+Books may contain:
+
+* employee expenses
+* expense claims
+* reimbursement accounting
+* corporate card expenses
+* expense categorization
+* receipt accounting
+
+But these must be implemented **inside Books without modifying the existing Expense Tracker**.
+
+If there is overlapping functionality, create a clean integration boundary rather than modifying Expense Tracker.
+
+Before changing any existing file, determine whether it is used by Expense Tracker.
+
+If a shared component is used by Expense Tracker, prefer:
+
+1. reuse it without behavior changes, OR
+2. create an additive Books-specific component.
+
+**Never break existing Expense Tracker behavior.**
+
+---
+
+# 2. PRIMARY OBJECTIVE
+
+Build:
+
+# SET → Books
+
+as a serious ERP-grade:
+
+* Accounting platform
+* Finance management platform
+* Bookkeeping platform
+* Accountant workspace
+* CA workspace
+* CFO workspace
+* AR/AP platform
+* Banking platform
+* Tax platform
+* Inventory accounting platform
+* Fixed asset platform
+* Budgeting platform
+* Reporting platform
+* Financial analytics platform
+* Financial automation platform
+* AI-assisted accounting platform
+
+Books must feel comparable in product depth to the best capabilities found across platforms such as:
+
+* QuickBooks
+* NetSuite
+* Zoho Books
+* modern accounting/ERP platforms
+
+Do NOT copy their UI.
+
+Use them only as conceptual benchmarks for feature completeness and workflow quality.
+
+---
+
+# 3. MOST IMPORTANT PRINCIPLE
+
+Do not optimize for:
+
+> number of screens created
+
+Optimize for:
+
+> FINANCIAL CORRECTNESS
+>
+> * SECURITY
+> * TENANT ISOLATION
+> * PERFORMANCE
+> * AUDITABILITY
+> * DATA INTEGRITY
+> * RELIABILITY
+> * SCALABILITY
+> * USABILITY
+
+The final Books module must NOT look like a collection of CRUD pages.
+
+It must behave like an integrated financial operating system.
+
+The expected lineage should be:
+
+SET
+→ Books
+→ Business Transaction
+→ Accounting Transaction
+→ Journal
+→ Journal Lines
+→ General Ledger
+→ Financial Report
+→ Dashboard
+→ Audit Trail
+→ Supporting Document
+
+This lineage and traceability are fundamental requirements.
+
+---
+
+# 4. FIRST ACTION — INSPECT THE ENTIRE EXISTING CODEBASE
+
+DO NOT START CODING IMMEDIATELY.
+
+First inspect the repository.
+
+Understand:
+
+### Frontend
+
+* framework
+* routing
+* layout
+* sidebar/navigation
+* component architecture
+* design system
+* UI libraries
+* state management
+* API client
+* forms
+* validation
+* tables
+* charts
+* modals
+* drawers
+* notifications
+* loading states
+* error states
+* accessibility
+* responsive behavior
+
+### Backend
+
+* framework
+* language
+* application structure
+* controllers/routes
+* services
+* repositories
+* domain models
+* validation
+* authentication
+* authorization
+* middleware
+* tenant resolution
+* error handling
+* logging
+* caching
+* background jobs
+* queues
+* integrations
+
+### Database
+
+Identify:
+
+* database engine
+* schemas
+* tables
+* primary keys
+* foreign keys
+* indexes
+* constraints
+* migration system
+* naming conventions
+* tenant model
+* organization model
+* user model
+* existing financial-related tables
+* audit tables
+* document tables
+
+### Infrastructure
+
+Inspect:
+
+* Vercel configuration
+* Firebase configuration
+* environment variables
+* existing storage implementation
+* existing email implementation
+* existing scheduled jobs
+* existing APIs
+* deployment scripts
+* CI/CD
+* monitoring
+* logging
+
+### Existing modules
+
+Understand:
+
+* navigation registration
+* permission registration
+* route protection
+* tenant protection
+* shared UI
+* shared utilities
+* shared services
+
+---
+
+# 5. EXISTING ARCHITECTURE ALWAYS WINS
+
+If this specification conflicts with existing SET architecture:
+
+Prioritize:
+
+1. existing production architecture
+2. existing security model
+3. financial correctness
+4. tenant isolation
+5. backward compatibility
+6. data integrity
+7. maintainability
+8. performance
+9. feature completeness
+
+Adapt Books to SET.
+
+Do NOT force SET to conform to this specification.
+
+Reuse existing infrastructure wherever possible.
+
+This follows the existing implementation principle: inspect first, reuse existing patterns, make small coherent changes, and avoid uncontrolled rewrites.
+
+---
+
+# 6. TECHNOLOGY DECISION RULE
+
+Do NOT blindly introduce technologies.
+
+First determine what SET already uses.
+
+If existing technology can handle Books:
+
+**USE IT.**
+
+Only introduce a new technology when there is a clear measurable advantage.
+
+Avoid premature microservices.
+
+Prefer a:
+
+# Modular Monolith
+
+with clear domain boundaries unless repository inspection proves that another architecture is required.
+
+Recommended conceptual architecture:
+
+Frontend
+→ API Layer
+→ Authorization
+→ Domain Services
+→ Accounting Engine
+→ Repository/Data Access
+→ PostgreSQL/Existing DB
+
+Background processing:
+
+Application
+→ Job Queue
+→ Worker
+→ Result/Event
+
+Cache:
+
+Application
+→ Redis / existing cache
+→ Database
+
+Storage:
+
+Books
+→ Existing storage abstraction
+→ Firebase/Existing Storage
+
+Email:
+
+Books
+→ Existing email abstraction
+→ Existing provider
+
+AI:
+
+Books
+→ Secure AI Service
+→ Authorized finance data only
+
+---
+
+# 7. BOOKS MUST BE A MODULAR ERP
+
+Create clear domain modules.
+
+Recommended domains:
+
+```text
+books/
+    core/
+    accounting/
+    receivables/
+    payables/
+    banking/
+    expenses/
+    tax/
+    inventory/
+    assets/
+    projects/
+    budgeting/
+    forecasting/
+    revenue/
+    leases/
+    entities/
+    documents/
+    workflows/
+    reporting/
+    accountant/
+    ai/
+    audit/
+```
+
+The exact folder structure must follow existing SET conventions.
+
+Do not create giant files.
+
+Do not create giant services.
+
+Do not create giant React components.
+
+Do not duplicate business logic.
+
+---
+
+# 8. DATABASE ARCHITECTURE — VERY IMPORTANT
+
+Do NOT create a poorly normalized collection of independent CRUD tables.
+
+Design the Books database as a coherent financial domain model.
+
+Use:
+
+* normalized transactional tables
+* immutable accounting records where appropriate
+* controlled denormalized summary tables for performance
+* foreign keys
+* unique constraints
+* check constraints
+* indexes
+* composite indexes
+* tenant-aware indexes
+* audit relationships
+* lifecycle/status fields
+* timestamps
+* versioning where required
+
+Use the existing migration framework.
+
+---
+
+# 9. CORE DATABASE HIERARCHY
+
+The core relationship should conceptually resemble:
+
+```text
+Tenant
+  |
+  +-- Legal Entity
+        |
+        +-- Branch
+        |
+        +-- Department
+        |
+        +-- Cost Center
+        |
+        +-- Accounting Period
+        |
+        +-- Chart of Accounts
+        |
+        +-- Customers
+        |
+        +-- Vendors
+        |
+        +-- Bank Accounts
+        |
+        +-- Products
+        |
+        +-- Assets
+        |
+        +-- Projects
+```
+
+Financial flow:
+
+```text
+Business Transaction
+        |
+        v
+Accounting Transaction
+        |
+        v
+Journal Entry
+        |
+        v
+Journal Lines
+        |
+        v
+General Ledger
+        |
+        v
+Reporting / Analytics
+```
+
+Documents:
+
+```text
+Document
+   |
+   +-- Invoice
+   +-- Bill
+   +-- Receipt
+   +-- Contract
+   +-- Bank Statement
+   +-- Tax Document
+   |
+   +-- Accounting Transaction
+```
+
+---
+
+# 10. CORE DATABASE TABLE MODEL
+
+Design appropriate tables around the following domains.
+
+Exact names must follow existing SET naming conventions.
+
+## Tenant / Organization
+
+* tenant
+* organization
+* legal_entity
+* branch
+* department
+* cost_center
+* location
+* fiscal_year
+* accounting_period
+
+## Accounting
+
+* account
+* account_group
+* account_mapping
+* journal
+* journal_line
+* accounting_transaction
+* accounting_transaction_line
+* journal_source
+* journal_sequence
+* account_balance
+* trial_balance_snapshot
+
+## Dimensions
+
+Create a reusable dimensional model supporting:
+
+* department
+* project
+* cost center
+* location
+* branch
+* entity
+* customer
+* vendor
+* employee
+* product
+
+Avoid adding a new database column for every future analytical dimension.
+
+Where appropriate, use a controlled dimension model such as:
+
+```text
+dimension_type
+dimension_value
+transaction_dimension
+```
+
+while retaining strongly typed foreign keys for critical relationships.
+
+---
+
+# 11. ACCOUNTING ENGINE
+
+This is the heart of Books.
+
+Implement a reusable accounting engine.
+
+Every financial posting must eventually generate balanced journal lines.
+
+Fundamental invariant:
+
+```text
+SUM(debit) = SUM(credit)
+```
+
+Use:
+
+```text
+NUMERIC / DECIMAL
+```
+
+for monetary values.
+
+NEVER use floating-point numbers for financial calculations.
+
+The frontend must NEVER be the source of accounting truth.
+
+Backend must:
+
+* calculate
+* validate
+* round
+* verify
+* post
+* persist
+
+all accounting-critical values.
+
+---
+
+# 12. JOURNAL MODEL
+
+Journal should contain:
+
+* id
+* tenant_id
+* entity_id
+* journal_number
+* journal_type
+* source_type
+* source_id
+* transaction_date
+* posting_date
+* accounting_period_id
+* currency
+* exchange_rate
+* description
+* status
+* created_by
+* submitted_by
+* approved_by
+* posted_by
+* posted_at
+* reversal_of_id
+* correction_of_id
+* idempotency_key
+* created_at
+* updated_at
+
+Journal line:
+
+* id
+* journal_id
+* account_id
+* debit
+* credit
+* currency
+* exchange_rate
+* base_debit
+* base_credit
+* customer_id
+* vendor_id
+* employee_id
+* project_id
+* department_id
+* cost_center_id
+* location_id
+* tax_code_id
+* dimensions
+* memo
+
+---
+
+# 13. ACCOUNTING IMMUTABILITY
+
+Once a journal is POSTED:
+
+DO NOT edit it.
+
+DO NOT delete it.
+
+Corrections must use:
+
+* reversal
+* correcting journal
+* adjustment
+* credit note
+* debit note
+
+depending on transaction type.
+
+This is mandatory for auditability.
+
+---
+
+# 14. TRANSACTION LIFECYCLE
+
+Support:
+
+```text
+DRAFT
+   ↓
+SUBMITTED
+   ↓
+APPROVED
+   ↓
+POSTED
+```
+
+And:
+
+```text
+POSTED
+   ↓
+REVERSED
+```
+
+Every state transition must be validated by backend authorization.
+
+---
+
+# 15. IDEMPOTENCY
+
+All important financial mutation endpoints must support idempotency.
+
+Especially:
+
+* invoice posting
+* bill posting
+* payment creation
+* journal posting
+* bank import
+* reconciliation
+* tax submission
+* payment processing
+* webhook handling
+* recurring transaction execution
+
+A retry must NEVER create duplicate accounting.
+
+---
+
+# 16. CONCURRENCY
+
+Protect against:
+
+* duplicate invoice numbers
+* duplicate journal numbers
+* duplicate payment numbers
+* duplicate posting
+* simultaneous stock updates
+* simultaneous reconciliation
+* concurrent period closing
+
+Use:
+
+* database transactions
+* unique constraints
+* optimistic locking
+* row locking where required
+* idempotency keys
+
+Do not rely only on frontend state.
+
+---
+
+# 17. CHART OF ACCOUNTS
+
+Implement hierarchical Chart of Accounts.
+
+Account:
+
+* account code
+* name
+* type
+* subtype
+* parent
+* normal balance
+* currency
+* tax treatment
+* active
+* system account
+* allow_posting
+* reporting category
+* financial statement category
+
+Types:
+
+* Asset
+* Liability
+* Equity
+* Revenue
+* COGS
+* Expense
+* Other Income
+* Other Expense
+
+Prevent posting to parent/non-postable accounts.
+
+---
+
+# 18. GENERAL LEDGER
+
+Provide:
+
+* account ledger
+* transaction drill-down
+* running balance
+* opening balance
+* closing balance
+* debit total
+* credit total
+* filters
+* dimensions
+* entity
+* branch
+* department
+* project
+* customer
+* vendor
+* currency
+
+Every number must be traceable to its source.
+
+---
+
+# 19. ACCOUNTS RECEIVABLE
+
+Implement:
+
+* customers
+* quotes
+* estimates
+* sales orders
+* invoices
+* recurring invoices
+* credit notes
+* debit notes
+* payments
+* deposits
+* customer credits
+* statements
+* aging
+* collections
+* reminders
+* credit limits
+* payment terms
+
+Invoice:
+
+```text
+Customer
+→ Invoice
+→ Invoice Lines
+→ Tax
+→ Receivable
+→ Journal
+→ Payment
+→ Reconciliation
+```
+
+---
+
+# 20. ACCOUNTS PAYABLE
+
+Implement:
+
+* vendors
+* purchase requests
+* purchase orders
+* purchase receipts
+* bills
+* recurring bills
+* vendor credits
+* debit notes
+* vendor payments
+* payment runs
+* vendor statements
+* AP aging
+* approval workflows
+
+Support:
+
+```text
+PO
+→ Receipt
+→ Bill
+→ Payment
+```
+
+with configurable controls.
+
+---
+
+# 21. BANKING
+
+Implement:
+
+* bank accounts
+* cash accounts
+* opening balances
+* bank transactions
+* statement import
+* categorization
+* matching
+* transfers
+* deposits
+* withdrawals
+* reconciliation
+* bank rules
+
+Reconciliation:
+
+```text
+Statement Balance
+- Outstanding Items
++ Adjustments
+= Adjusted Balance
+```
+
+Difference must be explicitly displayed.
+
+Do not allow completion when difference is non-zero unless authorized adjustment workflow exists.
+
+---
+
+# 22. EXPENSES INSIDE BOOKS
+
+Books can have its own:
+
+* expense claims
+* employee expenses
+* reimbursement
+* corporate cards
+* mileage
+* receipts
+* accounting categorization
+* tax treatment
+* approval
+
+BUT:
+
+# DO NOT MODIFY EXISTING EXPENSE TRACKER.
+
+Books Expenses are a separate domain.
+
+If integration is needed:
+
+```text
+Expense Tracker
+        |
+        | controlled integration
+        v
+Books Accounting Adapter
+        |
+        v
+Journal
+```
+
+Never tightly couple the two modules.
+
+---
+
+# 23. TAX ENGINE
+
+Create a reusable tax engine.
+
+Do not hardcode tax logic into invoice pages.
+
+Support:
+
+* tax codes
+* tax rates
+* effective dates
+* jurisdictions
+* tax authorities
+* inclusive tax
+* exclusive tax
+* compound tax
+* exemptions
+* zero-rated
+* reverse charge
+* tax overrides
+* rounding
+* tax reporting
+
+India support should include architecture for:
+
+* GST
+* CGST
+* SGST
+* IGST
+* UTGST
+* TDS
+* TCS
+* e-invoicing
+* e-way bill
+
+Design compliance as adapter-based integrations.
+
+---
+
+# 24. INVENTORY
+
+Implement where applicable:
+
+* products
+* services
+* SKU
+* units
+* warehouses
+* locations
+* stock movements
+* receipts
+* shipments
+* adjustments
+* transfers
+* stock counts
+* reorder rules
+* valuation
+
+Support costing methods such as:
+
+* FIFO
+* weighted average
+
+Inventory must integrate with accounting.
+
+Example:
+
+```text
+Inventory Dr
+    AP Cr
+```
+
+Sale:
+
+```text
+AR Dr
+    Revenue Cr
+
+COGS Dr
+    Inventory Cr
+```
+
+---
+
+# 25. FIXED ASSETS
+
+Implement:
+
+* asset register
+* categories
+* acquisition
+* capitalization
+* depreciation
+* transfer
+* disposal
+* impairment
+* revaluation
+* asset history
+
+Depreciation must generate accounting entries.
+
+---
+
+# 26. MULTI-CURRENCY
+
+Support:
+
+* base currency
+* transaction currency
+* exchange rate
+* historical rates
+* realized FX
+* unrealized FX
+* revaluation
+* rounding
+* foreign AR/AP
+
+Never mix currencies implicitly.
+
+---
+
+# 27. MULTI-ENTITY
+
+Support:
+
+* legal entities
+* branches
+* departments
+* locations
+* cost centers
+* intercompany
+* reconciliation
+* elimination
+* consolidation
+
+Every entity must be permission-controlled.
+
+---
+
+# 28. ACCOUNTING PERIODS
+
+Support:
+
+* fiscal year
+* accounting periods
+* open
+* soft close
+* hard close
+* lock
+* reopen workflow
+* close checklist
+
+Closed periods must reject unauthorized posting.
+
+---
+
+# 29. MONTH-END CLOSE
+
+Create:
+
+```text
+Bank Reconciliation
+↓
+AR Reconciliation
+↓
+AP Reconciliation
+↓
+Inventory Reconciliation
+↓
+Depreciation
+↓
+Accruals
+↓
+Prepaids
+↓
+Deferred Revenue
+↓
+FX Revaluation
+↓
+Payroll Reconciliation
+↓
+Tax Reconciliation
+↓
+Intercompany Reconciliation
+↓
+Suspense Review
+↓
+Trial Balance
+↓
+Financial Statements
+↓
+Approval
+↓
+Period Close
+```
+
+Provide progress tracking.
+
+---
+
+# 30. BUDGETING / FORECASTING
+
+Support:
+
+* annual budgets
+* monthly budgets
+* departmental budgets
+* project budgets
+* account budgets
+* budget versions
+* scenarios
+* actual vs budget
+* forecast vs budget
+* variance analysis
+
+Cash forecasting should consider:
+
+* cash
+* receivables
+* payables
+* recurring expenses
+* payroll
+* taxes
+* debt
+* projected cash
+
+---
+
+# 31. REPORTING ENGINE
+
+Do NOT create every report independently.
+
+Create a reusable reporting engine.
+
+Every report should support where applicable:
+
+* date range
+* entity
+* branch
+* department
+* account
+* customer
+* vendor
+* project
+* currency
+* dimensions
+* grouping
+* sorting
+* comparison
+* drill-down
+* export
+
+Large reports must run server-side.
+
+Never send millions of journal lines to browser.
+
+Use:
+
+* aggregation
+* indexed queries
+* optimized SQL
+* summary tables
+* materialized views where appropriate
+* cache where safe
+* background jobs
+* streaming exports
+
+---
+
+# 32. REQUIRED REPORTS
+
+### Financial
+
+* Profit & Loss
+* Balance Sheet
+* Cash Flow
+* Trial Balance
+* General Ledger
+* Journal Report
+* Account Balances
+
+### AR
+
+* AR Aging
+* Customer Balance
+* Customer Statement
+* Invoice Register
+* Collections
+
+### AP
+
+* AP Aging
+* Vendor Balance
+* Vendor Statement
+* Bill Register
+* Payment Register
+
+### Banking
+
+* Bank Reconciliation
+* Bank Transactions
+* Cash Position
+* Cash Flow
+
+### Tax
+
+* Tax Summary
+* Tax Detail
+* GST
+* TDS
+* TCS
+* Tax Reconciliation
+
+### Inventory
+
+* Inventory Valuation
+* Stock Movement
+* Stock Aging
+* COGS
+* Inventory Reconciliation
+
+### Assets
+
+* Asset Register
+* Depreciation
+* Asset Movement
+
+### Management
+
+* Revenue Analysis
+* Expense Analysis
+* Gross Margin
+* EBITDA
+* Working Capital
+* Cash Conversion
+* Budget vs Actual
+* Forecast vs Actual
+* Customer Profitability
+* Product Profitability
+* Project Profitability
+
+### Audit
+
+* Audit Trail
+* User Activity
+* Journal Changes
+* Approval History
+* Reversal Report
+* Period Changes
+
+---
+
+# 33. FINANCE DASHBOARD
+
+Create a premium dashboard with:
+
+* Revenue
+* Expenses
+* Profit
+* Cash
+* AR
+* AP
+* overdue invoices
+* overdue bills
+* bank balances
+* working capital
+* gross margin
+* net margin
+* budget variance
+* cash forecast
+* unreconciled transactions
+* close progress
+* tax liabilities
+* alerts
+* AI insights
+
+Every widget must be permission-aware.
+
+Use progressive loading.
+
+Do not block the entire dashboard because one widget is slow.
+
+---
+
+# 34. FINANCE CONTROL TOWER
+
+Create an executive financial control tower.
+
+Detect:
+
+* cash risk
+* overdue receivables
+* upcoming payments
+* margin deterioration
+* unusual expenses
+* tax exposure
+* reconciliation issues
+* liquidity risk
+* budget overruns
+* failed automations
+* accounting anomalies
+* close blockers
+
+Severity:
+
+* Critical
+* High
+* Medium
+* Low
+* Informational
+
+---
+
+# 35. ACCOUNTANT / CA WORKSPACE
+
+Create a dedicated professional workspace.
+
+Include:
+
+* clients
+* entities
+* financial health
+* work queue
+* review queue
+* unreconciled transactions
+* overdue AR
+* overdue AP
+* tax issues
+* unusual transactions
+* pending approvals
+* closing status
+* client requests
+* audit requests
+* workpapers
+* review notes
+* tasks
+
+Support bulk operations where safe.
+
+---
+
+# 36. WORKPAPERS
+
+Support:
+
+* workpaper
+* attachments
+* notes
+* references
+* preparer
+* reviewer
+* review status
+* sign-off
+* audit history
+
+---
+
+# 37. DOCUMENT MANAGEMENT
+
+Use the existing storage abstraction.
+
+Do NOT create a new storage platform.
+
+Support:
+
+* documents
+* invoices
+* bills
+* receipts
+* statements
+* contracts
+* attachments
+* OCR
+* extraction
+* metadata
+* categories
+* transaction linking
+* versioning
+* access control
+
+Storage must be tenant-safe.
+
+Validate:
+
+* actual file type
+* extension
+* MIME
+* size
+* content where practical
+* filename
+* authorization
+
+Do not trust client-provided MIME type.
+
+If existing Firebase storage is used, Books should integrate through the existing storage abstraction rather than directly coupling every Books component to Firebase APIs.
+
+---
+
+# 38. EMAIL
+
+Reuse the existing email infrastructure.
+
+Do NOT replace the current provider.
+
+Books may use email for:
+
+* invoice delivery
+* payment reminders
+* approval notifications
+* collection reminders
+* report delivery
+* reconciliation alerts
+* workflow notifications
+
+Email should be handled through a reusable service.
+
+Example:
+
+```text
+Books
+→ Notification Service
+→ Existing Email Provider
+```
+
+Do not put provider-specific email logic throughout Books.
+
+---
+
+# 39. AI ACCOUNTANT
+
+AI must operate through secure backend services.
+
+AI must NEVER bypass:
+
+* authentication
+* authorization
+* tenant isolation
+* entity access
+* document permissions
+* accounting controls
+
+AI capabilities:
+
+* transaction categorization
+* anomaly detection
+* duplicate detection
+* invoice extraction
+* bill extraction
+* reconciliation suggestions
+* report explanations
+* cash-flow explanations
+* financial Q&A
+* variance explanation
+* forecasting assistance
+* close recommendations
+
+Initially:
+
+# AI RECOMMENDS — HUMAN APPROVES
+
+AI must not automatically post financial transactions.
+
+Any action that changes financial state requires explicit authorized user approval.
+
+---
+
+# 40. AI SECURITY
+
+Protect against:
+
+* prompt injection
+* malicious documents
+* unauthorized retrieval
+* cross-tenant leakage
+* sensitive data leakage
+* unsafe tool execution
+
+Never send unnecessary sensitive financial information to an AI provider.
+
+All AI retrieval must pass through authorization.
+
+---
+
+# 41. WORKFLOW ENGINE
+
+Support configurable:
+
+* approval rules
+* conditions
+* amount-based approvals
+* role-based approvals
+* entity-based approvals
+* department-based approvals
+* notifications
+* escalation
+* scheduled actions
+
+Example:
+
+```text
+Invoice > ₹100,000
+        ↓
+Finance Manager
+        ↓
+CFO
+        ↓
+Post
+```
+
+---
+
+# 42. SEGREGATION OF DUTIES
+
+Support:
+
+* creator cannot approve own transaction
+* payment creator cannot approve payment
+* journal creator cannot approve journal
+* vendor creator cannot approve vendor payment
+* period closer cannot reopen without permission
+* tax filing can require reviewer approval
+
+Make this configurable.
+
+---
+
+# 43. MULTI-TENANT SECURITY
+
+Never trust:
+
+* tenant_id from frontend
+* organization_id from request body
+* entity_id without authorization
+* ownership fields supplied by client
+
+Resolve tenant from authenticated context.
+
+Every query must enforce tenant boundaries.
+
+Security hierarchy:
+
+```text
+Authenticated User
+        ↓
+Tenant
+        ↓
+Organization
+        ↓
+Legal Entity
+        ↓
+Branch / Department
+        ↓
+Permission
+        ↓
+Resource
+        ↓
+Action
+```
+
+Prevent:
+
+* IDOR
+* cross-tenant access
+* cross-entity access
+* cross-company access
+* cross-branch access
+* unauthorized reports
+* unauthorized documents
+* unauthorized AI retrieval
+
+Tenant isolation must have automated tests.
+
+---
+
+# 44. RBAC
+
+Integrate with the existing SET authorization system.
+
+Do NOT create a second RBAC system.
+
+Books permissions should support:
+
+* view
+* create
+* edit
+* approve
+* post
+* reverse
+* void
+* reconcile
+* close period
+* reopen period
+* import
+* export
+* manage tax
+* manage bank
+* manage assets
+* manage users
+* manage settings
+* view sensitive data
+* run reports
+* approve payments
+
+Possible roles:
+
+* Owner
+* Admin
+* CFO
+* Accountant
+* Senior Accountant
+* Bookkeeper
+* AR
+* AP
+* Finance Manager
+* Auditor
+* Tax Manager
+* CA / External Accountant
+* Employee
+* Viewer
+
+Use existing SET roles if available.
+
+---
+
+# 45. AUDIT TRAIL
+
+Audit:
+
+* creation
+* update
+* approval
+* posting
+* payment
+* reversal
+* void
+* permission changes
+* configuration changes
+* tax changes
+* period changes
+* reconciliation
+* import
+* export
+* AI actions
+* workflow changes
+
+Include:
+
+* actor
+* timestamp
+* tenant
+* entity
+* action
+* resource
+* resource ID
+* previous state where appropriate
+* new state where appropriate
+
+Audit history must not be casually editable.
+
+---
+
+# 46. NO HARD DELETE FOR FINANCIAL DATA
+
+Financial records should use:
+
+* void
+* reversal
+* correction
+* cancellation
+* archive
+* inactive
+
+rather than destructive deletion.
+
+---
+
+# 47. DATABASE PERFORMANCE
+
+Design for large datasets.
+
+Expected scale should include:
+
+* thousands of customers
+* thousands of invoices
+* hundreds of thousands of transactions
+* millions of journal lines
+
+Use appropriate indexes.
+
+Important indexing dimensions:
+
+* tenant_id
+* entity_id
+* account_id
+* transaction_date
+* posting_date
+* customer_id
+* vendor_id
+* status
+* period_id
+* reconciliation_status
+
+Use composite indexes based on actual query patterns.
+
+Do not blindly index everything.
+
+Use EXPLAIN/query plans for important queries.
+
+---
+
+# 48. DATABASE BALANCE / SUMMARY PERFORMANCE
+
+Do not calculate every dashboard number by scanning the entire journal table on every request.
+
+Design appropriate summary structures such as:
+
+```text
+account_balance
+daily_account_balance
+period_account_balance
+customer_balance
+vendor_balance
+bank_balance
+inventory_balance
+dashboard_summary
+```
+
+BUT:
+
+These are derived/optimized structures.
+
+The source of truth remains the immutable accounting transactions/journal lines.
+
+Provide a mechanism to rebuild/recalculate summaries from authoritative accounting data.
+
+This is extremely important for financial integrity.
+
+---
+
+# 49. CACHE
+
+Use existing cache infrastructure if available.
+
+Cache appropriate relatively stable data:
+
+* chart of accounts
+* tax configuration
+* lookup values
+* report metadata
+* dashboard summaries
+* exchange rates
+
+Do NOT blindly cache mutable financial balances.
+
+Every cache must have an explicit invalidation strategy.
+
+---
+
+# 50. BACKGROUND JOBS
+
+Use existing queue/job infrastructure if available.
+
+If no suitable queue exists, design an abstraction rather than immediately introducing complex infrastructure.
+
+Use background processing for:
+
+* large reports
+* exports
+* imports
+* OCR
+* AI processing
+* recurring transactions
+* notifications
+* scheduled reports
+* reconciliation suggestions
+* document processing
+
+Jobs require:
+
+* retry count
+* status
+* progress
+* failure reason
+* timestamps
+* idempotency
+* observability
+
+Never blindly retry financial mutations.
+
+---
+
+# 51. FRONTEND PERFORMANCE
+
+Books must feel extremely fast.
+
+Use:
+
+* route-level lazy loading
+* code splitting
+* virtualized tables
+* debounced search
+* request cancellation
+* efficient server-state caching
+* minimal rerenders
+* memoization where justified
+* progressive dashboard rendering
+* skeleton loading
+* optimized charts
+
+Do not load the entire Books application JavaScript bundle on initial page load.
+
+Load Books domains on demand.
+
+---
+
+# 52. TABLE PERFORMANCE
+
+Accounting tables must support:
+
+* sorting
+* filtering
+* column visibility
+* resizing
+* pagination
+* row selection
+* bulk operations
+* export
+* saved views
+* density
+* sticky headers
+* keyboard navigation
+* drill-down
+
+Use virtualization for large datasets.
+
+---
+
+# 53. PREMIUM UI / UX
+
+Books should feel:
+
+* premium
+* modern
+* professional
+* trustworthy
+* finance-focused
+* accountant-friendly
+* CA-friendly
+* CFO-friendly
+* fast
+* clean
+* information-dense without feeling cluttered
+
+Use the existing SET design system.
+
+If the existing design system is insufficient, extend it rather than creating an unrelated design language.
+
+---
+
+# 54. NAVIGATION
+
+Add:
+
+# Books
+
+to the existing SET sidebar.
+
+Recommended Books structure:
+
+```text
+Books
+
+Dashboard
+    Finance Dashboard
+    CFO Dashboard
+    Control Tower
+
+Accounting
+    Chart of Accounts
+    General Ledger
+    Journal Entries
+    Recurring Journals
+    Adjustments
+    Trial Balance
+    Accounting Periods
+    Closing
+
+Sales / Receivables
+    Customers
+    Estimates
+    Quotes
+    Sales Orders
+    Invoices
+    Recurring Invoices
+    Credit Notes
+    Debit Notes
+    Payments
+    Statements
+    AR Aging
+    Collections
+
+Purchases / Payables
+    Vendors
+    Purchase Requests
+    Purchase Orders
+    Bills
+    Recurring Bills
+    Vendor Credits
+    Payments
+    Statements
+    AP Aging
+    Payment Runs
+
+Banking
+    Bank Accounts
+    Bank Transactions
+    Bank Feeds
+    Bank Rules
+    Reconciliation
+    Transfers
+    Deposits
+    Cash Management
+
+Books Expenses
+    Expense Claims
+    Employee Expenses
+    Corporate Cards
+    Mileage
+    Receipts
+    Reimbursements
+    Policies
+
+Tax
+    Tax Configuration
+    Tax Rates
+    Tax Codes
+    GST
+    TDS
+    TCS
+    E-Invoice
+    E-Way Bill
+    Tax Reconciliation
+
+Inventory
+    Products
+    Services
+    Warehouses
+    Stock
+    Transfers
+    Valuation
+    COGS
+
+Fixed Assets
+    Asset Register
+    Acquisition
+    Capitalization
+    Depreciation
+    Disposal
+    Impairment
+
+Projects
+    Projects
+    Budgets
+    Revenue
+    Costs
+    Timesheets
+    WIP
+    Profitability
+
+Budgeting
+    Budgets
+    Forecasts
+    Scenarios
+    Variance Analysis
+
+Revenue
+    Contracts
+    Deferred Revenue
+    Recognition
+    Schedules
+
+Multi-Entity
+    Legal Entities
+    Branches
+    Departments
+    Intercompany
+    Consolidation
+
+Accountant / CA
+    Client Dashboard
+    Clients
+    Work Queue
+    Review Queue
+    Reconciliation
+    Month-End Close
+    Year-End Close
+    Tax Workbench
+    Workpapers
+    Audit Requests
+
+Reports
+    Financial Statements
+    Accounting
+    Sales
+    Purchase
+    AR
+    AP
+    Banking
+    Tax
+    Inventory
+    Assets
+    Projects
+    Management
+    Audit
+    Custom
+
+Documents
+    Document Inbox
+    Receipts
+    Invoices
+    Bills
+    Contracts
+    Statements
+    OCR
+
+Automation
+    Workflows
+    Approval Rules
+    Recurring Transactions
+    Scheduled Actions
+    Notifications
+
+AI Finance
+    AI Accountant
+    Transaction Explanation
+    Anomaly Detection
+    Cash Intelligence
+    Financial Insights
+    Forecast Assistant
+    Close Copilot
+    Finance Chat
+
+Settings
+    Organization
+    Accounting
+    Fiscal Year
+    Currency
+    Tax
+    Numbering
+    Payment Terms
+    Approval Rules
+    Users
+    Roles
+    Permissions
+    Integrations
+    Templates
+    Notifications
+    Audit
+    Import
+    Export
+```
+
+Again:
+
+# DO NOT MODIFY THE EXISTING EXPENSE TRACKER SIDEBAR ITEM.
+
+Books Expenses are separate.
+
+---
+
+# 55. QUICK CREATE
+
+Provide fast actions:
+
+* Create Invoice
+* Create Bill
+* Create Payment
+* Create Journal
+* Create Customer
+* Create Vendor
+* Create Expense
+* Create Product
+* Create Bank Transaction
+
+---
+
+# 56. GLOBAL SEARCH
+
+Search authorized Books data:
+
+* invoices
+* bills
+* customers
+* vendors
+* payments
+* journals
+* accounts
+* transactions
+* documents
+* projects
+
+Search must enforce permissions and tenant isolation.
+
+---
+
+# 57. COMMAND PALETTE
+
+If SET already supports a command palette, integrate Books commands.
+
+Examples:
+
+```text
+Create Invoice
+Create Bill
+Create Journal
+Find Customer
+Find Vendor
+Open Trial Balance
+Open General Ledger
+Reconcile Bank
+Run P&L
+Open Close Checklist
+```
+
+---
+
+# 58. DRILL-DOWN
+
+Financial reports must be interactive.
+
+Example:
+
+```text
+P&L
+ ↓
+Revenue
+ ↓
+Account
+ ↓
+Journal
+ ↓
+Invoice
+ ↓
+Customer
+ ↓
+Document
+```
+
+Prefer drawers/side panels for investigation where appropriate.
+
+---
+
+# 59. FINANCIAL DIGITAL TWIN
+
+Create an advanced financial model showing:
+
+* assets
+* liabilities
+* equity
+* revenue
+* expenses
+* cash
+* receivables
+* payables
+* inventory
+* commitments
+* forecasts
+
+This should be calculated from authoritative financial data.
+
+---
+
+# 60. ACCOUNTING HEALTH CHECK
+
+Detect:
+
+* unbalanced journals
+* unreconciled transactions
+* suspense balances
+* unusual journals
+* duplicate invoices
+* missing tax information
+* overdue receivables
+* overdue payables
+* expense spikes
+* negative inventory
+* stale balances
+* abnormal account activity
+* failed recurring transactions
+
+---
+
+# 61. FINANCIAL LINEAGE
+
+Every major financial number must be traceable.
+
+Implement:
+
+```text
+Dashboard
+ ↓
+Report
+ ↓
+Account
+ ↓
+Journal
+ ↓
+Source Transaction
+ ↓
+Document
+```
+
+This is one of the most important Books features.
+
+---
+
+# 62. "WHAT CHANGED?"
+
+Provide a comparison engine answering:
+
+> What changed since last month?
+
+Compare:
+
+* revenue
+* expenses
+* profit
+* cash
+* AR
+* AP
+* inventory
+* major accounts
+* customers
+* vendors
+
+---
+
+# 63. AUDIT READY MODE
+
+Provide:
+
+* financial statements
+* trial balance
+* GL
+* supporting documents
+* reconciliations
+* journal history
+* approvals
+* audit trail
+* close status
+
+---
+
+# 64. SECURITY
+
+Protect against:
+
+* SQL injection
+* XSS
+* CSRF where applicable
+* IDOR
+* mass assignment
+* parameter tampering
+* privilege escalation
+* unauthorized exports
+* unauthorized documents
+* tenant leakage
+* webhook replay
+* duplicate requests
+
+Never expose:
+
+* secrets
+* tokens
+* passwords
+* SQL
+* stack traces
+* infrastructure paths
+
+---
+
+# 65. WEBHOOKS
+
+External webhooks must implement:
+
+* signature validation
+* timestamp validation
+* replay protection
+* idempotency
+* payload validation
+
+---
+
+# 66. FILE SECURITY
+
+For uploaded files:
+
+* validate actual content
+* validate MIME
+* validate extension
+* size limits
+* safe filename
+* tenant ownership
+* authorization
+* malware scanning integration point
+* signed access URLs where appropriate
+
+Never construct filesystem/storage paths directly from untrusted user input.
+
+---
+
+# 67. API ARCHITECTURE
+
+Use:
+
+```text
+API
+ ↓
+Authentication
+ ↓
+Authorization
+ ↓
+Tenant Resolution
+ ↓
+Validation
+ ↓
+Service
+ ↓
+Domain Logic
+ ↓
+Accounting Engine
+ ↓
+Repository
+ ↓
+Database
+```
+
+Controllers should remain thin.
+
+Accounting rules belong in domain/application services.
+
+Frontend must not contain financial business rules.
+
+---
+
+# 68. API RESPONSE FORMAT
+
+Use consistent response structures.
+
+Handle:
+
+* validation
+* unauthorized
+* forbidden
+* not found
+* conflict
+* business rule failure
+* internal error
+
+Return safe:
+
+* error code
+* user message
+* field errors
+* correlation ID
+
+Never expose internal implementation details.
+
+---
+
+# 69. API PERFORMANCE
+
+Avoid:
+
+* N+1 queries
+* unbounded queries
+* huge payloads
+* unnecessary joins
+* repeated aggregation
+
+Use:
+
+* pagination
+* cursor pagination
+* selective fields
+* server-side filtering
+* indexed search
+* aggregation
+* caching where appropriate
+
+---
+
+# 70. OBSERVABILITY
+
+Reuse existing SET observability.
+
+Monitor:
+
+* P50
+* P95
+* P99
+* API latency
+* DB latency
+* slow queries
+* background job latency
+* queue depth
+* failed jobs
+* cache hit rate
+* external API latency
+
+Use correlation IDs.
+
+---
+
+# 71. PERFORMANCE TARGETS
+
+Treat these as engineering goals, not fake guarantees.
+
+Normal APIs:
+
+```text
+Target P95: approximately 300–500 ms where practical
+```
+
+Simple reads:
+
+```text
+Low hundreds of milliseconds or better
+```
+
+Search:
+
+```text
+Near-instant interaction
+```
+
+Dashboard:
+
+```text
+Progressive rendering
+```
+
+Large reports:
+
+```text
+Background generation
+```
+
+Large tables:
+
+```text
+Virtualized rendering
+```
+
+Never sacrifice accounting correctness for speed.
+
+---
+
+# 72. UI ANIMATION
+
+Use subtle, premium animations.
+
+Examples:
+
+* page transitions
+* drawer transitions
+* modal transitions
+* hover states
+* button feedback
+* status transitions
+* chart transitions
+* skeleton transitions
+
+Prefer:
+
+* transform
+* opacity
+
+Respect:
+
+```text
+prefers-reduced-motion
+```
+
+Never make accountants wait for animation.
+
+---
+
+# 73. ACCESSIBILITY
+
+Support:
+
+* keyboard navigation
+* focus management
+* semantic HTML
+* accessible labels
+* ARIA where needed
+* contrast
+* reduced motion
+* visible focus
+
+---
+
+# 74. RESPONSIVE
+
+Support:
+
+* desktop
+* laptop
+* tablet
+* mobile where practical
+
+Accounting-heavy tables may prioritize desktop.
+
+---
+
+# 75. DARK MODE
+
+If SET supports dark mode:
+
+Books must support it fully.
+
+Never hardcode colors.
+
+Use existing design tokens.
+
+---
+
+# 76. IMPORT / EXPORT
+
+Support:
+
+* CSV
+* Excel where existing libraries allow
+* PDF
+* templates
+
+Import flow:
+
+```text
+Upload
+ ↓
+Validate
+ ↓
+Preview
+ ↓
+Error Report
+ ↓
+Confirm
+ ↓
+Process
+ ↓
+Summary
+```
+
+Financial imports must have clearly defined transaction boundaries.
+
+---
+
+# 77. TESTING
+
+Create comprehensive tests.
+
+### Accounting
+
+* debit equals credit
+* invoice posting
+* payment posting
+* bill posting
+* vendor payment
+* credit notes
+* reversals
+* tax
+* inventory accounting
+* depreciation
+* FX
+* period closing
+
+### Security
+
+* tenant isolation
+* IDOR
+* RBAC
+* privilege escalation
+* unauthorized export
+* unauthorized document access
+* SQL injection
+* XSS
+* webhook replay
+* duplicate requests
+
+### Concurrency
+
+Test simultaneous:
+
+* invoice creation
+* journal posting
+* payment creation
+* stock updates
+* reconciliation
+* period closing
+
+### Performance
+
+Test with:
+
+* thousands of customers
+* thousands of invoices
+* hundreds of thousands/millions of journal lines
+* large bank imports
+* large report ranges
+
+### Existing application regression
+
+Before major Books changes:
+
+# Run existing tests.
+
+After Books changes:
+
+# Run existing tests again.
+
+Especially verify:
+
+# EXPENSE TRACKER STILL WORKS EXACTLY AS BEFORE.
+
+---
+
+# 78. INTEGRATION TESTING
+
+Verify:
+
+```text
+Invoice
+→ Accounting
+→ GL
+→ AR
+→ Reports
+→ Dashboard
+```
+
+and:
+
+```text
+Bill
+→ AP
+→ Journal
+→ GL
+→ Reports
+```
+
+and:
+
+```text
+Bank Transaction
+→ Matching
+→ Reconciliation
+→ GL
+```
+
+and:
+
+```text
+Inventory
+→ COGS
+→ Accounting
+→ Financial Statements
+```
+
+---
+
+# 79. DATA INTEGRITY CHECKER
+
+Create an internal diagnostic capability to identify:
+
+* unbalanced journals
+* orphan journal lines
+* duplicate postings
+* missing source transaction
+* incorrect balances
+* negative inventory
+* invalid tax totals
+* broken references
+* closed-period violations
+* incorrect customer balances
+* incorrect vendor balances
+
+It must be permission protected.
+
+---
+
+# 80. MIGRATIONS
+
+Use the existing migration system.
+
+Never manually alter production database schema outside the migration process.
+
+Migrations must be:
+
+* versioned
+* safe
+* tested
+* backward-conscious
+* tenant-aware
+
+For large changes use:
+
+```text
+Expand
+→ Migrate
+→ Backfill
+→ Validate
+→ Contract
+```
+
+where appropriate.
+
+---
+
+# 81. DEPLOYMENT — DO NOT CHANGE EXISTING DEPLOYMENT
+
+This section is mandatory.
+
+The existing deployment is already operational.
+
+Therefore:
+
+# DO NOT TOUCH DEPLOYMENT ARCHITECTURE UNLESS REQUIRED.
+
+Do NOT:
+
+* migrate from Vercel
+* replace Vercel
+* replace Firebase
+* introduce another storage provider
+* introduce another email provider
+* rewrite deployment files unnecessarily
+* change domains
+* change existing environment variables unnecessarily
+* remove existing integrations
+* replace CI/CD
+
+Books must be compatible with the existing deployment.
+
+If a Books capability cannot safely operate within current infrastructure:
+
+1. identify the limitation
+2. design an adapter
+3. implement the safest compatible solution
+4. document the required future infrastructure change
+5. do not silently alter deployment
+
+---
+
+# 82. FREE-TIER AWARENESS
+
+The application currently operates using existing free-tier infrastructure.
+
+Design Books to be efficient with limited infrastructure.
+
+Avoid unnecessarily expensive architecture.
+
+Optimize:
+
+* database calls
+* storage usage
+* email calls
+* API requests
+* background jobs
+* AI calls
+* document processing
+* cache usage
+
+Do not introduce infrastructure simply because an enterprise architecture diagram normally contains it.
+
+Build the smallest architecture that can scale cleanly later.
+
+---
+
+# 83. SCALABILITY STRATEGY
+
+The initial implementation should work efficiently with the existing infrastructure.
+
+However, design clear abstraction boundaries so later migration to:
+
+* dedicated workers
+* larger database
+* dedicated Redis
+* external queues
+* object storage
+* dedicated reporting infrastructure
+* microservices
+
+can happen without rewriting the Books domain.
+
+Do not implement those systems now unless required.
+
+---
+
+# 84. IMPLEMENTATION PHASES
+
+Follow this order unless repository inspection proves a better dependency order.
+
+### Phase 0
+
+Repository + architecture analysis
+
+### Phase 1
+
+Books foundation
+
+### Phase 2
+
+Database schema + migrations
+
+### Phase 3
+
+Accounting engine
+
+### Phase 4
+
+Chart of Accounts
+
+### Phase 5
+
+Journals + GL
+
+### Phase 6
+
+AR
+
+### Phase 7
+
+AP
+
+### Phase 8
+
+Banking + reconciliation
+
+### Phase 9
+
+Books Expenses
+
+### Phase 10
+
+Tax engine
+
+### Phase 11
+
+Inventory
+
+### Phase 12
+
+Fixed Assets
+
+### Phase 13
+
+Multi-currency
+
+### Phase 14
+
+Multi-entity
+
+### Phase 15
+
+Projects
+
+### Phase 16
+
+Budgeting + Forecasting
+
+### Phase 17
+
+Revenue Recognition
+
+### Phase 18
+
+Lease Architecture
+
+### Phase 19
+
+Accountant / CA Workspace
+
+### Phase 20
+
+Reporting Engine
+
+### Phase 21
+
+Dashboard + Control Tower
+
+### Phase 22
+
+Documents + OCR
+
+### Phase 23
+
+Automation + Workflows
+
+### Phase 24
+
+AI Finance
+
+### Phase 25
+
+Performance Optimization
+
+### Phase 26
+
+Security Hardening
+
+### Phase 27
+
+Testing
+
+### Phase 28
+
+Observability
+
+### Phase 29
+
+Final Regression
+
+---
+
+# 85. CURSOR WORKING METHOD
+
+For EVERY phase:
+
+1. inspect existing files
+2. understand dependencies
+3. identify reusable components
+4. identify existing services
+5. identify existing database structures
+6. design changes
+7. implement small coherent changes
+8. run type checking
+9. run lint
+10. run focused tests
+11. run existing regression tests
+12. verify migrations
+13. verify APIs
+14. verify tenant isolation
+15. verify permissions
+16. verify performance
+17. inspect generated code
+18. continue only when stable
+
+Do not perform uncontrolled massive rewrites.
+
+---
+
+# 86. BEFORE MODIFYING EXISTING FILES
+
+For every existing file you plan to modify:
+
+Determine:
+
+* who imports it
+* what modules use it
+* whether Expense Tracker uses it
+* whether other routes depend on it
+* whether it contains shared behavior
+
+If changing it could affect existing functionality:
+
+Prefer creating an additive Books implementation.
+
+---
+
+# 87. NO FAKE FUNCTIONALITY
+
+Absolutely DO NOT create:
+
+* fake APIs
+* fake balances
+* hardcoded dashboard values
+* placeholder accounting calculations
+* fake integrations
+* buttons that do nothing
+* mocked financial data presented as real data
+
+If an integration is unavailable:
+
+Implement a proper interface/adapter and clearly identify the integration boundary.
+
+Never pretend it is operational.
+
+---
+
+# 88. DOCUMENTATION
+
+Create/update appropriate technical documentation for:
+
+* Books architecture
+* domain boundaries
+* database ER relationships
+* accounting model
+* posting rules
+* permission model
+* tenant isolation
+* report architecture
+* background jobs
+* caching
+* storage
+* email
+* AI architecture
+* integration adapters
+* migration strategy
+* performance strategy
+
+---
+
+# 89. FINAL ACCEPTANCE CRITERIA
+
+Books cannot be considered complete merely because pages exist.
+
+Before completion verify:
+
+## Accounting
+
+[ ] Double entry
+[ ] Balanced journals
+[ ] GL
+[ ] AR
+[ ] AP
+[ ] Banking
+[ ] Reconciliation
+[ ] Tax
+[ ] Inventory
+[ ] Assets
+[ ] Multi-currency
+[ ] Multi-entity
+[ ] Period close
+[ ] Budgets
+[ ] Forecasting
+[ ] Revenue
+[ ] Projects
+
+## Security
+
+[ ] Authentication
+[ ] Authorization
+[ ] RBAC
+[ ] Tenant isolation
+[ ] Entity isolation
+[ ] IDOR protection
+[ ] Input validation
+[ ] SQL injection protection
+[ ] XSS protection
+[ ] CSRF where applicable
+[ ] Rate limiting
+[ ] File security
+[ ] Webhook security
+[ ] Audit trail
+
+## Performance
+
+[ ] Proper indexes
+[ ] Query optimization
+[ ] No N+1
+[ ] Pagination
+[ ] Cursor pagination
+[ ] Caching
+[ ] Background jobs
+[ ] Large-report optimization
+[ ] Virtualized tables
+[ ] Lazy loading
+[ ] Code splitting
+[ ] Search optimization
+[ ] Dashboard optimization
+
+## UX
+
+[ ] Premium UI
+[ ] Responsive
+[ ] Accessibility
+[ ] Dark mode if supported
+[ ] Keyboard navigation
+[ ] Command palette if available
+[ ] Global search
+[ ] Quick create
+[ ] Drill-down
+[ ] Drawers
+[ ] Timelines
+[ ] Skeletons
+[ ] Error states
+[ ] Loading states
+[ ] Reduced motion
+
+## Reliability
+
+[ ] Idempotency
+[ ] Concurrency control
+[ ] Atomic transactions
+[ ] Safe retries
+[ ] Integration resilience
+[ ] Migration safety
+[ ] Observability
+[ ] Health checks
+
+## Testing
+
+[ ] Unit tests
+[ ] Integration tests
+[ ] API tests
+[ ] Accounting tests
+[ ] Security tests
+[ ] Tenant isolation tests
+[ ] Concurrency tests
+[ ] Performance tests
+[ ] Frontend tests
+[ ] E2E tests
+[ ] Report correctness tests
+[ ] Existing SET regression tests
+[ ] Expense Tracker regression tests
+
+---
+
+# 90. FINAL ABSOLUTE RULES
+
+NEVER:
+
+* break existing SET
+* break Expense Tracker
+* modify Expense Tracker unnecessarily
+* replace Vercel
+* replace Firebase
+* replace existing email
+* replace existing storage
+* create second authentication
+* create second tenant architecture
+* create second RBAC
+* create fake financial data
+* trust frontend accounting calculations
+* allow unbalanced journals
+* allow cross-tenant access
+* allow unauthorized posting
+* edit posted journals silently
+* hard-delete financial transactions
+* bypass existing security
+* bypass permissions
+* introduce unnecessary microservices
+* create giant files
+* create giant components
+* duplicate business logic
+* change deployment infrastructure unnecessarily
+
+ALWAYS:
+
+* inspect before coding
+* reuse existing SET architecture
+* preserve backward compatibility
+* treat Books as an independent domain/module
+* maintain strict tenant isolation
+* maintain accounting integrity
+* use database transactions
+* use idempotency
+* use concurrency controls
+* use proper database constraints
+* optimize database queries
+* use background processing for expensive work
+* use existing Vercel/Firebase infrastructure
+* keep infrastructure abstraction-based
+* test existing functionality after changes
+* test Expense Tracker after changes
+* make financial lineage traceable
+* make reports auditable
+* make UI fast
+* make UI premium
+* make the system maintainable
+
+# FINAL INSTRUCTION TO CURSOR
+
+Do not attempt to generate the entire Books ERP blindly in one pass.
+
+First:
+
+```text
+INSPECT
+→ UNDERSTAND
+→ MAP ARCHITECTURE
+→ IDENTIFY EXISTING SERVICES
+→ IDENTIFY DATABASE
+→ IDENTIFY TENANT MODEL
+→ IDENTIFY AUTHORIZATION
+→ IDENTIFY EXPENSE TRACKER DEPENDENCIES
+→ IDENTIFY VERCEL/FIREBASE INTEGRATIONS
+→ CREATE BOOKS ARCHITECTURE
+→ CREATE DATABASE MODEL
+→ CREATE IMPLEMENTATION PLAN
+```
+
+Then implement incrementally.
+
+After each phase:
+
+```text
+IMPLEMENT
+→ MIGRATE
+→ TEST
+→ TYPE CHECK
+→ LINT
+→ SECURITY CHECK
+→ TENANT CHECK
+→ PERFORMANCE CHECK
+→ REGRESSION CHECK
+→ VERIFY EXPENSE TRACKER
+→ CONTINUE
+```
+
+The final result must be a **real Books ERP inside SET**, not a demo.
+
+The user must be able to move through:
+
+```text
+SET
+ ↓
+Books
+ ↓
+Business Transaction
+ ↓
+Accounting Transaction
+ ↓
+Journal
+ ↓
+General Ledger
+ ↓
+Financial Report
+ ↓
+Dashboard
+ ↓
+Audit Trail
+ ↓
+Supporting Document
+```
+
+while preserving all existing SET functionality and especially preserving the existing **Expense Tracker** exactly as it currently works.
+
+**Build Books as a highly performant, secure, scalable, accountant-friendly, CA-friendly, CFO-friendly financial operating system using the existing SET architecture and existing Vercel/Firebase infrastructure.**

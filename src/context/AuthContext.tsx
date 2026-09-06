@@ -78,7 +78,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   return (
     <AuthContext.Provider value={{ currentUser, userProfile, loading }}>
-      {!loading && children}
+      {loading ? (
+        <div className="min-h-screen flex flex-col items-center justify-center bg-[#f3efe4] gap-3">
+          <img src="/byjan-logo.jpg" alt="Byjan" className="w-28 h-28 rounded-xl object-contain bg-white" onError={(e) => { e.currentTarget.src = '/set-logo.jpg'; }} />
+          <p className="text-xs font-semibold tracking-[0.18em] text-slate-500">Trace Financials Easily</p>
+        </div>
+      ) : children}
     </AuthContext.Provider>
   );
 };
