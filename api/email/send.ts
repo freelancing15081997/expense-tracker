@@ -42,7 +42,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const textMessage = message.replace(/<[^>]*>?/gm, '');
     
     const info = await transporter.sendMail({
-      from: `"Ledger Notifications" <${SYSTEM_EMAIL}>`,
+      from: `"Byjan Notifications" <${SYSTEM_EMAIL}>`,
       to,
       subject,
       text: textMessage,
@@ -68,15 +68,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   <div class="wrapper">
     <div class="container">
       <div class="header">
-        <h1>SET</h1>
-        <p>Secure Expense Tracker</p>
+        <h1>Byjan</h1>
+        <p>Trace Financials Easily</p>
       </div>
       <div class="content">
         ${message.replace(/\n/g, '<br/>')}
       </div>
       <div class="footer">
-        <p>This is an automated notification from your Secure Expense Tracker.</p>
-        <p style="margin-top: 8px; font-size: 11px; color: #94a3b8;">&copy; ${new Date().getFullYear()} SET App. All rights reserved.</p>
+        <p>This is an automated notification from Byjan.</p>
+        <p style="margin-top: 8px; font-size: 11px; color: #94a3b8;">&copy; ${new Date().getFullYear()} Byjan. All rights reserved.</p>
       </div>
     </div>
   </div>

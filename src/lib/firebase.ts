@@ -22,8 +22,8 @@ export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const storage = getStorage(app);
 
 export const googleProvider = new GoogleAuthProvider();
-// Request Gmail Scope
-googleProvider.addScope('https://www.googleapis.com/auth/gmail.send');
+// Basic profile scopes are included by default
+// Removed Gmail scope as it's not needed for authentication and requires additional OAuth verification
 
 // Cache the access token in memory.
 let cachedAccessToken: string | null = null;
@@ -38,8 +38,16 @@ export const signInWithGoogle = async () => {
       cachedAccessToken = credential.accessToken;
     }
     return result;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Sign in error:', error);
+    // Provide more helpful error messages
+    if (error.code === 'auth/popup-blocked') {
+      throw new Error('Popup was blocked. Please allow popups for this site.');
+    } else if (error.code === 'auth/popup-closed-by-user') {
+      throw new Error('Sign-in popup was closed before completing.');
+    } else if (error.code === 'auth/unauthorized-domain') {
+      throw new Error('This domain is not authorized for Google Sign-In. Please contact support.');
+    }
     throw error;
   } finally {
     isSigningIn = false;
