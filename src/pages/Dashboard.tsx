@@ -5,7 +5,7 @@ import { db } from '../lib/firebase';
 import { collection, query, where, getDocs, getDoc, addDoc, serverTimestamp, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { Link } from 'react-router-dom';
 import { getCurrencySymbol } from '../lib/currency';
-import { Loader2, Plus, Check, X, Users, Building2, Receipt, ArrowRight } from 'lucide-react';
+import { Loader2, Plus, Check, X, Users, Building2, Receipt, ArrowRight, Trash2 } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 
@@ -36,6 +36,9 @@ export default function Dashboard() {
   const [newBookName, setNewBookName] = useState('');
   const [newCurrency, setNewCurrency] = useState('');
   const [creating, setCreating] = useState(false);
+  const [deletingBookId, setDeletingBookId] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [bookToDelete, setBookToDelete] = useState<BookItem | null>(null);
 
   const fetchData = async () => {
     if (!currentUser || !userProfile) return;
@@ -178,6 +181,110 @@ export default function Dashboard() {
     } catch (err) { console.error("Fetch API error:", err); }
   };
 
+  const handleDeleteBook = async () => {
+    if (!bookToDelete || !currentUser || !userProfile) return;
+    
+    setDeletingBookId(bookToDelete.id);
+    try {
+      // 1. Notify all members before deletion
+      const memberEmails = Object.values(bookToDelete.roles).map((r: any) => r.email);
+      const subject = `🗑️ Ledger Deleted: ${bookToDelete.name}`;
+      const message = `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #fef2f2; border-radius: 12px; border: 1px solid #fecaca;">
+          <div style="text-align: center; margin-bottom: 24px;">
+            <div style="background-color: #dc2626; color: white; display: inline-block; padding: 8px 16px; border-radius: 8px; font-weight: bold; font-size: 18px; letter-spacing: 1px;">Byjan</div>
+            <h2 style="color: #991b1b; margin-top: 16px; margin-bottom: 4px; font-size: 20px;">⚠️ Ledger Deleted</h2>
+          </div>
+          
+          <div style="background-color: #ffffff; padding: 24px; border-radius: 8px; border: 1px solid #fee2e2; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+            <p style="color: #374151; font-size: 15px; line-height: 1.5; margin-top: 0;">Hello,</p>
+            <p style="color: #374151; font-size: 15px; line-height: 1.5;">The ledger "<strong style="color: #dc2626;">${bookToDelete.name}</strong>" has been permanently deleted by <strong style="color: #111827;">${userProfile?.displayName || currentUser?.email}</strong>.</p>
+            
+            <div style="margin-top: 24px; padding: 16px; background-color: #fef2f2; border-radius: 6px; border-left: 4px solid #dc2626;">
+              <p style="margin: 0 0 8px 0; font-size: 14px; color: #991b1b; font-weight: 600;">Ledger Details</p>
+              <p style="margin: 0; font-size: 14px; color: #374151;"><strong>Name:</strong> ${bookToDelete.name}</p>
+              <p style="margin: 4px 0 0 0; font-size: 14px; color: #374151;"><strong>Currency:</strong> ${bookToDelete.currency}</p>
+              <p style="margin: 4px 0 0 0; font-size: 14px; color: #374151;"><strong>Deleted by:</strong> ${userProfile?.displayName || currentUser?.email}</p>
+              <p style="margin: 4px 0 0 0; font-size: 14px; color: #374151;"><strong>Deletion time:</strong> ${new Date().toLocaleString()}</p>
+            </div>
+            
+            <div style="margin-top: 20px; padding: 14px; background-color: #fffbeb; border-radius: 6px; border: 1px solid #fef3c7;">
+              <p style="margin: 0; font-size: 13px; color: #92400e;">
+                ℹ️ <strong>Important:</strong> All expense entries, analytics, and data associated with this ledger have been permanently removed and cannot be recovered.
+              </p>
+            </div>
+          </div>
+          
+          <div style="text-align: center; margin-top: 24px; padding-top: 20px; border-top: 1px solid #fecaca;">
+            <p style="margin: 0; font-size: 12px; color: #6b7280;">This is an automated notification from Byjan Expense Tracker</p>
+          </div>
+        </div>
+      `;
+
+      // Send email notification to all members
+      try {
+        const response = await fetch('/api/email/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ to: memberEmails, subject, html: message })
+        });
+        
+        if (!response.ok) {
+          console.error('Failed to send deletion notification emails');
+        }
+      } catch (emailErr) {
+        console.error('Email notification error:', emailErr);
+      }
+
+      // 2. Send in-app notifications to all members
+      const uidsToNotify = Object.keys(bookToDelete.roles);
+      for (const uid of uidsToNotify) {
+        try {
+          await addDoc(collection(db, 'notifications'), {
+            userId: uid,
+            bookId: bookToDelete.id,
+            bookName: bookToDelete.name,
+            action: 'Deleted Ledger',
+            detail: `The ledger "${bookToDelete.name}" has been permanently deleted by ${userProfile?.displayName || currentUser?.email}.`,
+            senderName: userProfile?.displayName || currentUser?.email,
+            createdAt: serverTimestamp(),
+            read: false
+          });
+        } catch (err) {
+          console.error("Failed to add notification:", err);
+        }
+      }
+
+      // 3. Delete all expenses in the book
+      const expensesQuery = query(collection(db, `books/${bookToDelete.id}/expenses`));
+      const expensesSnapshot = await getDocs(expensesQuery);
+      const deletionPromises = expensesSnapshot.docs.map(expenseDoc => 
+        deleteDoc(doc(db, `books/${bookToDelete.id}/expenses`, expenseDoc.id))
+      );
+      await Promise.all(deletionPromises);
+
+      // 4. Delete the book itself
+      await deleteDoc(doc(db, 'books', bookToDelete.id));
+
+      addToast('Ledger deleted successfully. All members have been notified.', 'success');
+      fetchData(); // Refresh the list
+    } catch (err) {
+      console.error('Failed to delete book:', err);
+      addToast('Failed to delete ledger. Please try again.', 'error');
+    } finally {
+      setDeletingBookId(null);
+      setShowDeleteConfirm(false);
+      setBookToDelete(null);
+    }
+  };
+
+  const initiateDelete = (e: React.MouseEvent, book: BookItem) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setBookToDelete(book);
+    setShowDeleteConfirm(true);
+  };
+
   const getRoleBadgeColor = (role: string) => {
     switch(role) {
       case 'owner': return 'bg-slate-900 text-white border-transparent';
@@ -311,31 +418,109 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {books.map(book => {
             const role = book.roles[currentUser!.uid]?.role || 'viewer';
+            const canDelete = role === 'owner' || role === 'admin';
             return (
-              <Link to={`/book/${book.id}`} key={book.id} className="group flex flex-col bg-white p-5 rounded-lg border border-slate-200 shadow-sm hover:shadow-md hover:border-zinc-300 transition-all">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="w-10 h-10 bg-slate-50 rounded-md flex items-center justify-center border border-slate-100 group-hover:bg-zinc-50 transition-colors">
-                    <Receipt className="w-5 h-5 text-slate-600 group-hover:text-zinc-600" />
+              <div key={book.id} className="group relative flex flex-col bg-white p-5 rounded-lg border border-slate-200 shadow-sm hover:shadow-md hover:border-zinc-300 transition-all">
+                <Link to={`/book/${book.id}`} className="flex flex-col flex-1">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="w-10 h-10 bg-slate-50 rounded-md flex items-center justify-center border border-slate-100 group-hover:bg-zinc-50 transition-colors">
+                      <Receipt className="w-5 h-5 text-slate-600 group-hover:text-zinc-600" />
+                    </div>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase tracking-wide ${getRoleBadgeColor(role)}`}>
+                      {role}
+                    </span>
                   </div>
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase tracking-wide ${getRoleBadgeColor(role)}`}>
-                    {role}
-                  </span>
-                </div>
-                <h3 className="text-base font-bold text-slate-900 mb-1 truncate">{book.name}</h3>
-                <div className="mt-auto pt-4 flex items-center justify-between text-xs border-t border-slate-100">
-                  <div className="flex items-center gap-1.5 text-slate-500 font-medium">
-                    <Users className="w-3.5 h-3.5" />
-                    {Object.keys(book.roles).length} members
+                  <h3 className="text-base font-bold text-slate-900 mb-1 truncate">{book.name}</h3>
+                  <div className="mt-auto pt-4 flex items-center justify-between text-xs border-t border-slate-100">
+                    <div className="flex items-center gap-1.5 text-slate-500 font-medium">
+                      <Users className="w-3.5 h-3.5" />
+                      {Object.keys(book.roles).length} members
+                    </div>
+                    <div className="flex items-center gap-1 text-slate-700 font-bold bg-slate-50 px-2 py-1 rounded">
+                      {getCurrencySymbol(book.currency)}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1 text-slate-700 font-bold bg-slate-50 px-2 py-1 rounded">
-                    {getCurrencySymbol(book.currency)}
-                  </div>
-                </div>
-              </Link>
+                </Link>
+                
+                {canDelete && (
+                  <button
+                    onClick={(e) => initiateDelete(e, book)}
+                    disabled={deletingBookId === book.id}
+                    className="absolute top-3 right-3 p-1.5 bg-white border border-red-200 text-red-600 rounded-md hover:bg-red-50 hover:border-red-300 transition-all opacity-0 group-hover:opacity-100 disabled:opacity-50"
+                    title="Delete Ledger"
+                  >
+                    {deletingBookId === book.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-4 h-4" />
+                    )}
+                  </button>
+                )}
+              </div>
             );
           })}
         </div>
       )}
+      
+      {/* Delete Book Confirmation Dialog */}
+      <Dialog.Root open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50" />
+          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-xl shadow-2xl border border-slate-200 max-w-md w-[calc(100%-2rem)] z-50 p-6">
+            <div className="flex items-start gap-4 mb-4">
+              <div className="flex-shrink-0 w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
+                <Trash2 className="w-6 h-6 text-red-600" />
+              </div>
+              <div className="flex-1">
+                <Dialog.Title className="text-lg font-bold text-slate-900 mb-1">
+                  Delete Ledger Permanently?
+                </Dialog.Title>
+                <Dialog.Description className="text-sm text-slate-600">
+                  This action cannot be undone. This will permanently delete "<strong>{bookToDelete?.name}</strong>" and all its expense entries.
+                </Dialog.Description>
+              </div>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+              <p className="text-sm text-amber-800 font-medium mb-2">⚠️ All members will be notified:</p>
+              <ul className="text-xs text-amber-700 space-y-1 ml-4">
+                <li>• In-app notifications will be sent to all members</li>
+                <li>• Email notifications will be sent to all members</li>
+                <li>• All expense data will be permanently deleted</li>
+                <li>• This ledger will no longer be accessible</li>
+              </ul>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Dialog.Close asChild>
+                <button 
+                  disabled={deletingBookId !== null}
+                  className="px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </Dialog.Close>
+              <button 
+                onClick={handleDeleteBook}
+                disabled={deletingBookId !== null}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+              >
+                {deletingBookId !== null ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    Delete Ledger
+                  </>
+                )}
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 }
