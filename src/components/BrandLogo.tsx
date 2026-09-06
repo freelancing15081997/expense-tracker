@@ -13,10 +13,13 @@ const sizes = {
 
 export default function BrandLogo({ size = 'sm', className = '' }: BrandLogoProps) {
   return (
-    <img
-      src="/byjan-logo.jpg"
-      alt="Byjan — Trace Financials Easily"
-      className={`${sizes[size]} rounded-lg object-contain shrink-0 bg-white ${className}`.trim()}
-    />
+    <div className={`${sizes[size]} ${className}`.trim()}>
+      <img
+        src="/byjan-logo.jpg"
+        alt="Byjan — Trace Financials Easily"
+        className="w-full h-full rounded-lg object-cover object-[50%_20%] shrink-0 bg-white"
+        style={{ objectFit: 'cover', objectPosition: '50% 20%' }}
+      />
+    </div>
   );
 }

@@ -7,6 +7,7 @@ import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { collection, query, where, onSnapshot, updateDoc, doc } from 'firebase/firestore';
 import BrandLogo from './BrandLogo';
+import GlobalSearch from './GlobalSearch';
 import { BOOKS_NAV } from '../books/nav';
 
 function cn(...inputs: ClassValue[]) {
@@ -92,7 +93,8 @@ export default function Layout() {
           <BrandLogo size="sm" />
           <span className="font-black text-lg">Byjan</span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <GlobalSearch />
           <button onClick={() => setNotificationsPanelOpen(true)} className="relative p-2 text-zinc-400 hover:text-white">
             <Bell className="w-5 h-5" />
             {unreadCount > 0 && <span className="absolute top-1 right-1 w-2 h-2 bg-rose-500 rounded-full"></span>}

@@ -283,7 +283,10 @@ export default function BookView() {
           amount: Number(amount),
           description,
           category: finalCategory,
-          entryType: entryType
+          entryType: entryType,
+          lastEditedBy: userProfile?.displayName || currentUser?.email,
+          lastEditedByUid: currentUser?.uid || '',
+          lastEditedAt: serverTimestamp()
         });
         await notifyTeamMembers('Edited an entry', `Updated ${entryType === 'in' ? 'money in' : 'money out'} for "${description}" to ${getCurrencySymbol(book.currency)} ${amount} in category "${finalCategory}"`, `${userProfile?.displayName || currentUser?.email} updated "${description}" to ${getCurrencySymbol(book.currency)}${amount} in ${book.name}`);
         addToast('Entry updated successfully!', 'success');
@@ -295,6 +298,9 @@ export default function BookView() {
           entryType: entryType,
           date: new Date().toISOString().split('T')[0],
           paidByName: userProfile?.displayName || currentUser?.email,
+          enteredBy: userProfile?.displayName || currentUser?.email,
+          enteredByUid: currentUser?.uid || '',
+          enteredByEmail: currentUser?.email || '',
           createdAt: serverTimestamp()
         });
         await notifyTeamMembers('Added a new entry', `Recorded ${entryType === 'in' ? 'money in' : 'money out'} of ${getCurrencySymbol(book.currency)} ${amount} for "${description}" in category "${finalCategory}"`, `${userProfile?.displayName || currentUser?.email} added "${description}" (${getCurrencySymbol(book.currency)}${amount}) to ${book.name}`);
@@ -400,8 +406,10 @@ export default function BookView() {
   const paginatedExpenses = filteredExpenses.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   return (
-    <div className="max-w-6xl mx-auto space-y-5">
-      {/* Compact Modern Header */}
+    <>
+      {isSaving && <TransactionLoader message="Saving transaction..." />}
+      <div className="max-w-6xl mx-auto space-y-5">
+        {/* Compact Modern Header */}
       <div className="sticky top-0 z-20 -mx-4 md:-mx-6 lg:-mx-8 px-4 md:px-6 lg:px-8 py-3 bg-[#f8f9fa]/95 backdrop-blur border-b border-slate-200/70 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex flex-col gap-1.5">
           <Link to="/" className="inline-flex items-center text-[10px] font-bold text-zinc-400 hover:text-zinc-600 transition-colors uppercase tracking-widest">
@@ -546,7 +554,7 @@ export default function BookView() {
                             </span>
                           </td>
                         )}
-                        {visibleColumns.author && <td className="px-5 py-3 text-slate-600 text-sm truncate max-w-[120px]" title={exp.paidByName}>{exp.paidByName}</td>}
+                        {visibleColumns.author && <td className="px-5 py-3 text-slate-600 text-sm truncate max-w-[120px]" title={`Entered by: ${exp.enteredBy || exp.paidByName}${exp.lastEditedBy ? '\nLast edited by: ' + exp.lastEditedBy : ''}`}>{exp.enteredBy || exp.paidByName}</td>}
                         {visibleColumns.amount && (
                           <td className="px-5 py-3 text-right">
                             <div className="flex items-center justify-end gap-1.5 font-bold">
@@ -593,7 +601,7 @@ export default function BookView() {
                     <div className="flex justify-between items-end mt-1">
                       <div className="flex flex-col gap-1 text-[11px] text-slate-500">
                         <span className="flex items-center gap-1.5">{exp.createdAt ? format(exp.createdAt.toDate(), 'MMM dd, yyyy') : exp.date}</span>
-                        <span className="flex items-center gap-1.5">{exp.paidByName}</span>
+                        <span className="flex items-center gap-1.5">{exp.enteredBy || exp.paidByName}</span>
                       </div>
                       <div className="flex items-center gap-2">
                         {canWrite && (
@@ -869,6 +877,7 @@ export default function BookView() {
 
       {/* Toast Notification */}
 
-    </div>
+      </div>
+    </>
   );
 }
