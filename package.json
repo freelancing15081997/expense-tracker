@@ -37,6 +37,7 @@
     "react-router-dom": "^7.18.3",
     "recharts": "^3.10.1",
     "tailwind-merge": "^3.6.0",
+    "tailwind-scrollbar": "^4.0.2",
     "vite": "^6.2.3"
   },
   "devDependencies": {
@@ -47,7 +48,6 @@
     "@vercel/node": "^12.0.1",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
-    "tailwind-scrollbar": "^4.0.2",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
