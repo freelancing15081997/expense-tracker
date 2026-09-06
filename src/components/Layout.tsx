@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { signOut, auth, db } from '../lib/firebase';
-import { Wallet, LogOut, LayoutDashboard, Settings, Menu, X, Receipt, Bell, CheckCircle2 } from 'lucide-react';
+import { Wallet, LogOut, LayoutDashboard, Settings, Menu, X, Receipt, BookOpen, Bell, CheckCircle2, Search, FileText, CreditCard, ChevronLeft, ChevronRight, Plus, Users, ArrowRightLeft } from 'lucide-react';
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { collection, query, where, onSnapshot, updateDoc, doc } from 'firebase/firestore';
@@ -15,6 +15,7 @@ export default function Layout() {
   const { currentUser, userProfile } = useAuth();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [notificationsPanelOpen, setNotificationsPanelOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
 
@@ -26,7 +27,7 @@ export default function Layout() {
       snap.forEach(d => notifs.push({ id: d.id, ...d.data() }));
       notifs.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
       setNotifications(notifs);
-    });
+    }, (err) => { console.error("Snapshot error on", q, err); });
     return () => unsub();
   }, [currentUser]);
 
@@ -41,32 +42,43 @@ export default function Layout() {
   };
 
   const navigation = [
-    { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-    { name: 'Bookkeeping ERP', href: '/bookkeeping', icon: Receipt },
+    { name: 'Expense Tracker', href: '/', icon: ArrowRightLeft },
+    { 
+      name: 'Books', 
+      href: '/books', 
+      icon: BookOpen,
+      subItems: [
+        { name: 'Dashboard', href: '/books' },
+        { name: 'Invoicing', href: '/books/invoicing' },
+        { name: 'Billing', href: '/books/billing' },
+        { name: 'Expenses', href: '/books/expenses' },
+        { name: 'Chart of Accounts', href: '/books/chart-of-accounts' },
+        { name: 'Templates', href: '/books/templates' },
+        { name: 'Clients', href: '/books/clients' },
+        { name: 'Vendors', href: '/books/vendors' },
+        { name: 'Reports', href: '/books/reports' }
+      ]
+    },
+    { name: 'Notifications', href: '#', icon: Bell, isNotification: true },
     { name: 'Settings', href: '/settings', icon: Settings },
   ];
 
+  
+
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans text-slate-900">
+    <div className="h-screen w-full bg-[#f8f9fa] flex flex-col md:flex-row font-sans text-slate-900 overflow-hidden">
       {/* Mobile Header */}
-      <div className="md:hidden bg-slate-900 text-white flex items-center justify-between p-3 sticky top-0 z-50 border-b border-slate-800">
-        <div className="flex flex-col">
-          <div className="flex items-center gap-2 font-bold tracking-tight">
-            <div className="w-6 h-6 rounded-md bg-gradient-to-tr from-orange-600 to-amber-500 flex items-center justify-center">
-              <Wallet className="w-3.5 h-3.5 text-white" />
-            </div>
-            <span className="font-black text-lg">SET</span>
-          </div>
-          <span className="text-[8px] uppercase tracking-widest text-slate-400 font-semibold ml-8 leading-none">Secure Expense Tracker</span>
+      <div className="md:hidden bg-[#161616] text-white flex items-center justify-between p-3 z-50">
+        <div className="flex items-center gap-2 font-bold tracking-tight">
+          <Wallet className="w-5 h-5" />
+          <span className="font-black text-lg">SET</span>
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={() => setNotificationsPanelOpen(true)} className="relative p-2 text-slate-300 hover:text-white">
+        <div className="flex items-center gap-3">
+          <button onClick={() => setNotificationsPanelOpen(true)} className="relative p-2 text-zinc-400 hover:text-white">
             <Bell className="w-5 h-5" />
-            {unreadCount > 0 && (
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-orange-500 rounded-full"></span>
-            )}
+            {unreadCount > 0 && <span className="absolute top-1 right-1 w-2 h-2 bg-rose-500 rounded-full"></span>}
           </button>
-          <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="p-2 text-slate-300 hover:text-white">
+          <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="p-2 text-zinc-400 hover:text-white">
             {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
         </div>
@@ -74,82 +86,147 @@ export default function Layout() {
 
       {/* Sidebar Navigation */}
       <div className={cn(
-        "fixed inset-y-0 left-0 z-40 w-64 bg-slate-900 text-slate-300 transition-transform duration-300 ease-in-out md:translate-x-0 md:static md:flex md:flex-col border-r border-slate-800 shadow-xl",
-        mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
+        "fixed inset-y-0 left-0 z-40 bg-[#161616] text-[#8a8a8a] transition-all duration-300 ease-in-out md:relative md:h-screen flex flex-col shadow-2xl md:shadow-none",
+        mobileMenuOpen ? "translate-x-0 w-64" : "-translate-x-full md:translate-x-0",
+        isSidebarCollapsed ? "md:w-20" : "md:w-64"
       )}>
-        <div className="p-6 hidden md:flex flex-col gap-1">
-          <div className="flex flex-col">
-            <div className="flex items-center gap-2.5 font-bold text-2xl text-white tracking-tight">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-orange-600 to-amber-500 flex items-center justify-center shadow-lg shadow-orange-500/20">
-                <Wallet className="w-5 h-5 text-white" />
-              </div>
-              <span className="font-black">SET</span>
-            </div>
-            <p className="text-[9px] uppercase tracking-widest text-slate-400 font-semibold mt-1 ml-11">Secure Expense Tracker</p>
+        {/* Toggle Button */}
+        <button 
+          onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+          className="hidden md:flex absolute -right-3 top-6 w-6 h-6 bg-[#2a2a2a] text-[#8a8a8a] hover:text-white rounded-full items-center justify-center z-50"
+        >
+          {isSidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+        </button>
+
+        {/* Logo */}
+        <div className={cn("p-6 flex items-center", isSidebarCollapsed ? "justify-center" : "gap-3")}>
+          <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center shrink-0">
+            <Wallet className="w-5 h-5 text-[#161616]" />
+          </div>
+          {!isSidebarCollapsed && <span className="font-bold text-xl text-white tracking-tight">SET</span>}
+        </div>
+
+        {/* Search */}
+        <div className="px-4 mb-6">
+          <div className={cn("flex items-center bg-[#1f1f1f] rounded-xl border border-[#2a2a2a] transition-all", isSidebarCollapsed ? "p-3 justify-center" : "px-3 py-2.5 gap-2")}>
+            <Search className="w-4 h-4 text-[#8a8a8a]" />
+            {!isSidebarCollapsed && (
+              <>
+                <input type="text" placeholder="Search" className="bg-transparent border-none outline-none text-sm text-white w-full placeholder:text-[#8a8a8a]" />
+                <div className="flex items-center gap-1 bg-[#2a2a2a] px-1.5 py-0.5 rounded text-[10px] font-medium text-[#8a8a8a]">
+                  <span>⌘</span>
+                  <span>S</span>
+                </div>
+              </>
+            )}
           </div>
         </div>
-        <nav className="flex-1 px-4 py-4 space-y-1.5">
-          <div className="px-3 pb-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">Modules</div>
-          {navigation.map((item) => {
-            const isActive = location.pathname === item.href || (location.pathname.startsWith('/book/') && item.href === '/');
-            return (
-              <Link
-                key={item.name}
-                to={item.href}
-                onClick={() => setMobileMenuOpen(false)}
-                className={cn(
-                  "flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium text-sm transition-all duration-200",
-                  isActive ? "bg-orange-500/10 text-orange-400" : "hover:bg-slate-800/80 hover:text-slate-100"
-                )}
-              >
-                <item.icon className={cn("w-4 h-4", isActive ? "text-orange-500" : "text-slate-400")} />
-                {item.name}
-              </Link>
-            );
-          })}
-          
-          <div className="mt-8 px-3 pb-2 pt-6 text-xs font-semibold text-slate-500 uppercase tracking-wider border-t border-slate-800/50">Actions</div>
-          <button
-            onClick={() => {
-              setMobileMenuOpen(false);
-              setNotificationsPanelOpen(true);
-            }}
-            className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium text-sm transition-colors hover:bg-slate-800/80 hover:text-slate-100"
-          >
-            <div className="flex items-center gap-3">
-              <Bell className="w-4 h-4 text-slate-400" />
-              Notifications
-            </div>
-            {unreadCount > 0 && (
-              <span className="bg-orange-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full shadow-lg shadow-orange-500/20">
-                {unreadCount}
-              </span>
-            )}
-          </button>
-        </nav>
 
-        <div className="p-4 mt-auto border-t border-slate-800/80">
-          <div className="flex items-center gap-2.5 px-3 py-2 rounded-md mb-1 border border-slate-800/50 bg-slate-800/20">
-            <div className="w-7 h-7 rounded-full bg-orange-500/20 text-orange-500 flex items-center justify-center font-bold text-xs border border-orange-500/30">
-              {userProfile?.displayName?.charAt(0).toUpperCase() || userProfile?.email?.charAt(0).toUpperCase()}
-            </div>
-            <div className="overflow-hidden flex-1">
-              <p className="text-xs font-semibold text-white truncate">{userProfile?.displayName}</p>
-              <p className="text-[10px] text-slate-400 truncate leading-tight">{userProfile?.email}</p>
+        {/* Navigation */}
+        <nav className="flex-1 overflow-y-auto scrollbar-none px-4 space-y-6">
+          <div>
+            {!isSidebarCollapsed && <div className="text-[10px] font-bold tracking-widest text-[#5a5a5a] uppercase mb-3 ml-2">Main</div>}
+            <div className="space-y-1">
+              {navigation.map((item) => {
+                const isActive = location.pathname === item.href || (location.pathname.startsWith('/book/') && item.href === '/');
+                
+                return (
+                  <div key={item.name} className="relative">
+                    <Link
+                      to={item.isNotification ? '#' : item.href}
+                      onClick={(e) => {
+                        if (item.isNotification) {
+                          e.preventDefault();
+                          setNotificationsPanelOpen(true);
+                        } else {
+                          setMobileMenuOpen(false);
+                        }
+                      }}
+                      className={cn(
+                        "flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-sm transition-all duration-200 group",
+                        isActive && !item.isNotification ? "bg-[#2a2a2a] text-white" : "hover:bg-[#1f1f1f] hover:text-white text-[#8a8a8a]"
+                      )}
+                    >
+                      <item.icon className={cn("w-5 h-5 shrink-0 transition-colors", isActive && !item.isNotification ? "text-white" : "group-hover:text-white")} />
+                      {!isSidebarCollapsed && (
+                        <div className="flex-1 flex justify-between items-center">
+                          {item.name}
+                          {item.isNotification && unreadCount > 0 && (
+                            <span className="w-2 h-2 bg-rose-500 rounded-full"></span>
+                          )}
+                        </div>
+                      )}
+                    </Link>
+                    
+                    {/* Sub-items */}
+                    {!isSidebarCollapsed && item.subItems && (
+                      <div className="ml-5 mt-1 relative pb-1">
+                        {/* Vertical line */}
+                        <div className="absolute left-[9px] top-0 bottom-4 w-px bg-[#2a2a2a]"></div>
+                        {item.subItems.map((sub, idx) => {
+                          const isSubActive = location.pathname === sub.href;
+                          return (
+                            <div key={sub.name} className="relative flex items-center mt-1">
+                              {/* Horizontal branch */}
+                              <div className="absolute left-[9px] top-1/2 w-3 h-px bg-[#2a2a2a]"></div>
+                              <Link
+                                to={sub.href}
+                                onClick={() => setMobileMenuOpen(false)}
+                                className={cn(
+                                  "ml-6 px-3 py-1.5 rounded-lg text-sm w-full transition-colors",
+                                  isSubActive ? "bg-[#2a2a2a] text-white" : "text-[#8a8a8a] hover:text-white hover:bg-[#1f1f1f]"
+                                )}
+                              >
+                                {sub.name}
+                              </Link>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
-          <button
-            onClick={() => signOut(auth)}
-            className="w-full flex items-center gap-2.5 px-3 py-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-md transition-colors font-medium text-sm"
-          >
-            <LogOut className="w-4 h-4" />
-            Sign Out
-          </button>
+        </nav>
+
+        {/* Profile */}
+        <div className="p-4 mt-auto">
+          <div className={cn("flex items-center bg-[#1f1f1f] border border-[#2a2a2a] rounded-xl cursor-pointer hover:bg-[#2a2a2a] transition-colors relative group", isSidebarCollapsed ? "p-2 justify-center" : "p-3 gap-3")}>
+            <div className="w-8 h-8 rounded-full bg-[#3a3a3a] text-white flex items-center justify-center font-bold text-sm shrink-0 overflow-hidden">
+              {userProfile?.photoURL ? (
+                <img src={userProfile.photoURL} alt="Profile" className="w-full h-full object-cover" />
+              ) : (
+                userProfile?.displayName?.charAt(0).toUpperCase() || userProfile?.email?.charAt(0).toUpperCase()
+              )}
+            </div>
+            {!isSidebarCollapsed && (
+              <>
+                <div className="flex-1 overflow-hidden">
+                  <p className="text-sm font-semibold text-white truncate">{userProfile?.displayName || 'User'}</p>
+                  <p className="text-[10px] text-[#8a8a8a] font-medium uppercase tracking-wider truncate">Designer</p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-[#5a5a5a]" />
+              </>
+            )}
+            
+            {/* Hover sign out menu (simple for now) */}
+            <div className="absolute bottom-full left-0 mb-2 w-full bg-[#2a2a2a] rounded-xl border border-[#3a3a3a] shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
+              <button 
+                onClick={() => signOut(auth)}
+                className="w-full flex items-center gap-2 p-3 text-white hover:bg-[#3a3a3a] rounded-xl text-sm font-medium transition-colors"
+              >
+                <LogOut className="w-4 h-4" />
+                {!isSidebarCollapsed && "Sign Out"}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col min-h-screen overflow-hidden">
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
         <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
           <Outlet />
         </main>
@@ -159,12 +236,12 @@ export default function Layout() {
       {notificationsPanelOpen && (
         <>
           <div 
-            className="fixed inset-0 bg-black/20 backdrop-blur-sm z-40 transition-opacity" 
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 transition-opacity" 
             onClick={() => setNotificationsPanelOpen(false)} 
           />
           <div className="fixed inset-y-0 right-0 w-full max-w-sm bg-white shadow-2xl z-50 flex flex-col animate-in slide-in-from-right-8 duration-300">
             <div className="p-4 border-b flex items-center justify-between bg-slate-50">
-              <h2 className="font-semibold flex items-center gap-2">
+              <h2 className="font-semibold flex items-center gap-2 text-slate-800">
                 <Bell className="w-4 h-4 text-slate-500" />
                 Notifications
               </h2>
@@ -183,7 +260,7 @@ export default function Layout() {
                     key={notif.id} 
                     className={cn(
                       "p-3 rounded-lg border text-sm transition-colors",
-                      notif.read ? "bg-white border-slate-200" : "bg-orange-50/50 border-orange-200"
+                      notif.read ? "bg-white border-slate-200" : "bg-indigo-50/50 border-indigo-200"
                     )}
                   >
                     <div className="flex justify-between items-start mb-1">
@@ -191,7 +268,7 @@ export default function Layout() {
                       {!notif.read && (
                         <button 
                           onClick={() => handleMarkAsRead(notif.id)}
-                          className="text-orange-500 hover:text-orange-600"
+                          className="text-indigo-600 hover:text-indigo-700"
                           title="Mark as read"
                         >
                           <CheckCircle2 className="w-4 h-4" />
@@ -206,14 +283,6 @@ export default function Layout() {
             </div>
           </div>
         </>
-      )}
-
-      {/* Overlay for mobile menu */}
-      {mobileMenuOpen && (
-        <div 
-           className="fixed inset-0 bg-black/60 z-30 md:hidden backdrop-blur-sm"
-           onClick={() => setMobileMenuOpen(false)}
-        />
       )}
     </div>
   );

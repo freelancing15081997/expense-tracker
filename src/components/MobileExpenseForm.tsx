@@ -13,6 +13,7 @@ import {
   Check, 
   Sparkles 
 } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/Select";
 import { Expense, Category, PaymentMode, ConfiguredEmail } from '../types';
 import { sampleReceipts } from '../data/initialData';
 
@@ -204,17 +205,17 @@ export const MobileExpenseForm: React.FC<Props> = ({
               Expense Amount <span className="text-rose-500">*</span>
             </label>
             <div className="flex rounded-xl shadow-xs border border-slate-300 focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/20 overflow-hidden">
-              <select
-                id="form-currency"
-                value={currency}
-                onChange={(e) => setCurrency(e.target.value)}
-                className="bg-slate-50 px-3 py-2.5 font-bold text-slate-700 border-r border-slate-300 focus:outline-hidden text-sm"
-              >
-                <option value="$">$ USD</option>
-                <option value="₹">₹ INR</option>
-                <option value="€">€ EUR</option>
-                <option value="£">£ GBP</option>
-              </select>
+              <Select value={currency} onValueChange={setCurrency}>
+                <SelectTrigger className="w-[85px] bg-slate-50 border-0 border-r border-slate-300 rounded-none h-auto font-bold text-slate-700">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="$">$ USD</SelectItem>
+                  <SelectItem value="₹">₹ INR</SelectItem>
+                  <SelectItem value="€">€ EUR</SelectItem>
+                  <SelectItem value="£">£ GBP</SelectItem>
+                </SelectContent>
+              </Select>
               <input
                 id="form-amount"
                 type="number"
@@ -295,19 +296,18 @@ export const MobileExpenseForm: React.FC<Props> = ({
                 </label>
                 <span className="text-[11px] text-slate-400 font-medium">Optional</span>
               </div>
-              <select
-                id="form-category"
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-hidden focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 text-slate-800 font-medium"
-              >
-                <option value="">-- Select Category --</option>
-                {CATEGORIES.map((cat) => (
-                  <option key={cat} value={cat}>
-                    {cat}
-                  </option>
-                ))}
-              </select>
+              <Select value={category} onValueChange={setCategory}>
+                <SelectTrigger className="w-full h-[42px] border-slate-300">
+                  <SelectValue placeholder="-- Select Category --" />
+                </SelectTrigger>
+                <SelectContent>
+                  {CATEGORIES.map((cat) => (
+                    <SelectItem key={cat} value={cat}>
+                      {cat}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div>
@@ -318,19 +318,18 @@ export const MobileExpenseForm: React.FC<Props> = ({
                 </label>
                 <span className="text-[11px] text-slate-400 font-medium">Optional</span>
               </div>
-              <select
-                id="form-payment-mode"
-                value={paymentMode}
-                onChange={(e) => setPaymentMode(e.target.value)}
-                className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-hidden focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 text-slate-800 font-medium"
-              >
-                <option value="">-- Select Payment Mode --</option>
-                {PAYMENT_MODES.map((mode) => (
-                  <option key={mode} value={mode}>
-                    {mode}
-                  </option>
-                ))}
-              </select>
+              <Select value={paymentMode} onValueChange={setPaymentMode}>
+                <SelectTrigger className="w-full h-[42px] border-slate-300">
+                  <SelectValue placeholder="-- Select Payment Mode --" />
+                </SelectTrigger>
+                <SelectContent>
+                  {PAYMENT_MODES.map((mode) => (
+                    <SelectItem key={mode} value={mode}>
+                      {mode}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 

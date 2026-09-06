@@ -19,7 +19,8 @@ service cloud.firestore {
 
     match /books/{bookId} {
       function isMember() {
-        return isAuthenticated() && ('roles' in resource.data) && (request.auth.uid in resource.data.roles);
+        return isAuthenticated() && 
+               resource.data.roles[request.auth.uid].role in ['owner', 'admin', 'contributor', 'viewer', 'auditor'];
       }
       
       function getRole() {
@@ -42,7 +43,7 @@ service cloud.firestore {
       
       match /expenses/{expenseId} {
         function isBookMember() {
-          return ('roles' in get(/databases/$(database)/documents/books/$(bookId)).data) && (request.auth.uid in get(/databases/$(database)/documents/books/$(bookId)).data.roles);
+          return get(/databases/$(database)/documents/books/$(bookId)).data.roles[request.auth.uid].role in ['owner', 'admin', 'contributor', 'viewer', 'auditor'];
         }
         function getBookRole() {
           return isBookMember() ? get(/databases/$(database)/documents/books/$(bookId)).data.roles[request.auth.uid].role : 'none';

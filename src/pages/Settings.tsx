@@ -3,6 +3,7 @@ import { useAuth, UserProfile } from '../context/AuthContext';
 import { db } from '../lib/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
 import { Save, Plus, X, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 
 export default function Settings() {
   const { userProfile } = useAuth();
@@ -98,25 +99,26 @@ export default function Settings() {
                     required
                     value={displayName}
                     onChange={e => setDisplayName(e.target.value)}
-                    className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-orange-500 focus:border-orange-500 outline-none"
+                    className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-zinc-600 focus:border-zinc-600 outline-none"
                   />
                 </div>
               </div>
               
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Default Base Currency</label>
-                <select
-                  value={currency}
-                  onChange={e => setCurrency(e.target.value)}
-                  className="w-full md:w-1/2 border border-slate-300 rounded-md px-3 py-2 text-sm bg-white focus:ring-1 focus:ring-orange-500 focus:border-orange-500 outline-none"
-                >
-                  <option value="INR">INR (₹)</option>
-                  <option value="USD">USD ($)</option>
-                  <option value="EUR">EUR (€)</option>
-                  <option value="GBP">GBP (£)</option>
-                  <option value="AUD">AUD (A$)</option>
-                  <option value="SGD">SGD (S$)</option>
-                </select>
+                <Select value={currency} onValueChange={setCurrency}>
+                  <SelectTrigger className="w-full md:w-1/2 border-slate-300">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="INR">INR (₹)</SelectItem>
+                    <SelectItem value="USD">USD ($)</SelectItem>
+                    <SelectItem value="EUR">EUR (€)</SelectItem>
+                    <SelectItem value="GBP">GBP (£)</SelectItem>
+                    <SelectItem value="AUD">AUD (A$)</SelectItem>
+                    <SelectItem value="SGD">SGD (S$)</SelectItem>
+                  </SelectContent>
+                </Select>
                 <p className="mt-1.5 text-xs text-slate-500">This currency will be selected by default when creating new ledgers.</p>
               </div>
             </div>
@@ -138,7 +140,7 @@ export default function Settings() {
                   value={newCategory}
                   onChange={e => setNewCategory(e.target.value)}
                   placeholder="New category..."
-                  className="flex-1 border border-slate-300 rounded-md px-3 py-1.5 text-sm focus:ring-1 focus:ring-orange-500 outline-none"
+                  className="flex-1 border border-slate-300 rounded-md px-3 py-1.5 text-sm focus:ring-1 focus:ring-zinc-600 outline-none"
                 />
                 <button type="submit" disabled={!newCategory.trim()} className="px-3 py-1.5 bg-slate-900 text-white rounded-md text-sm font-medium hover:bg-slate-800 disabled:opacity-50">
                   <Plus className="w-4 h-4" />
@@ -171,7 +173,7 @@ export default function Settings() {
           type="submit" 
           form="settings-form"
           disabled={loading}
-          className="flex items-center gap-2 px-5 py-2 bg-orange-500 text-white font-medium rounded-md hover:bg-orange-600 transition-colors disabled:opacity-50 text-sm shadow-sm"
+          className="flex items-center gap-2 px-5 py-2 bg-zinc-600 text-white font-medium rounded-md hover:bg-zinc-700 transition-colors disabled:opacity-50 text-sm shadow-sm"
         >
           <Save className="w-4 h-4" />
           Save All Settings

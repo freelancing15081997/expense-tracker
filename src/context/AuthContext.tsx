@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
 
 export interface UserProfile {
   uid: string;
@@ -32,12 +32,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    let unsubscribeProfile: (() => void) | null = null;
+
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user);
       if (user) {
         const userRef = doc(db, 'users', user.uid);
-        const userSnap = await getDoc(userRef);
         
+        // Initial setup if not exists
+        const userSnap = await getDoc(userRef);
         if (!userSnap.exists()) {
           const profile: UserProfile = {
             uid: user.uid,
@@ -48,17 +51,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             createdAt: serverTimestamp()
           };
           await setDoc(userRef, profile);
-          setUserProfile(profile);
-        } else {
-          setUserProfile(userSnap.data() as UserProfile);
         }
+
+        // Listen for changes
+        unsubscribeProfile = onSnapshot(userRef, (docSnap) => {
+          if (docSnap.exists()) {
+            setUserProfile(docSnap.data() as UserProfile);
+          }
+        });
       } else {
         setUserProfile(null);
+        if (unsubscribeProfile) {
+          unsubscribeProfile();
+        }
       }
       setLoading(false);
     });
 
-    return unsubscribe;
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeProfile) {
+        unsubscribeProfile();
+      }
+    };
   }, []);
 
   return (

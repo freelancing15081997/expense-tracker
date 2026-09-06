@@ -5,7 +5,9 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import BookView from './pages/BookView';
-import Bookkeeping from './pages/Bookkeeping';
+import Placeholder from './pages/books/Placeholder';
+import AllExpenses from './pages/AllExpenses';
+
 import Settings from './pages/Settings';
 import Layout from './components/Layout';
 
@@ -45,7 +47,18 @@ export default function App() {
               <Route index element={<Dashboard />} />
               <Route path="book/:bookId" element={<BookView />} />
               <Route path="settings" element={<Settings />} />
-          <Route path="bookkeeping" element={<Bookkeeping />} />
+          
+              <Route path="books" element={<Placeholder title="Books Dashboard" />} />
+              <Route path="books/invoicing" element={<Placeholder title="Invoicing" />} />
+              <Route path="books/billing" element={<Placeholder title="Billing" />} />
+              <Route path="books/expenses" element={<Placeholder title="Expenses (Accounting)" />} />
+              <Route path="books/chart-of-accounts" element={<Placeholder title="Chart of Accounts" />} />
+              <Route path="books/templates" element={<Placeholder title="Templates" />} />
+              <Route path="books/clients" element={<Placeholder title="Clients" />} />
+              <Route path="books/vendors" element={<Placeholder title="Vendors" />} />
+              <Route path="books/reports" element={<Placeholder title="Reports" />} />
+
+              
             </Route>
           </Routes>
         </HashRouter>

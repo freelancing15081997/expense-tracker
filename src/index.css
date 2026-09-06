@@ -1,6 +1,20 @@
 @import "tailwindcss";
 
 @theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+}
+
+body {
+  font-family: var(--font-sans);
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+@plugin "tailwind-scrollbar";
+
+@theme {
   --font-sans: 'Inter', system-ui, sans-serif;
 }
 
@@ -64,8 +78,7 @@ body {
 .gsi-material-button .gsi-material-button-contents {
   -webkit-flex-grow: 1;
   flex-grow: 1;
-  font-family: 'Roboto', arial, sans-serif;
-  font-weight: 500;
+  font-family: 'Roboto', arial, sans-serif;  font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   vertical-align: top;
@@ -111,4 +124,3 @@ body {
   background-color: #303030;
   opacity: 8%;
 }
-
