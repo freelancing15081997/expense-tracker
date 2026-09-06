@@ -241,8 +241,8 @@ export default function Layout() {
         </nav>
 
         {/* Profile */}
-        <div className="p-4 mt-auto">
-          <div className={cn("flex items-center bg-[#1f1f1f] border border-[#2a2a2a] rounded-xl cursor-pointer hover:bg-[#2a2a2a] transition-colors relative group", isExpanded ? "p-3 gap-3" : "p-2 justify-center")}>
+        <div className="p-4 mt-auto space-y-2">
+          <div className={cn("flex items-center bg-[#1f1f1f] border border-[#2a2a2a] rounded-xl", isExpanded ? "p-3 gap-3" : "p-2 justify-center")}>
             <div className="w-8 h-8 rounded-full bg-[#3a3a3a] text-white flex items-center justify-center font-bold text-sm shrink-0 overflow-hidden">
               {userProfile?.photoURL ? (
                 <img src={userProfile.photoURL} alt="Profile" className="w-full h-full object-cover" />
@@ -251,26 +251,24 @@ export default function Layout() {
               )}
             </div>
             {isExpanded && (
-              <>
-                <div className="flex-1 overflow-hidden">
-                  <p className="text-sm font-semibold text-white truncate">{userProfile?.displayName || 'User'}</p>
-                  <p className="text-[10px] text-[#8a8a8a] font-medium uppercase tracking-wider truncate">Designer</p>
-                </div>
-                <ChevronRight className="w-4 h-4 text-[#5a5a5a]" />
-              </>
+              <div className="flex-1 overflow-hidden">
+                <p className="text-sm font-semibold text-white truncate">{userProfile?.displayName || 'User'}</p>
+                <p className="text-[10px] text-[#8a8a8a] font-medium uppercase tracking-wider truncate">Designer</p>
+              </div>
             )}
-            
-            {/* Hover sign out menu (simple for now) */}
-            <div className="absolute bottom-full left-0 mb-2 w-full bg-[#2a2a2a] rounded-xl border border-[#3a3a3a] shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
-              <button 
-                onClick={logout}
-                className="w-full flex items-center gap-2 p-3 text-white hover:bg-[#3a3a3a] rounded-xl text-sm font-medium transition-colors"
-              >
-                <LogOut className="w-4 h-4" />
-                {isExpanded && "Sign Out"}
-              </button>
-            </div>
           </div>
+          
+          {/* Logout Button */}
+          <button 
+            onClick={logout}
+            className={cn(
+              "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-sm transition-all duration-200 hover:bg-[#1f1f1f] hover:text-white text-[#8a8a8a]",
+              isExpanded ? "" : "justify-center"
+            )}
+          >
+            <LogOut className="w-5 h-5 shrink-0" />
+            {isExpanded && <span>Sign Out</span>}
+          </button>
         </div>
       </div>
 
