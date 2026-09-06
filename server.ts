@@ -36,7 +36,7 @@ app.post("/api/email/send-report", async (req, res) => {
     const textMessage = message ? message.replace(/<[^>]*>?/gm, '') : 'Please find the attached report.';
     
     const info = await transporter.sendMail({
-      from: `"SET App Notifications" <${SYSTEM_EMAIL}>`,
+      from: `"Byjan Notifications" <${SYSTEM_EMAIL}>`,
       to,
       subject,
       text: textMessage,
@@ -67,11 +67,11 @@ app.post("/api/email/send", async (req, res) => {
     const textMessage = message.replace(/<[^>]*>?/gm, '');
     
     const info = await transporter.sendMail({
-      from: `"Ledger Notifications" <${SYSTEM_EMAIL}>`,
+      from: `"Byjan Notifications" <${SYSTEM_EMAIL}>`,
       to,
       subject,
       text: textMessage,
-      html: `<!DOCTYPE html><html><head><style>  body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }  .container { padding: 20px; border: 1px solid #eaeaea; border-radius: 5px; background: #fff; }</style></head><body style="background-color: #f9f9f9; padding: 20px;">  <div class="container" style="max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px;">    ${message}    <hr style="border: 0; border-top: 1px solid #eaeaea; margin-top: 20px;">    <p style="font-size: 12px; color: #888;">This is an automated notification from your Shared Ledger App.</p>  </div></body></html>`,
+      html: `<!DOCTYPE html><html><head><style>  body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }  .container { padding: 20px; border: 1px solid #eaeaea; border-radius: 5px; background: #fff; }</style></head><body style="background-color: #f9f9f9; padding: 20px;">  <div class="container" style="max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px;">    ${message}    <hr style="border: 0; border-top: 1px solid #eaeaea; margin-top: 20px;">    <p style="font-size: 12px; color: #888;">This is an automated notification from Byjan.</p>  </div></body></html>`,
     });
     console.log("Message sent: %s", info.messageId);
     res.json({ success: true, messageId: info.messageId });
