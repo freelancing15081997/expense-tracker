@@ -17,9 +17,6 @@ export default function BrandLogo({ size = 'sm', className = '' }: BrandLogoProp
       src="/byjan-logo.jpg"
       alt="Byjan — Trace Financials Easily"
       className={`${sizes[size]} rounded-lg object-contain shrink-0 bg-white ${className}`.trim()}
-      onError={(e) => {
-        e.currentTarget.src = '/set-logo.jpg';
-      }}
     />
   );
 }

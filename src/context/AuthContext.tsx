@@ -80,7 +80,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     <AuthContext.Provider value={{ currentUser, userProfile, loading }}>
       {loading ? (
         <div className="min-h-screen flex flex-col items-center justify-center bg-[#f3efe4] gap-3">
-          <img src="/byjan-logo.jpg" alt="Byjan" className="w-28 h-28 rounded-xl object-contain bg-white" onError={(e) => { e.currentTarget.src = '/set-logo.jpg'; }} />
+          <img src="/byjan-logo.jpg" alt="Byjan" className="w-28 h-28 rounded-xl object-contain bg-white" />
           <p className="text-xs font-semibold tracking-[0.18em] text-slate-500">Trace Financials Easily</p>
         </div>
       ) : children}
