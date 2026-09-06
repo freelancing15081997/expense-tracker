@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { signOut, auth, db } from '../lib/firebase';
+import { logout, db } from '../lib/firebase';
 import { Wallet, LogOut, LayoutDashboard, Settings, Menu, X, Receipt, BookOpen, Bell, CheckCircle2, Search, FileText, CreditCard, ChevronLeft, ChevronRight, Plus, Users, ArrowRightLeft } from 'lucide-react';
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -263,7 +263,7 @@ export default function Layout() {
             {/* Hover sign out menu (simple for now) */}
             <div className="absolute bottom-full left-0 mb-2 w-full bg-[#2a2a2a] rounded-xl border border-[#3a3a3a] shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
               <button 
-                onClick={() => signOut(auth)}
+                onClick={logout}
                 className="w-full flex items-center gap-2 p-3 text-white hover:bg-[#3a3a3a] rounded-xl text-sm font-medium transition-colors"
               >
                 <LogOut className="w-4 h-4" />
