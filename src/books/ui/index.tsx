@@ -30,7 +30,7 @@ export function PageShell({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="font-display text-[28px] font-semibold tracking-tight text-[#0B1F3A] flex items-center gap-2.5">
-              <FeatureIcon href={location.pathname} className="w-7 h-7 shrink-0" />
+              <FeatureIcon href={location.pathname} className="w-6 h-6 shrink-0" />
               {title}
             </h1>
             {subtitle && <p className="text-sm text-slate-500 mt-1 leading-relaxed">{subtitle}</p>}
@@ -141,13 +141,13 @@ export function FileField({
         {previews.map((item, index) => (
           <span
             key={`${item.file.name}-${index}`}
-            className="w-9 h-9 rounded-lg border border-slate-200 bg-white overflow-hidden shrink-0 flex items-center justify-center shadow-[0_1px_2px_rgba(11,31,58,0.08)]"
+            className="w-12 h-12 rounded-lg border border-slate-200 bg-white overflow-hidden shrink-0 flex items-center justify-center shadow-[0_1px_2px_rgba(11,31,58,0.08)]"
             title={item.file.name}
           >
             {item.url ? (
               <img src={item.url} alt="" className="w-full h-full object-cover" />
             ) : (
-              <ActionIcon name={fileGlyph(item.file)} className="w-4 h-4" />
+              <ActionIcon name={fileGlyph(item.file)} className="w-6 h-6" />
             )}
           </span>
         ))}
@@ -167,7 +167,7 @@ export function IconBtn({
   const cls = variant === 'ghost' ? btnGhost : btnPrimary;
   return (
     <button className={`${cls} ${className}`} {...props}>
-      <ActionIcon name={action} className="w-3.5 h-3.5 shrink-0" />
+      <ActionIcon name={action} className="w-4 h-4 shrink-0" />
       {children}
     </button>
   );

@@ -4,6 +4,7 @@ import { assertCan } from '../core/permissions';
 import type { BooksFile, BooksTemplate } from '../core/types';
 import { removeBooksBlob, storeBooksFile } from '../storage/adapter';
 import { col, type TxCtx } from './repo';
+import { FIRESTORE_QUOTA_MESSAGE, isFirestoreQuota } from '../../lib/quota';
 
 function nowISO() {
   return new Date().toISOString();
@@ -28,21 +29,29 @@ export async function uploadWorkspaceFile(ctx: TxCtx, input: { domain: string; r
   assertCan(ctx.role, 'create');
   const fileRef = doc(col(ctx.db, ctx.tenantId, 'files'));
   const stored = await storeBooksFile(ctx.tenantId, fileRef.id, input.file);
-  await setDoc(fileRef, clean({
-    domain: input.domain,
-    resourceId: input.resourceId || null,
-    name: stored.name,
-    ext: stored.ext,
-    size: stored.size,
-    contentType: stored.contentType,
-    path: stored.path,
-    url: stored.url || stored.path,
-    pathname: stored.pathname || null,
-    status: 'active',
-    createdAt: nowISO(),
-    createdBy: ctx.uid,
-  }));
-  return { id: fileRef.id, path: stored.path, url: stored.url || stored.path };
+  const url = stored.url || stored.path;
+  try {
+    await setDoc(fileRef, clean({
+      domain: input.domain,
+      resourceId: input.resourceId || null,
+      name: stored.name,
+      ext: stored.ext,
+      size: stored.size,
+      contentType: stored.contentType,
+      path: stored.path,
+      url,
+      pathname: stored.pathname || null,
+      status: 'active',
+      createdAt: nowISO(),
+      createdBy: ctx.uid,
+    }));
+  } catch (err) {
+    if (isFirestoreQuota(err)) {
+      return { id: fileRef.id, path: stored.path, url, quotaBlocked: true as const, message: FIRESTORE_QUOTA_MESSAGE };
+    }
+    throw err;
+  }
+  return { id: fileRef.id, path: stored.path, url };
 }
 
 export async function archiveWorkspaceFile(ctx: TxCtx, file: BooksFile) {

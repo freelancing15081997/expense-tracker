@@ -136,7 +136,14 @@ export default function Parties({ kind }: { kind: PartyKind }) {
       const id = await createParty(payload(editing?.id));
       if (pendingLogo) {
         const stored = await uploadFile({ domain: `${kind}-logo`, resourceId: id, file: pendingLogo });
-        await createParty(payload(id, stored.path));
+        try {
+          await createParty(payload(id, stored.path));
+        } catch (linkErr: any) {
+          setError(stored.quotaBlocked
+            ? (stored.message || 'Party saved. Logo is on Vercel Blob. Firestore quota blocked linking it.')
+            : (linkErr.message || 'Could not link logo'));
+          return;
+        }
       }
       setOpen(false);
       setEditing(null);

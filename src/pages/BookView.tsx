@@ -444,23 +444,20 @@ export default function BookView() {
 
   return (
     <>
-      {isSaving && <TransactionLoader message="Saving transaction..." />}
+      {isSaving && <TransactionLoader message="Saving" />}
       <div className="max-w-6xl mx-auto space-y-5">
         {/* Compact Modern Header */}
-      <div className="sticky top-0 z-20 -mx-4 md:-mx-6 lg:-mx-8 px-4 md:px-6 lg:px-8 py-3 bg-[#f8f9fa]/95 backdrop-blur border-b border-slate-200/70 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex flex-col gap-1.5">
-          <Link to="/expenses" className="inline-flex items-center text-[10px] font-bold text-zinc-400 hover:text-zinc-600 transition-colors uppercase tracking-widest">
-            <ArrowLeft className="w-3 h-3 mr-1" /> Back
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <Link to="/expenses" className="p-1 text-slate-400 hover:text-slate-700" title="Back">
+            <ArrowLeft className="w-4 h-4" />
           </Link>
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl md:text-2xl font-bold text-slate-900 tracking-tight leading-none">{book.name}</h1>
-            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-sm bg-zinc-50 text-zinc-700 uppercase tracking-widest border border-zinc-100/50">
-              {myRole}
-            </span>
-          </div>
+          <h1 className="text-lg font-bold text-slate-900 truncate">{book.name}</h1>
+          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-zinc-50 text-zinc-700 uppercase border border-zinc-100">
+            {myRole}
+          </span>
         </div>
-        
-        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
           <button 
             onClick={() => setIsMembersModalOpen(true)}
             className="byjan-btn-ghost !px-3 !py-1.5"
@@ -478,8 +475,8 @@ export default function BookView() {
               <span className="sm:hidden">Add</span>
             </button>
           )}
+          </div>
         </div>
-      </div>
 
       <Tabs.Root defaultValue="ledger" className="space-y-5">
         <Tabs.List className="flex gap-4 border-b border-slate-200/60">

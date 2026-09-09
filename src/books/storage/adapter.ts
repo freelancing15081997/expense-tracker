@@ -1,6 +1,3 @@
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../../lib/firebase';
-
 const MAX_BYTES = 8 * 1024 * 1024;
 const ALLOWED = new Set(['pdf', 'png', 'jpg', 'jpeg', 'webp', 'csv', 'txt', 'xlsx']);
 
@@ -25,24 +22,6 @@ export function inspectFile(file: File) {
     throw new Error('File extension does not match its type');
   }
   return { name, ext, size: file.size, contentType: declared || EXT_MIME[ext][0] };
-}
-
-async function readLegacyFirestoreFile(fileId: string) {
-  const snap = await getDoc(doc(db, 'erp_files', fileId));
-  if (!snap.exists()) throw new Error('File not found');
-  const data = snap.data();
-  if (!data.chunked) return data.data as string;
-  const promises = [];
-  for (let i = 0; i < data.totalChunks; i++) {
-    promises.push(getDoc(doc(db, 'erp_files', `${fileId}_chunk_${i}`)));
-  }
-  const chunkSnaps = await Promise.all(promises);
-  let fullBase64 = '';
-  for (let i = 0; i < data.totalChunks; i++) {
-    if (!chunkSnaps[i].exists()) throw new Error(`Missing file chunk ${i}`);
-    fullBase64 += chunkSnaps[i].data()?.data || '';
-  }
-  return fullBase64;
 }
 
 export async function storeBooksFile(tenantId: string, fileId: string, file: File) {
@@ -70,8 +49,7 @@ export async function storeBooksFile(tenantId: string, fileId: string, file: Fil
 export async function booksFileUrl(path: string) {
   if (!path) throw new Error('Missing file path');
   if (path.startsWith('https://') || path.startsWith('http://') || path.startsWith('data:')) return path;
-  if (path.startsWith('firestore://')) return readLegacyFirestoreFile(path.replace('firestore://', ''));
-  throw new Error('File URL is unavailable. Re-upload the file.');
+  throw new Error('File URL is unavailable. Re-upload the file to Vercel Blob.');
 }
 
 export async function removeBooksBlob(path: string) {

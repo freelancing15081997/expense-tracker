@@ -205,15 +205,8 @@ export default function Dashboard() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
-      <div className="sticky top-0 z-20 -mx-4 md:-mx-6 lg:-mx-8 px-4 md:px-6 lg:px-8 py-3 bg-[#f8f9fa]/95 backdrop-blur border-b border-slate-200/70 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 font-display">{expensesOnly ? 'Expense Tracker' : 'Main dashboard'}</h1>
-          <p className="text-sm text-slate-500 mt-1">
-            {expensesOnly
-              ? 'Ledgers you belong to. Entries are isolated per ledger by member roles.'
-              : 'Click the Byjan logo any time to return here. Expense Tracker and Books stay separate.'}
-          </p>
-        </div>
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <h1 className="text-lg font-bold text-slate-900 font-display">{expensesOnly ? 'Expense Tracker' : 'Main dashboard'}</h1>
         <div className="flex flex-wrap gap-2">
           {!expensesOnly && (
             <Link to="/books" className="byjan-btn-ghost">

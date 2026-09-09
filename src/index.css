@@ -338,6 +338,24 @@ body {
   opacity: 8%;
 }
 
+.app-loader-ring {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  border: 2.5px solid #E5E7EB;
+  border-top-color: #0B1F3A;
+  border-right-color: #12B8A8;
+  animation: app-loader-spin 0.7s linear infinite;
+}
+.app-loader-ring-sm {
+  width: 16px;
+  height: 16px;
+  border-width: 2px;
+  display: inline-block;
+}
+@keyframes app-loader-spin {
+  to { transform: rotate(360deg); }
+}
 .books-loader-stage {
   width: 112px;
   height: 84px;

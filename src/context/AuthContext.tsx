@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
 import { doc, setDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
-import BrandLogo from '../components/BrandLogo';
+import AppLoader from '../components/AppLoader';
 
 export interface UserProfile {
   uid: string;
@@ -84,12 +84,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   return (
     <AuthContext.Provider value={{ currentUser, userProfile, loading }}>
-      {loading ? (
-        <div className="min-h-screen flex flex-col items-center justify-center bg-[#f3efe4] gap-3">
-          <BrandLogo size="lg" />
-          <p className="text-xs font-semibold tracking-[0.18em] text-slate-500">Trace Financials Easily</p>
-        </div>
-      ) : children}
+      {loading ? <AppLoader message="Loading" /> : children}
     </AuthContext.Provider>
   );
 };

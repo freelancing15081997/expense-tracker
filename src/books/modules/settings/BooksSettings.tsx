@@ -103,14 +103,19 @@ export default function BooksSettings() {
           <FileField
             label="Company logo (shown on invoices, bills, and statements)"
             accept="image/png,image/jpeg,image/webp"
-            hint="PNG, JPG, or WEBP · 8 MB max. Used when you print or send a customer/vendor report."
+            hint="Uploads to Vercel Blob first (image bytes never go to Firebase). Save writes only the URL to Firestore."
             onFiles={async (files) => {
               const file = files[0];
               if (!file) return;
               try {
                 const stored = await uploadFile({ domain: 'workspace-logo', file });
+                setLogoUrl(stored.url || stored.path);
+                if (stored.quotaBlocked) {
+                  setMessage(stored.message || 'Logo is on Vercel Blob. Firestore is rate-limited — wait, then click Save company profile.');
+                  return;
+                }
                 await rename(name || tenant?.name || 'Byjan Books', stored.path, profile);
-                setMessage('Company logo saved. It will appear on customer/vendor prints.');
+                setMessage('Company logo saved on Vercel Blob. Record URL stored in Firestore.');
               } catch (err: any) {
                 setMessage(err.message || 'Logo upload failed');
               }

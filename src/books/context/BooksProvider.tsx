@@ -1,5 +1,6 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { db } from '../../lib/firebase';
+import { isFirestoreQuota, FIRESTORE_QUOTA_MESSAGE } from '../../lib/quota';
 import { useAuth } from '../../context/AuthContext';
 import { can, type BooksAction } from '../core/permissions';
 import type {
@@ -196,7 +197,7 @@ type BooksContextValue = {
   postTds: (input: { amountMinor: number; againstAccountId: string; date: string; memo: string }) => Promise<void>;
   files: BooksFile[];
   templates: BooksTemplate[];
-  uploadFile: (input: { domain: string; resourceId?: string | null; file: File }) => Promise<{ id: string; path: string }>;
+  uploadFile: (input: { domain: string; resourceId?: string | null; file: File }) => Promise<{ id: string; path: string; url?: string; quotaBlocked?: boolean; message?: string }>;
   archiveFile: (file: BooksFile) => Promise<void>;
   createTemplate: (input: { domain: string; name: string; kind: BooksTemplate['kind']; payload: Record<string, unknown> }) => Promise<string>;
   archiveTemplate: (id: string) => Promise<void>;
@@ -285,10 +286,7 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
       setFiles(extras.files);
       setTemplates(extras.templates);
     } catch (err: any) {
-      const quota = err?.code === 'resource-exhausted' || String(err?.message || '').includes('resource-exhausted') || String(err?.message || '').includes('429');
-      setError(quota
-        ? 'Firebase Firestore write quota is exhausted (not Vercel Blob). Wait for the daily Spark reset or enable billing on this Firebase project, then reload.'
-        : (err?.message || 'Failed to open Books'));
+      setError(isFirestoreQuota(err) ? FIRESTORE_QUOTA_MESSAGE : (err?.message || 'Failed to open Books'));
     } finally {
       setLoading(false);
     }
@@ -296,10 +294,30 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
 
   const refreshFiles = useCallback(async () => {
     if (!tenantId) return;
-    const extras = await loadFilesAndTemplates(db, tenantId);
-    setFiles(extras.files);
-    setTemplates(extras.templates);
+    try {
+      const extras = await loadFilesAndTemplates(db, tenantId);
+      setFiles(extras.files);
+      setTemplates(extras.templates);
+    } catch (err) {
+      if (isFirestoreQuota(err)) return;
+      throw err;
+    }
   }, [tenantId]);
+
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleRefresh = useCallback(() => {
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(() => {
+      refreshTimer.current = null;
+      void refresh().catch((err) => {
+        if (isFirestoreQuota(err)) return;
+      });
+    }, 1400);
+  }, [refresh]);
+
+  useEffect(() => () => {
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+  }, []);
 
   useEffect(() => {
     if (!currentUser) {
@@ -317,7 +335,7 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
   const value = useMemo<BooksContextValue>(() => {
     const after = async <T,>(work: () => Promise<T>) => {
       const result = await work();
-      await refresh();
+      scheduleRefresh();
       return result;
     };
     return {
@@ -391,7 +409,7 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
       postTds: (input) => after(() => withholdTds(ctx(), input, accounts)),
       uploadFile: async (input) => {
         const result = await uploadWorkspaceFile(ctx(), input);
-        await refreshFiles();
+        if (!result.quotaBlocked) await refreshFiles().catch(() => undefined);
         return result;
       },
       archiveFile: async (file) => {
@@ -401,7 +419,7 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
       createTemplate: (input) => after(() => saveTemplate(ctx(), input)),
       archiveTemplate: (id) => after(() => removeTemplate(ctx(), id)),
     };
-  }, [accounts, approvals, assets, audit, bankTxns, budgets, contracts, ctx, documents, entities, error, files, inbox, journals, leases, loading, parties, periods, products, projects, recurring, refresh, refreshFiles, role, taxCodes, templates, tenant, tenantId, workpapers]);
+  }, [accounts, approvals, assets, audit, bankTxns, budgets, contracts, ctx, documents, entities, error, files, inbox, journals, leases, loading, parties, periods, products, projects, recurring, refresh, refreshFiles, role, scheduleRefresh, taxCodes, templates, tenant, tenantId, workpapers]);
 
   return <BooksContext.Provider value={value}>{children}</BooksContext.Provider>;
 }

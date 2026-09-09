@@ -5,7 +5,7 @@ import { logout, db } from '../lib/firebase';
 import { LogOut, Settings, Menu, X, Bell, CheckCircle2, ArrowRightLeft, ChevronDown, ChevronRight } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { collection, query, where, onSnapshot, updateDoc, doc } from 'firebase/firestore';
+import { collection, query, where, getDocs, updateDoc, doc } from 'firebase/firestore';
 import BrandLogo from './BrandLogo';
 import GlobalSearch, { SearchTrigger } from './GlobalSearch';
 import { BOOKS_NAV } from '../books/nav';
@@ -47,7 +47,7 @@ export default function Layout() {
   useEffect(() => {
     if (!currentUser) return;
     const q = query(collection(db, 'notifications'), where('userId', '==', currentUser.uid));
-    const unsub = onSnapshot(q, (snap) => {
+    getDocs(q).then((snap) => {
       const notifs: any[] = [];
       snap.forEach((d) => notifs.push({ id: d.id, ...d.data() }));
       const millis = (value: any) => {
@@ -58,12 +58,10 @@ export default function Layout() {
       };
       notifs.sort((a, b) => millis(b.createdAt) - millis(a.createdAt));
       setNotifications(notifs);
-    }, (err) => {
-      console.error('Snapshot error on', q, err);
-      if ((err as { code?: string }).code === 'resource-exhausted') unsub();
+    }).catch((err) => {
+      if ((err as { code?: string }).code !== 'resource-exhausted') console.error(err);
     });
-    return () => unsub();
-  }, [currentUser]);
+  }, [currentUser?.uid]);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
@@ -103,7 +101,7 @@ export default function Layout() {
         {showText && <p className="text-[10px] font-bold tracking-widest text-slate-400 uppercase px-3 mb-1 whitespace-nowrap">Workspace</p>}
 
         <Link to="/expenses" className={navBtn(onExpenses)}>
-          <ArrowRightLeft className="w-4 h-4 shrink-0" />
+          <ArrowRightLeft className="w-5 h-5 shrink-0" />
           {showText && <span className="whitespace-nowrap">Expense Tracker</span>}
         </Link>
 
@@ -116,7 +114,7 @@ export default function Layout() {
                 onBooks ? 'text-[#0B1F3A]' : 'text-slate-700 hover:bg-slate-50 rounded-xl'
               )}
             >
-              <BooksGlyph name="book" className="w-4 h-4 shrink-0" />
+              <BooksGlyph name="book" className="w-5 h-5 shrink-0" />
               {showText && <span className="whitespace-nowrap">Books</span>}
             </Link>
             {showText && (
@@ -147,7 +145,7 @@ export default function Layout() {
                       className="w-full flex items-center justify-between px-2 py-1.5 rounded-xl text-[13px] font-semibold text-slate-600 hover:bg-slate-50 hover:text-[#0B1F3A] whitespace-nowrap"
                     >
                       <span className="flex items-center gap-2 min-w-0">
-                        <GroupIcon title={group.title} className="w-3.5 h-3.5 shrink-0" />
+                        <GroupIcon title={group.title} className="w-4 h-4 shrink-0" />
                         <span className="truncate">{group.title}</span>
                       </span>
                       <ChevronRight className={cn('w-3.5 h-3.5 text-slate-400 transition-transform shrink-0', groupOpen && 'rotate-90')} />
@@ -163,7 +161,7 @@ export default function Layout() {
                               location.pathname === sub.href ? 'byjan-subnav-active' : ''
                             )}
                           >
-                            <FeatureIcon href={sub.href} className="w-3.5 h-3.5 shrink-0" />
+                            <FeatureIcon href={sub.href} className="w-4 h-4 shrink-0" />
                             {sub.name}
                           </Link>
                         ))}
@@ -177,7 +175,7 @@ export default function Layout() {
         </div>
 
         <Link to="/settings" className={navBtn(location.pathname === '/settings')}>
-          <Settings className="w-4 h-4 shrink-0" />
+          <Settings className="w-5 h-5 shrink-0" />
           {showText && <span className="whitespace-nowrap">Settings</span>}
         </Link>
       </nav>
@@ -191,29 +189,27 @@ export default function Layout() {
             {tenant.name}
           </div>
         )}
-        <div>
-          <div className="flex items-center gap-3 p-2 rounded-xl">
-            <div className="w-8 h-8 rounded-full bg-[#0B1F3A] text-white flex items-center justify-center font-bold text-sm shrink-0 overflow-hidden shadow-[0_4px_10px_-4px_rgba(11,31,58,0.6)]">
+        <div className="flex items-center gap-1 p-2">
+            <div className="w-8 h-8 rounded-full bg-[#0B1F3A] text-white flex items-center justify-center font-bold text-sm shrink-0 overflow-hidden">
               {userProfile?.photoURL ? (
                 <img src={userProfile.photoURL} alt="" className="w-full h-full object-cover" />
               ) : (
                 userProfile?.displayName?.charAt(0).toUpperCase() || userProfile?.email?.charAt(0).toUpperCase()
               )}
             </div>
-            {showText && (<div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-[#0B1F3A] truncate whitespace-nowrap">{userProfile?.displayName || 'User'}</p>
-              <p className="text-[10px] text-slate-500 truncate whitespace-nowrap">{userProfile?.email}</p>
-            </div>)}
+            {showText && (
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-[#0B1F3A] truncate">{userProfile?.displayName || 'User'}</p>
+              </div>
+            )}
+            <button
+              onClick={logout}
+              title="Sign out"
+              className="p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-700 rounded-lg"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
           </div>
-          <button
-            onClick={logout}
-            title="Sign out"
-            className="mt-1 w-full flex items-center gap-2 px-3 py-2 text-slate-600 hover:bg-rose-50 hover:text-rose-700 rounded-xl text-sm font-medium"
-          >
-            <LogOut className="w-4 h-4 shrink-0" />
-            {showText && <span className="whitespace-nowrap">Sign out</span>}
-          </button>
-        </div>
       </div>
     </>
   );
@@ -256,7 +252,7 @@ export default function Layout() {
       </aside>
 
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-        <div className="hidden md:flex shrink-0 items-center gap-3 px-4 lg:px-6 py-2.5 bg-white border-b border-slate-200 shadow-[0_1px_0_rgba(11,31,58,0.04)]">
+        <div className="hidden md:flex shrink-0 items-center gap-3 px-4 h-11 bg-white border-b border-slate-200">
           <SearchTrigger variant="bar" />
           <button
             onClick={() => setNotificationsPanelOpen(true)}
