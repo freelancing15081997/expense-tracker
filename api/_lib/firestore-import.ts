@@ -50,7 +50,7 @@ async function fsFetch(token: string, url: string, init?: RequestInit) {
   return res;
 }
 
-async function getDocument(token: string, path: string) {
+export async function getDocument(token: string, path: string) {
   const res = await fsFetch(token, `${ROOT}/${path}`);
   if (res.status === 404 || res.status === 403) return null;
     if (!res.ok) return null;
@@ -58,7 +58,7 @@ async function getDocument(token: string, path: string) {
     return decodeDoc(await res.json());
 }
 
-async function listDocuments(token: string, colPath: string) {
+export async function listDocuments(token: string, colPath: string) {
   const out: { path: string; data: Record<string, unknown> }[] = [];
   let pageToken = '';
   for (let i = 0; i < 20; i++) {

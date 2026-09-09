@@ -1,13 +1,15 @@
 import { neon } from '@neondatabase/serverless';
 
-function postgresUrl() {
+const DOC_PREFIX = 'documents/';
+
+function readPostgresUrl() {
   const raw =
     process.env.DATABASE_URL ||
     process.env.POSTGRES_URL ||
     process.env.DATABASE_URL_UNPOOLED ||
     process.env.POSTGRES_URL_NON_POOLING ||
     process.env.POSTGRES_PRISMA_URL;
-  if (!raw) throw new Error('Postgres is not configured. Set DATABASE_URL or POSTGRES_URL.');
+  if (!raw) return '';
   try {
     const url = new URL(raw);
     url.searchParams.delete('channel_binding');
@@ -19,7 +21,9 @@ function postgresUrl() {
 
 let sql: ReturnType<typeof neon> | null = null;
 function getSql() {
-  if (!sql) sql = neon(postgresUrl());
+  const url = readPostgresUrl();
+  if (!url) throw new Error('Postgres is not configured. Set DATABASE_URL or POSTGRES_URL.');
+  if (!sql) sql = neon(url);
   return sql;
 }
 
@@ -29,8 +33,21 @@ function cleanPath(path: string) {
   return clean;
 }
 
+function blobKey(path: string) {
+  return `${DOC_PREFIX}${cleanPath(path)}.json`;
+}
+
+function blobAuth() {
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  const storeId = process.env.BLOB_STORE_ID;
+  return {
+    ...(token ? { token } : {}),
+    ...(storeId ? { storeId } : {}),
+  };
+}
+
 let schemaReady: Promise<void> | null = null;
-export function ensureSchema() {
+function ensureSchema() {
   if (!schemaReady) {
     schemaReady = (async () => {
       const db = getSql();
@@ -60,66 +77,141 @@ function asObject(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
+async function streamToText(stream: ReadableStream<Uint8Array>) {
+  return await new Response(stream).text();
+}
+
+async function blobGet(path: string): Promise<Record<string, unknown> | null> {
+  const { get } = await import('@vercel/blob');
+  const result = await get(blobKey(path), { access: 'private', useCache: false, ...blobAuth() });
+  if (!result || result.statusCode !== 200 || !result.stream) return null;
+  return asObject(JSON.parse(await streamToText(result.stream)));
+}
+
+async function blobSet(path: string, data: unknown) {
+  const { put } = await import('@vercel/blob');
+  await put(blobKey(path), JSON.stringify(data ?? {}), {
+    access: 'private',
+    addRandomSuffix: false,
+    allowOverwrite: true,
+    contentType: 'application/json',
+    ...blobAuth(),
+  });
+}
+
+async function blobDel(path: string) {
+  const { del } = await import('@vercel/blob');
+  await del(blobKey(path), blobAuth());
+}
+
+async function blobListKeys(prefix: string) {
+  const { list } = await import('@vercel/blob');
+  const keys: string[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await list({ prefix, cursor, limit: 1000, ...blobAuth() });
+    for (const blob of page.blobs) keys.push(blob.pathname);
+    cursor = page.hasMore ? page.cursor : undefined;
+  } while (cursor);
+  return keys;
+}
+
 export async function kvGet(path: string): Promise<Record<string, unknown> | null> {
-  await ensureSchema();
-  const db = getSql();
-  const p = cleanPath(path);
-  const rows = await db`SELECT data FROM documents WHERE path = ${p} LIMIT 1`;
-  return rows[0] ? asObject(rows[0].data) : null;
+  if (readPostgresUrl()) {
+    await ensureSchema();
+    const db = getSql();
+    const p = cleanPath(path);
+    const rows = await db`SELECT data FROM documents WHERE path = ${p} LIMIT 1`;
+    return rows[0] ? asObject(rows[0].data) : null;
+  }
+  return blobGet(path);
 }
 
 export async function kvSet(path: string, data: unknown) {
-  await ensureSchema();
-  const db = getSql();
-  const p = cleanPath(path);
-  const payload = JSON.stringify(data ?? {});
-  await db`
-    INSERT INTO documents (path, data, updated_at)
-    VALUES (${p}, ${payload}::jsonb, NOW())
-    ON CONFLICT (path) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
-  `;
+  if (readPostgresUrl()) {
+    await ensureSchema();
+    const db = getSql();
+    const p = cleanPath(path);
+    const payload = JSON.stringify(data ?? {});
+    await db`
+      INSERT INTO documents (path, data, updated_at)
+      VALUES (${p}, ${payload}::jsonb, NOW())
+      ON CONFLICT (path) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
+    `;
+    return;
+  }
+  await blobSet(path, data);
 }
 
 export async function kvDel(path: string) {
-  await ensureSchema();
-  const db = getSql();
-  const p = cleanPath(path);
-  await db`DELETE FROM documents WHERE path = ${p}`;
+  if (readPostgresUrl()) {
+    await ensureSchema();
+    const db = getSql();
+    const p = cleanPath(path);
+    await db`DELETE FROM documents WHERE path = ${p}`;
+    return;
+  }
+  await blobDel(path);
 }
 
 export async function kvList(prefix: string) {
-  await ensureSchema();
-  const db = getSql();
-  const base = `${cleanPath(prefix)}/`;
-  const rows = (await db`
-    SELECT path, data FROM documents
-    WHERE path LIKE ${base + '%'}
-  `) as { path: string; data: unknown }[];
+  if (readPostgresUrl()) {
+    await ensureSchema();
+    const db = getSql();
+    const base = `${cleanPath(prefix)}/`;
+    const rows = (await db`
+      SELECT path, data FROM documents
+      WHERE path LIKE ${base + '%'}
+    `) as { path: string; data: unknown }[];
+    const out: { id: string; data: Record<string, unknown> }[] = [];
+    for (const row of rows) {
+      const rest = String(row.path).slice(base.length);
+      if (!rest || rest.includes('/')) continue;
+      const data = asObject(row.data);
+      if (!data) continue;
+      out.push({ id: rest, data });
+    }
+    return out;
+  }
+  const base = `${DOC_PREFIX}${cleanPath(prefix)}/`;
   const out: { id: string; data: Record<string, unknown> }[] = [];
-  for (const row of rows) {
-    const rest = String(row.path).slice(base.length);
+  for (const key of await blobListKeys(base)) {
+    if (!key.endsWith('.json')) continue;
+    const rest = key.slice(base.length, -5);
     if (!rest || rest.includes('/')) continue;
-    const data = asObject(row.data);
-    if (!data) continue;
-    out.push({ id: rest, data });
+    const data = await blobGet(`${cleanPath(prefix)}/${rest}`);
+    if (data) out.push({ id: rest, data });
   }
   return out;
 }
 
 export async function kvListPrefix(prefix: string) {
-  await ensureSchema();
-  const db = getSql();
+  if (readPostgresUrl()) {
+    await ensureSchema();
+    const db = getSql();
+    const p = cleanPath(prefix);
+    const child = `${p}/`;
+    const rows = (await db`
+      SELECT path, data FROM documents
+      WHERE path = ${p} OR path LIKE ${child + '%'}
+    `) as { path: string; data: unknown }[];
+    const out: { path: string; data: Record<string, unknown> }[] = [];
+    for (const row of rows) {
+      const data = asObject(row.data);
+      if (!data) continue;
+      out.push({ path: String(row.path), data });
+    }
+    return out;
+  }
   const p = cleanPath(prefix);
-  const child = `${p}/`;
-  const rows = (await db`
-    SELECT path, data FROM documents
-    WHERE path = ${p} OR path LIKE ${child + '%'}
-  `) as { path: string; data: unknown }[];
   const out: { path: string; data: Record<string, unknown> }[] = [];
-  for (const row of rows) {
-    const data = asObject(row.data);
-    if (!data) continue;
-    out.push({ path: String(row.path), data });
+  const self = await blobGet(p);
+  if (self) out.push({ path: p, data: self });
+  for (const key of await blobListKeys(`${DOC_PREFIX}${p}/`)) {
+    if (!key.endsWith('.json')) continue;
+    const path = key.slice(DOC_PREFIX.length, -5);
+    const data = await blobGet(path);
+    if (data) out.push({ path, data });
   }
   return out;
 }

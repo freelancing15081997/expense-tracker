@@ -1,9 +1,45 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import { applyCors, kvDel, kvGet, kvList, kvSet, newId, readJsonBody, readNeonSession, sendJson } from './helpers';
+import { getDocument, listDocuments } from './firestore-import';
 import { remapFirebaseUidIfNeeded } from './remap';
 
 function getAt(obj: any, path: string) {
   return path.split('.').reduce((acc, key) => (acc == null ? acc : acc[key]), obj);
+}
+
+function extractToken(req: IncomingMessage) {
+  const header = String(req.headers.authorization || '');
+  return header.toLowerCase().startsWith('bearer ') ? header.slice(7).trim() : '';
+}
+
+async function readDoc(path: string, token: string) {
+  try {
+    const local = await kvGet(path);
+    if (local) return local;
+  } catch {
+    // Blob/Postgres may be missing on Vercel; fall through to Firestore reads.
+  }
+  const remote = await getDocument(token, path);
+  return remote?.data || null;
+}
+
+async function readList(path: string, token: string) {
+  const byId = new Map<string, { id: string; data: Record<string, unknown> }>();
+  try {
+    for (const row of await kvList(path)) byId.set(row.id, row);
+  } catch {
+    // Same fallback as readDoc.
+  }
+  try {
+    for (const row of await listDocuments(token, path)) {
+      const id = String(row.path.split('/').pop() || '');
+      if (!id || byId.has(id)) continue;
+      byId.set(id, { id, data: row.data });
+    }
+  } catch {
+    // Firestore list is best-effort when security rules hide a collection.
+  }
+  return [...byId.values()];
 }
 
 export async function handleKvRequest(req: IncomingMessage & { body?: unknown }, res: ServerResponse) {
@@ -34,14 +70,16 @@ export async function handleKvRequest(req: IncomingMessage & { body?: unknown },
     const op = String(body.op || '');
     const path = String(body.path || '').replace(/^\/+|\/+$/g, '');
 
+    const token = extractToken(req);
+
     if (op === 'get') {
-      const data = await kvGet(path);
+      const data = await readDoc(path, token);
       sendJson(res, 200, { exists: Boolean(data), id: path.split('/').pop(), data });
       return;
     }
 
     if (op === 'set') {
-      const current = (await kvGet(path)) || {};
+      const current = (await readDoc(path, token)) || {};
       const next = { ...((body.merge && typeof current === 'object') ? current : {}), ...(body.data || {}) };
       await kvSet(path, next);
       sendJson(res, 200, { ok: true, id: path.split('/').pop(), data: next });
@@ -49,7 +87,7 @@ export async function handleKvRequest(req: IncomingMessage & { body?: unknown },
     }
 
     if (op === 'update') {
-      const current = (await kvGet(path)) || {};
+      const current = (await readDoc(path, token)) || {};
       const patch = body.data || {};
       const next = { ...current };
       for (const [key, value] of Object.entries(patch)) {
@@ -93,7 +131,7 @@ export async function handleKvRequest(req: IncomingMessage & { body?: unknown },
     }
 
     if (op === 'list' || op === 'query') {
-      let rows = await kvList(path);
+      let rows = await readList(path, token);
       const constraints = Array.isArray(body.constraints) ? body.constraints : [];
       for (const c of constraints) {
         if (c.type === 'where' && c.op === '==') {
