@@ -2,12 +2,14 @@ import React, { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useBooks } from '../../context/BooksProvider';
 import { signedBalance } from '../../engine/chartOfAccounts';
-import { Card, Kpi, Money, PageShell, Status } from '../../ui';
+import { Card, Kpi, Money, PageShell, Status, btnPrimary } from '../../ui';
 import { todayISO } from '../../core/money';
 import { BOOKS_QUICK_CREATE } from '../../nav';
+import { BOOKS_TREE } from '../../catalog/modules';
+import { BOOKS_CATALOG } from '../../catalog';
 
 export default function Dashboard() {
-  const { tenant, accounts, journals, documents, currency } = useBooks();
+  const { tenant, accounts, journals, documents, parties, currency, approvals, bankTxns, periods } = useBooks();
   const byKey = (key: string) => accounts.find((a) => a.systemKey === key);
 
   const cards = useMemo(() => {
@@ -17,38 +19,81 @@ export default function Dashboard() {
     const income = accounts.filter((a) => a.type === 'revenue' || a.type === 'other_income').reduce((s, a) => s + signedBalance(a), 0);
     const spend = accounts.filter((a) => a.type === 'expense' || a.type === 'cogs' || a.type === 'other_expense').reduce((s, a) => s + signedBalance(a), 0);
     return [
-      { label: 'Cash & Bank', value: cash },
-      { label: 'Receivables', value: ar },
-      { label: 'Payables', value: ap },
-      { label: 'Income', value: income },
-      { label: 'Expenses', value: spend },
-      { label: 'Net', value: income - spend },
+      { label: 'Cash & Bank', value: cash, href: '/books/banking' },
+      { label: 'Receivables', value: ar, href: '/books/collections' },
+      { label: 'Payables', value: ap, href: '/books/payment-run' },
+      { label: 'Income', value: income, href: '/books/reports' },
+      { label: 'Expenses', value: spend, href: '/books/expenses' },
+      { label: 'Net', value: income - spend, href: '/books/reports' },
     ];
   }, [accounts]);
 
   const overdue = documents.filter((d) => d.kind === 'invoice' && d.status === 'posted' && d.dueDate && d.dueDate < todayISO() && d.paidMinor < d.totalMinor);
+  const drafts = documents.filter((d) => d.status === 'draft');
+  const openBills = documents.filter((d) => d.kind === 'bill' && d.status === 'posted' && d.paidMinor < d.totalMinor);
+  const customers = parties.filter((p) => p.kind === 'customer' && p.active).length;
+  const vendors = parties.filter((p) => p.kind === 'vendor' && p.active).length;
+  const posted = journals.filter((j) => j.status === 'posted').length;
+  const pending = approvals.filter((a) => a.status === 'pending').length;
+  const unrec = bankTxns.filter((t) => !t.reconciled).length;
 
   return (
-    <PageShell title={tenant?.name || 'Books'} subtitle="Live balances from posted journals. Nothing here is estimated.">
+    <PageShell title={tenant?.name || 'Books'} subtitle="Command center for every live Books feature. Posted balances only — adapters are labeled as not operational.">
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
         {cards.map((card) => (
-          <Kpi key={card.label} label={card.label}><Money minor={card.value} currency={currency} /></Kpi>
-        ))}
-      </div>
-      {overdue.length > 0 && (
-        <Card className="p-4 border-amber-200 bg-amber-50">
-          <p className="text-sm font-medium text-amber-900">{overdue.length} overdue invoice{overdue.length === 1 ? '' : 's'} need collection.</p>
-        </Card>
-      )}
-      <div className="flex flex-wrap gap-2">
-        {BOOKS_QUICK_CREATE.map((item) => (
-          <Link key={item.href} to={item.href} className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm font-medium text-slate-700 hover:border-slate-400 hover:bg-slate-50">
-            {item.name}
+          <Link key={card.label} to={card.href}>
+            <Kpi label={card.label}><Money minor={card.value} currency={currency} /></Kpi>
           </Link>
         ))}
-        <Link to="/books/control-tower" className="bg-slate-900 text-white rounded-lg px-3 py-2 text-sm font-medium">Control Tower</Link>
-        <Link to="/books/workbench" className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm font-medium text-slate-700">CA Workbench</Link>
       </div>
+
+      <div className="flex flex-wrap gap-2">
+        {BOOKS_QUICK_CREATE.map((item) => (
+          <Link key={item.href} to={item.href} className={btnPrimary}>{item.name}</Link>
+        ))}
+        <Link to="/books/control-tower" className="px-3.5 py-2 rounded-xl border border-[#E5E7EB] text-sm font-medium hover:bg-[#F3F4F6]">Control Tower</Link>
+      </div>
+
+      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+        <Card className="p-4"><p className="text-[#6B7280]">Customers</p><p className="text-xl font-display mt-1">{customers}</p></Card>
+        <Card className="p-4"><p className="text-[#6B7280]">Vendors</p><p className="text-xl font-display mt-1">{vendors}</p></Card>
+        <Card className="p-4"><p className="text-[#6B7280]">Draft documents</p><p className="text-xl font-display mt-1">{drafts.length}</p></Card>
+        <Card className="p-4"><p className="text-[#6B7280]">Posted journals</p><p className="text-xl font-display mt-1">{posted}</p></Card>
+      </div>
+
+      {(overdue.length > 0 || openBills.length > 0 || pending > 0 || unrec > 0) && (
+        <Card className="p-4 border-amber-200 bg-amber-50 space-y-1">
+          {overdue.length > 0 && <p className="text-sm font-medium text-amber-900">{overdue.length} overdue invoice{overdue.length === 1 ? '' : 's'} — <Link to="/books/collections" className="underline">Collections</Link></p>}
+          {openBills.length > 0 && <p className="text-sm font-medium text-amber-900">{openBills.length} unpaid bill{openBills.length === 1 ? '' : 's'} — <Link to="/books/payment-run" className="underline">Payment run</Link></p>}
+          {pending > 0 && <p className="text-sm font-medium text-amber-900">{pending} pending approval{pending === 1 ? '' : 's'} — <Link to="/books/approvals" className="underline">Approvals</Link></p>}
+          {unrec > 0 && <p className="text-sm font-medium text-amber-900">{unrec} unreconciled bank item{unrec === 1 ? '' : 's'} — <Link to="/books/banking" className="underline">Banking</Link></p>}
+        </Card>
+      )}
+
+      <div>
+        <h2 className="font-display text-lg mb-3">All Books features</h2>
+        <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {BOOKS_TREE.map((branch) => (
+            <Card key={branch.id} className="p-4 space-y-3">
+              <div>
+                <Link to={branch.href} className="font-semibold text-[#0B1F3A] hover:underline">{branch.name}</Link>
+                <p className="text-xs text-[#6B7280] mt-1">{branch.blurb}</p>
+              </div>
+              <ul className="space-y-1">
+                {branch.items.map((item) => (
+                  <li key={item.href}>
+                    <Link to={item.href} className="text-sm text-[#0B1F3A] hover:text-teal-800 flex justify-between gap-2">
+                      <span>{item.name}</span>
+                      <span className="text-[10px] uppercase tracking-wide text-emerald-700">Live</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          ))}
+        </div>
+      </div>
+
       <div className="grid lg:grid-cols-2 gap-4">
         <Card>
           <div className="px-4 py-3 border-b border-slate-100 flex justify-between">
@@ -91,6 +136,24 @@ export default function Dashboard() {
           )}
         </Card>
       </div>
+
+      <Card className="p-4 space-y-3">
+        <h2 className="font-semibold">Requirement coverage</h2>
+        <p className="text-sm text-slate-500">{periods.filter((p) => p.status === 'open').length} open period(s). Live items post journals. Adapter items need an external service and are not faked.</p>
+        {BOOKS_CATALOG.map((group) => (
+          <div key={group.domain}>
+            <h3 className="text-xs uppercase tracking-wide text-slate-500 font-bold mb-1">{group.domain}</h3>
+            <ul className="text-sm grid sm:grid-cols-2 gap-1">
+              {group.items.map((item) => (
+                <li key={item.name} className="flex justify-between gap-3">
+                  {item.href ? <Link to={item.href} className="hover:underline">{item.name}</Link> : <span>{item.name}</span>}
+                  <span className={item.status === 'live' ? 'text-emerald-700' : 'text-slate-400'}>{item.status}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </Card>
     </PageShell>
   );
 }

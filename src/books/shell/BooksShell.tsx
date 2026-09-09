@@ -22,15 +22,13 @@ export default function BooksShell({ children }: { children: React.ReactNode }) 
             <h1 className="font-display text-xl md:text-2xl font-semibold tracking-tight truncate">{module.name}</h1>
             <p className="text-sm text-[#4B5563] mt-1 leading-relaxed hidden sm:block">{module.blurb}</p>
           </div>
-          {siblings.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {siblings.slice(0, 5).map((rel) => (
-                <Link key={rel.href} to={rel.href} className="px-3 py-1.5 rounded-full border border-[#E5E7EB] text-xs font-medium text-[#0B1F3A] hover:bg-[#F3F4F6]">
-                  {rel.name}
-                </Link>
-              ))}
-            </div>
-          )}
+          <div className="flex flex-wrap gap-2 items-center">
+            {siblings.slice(0, 5).map((rel) => (
+              <Link key={rel.href} to={rel.href} className="px-3 py-1.5 rounded-full border border-[#E5E7EB] text-xs font-medium text-[#0B1F3A] hover:bg-[#F3F4F6]">
+                {rel.name}
+              </Link>
+            ))}
+          </div>
         </div>
       </header>
       <div className="flex-1 min-h-0 overflow-y-auto px-4 md:px-7 py-5">

@@ -5,7 +5,10 @@ import { db } from '../lib/firebase';
 import { collection, query, where, getDocs, getDoc, addDoc, serverTimestamp, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { Link } from 'react-router-dom';
 import { getCurrencySymbol } from '../lib/currency';
-import { Loader2, Plus, Check, X, Users, Building2, Receipt, ArrowRight } from 'lucide-react';
+import { Loader2, Plus, Check, X, Users, Building2, Receipt, ArrowRight, BookOpen } from 'lucide-react';
+import * as Dialog from '@radix-ui/react-dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
+import { BOOKS_TREE } from '../books/catalog/modules';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 
@@ -192,8 +195,8 @@ export default function Dashboard() {
     <div className="max-w-5xl mx-auto space-y-6">
       <div className="sticky top-0 z-20 -mx-4 md:-mx-6 lg:-mx-8 px-4 md:px-6 lg:px-8 py-3 bg-[#f8f9fa]/95 backdrop-blur border-b border-slate-200/70 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 font-display">Expense Tracker</h1>
-          <p className="text-sm text-slate-500 mt-1">Manage your expense trackers.</p>
+          <h1 className="text-2xl font-bold text-slate-900 font-display">Workspace</h1>
+          <p className="text-sm text-slate-500 mt-1">Expense Tracker ledgers and Books accounting — search any feature with ⌘K.</p>
         </div>
         <button 
           onClick={() => setShowNewBook(true)}
@@ -251,6 +254,27 @@ export default function Dashboard() {
         </Dialog.Portal>
       </Dialog.Root>
 
+      <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-bold text-slate-900 flex items-center gap-2"><BookOpen className="w-4 h-4" /> Books</h2>
+            <p className="text-sm text-slate-500 mt-0.5">Accounting, sales, purchases, banking, and control — live posting, not placeholders.</p>
+          </div>
+          <Link to="/books" className="inline-flex items-center gap-1 text-sm font-semibold text-teal-800 hover:underline">
+            Open dashboard <ArrowRight className="w-4 h-4" />
+          </Link>
+        </div>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {BOOKS_TREE.map((branch) => (
+            <Link key={branch.id} to={branch.href} className="rounded-xl border border-slate-200 p-3 hover:border-teal-300 hover:bg-teal-50/40 transition-colors">
+              <p className="font-semibold text-sm text-slate-900">{branch.name}</p>
+              <p className="text-xs text-slate-500 mt-1 line-clamp-2">{branch.blurb}</p>
+              <p className="text-[11px] text-slate-400 mt-2">{branch.items.length} features</p>
+            </Link>
+          ))}
+        </div>
+      </div>
+
       {invites.length > 0 && (
         <div className="space-y-3">
           <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide text-slate-500 flex items-center gap-1.5">
@@ -296,6 +320,8 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      <h2 className="text-sm font-bold text-slate-500 uppercase tracking-wide">Expense Tracker ledgers</h2>
 
       {loading ? (
         <div className="py-12 flex justify-center">

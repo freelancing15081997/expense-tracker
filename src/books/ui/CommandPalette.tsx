@@ -11,7 +11,7 @@ export default function CommandPalette() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setOpen((v) => !v);
       }
@@ -78,7 +78,7 @@ export default function CommandPalette() {
             </li>
           ))}
         </ul>
-        <p className="px-4 py-2 text-[11px] text-[#8a8274]">Ctrl/⌘ K · tenant-scoped Books search</p>
+        <p className="px-4 py-2 text-[11px] text-[#8a8274]">Ctrl/⌘ Shift+K · invoices, parties, and accounts in this workspace</p>
       </div>
     </div>
   );

@@ -2,12 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { logout, db } from '../lib/firebase';
-import { Wallet, LogOut, LayoutDashboard, Settings, Menu, X, Receipt, BookOpen, Bell, CheckCircle2, Search, FileText, CreditCard, ChevronLeft, ChevronRight, Plus, Users, ArrowRightLeft } from 'lucide-react';
+import { LogOut, Settings, Menu, X, BookOpen, Bell, CheckCircle2, ChevronLeft, ChevronRight, ArrowRightLeft, ChevronRight as Chevron } from 'lucide-react';
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { collection, query, where, onSnapshot, updateDoc, doc } from 'firebase/firestore';
 import BrandLogo from './BrandLogo';
-import GlobalSearch from './GlobalSearch';
+import GlobalSearch, { SearchTrigger } from './GlobalSearch';
 import { BOOKS_NAV } from '../books/nav';
 
 function cn(...inputs: ClassValue[]) {
@@ -21,12 +21,14 @@ export default function Layout() {
   const [isPinned, setIsPinned] = useState(false);
   const [isSidebarHovered, setIsSidebarHovered] = useState(false);
   const [hoveredMenu, setHoveredMenu] = useState<string | null>(null);
+  const [hoveredGroup, setHoveredGroup] = useState<string | null>(null);
   const [mobileExpandedMenu, setMobileExpandedMenu] = useState<string | null>(null);
   const [notificationsPanelOpen, setNotificationsPanelOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isExpanded = mobileMenuOpen || isPinned || isSidebarHovered;
+  const onBooks = location.pathname === '/books' || location.pathname.startsWith('/books/');
 
   const handleSidebarEnter = () => {
     if (collapseTimer.current) {
@@ -40,7 +42,8 @@ export default function Layout() {
     collapseTimer.current = setTimeout(() => {
       setIsSidebarHovered(false);
       setHoveredMenu(null);
-    }, 120);
+      setHoveredGroup(null);
+    }, 180);
   };
 
   useEffect(() => {
@@ -79,9 +82,9 @@ export default function Layout() {
 
   const navigation = [
     { name: 'Expense Tracker', href: '/', icon: ArrowRightLeft },
-    { 
-      name: 'Books', 
-      href: '/books', 
+    {
+      name: 'Books',
+      href: '/books',
       icon: BookOpen,
       groups: BOOKS_NAV,
     },
@@ -89,167 +92,204 @@ export default function Layout() {
     { name: 'Settings', href: '/settings', icon: Settings },
   ];
 
-  
+  const linkClass = (active: boolean) => cn(
+    "flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-sm transition-all duration-200",
+    active ? "bg-white text-[#0B1F3A] shadow-sm" : "text-white hover:bg-white/15"
+  );
 
   return (
-    <div className="h-screen w-full bg-[#f8f9fa] flex flex-col md:flex-row font-sans text-slate-900 overflow-hidden">
-      {/* Mobile Header */}
-      <div className="md:hidden bg-[#161616] text-white flex items-center justify-between p-3 z-50">
+    <div className="h-screen w-full bg-[#f4f7fb] flex flex-col md:flex-row font-sans text-slate-900 overflow-hidden">
+      <GlobalSearch />
+
+      <div className="md:hidden bg-[#0B1F3A] text-white flex items-center justify-between p-3 z-50">
         <div className="flex items-center gap-2 font-bold tracking-tight">
           <BrandLogo size="sm" />
           <span className="font-black text-lg">Byjan</span>
         </div>
         <div className="flex items-center gap-2">
-          <GlobalSearch />
-          <button onClick={() => setNotificationsPanelOpen(true)} className="relative p-2 text-zinc-400 hover:text-white">
+          <SearchTrigger />
+          <button onClick={() => setNotificationsPanelOpen(true)} className="relative p-2 text-white hover:bg-white/15 rounded-lg">
             <Bell className="w-5 h-5" />
             {unreadCount > 0 && <span className="absolute top-1 right-1 w-2 h-2 bg-rose-500 rounded-full"></span>}
           </button>
-          <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="p-2 text-zinc-400 hover:text-white">
+          <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="p-2 text-white hover:bg-white/15 rounded-lg">
             {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
         </div>
       </div>
 
-      {/* Sidebar Navigation */}
       <div
         onMouseEnter={handleSidebarEnter}
         onMouseLeave={handleSidebarLeave}
         className={cn(
-        "fixed inset-y-0 left-0 z-40 bg-[#161616] text-[#8a8a8a] transition-all duration-300 ease-in-out md:relative md:h-screen flex flex-col shadow-2xl md:shadow-none",
-        mobileMenuOpen ? "translate-x-0 w-64" : "-translate-x-full md:translate-x-0",
-        isExpanded ? "md:w-64" : "md:w-20"
-      )}>
-        {/* Pin / collapse toggle */}
-        <button 
+          "fixed inset-y-0 left-0 z-40 bg-[#0B1F3A] text-white transition-all duration-300 ease-in-out md:relative md:h-screen flex flex-col shadow-2xl md:shadow-none",
+          mobileMenuOpen ? "translate-x-0 w-72" : "-translate-x-full md:translate-x-0",
+          isExpanded ? "md:w-72" : "md:w-20"
+        )}
+      >
+        <button
           onClick={() => setIsPinned(!isPinned)}
-          className="hidden md:flex absolute -right-3 top-6 w-6 h-6 bg-[#2a2a2a] text-[#8a8a8a] hover:text-white rounded-full items-center justify-center z-50"
+          className="hidden md:flex absolute -right-3 top-6 w-6 h-6 bg-white text-[#0B1F3A] hover:bg-teal-50 rounded-full items-center justify-center z-50 shadow border border-slate-200"
           title={isPinned ? "Unpin sidebar" : "Pin sidebar open"}
         >
           {isExpanded ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
         </button>
 
-        {/* Logo */}
-        <div className={cn("p-6 flex items-center", isExpanded ? "gap-3" : "justify-center")}>
+        <div className={cn("p-5 flex items-center", isExpanded ? "gap-3" : "justify-center")}>
           <BrandLogo size="sm" />
           {isExpanded && (
             <div className="min-w-0">
               <p className="font-bold text-xl text-white tracking-tight leading-none">Byjan</p>
-              <p className="text-[10px] text-[#8a8a8a] tracking-wide mt-1">Trace Financials Easily</p>
+              <p className="text-[11px] text-slate-200 tracking-wide mt-1">Trace Financials Easily</p>
             </div>
           )}
         </div>
 
-        {/* Search */}
-        <div className="px-4 mb-6">
-          <div className={cn("flex items-center bg-[#1f1f1f] rounded-xl border border-[#2a2a2a] transition-all", isExpanded ? "px-3 py-2.5 gap-2" : "p-3 justify-center")}>
-            <Search className="w-4 h-4 text-[#8a8a8a]" />
-            {isExpanded && (
-              <>
-                <input type="text" placeholder="Search" className="bg-transparent border-none outline-none text-sm text-white w-full placeholder:text-[#8a8a8a]" />
-                <div className="flex items-center gap-1 bg-[#2a2a2a] px-1.5 py-0.5 rounded text-[10px] font-medium text-[#8a8a8a]">
-                  <span>⌘</span>
-                  <span>S</span>
-                </div>
-              </>
-            )}
-          </div>
+        <div className="px-3 mb-4">
+          {isExpanded ? <SearchTrigger variant="sidebar" /> : <div className="flex justify-center"><SearchTrigger variant="icon" /></div>}
         </div>
 
-        {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto scrollbar-none px-4 space-y-6">
-          <div>
-            {isExpanded && <div className="text-[10px] font-bold tracking-widest text-[#5a5a5a] uppercase mb-3 ml-2">Main</div>}
-            <div className="space-y-1">
-              {navigation.map((item) => {
-                const isSectionActive = item.groups
-                  ? location.pathname === item.href || location.pathname.startsWith(`${item.href}/`)
-                  : location.pathname === item.href || (location.pathname.startsWith('/book/') && item.href === '/');
-                const showSubItems = Boolean(item.groups) && isExpanded && (
-                  mobileMenuOpen
-                    ? mobileExpandedMenu === item.name
-                    : hoveredMenu === item.name || isSectionActive
-                );
-                
-                return (
-                  <div
-                    key={item.name}
-                    className="relative"
-                    onMouseEnter={() => setHoveredMenu(item.name)}
-                    onMouseLeave={() => setHoveredMenu((current) => current === item.name ? null : current)}
-                  >
-                    <Link
-                      to={item.isNotification ? '#' : item.href}
-                      onClick={(e) => {
-                        if (item.isNotification) {
-                          e.preventDefault();
-                          setNotificationsPanelOpen(true);
-                        } else if (item.groups && mobileMenuOpen) {
-                          e.preventDefault();
-                          setMobileExpandedMenu((current) => current === item.name ? null : item.name);
-                        } else {
-                          setMobileMenuOpen(false);
-                        }
-                      }}
-                      className={cn(
-                        "flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-sm transition-all duration-200 group",
-                        isSectionActive && !item.isNotification ? "bg-[#2a2a2a] text-white" : "hover:bg-[#1f1f1f] hover:text-white text-[#8a8a8a]"
+        <nav className="flex-1 overflow-y-auto overflow-x-visible px-3 space-y-1 pb-4">
+          {isExpanded && <div className="text-[10px] font-bold tracking-widest text-slate-300 uppercase mb-2 ml-2">Main</div>}
+          {navigation.map((item) => {
+            const isSectionActive = item.groups
+              ? onBooks
+              : location.pathname === item.href || (location.pathname.startsWith('/book/') && item.href === '/');
+            const booksOpen = Boolean(item.groups) && (
+              mobileMenuOpen
+                ? mobileExpandedMenu === item.name
+                : hoveredMenu === item.name || (isExpanded && isSectionActive)
+            );
+
+            return (
+              <div
+                key={item.name}
+                className="relative"
+                onMouseEnter={() => {
+                  setHoveredMenu(item.name);
+                  if (!item.groups) setHoveredGroup(null);
+                }}
+              >
+                <Link
+                  to={item.isNotification ? '#' : item.href}
+                  onClick={(e) => {
+                    if (item.isNotification) {
+                      e.preventDefault();
+                      setNotificationsPanelOpen(true);
+                    } else if (item.groups && mobileMenuOpen) {
+                      e.preventDefault();
+                      setMobileExpandedMenu((current) => current === item.name ? null : item.name);
+                    } else {
+                      setMobileMenuOpen(false);
+                    }
+                  }}
+                  className={linkClass(isSectionActive && !item.isNotification)}
+                >
+                  <item.icon className="w-5 h-5 shrink-0" />
+                  {isExpanded && (
+                    <div className="flex-1 flex justify-between items-center">
+                      <span>{item.name}</span>
+                      {item.groups && <Chevron className="w-4 h-4 opacity-70" />}
+                      {item.isNotification && unreadCount > 0 && (
+                        <span className="w-2 h-2 bg-rose-400 rounded-full"></span>
                       )}
-                    >
-                      <item.icon className={cn("w-5 h-5 shrink-0 transition-colors", isSectionActive && !item.isNotification ? "text-white" : "group-hover:text-white")} />
-                      {isExpanded && (
-                        <div className="flex-1 flex justify-between items-center">
-                          {item.name}
-                          {item.isNotification && unreadCount > 0 && (
-                            <span className="w-2 h-2 bg-rose-500 rounded-full"></span>
-                          )}
+                    </div>
+                  )}
+                </Link>
+
+                {item.groups && booksOpen && isExpanded && (
+                  <div className="mt-1 mb-2 ml-2 pl-2 border-l border-white/20 space-y-2">
+                    {item.groups.map((group) => (
+                      <div
+                        key={group.title}
+                        className="relative"
+                        onMouseEnter={() => setHoveredGroup(group.title)}
+                      >
+                        <p className="px-2 py-1 text-[11px] uppercase tracking-wider text-teal-200 font-bold">{group.title}</p>
+                        <div className="space-y-0.5">
+                          {group.items.map((sub) => {
+                            const isSubActive = location.pathname === sub.href || (sub.href !== '/books' && location.pathname.startsWith(sub.href));
+                            return (
+                              <Link
+                                key={sub.href}
+                                to={sub.href}
+                                onClick={() => setMobileMenuOpen(false)}
+                                className={cn(
+                                  "block ml-1 px-2.5 py-1.5 rounded-lg text-[13px] font-medium",
+                                  isSubActive ? "bg-white text-[#0B1F3A]" : "text-white hover:bg-white/20"
+                                )}
+                              >
+                                {sub.name}
+                              </Link>
+                            );
+                          })}
                         </div>
-                      )}
-                    </Link>
-                    
-                    {item.groups && (
-                      <div className={cn('grid transition-[grid-template-rows] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]', showSubItems ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]')}>
-                        <div className="overflow-hidden">
-                          <div className="ml-5 mt-1 relative pb-1">
-                            <div className="absolute left-[9px] top-0 bottom-4 w-px bg-[#2a2a2a]"></div>
-                            {item.groups.map((group) => (
-                              <div key={group.title || 'features'} className="mt-2">
-                                {group.title ? <div className="ml-6 px-3 py-1 text-[10px] uppercase tracking-wider text-[#5a5a5a] font-bold">{group.title}</div> : null}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {item.groups && hoveredMenu === item.name && !mobileMenuOpen && (
+                  <div
+                    className={cn(
+                      "hidden md:block fixed z-[60] top-24",
+                      isExpanded ? "left-72" : "left-20"
+                    )}
+                    onMouseEnter={() => {
+                      setHoveredMenu(item.name);
+                      handleSidebarEnter();
+                    }}
+                  >
+                    <div className="flex items-start">
+                      <div className="w-56 rounded-2xl bg-white text-slate-900 shadow-2xl border border-slate-200 py-2">
+                        <p className="px-3 pb-1 text-[10px] uppercase tracking-widest text-teal-700 font-bold">Books</p>
+                        {item.groups.map((group) => (
+                          <div
+                            key={group.title}
+                            className="relative"
+                            onMouseEnter={() => setHoveredGroup(group.title)}
+                          >
+                            <div className={cn(
+                              "flex items-center justify-between px-3 py-2 text-sm font-semibold cursor-default",
+                              hoveredGroup === group.title ? "bg-slate-100 text-[#0B1F3A]" : "text-slate-800 hover:bg-slate-50"
+                            )}>
+                              {group.title}
+                              <Chevron className="w-4 h-4 text-slate-400" />
+                            </div>
+                            {hoveredGroup === group.title && (
+                              <div className="absolute left-full top-0 ml-1 w-56 rounded-2xl bg-white shadow-2xl border border-slate-200 py-2">
                                 {group.items.map((sub) => {
                                   const isSubActive = location.pathname === sub.href;
                                   return (
-                                    <div key={sub.href} className="relative flex items-center mt-0.5">
-                                      <div className="absolute left-[9px] top-1/2 w-3 h-px bg-[#2a2a2a]"></div>
-                                      <Link
-                                        to={sub.href}
-                                        onClick={() => setMobileMenuOpen(false)}
-                                        className={cn(
-                                          "ml-6 px-3 py-1.5 rounded-lg text-sm w-full transition-colors",
-                                          isSubActive ? "bg-[#2a2a2a] text-white" : "text-[#8a8a8a] hover:text-white hover:bg-[#1f1f1f]"
-                                        )}
-                                      >
-                                        {sub.name}
-                                      </Link>
-                                    </div>
+                                    <Link
+                                      key={sub.href}
+                                      to={sub.href}
+                                      onClick={() => setMobileMenuOpen(false)}
+                                      className={cn(
+                                        "block px-3 py-2 text-sm font-medium",
+                                        isSubActive ? "bg-teal-50 text-teal-900" : "text-slate-800 hover:bg-slate-50"
+                                      )}
+                                    >
+                                      {sub.name}
+                                    </Link>
                                   );
                                 })}
                               </div>
-                            ))}
+                            )}
                           </div>
-                        </div>
+                        ))}
                       </div>
-                    )}
+                    </div>
                   </div>
-                );
-              })}
-            </div>
-          </div>
+                )}
+              </div>
+            );
+          })}
         </nav>
 
-        {/* Profile */}
-        <div className="p-4 mt-auto">
-          <div className={cn("flex items-center bg-[#1f1f1f] border border-[#2a2a2a] rounded-xl cursor-pointer hover:bg-[#2a2a2a] transition-colors relative group", isExpanded ? "p-3 gap-3" : "p-2 justify-center")}>
-            <div className="w-8 h-8 rounded-full bg-[#3a3a3a] text-white flex items-center justify-center font-bold text-sm shrink-0 overflow-hidden">
+        <div className="p-3 mt-auto">
+          <div className={cn("flex items-center bg-white/10 border border-white/15 rounded-xl cursor-pointer hover:bg-white/15 transition-colors relative group", isExpanded ? "p-3 gap-3" : "p-2 justify-center")}>
+            <div className="w-8 h-8 rounded-full bg-white text-[#0B1F3A] flex items-center justify-center font-bold text-sm shrink-0 overflow-hidden">
               {userProfile?.photoURL ? (
                 <img src={userProfile.photoURL} alt="Profile" className="w-full h-full object-cover" />
               ) : (
@@ -260,17 +300,14 @@ export default function Layout() {
               <>
                 <div className="flex-1 overflow-hidden">
                   <p className="text-sm font-semibold text-white truncate">{userProfile?.displayName || 'User'}</p>
-                  <p className="text-[10px] text-[#8a8a8a] font-medium uppercase tracking-wider truncate">Designer</p>
+                  <p className="text-[10px] text-slate-200 font-medium truncate">{userProfile?.email}</p>
                 </div>
-                <ChevronRight className="w-4 h-4 text-[#5a5a5a]" />
               </>
             )}
-            
-            {/* Hover sign out menu (simple for now) */}
-            <div className="absolute bottom-full left-0 mb-2 w-full bg-[#2a2a2a] rounded-xl border border-[#3a3a3a] shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
-              <button 
+            <div className="absolute bottom-full left-0 mb-2 w-full bg-white rounded-xl border border-slate-200 shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
+              <button
                 onClick={logout}
-                className="w-full flex items-center gap-2 p-3 text-white hover:bg-[#3a3a3a] rounded-xl text-sm font-medium transition-colors"
+                className="w-full flex items-center gap-2 p-3 text-slate-800 hover:bg-slate-50 rounded-xl text-sm font-medium transition-colors"
               >
                 <LogOut className="w-4 h-4" />
                 {isExpanded && "Sign Out"}
@@ -280,8 +317,18 @@ export default function Layout() {
         </div>
       </div>
 
-      {/* Main Content */}
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+        <div className="hidden md:flex shrink-0 items-center gap-3 px-4 lg:px-6 py-2.5 bg-white border-b border-slate-200">
+          <SearchTrigger variant="bar" />
+          <button
+            onClick={() => setNotificationsPanelOpen(true)}
+            className="relative ml-auto p-2 text-slate-600 hover:bg-slate-100 rounded-lg"
+            title="Notifications"
+          >
+            <Bell className="w-5 h-5" />
+            {unreadCount > 0 && <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full"></span>}
+          </button>
+        </div>
         <main className={cn(
           "flex-1 min-h-0",
           location.pathname.startsWith('/books')
@@ -292,12 +339,11 @@ export default function Layout() {
         </main>
       </div>
 
-      {/* Notifications Panel */}
       {notificationsPanelOpen && (
         <>
-          <div 
-            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 transition-opacity" 
-            onClick={() => setNotificationsPanelOpen(false)} 
+          <div
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 transition-opacity"
+            onClick={() => setNotificationsPanelOpen(false)}
           />
           <div className="fixed inset-y-0 right-0 w-full max-w-sm bg-white shadow-2xl z-50 flex flex-col animate-in slide-in-from-right-8 duration-300">
             <div className="p-4 border-b flex items-center justify-between bg-slate-50">
@@ -316,8 +362,8 @@ export default function Layout() {
                 </div>
               ) : (
                 notifications.map(notif => (
-                  <div 
-                    key={notif.id} 
+                  <div
+                    key={notif.id}
                     className={cn(
                       "p-3 rounded-lg border text-sm transition-colors",
                       notif.read ? "bg-white border-slate-200" : "bg-indigo-50/50 border-indigo-200"
@@ -326,7 +372,7 @@ export default function Layout() {
                     <div className="flex justify-between items-start mb-1">
                       <span className="font-semibold text-slate-800">{notif.bookName}</span>
                       {!notif.read && (
-                        <button 
+                        <button
                           onClick={() => handleMarkAsRead(notif.id)}
                           className="text-indigo-600 hover:text-indigo-700"
                           title="Mark as read"
