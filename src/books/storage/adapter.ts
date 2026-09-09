@@ -59,6 +59,7 @@ export async function storeBooksFile(tenantId: string, fileId: string, file: Fil
     body: file,
   });
   const payload = await res.json().catch(() => ({ error: 'Upload failed' }));
+  if (res.status === 429) throw new Error(payload.error || 'Blob storage rate limit reached. Wait a minute and try again.');
   if (!res.ok) throw new Error(payload.error || 'Upload failed');
   const url = String(payload.url || '');
   const pathname = String(payload.pathname || `erp_workspaces/${tenantId}/files/${fileId}.${meta.ext}`);

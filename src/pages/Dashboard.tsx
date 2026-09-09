@@ -85,12 +85,15 @@ export default function Dashboard() {
     }
   };
 
-  useEffect(() => { 
-    fetchData(); 
-    if (userProfile && !newCurrency) {
-      setNewCurrency(userProfile.defaultCurrency || 'INR');
+  useEffect(() => {
+    fetchData();
+  }, [currentUser?.uid, userProfile?.email]);
+
+  useEffect(() => {
+    if (userProfile?.defaultCurrency && !newCurrency) {
+      setNewCurrency(userProfile.defaultCurrency);
     }
-  }, [currentUser, userProfile]);
+  }, [userProfile?.defaultCurrency, newCurrency]);
 
   const handleCreateBook = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -20,10 +20,6 @@ export default function BrandLogo({ size = 'sm', className = '' }: BrandLogoProp
     <div className={`${sizes[size]} ${className} overflow-hidden rounded-lg bg-white shrink-0 ring-1 ring-slate-200/80`.trim()}>
       <img
         src="/logo.png"
-        onError={(e) => {
-          e.currentTarget.onerror = null;
-          e.currentTarget.src = '/byjan-logo.jpg';
-        }}
         alt="Byjan — Trace Financials Easily"
         className={`w-full h-full ${crop}`}
       />

@@ -45,6 +45,19 @@ function token() {
   return value;
 }
 
+function blobErrorStatus(err: any) {
+  const status = Number(err?.status || err?.statusCode || 0);
+  if (status === 429 || /429|rate.?limit/i.test(String(err?.message || ''))) return 429;
+  if (err?.message === 'Blob storage is not configured') return 503;
+  return 500;
+}
+
+function blobErrorMessage(err: any, fallback: string) {
+  if (err?.message === 'Blob storage is not configured') return err.message;
+  if (blobErrorStatus(err) === 429) return 'Blob storage rate limit reached. Wait a minute and try again.';
+  return fallback;
+}
+
 export async function handleBlobUploadRequest(
   req: IncomingMessage & { body?: unknown },
   res: ServerResponse,
@@ -97,8 +110,7 @@ export async function handleBlobUploadRequest(
 
     sendJson(res, 200, { url: blob.url, pathname: blob.pathname });
   } catch (err: any) {
-    const message = err?.message === 'Blob storage is not configured' ? err.message : 'Upload failed';
-    sendJson(res, err?.message === 'Blob storage is not configured' ? 503 : 500, { error: message });
+    sendJson(res, blobErrorStatus(err), { error: blobErrorMessage(err, 'Upload failed') });
   }
 }
 
@@ -134,7 +146,6 @@ export async function handleBlobDeleteRequest(
     await del(url, { token: token() });
     sendJson(res, 200, { ok: true });
   } catch (err: any) {
-    const message = err?.message === 'Blob storage is not configured' ? err.message : 'Delete failed';
-    sendJson(res, err?.message === 'Blob storage is not configured' ? 503 : 500, { error: message });
+    sendJson(res, blobErrorStatus(err), { error: blobErrorMessage(err, 'Delete failed') });
   }
 }

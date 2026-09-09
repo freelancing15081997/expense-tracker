@@ -291,6 +291,13 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
     }
   }, [currentUser, tenantId, userProfile?.displayName, userProfile?.email]);
 
+  const refreshFiles = useCallback(async () => {
+    if (!tenantId) return;
+    const extras = await loadFilesAndTemplates(db, tenantId);
+    setFiles(extras.files);
+    setTemplates(extras.templates);
+  }, [tenantId]);
+
   useEffect(() => {
     if (!currentUser) {
       setLoading(false);
@@ -379,12 +386,19 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
       createApproval: (input) => after(() => saveApproval(ctx(), input)),
       decide: (id, status) => after(() => decideApproval(ctx(), id, status)),
       postTds: (input) => after(() => withholdTds(ctx(), input, accounts)),
-      uploadFile: (input) => after(() => uploadWorkspaceFile(ctx(), input)),
-      archiveFile: (file) => after(() => archiveWorkspaceFile(ctx(), file)),
+      uploadFile: async (input) => {
+        const result = await uploadWorkspaceFile(ctx(), input);
+        await refreshFiles();
+        return result;
+      },
+      archiveFile: async (file) => {
+        await archiveWorkspaceFile(ctx(), file);
+        await refreshFiles();
+      },
       createTemplate: (input) => after(() => saveTemplate(ctx(), input)),
       archiveTemplate: (id) => after(() => removeTemplate(ctx(), id)),
     };
-  }, [accounts, approvals, assets, audit, bankTxns, budgets, contracts, ctx, documents, entities, error, files, inbox, journals, leases, loading, parties, periods, products, projects, recurring, refresh, role, taxCodes, templates, tenant, tenantId, workpapers]);
+  }, [accounts, approvals, assets, audit, bankTxns, budgets, contracts, ctx, documents, entities, error, files, inbox, journals, leases, loading, parties, periods, products, projects, recurring, refresh, refreshFiles, role, taxCodes, templates, tenant, tenantId, workpapers]);
 
   return <BooksContext.Provider value={value}>{children}</BooksContext.Provider>;
 }

@@ -133,7 +133,10 @@ export default function BookView() {
       exps.sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt));
       setExpenses(exps);
       setLoading(false);
-    }, (err) => { console.error("Snapshot error on", q, err); });
+    }, (err) => {
+      console.error('Snapshot error on', q, err);
+      if ((err as { code?: string }).code === 'resource-exhausted') unsubscribe();
+    });
 
     
     return () => unsubscribe();

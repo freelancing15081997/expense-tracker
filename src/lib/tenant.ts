@@ -39,7 +39,7 @@ export function useBooksTenantMeta() {
       .catch(() => {
         setTenant({ id: uid, name: 'Books workspace', ownerId: uid, memberCount: 1 });
       });
-  }, [currentUser]);
+  }, [currentUser?.uid]);
 
   return tenant;
 }

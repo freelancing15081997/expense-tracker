@@ -155,8 +155,8 @@ export default function GlobalSearch() {
   }, []);
 
   useEffect(() => {
-    if (currentUser) loadBooksFast(currentUser.uid).catch(() => {});
-  }, [currentUser]);
+    if (currentUser?.uid) loadBooksFast(currentUser.uid).catch(() => {});
+  }, [currentUser?.uid]);
 
   useEffect(() => {
     const term = searchQuery.trim();

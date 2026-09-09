@@ -58,7 +58,10 @@ export default function Layout() {
       };
       notifs.sort((a, b) => millis(b.createdAt) - millis(a.createdAt));
       setNotifications(notifs);
-    }, (err) => { console.error('Snapshot error on', q, err); });
+    }, (err) => {
+      console.error('Snapshot error on', q, err);
+      if ((err as { code?: string }).code === 'resource-exhausted') unsub();
+    });
     return () => unsub();
   }, [currentUser]);
 
