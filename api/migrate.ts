@@ -43,9 +43,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    const { importFirestoreForUser } = await import('./_lib/firestore-import');
-    const result = await importFirestoreForUser(uid, token);
-    json(res, 200, result);
+    // Records are read from Firestore by /api/kv when Postgres is unset.
+    // Copying here would import api/_lib, which Vercel does not bundle.
+    json(res, 200, { copied: 0, skipped: true });
   } catch (err: any) {
     json(res, 500, { error: err?.message || 'Copy failed' });
   }
