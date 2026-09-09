@@ -1,68 +1,91 @@
 import type { IncomingMessage, ServerResponse } from 'http';
-import { applyCors, authBaseUrl, readJsonBody, sendJson } from './helpers';
+import { applyCors, authBaseUrl, requestPath, sendJson } from './http';
 
-const HOP = new Set(['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'host', 'content-length']);
+const FORWARD = new Set([
+  'accept',
+  'authorization',
+  'content-type',
+  'cookie',
+  'origin',
+  'referer',
+  'user-agent',
+  'x-csrf-token',
+]);
 
 export function neonAuthSuffix(pathname: string) {
   const clean = pathname.replace(/\/+$/, '') || '/';
   if (clean === '/api/auth' || clean === '/neondb/auth') return '';
-  return clean.replace(/^\/api\/auth\/?/, '').replace(/^\/neondb\/auth\/?/, '');
+  return clean
+    .replace(/^\/api\/auth\/?/, '')
+    .replace(/^\/neondb\/auth\/?/, '')
+    .replace(/^\/+/, '');
+}
+
+function suffixFromRequest(req: IncomingMessage, fallback: string) {
+  const url = requestPath(req);
+  const fromPath = neonAuthSuffix(url.pathname);
+  if (fromPath) return fromPath;
+  const query = (req as IncomingMessage & { query?: Record<string, string | string[]> }).query || {};
+  const catchAll = query.path ?? query.all;
+  if (Array.isArray(catchAll) && catchAll.length) return catchAll.join('/');
+  if (typeof catchAll === 'string' && catchAll) return catchAll;
+  return String(fallback || '').replace(/^\/+/, '');
+}
+
+async function readRawBody(req: IncomingMessage & { body?: unknown }): Promise<Buffer | undefined> {
+  if (Buffer.isBuffer(req.body)) return req.body;
+  if (typeof req.body === 'string') return Buffer.from(req.body);
+  if (req.body && typeof req.body === 'object') return Buffer.from(JSON.stringify(req.body));
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  return chunks.length ? Buffer.concat(chunks) : undefined;
 }
 
 export async function proxyToNeonAuth(req: IncomingMessage & { body?: unknown }, res: ServerResponse, suffix: string) {
   applyCors(req, res);
   const base = authBaseUrl();
   if (!base) {
-    sendJson(res, 503, { error: 'Neon Auth is not configured. Set NEON_AUTH_BASE_URL and VITE_NEON_AUTH_URL.' });
+    sendJson(res, 503, { error: 'Neon Auth is not configured. Set NEON_AUTH_BASE_URL on Vercel (Production).' });
     return;
   }
 
-  const incoming = new URL(String((req as IncomingMessage & { originalUrl?: string }).originalUrl || req.url || '/'), 'http://local');
-  const path = String(suffix || '').replace(/^\/+/, '');
+  const incoming = requestPath(req);
+  const path = suffixFromRequest(req, suffix);
   const target = `${base}${path ? `/${path}` : ''}${incoming.search}`;
 
   const headers = new Headers();
   for (const [key, value] of Object.entries(req.headers)) {
-    if (!value || HOP.has(key.toLowerCase())) continue;
-    headers.set(key, Array.isArray(value) ? value.join(', ') : value);
+    const name = key.toLowerCase();
+    if (!FORWARD.has(name) || !value) continue;
+    headers.set(name, Array.isArray(value) ? value.join('; ') : value);
   }
+  const origin = String(req.headers.origin || '').trim();
+  if (origin) headers.set('origin', origin);
 
   const init: RequestInit = { method: req.method || 'GET', headers, redirect: 'manual' };
-  if (req.method && !['GET', 'HEAD'].includes(req.method.toUpperCase())) {
-    if (req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) {
+  const method = String(req.method || 'GET').toUpperCase();
+  if (method !== 'GET' && method !== 'HEAD') {
+    const body = await readRawBody(req);
+    if (body && body.length) {
+      init.body = new Uint8Array(body);
       if (!headers.has('content-type')) headers.set('content-type', 'application/json');
-      init.body = JSON.stringify(req.body);
-    } else {
-      const chunks: Buffer[] = [];
-      for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-      if (chunks.length) init.body = Buffer.concat(chunks);
     }
   }
 
   try {
     const upstream = await fetch(target, init);
     res.statusCode = upstream.status;
+    const cookies = typeof upstream.headers.getSetCookie === 'function' ? upstream.headers.getSetCookie() : [];
+    if (cookies.length) res.setHeader('set-cookie', cookies);
     upstream.headers.forEach((value, key) => {
-      if (HOP.has(key.toLowerCase())) return;
-      if (key.toLowerCase() === 'set-cookie') return;
+      const name = key.toLowerCase();
+      if (name === 'set-cookie' || name === 'content-encoding' || name === 'content-length' || name === 'transfer-encoding') return;
       res.setHeader(key, value);
     });
-    const cookies = typeof upstream.headers.getSetCookie === 'function'
-      ? upstream.headers.getSetCookie()
-      : [];
-    if (cookies.length) res.setHeader('set-cookie', cookies);
+    res.setHeader('content-type', upstream.headers.get('content-type') || 'application/json');
     const buf = Buffer.from(await upstream.arrayBuffer());
     res.end(buf);
   } catch (err: any) {
     sendJson(res, 502, { error: err?.message || 'Auth proxy failed' });
-  }
-}
-
-export async function readBodyIfNeeded(req: IncomingMessage & { body?: unknown }) {
-  if (req.body !== undefined) return req.body;
-  try {
-    return await readJsonBody(req);
-  } catch {
-    return {};
   }
 }
