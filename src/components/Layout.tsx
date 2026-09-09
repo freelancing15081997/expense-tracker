@@ -27,6 +27,9 @@ export default function Layout() {
   const [notificationsPanelOpen, setNotificationsPanelOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flyoutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const booksRowRef = useRef<HTMLDivElement>(null);
+  const [flyoutPos, setFlyoutPos] = useState({ top: 160, left: 288 });
 
   const isExpanded = mobileMenuOpen || isPinned || isSidebarHovered;
   const onBooks = location.pathname === '/books' || location.pathname.startsWith('/books/');
@@ -50,6 +53,7 @@ export default function Layout() {
   useEffect(() => {
     return () => {
       if (collapseTimer.current) clearTimeout(collapseTimer.current);
+      if (flyoutTimer.current) clearTimeout(flyoutTimer.current);
     };
   }, []);
 
@@ -161,16 +165,29 @@ export default function Layout() {
             return (
               <div
                 key={item.name}
+                ref={item.groups ? booksRowRef : undefined}
                 className="relative"
                 onMouseEnter={() => {
                   if (mobileMenuOpen) return;
+                  if (flyoutTimer.current) clearTimeout(flyoutTimer.current);
                   setHoveredMenu(item.name);
                   if (!item.groups) setHoveredGroup(null);
+                  if (item.groups && booksRowRef.current) {
+                    const r = booksRowRef.current.getBoundingClientRect();
+                    const width = 224;
+                    const maxTop = window.innerHeight - 24 - 360;
+                    setFlyoutPos({
+                      top: Math.max(12, Math.min(r.top, maxTop)),
+                      left: Math.min(r.right + 8, window.innerWidth - width - 12),
+                    });
+                  }
                 }}
                 onMouseLeave={() => {
                   if (mobileMenuOpen) return;
-                  if (item.groups) return;
-                  setHoveredMenu((current) => current === item.name ? null : current);
+                  flyoutTimer.current = setTimeout(() => {
+                    setHoveredMenu((current) => current === item.name ? null : current);
+                    if (item.groups) setHoveredGroup(null);
+                  }, 120);
                 }}
               >
                 <Link
@@ -236,8 +253,10 @@ export default function Layout() {
 
                 {item.groups && hoveredMenu === item.name && !mobileMenuOpen && (
                   <div
-                    className={cn("hidden md:block fixed z-[60] top-28", isExpanded ? "left-72" : "left-20")}
+                    className="hidden md:block fixed z-[60] w-56 max-h-[min(22rem,calc(100vh-1.5rem))] overflow-y-auto rounded-xl bg-white text-slate-900 nav-flyout"
+                    style={{ top: flyoutPos.top, left: flyoutPos.left }}
                     onMouseEnter={() => {
+                      if (flyoutTimer.current) clearTimeout(flyoutTimer.current);
                       setHoveredMenu(item.name);
                       handleSidebarEnter();
                     }}
@@ -246,41 +265,42 @@ export default function Layout() {
                       setHoveredMenu(null);
                     }}
                   >
-                    <div className="nav-flyout w-60 rounded-2xl bg-white text-slate-900 py-2">
-                      <p className="px-3 pb-1 text-[10px] uppercase tracking-widest text-teal-700 font-bold">Books</p>
-                      {item.groups.map((group) => (
-                        <div
-                          key={group.title}
-                          className="relative"
-                          onMouseEnter={() => setHoveredGroup(group.title)}
-                        >
-                          <div className={cn(
-                            "nav-item-3d flex items-center justify-between px-3 py-2.5 text-sm font-semibold rounded-lg mx-1",
-                            hoveredGroup === group.title ? "bg-slate-100 text-[#0B1F3A]" : "text-slate-800"
-                          )}>
-                            {group.title}
-                            <Chevron className="w-4 h-4 text-slate-400" />
-                          </div>
-                          {hoveredGroup === group.title && (
-                            <div className="nav-flyout absolute left-full top-0 ml-2 w-60 rounded-2xl bg-white py-2">
-                              {group.items.map((sub) => (
-                                <Link
-                                  key={sub.href}
-                                  to={sub.href}
-                                  onClick={() => setMobileMenuOpen(false)}
-                                  className={cn(
-                                    "nav-item-3d block mx-1 px-3 py-2 rounded-lg text-sm font-medium",
-                                    location.pathname === sub.href ? "bg-teal-50 text-teal-900" : "text-slate-800 hover:bg-slate-50"
-                                  )}
-                                >
-                                  {sub.name}
-                                </Link>
-                              ))}
-                            </div>
-                          )}
+                    <p className="px-3 pt-2.5 pb-1 text-[10px] uppercase tracking-widest text-teal-700 font-bold sticky top-0 bg-white">Books</p>
+                    {item.groups.map((group) => (
+                      <div
+                        key={group.title}
+                        onMouseEnter={() => setHoveredGroup(group.title)}
+                      >
+                        <div className={cn(
+                          "flex items-center justify-between px-3 py-2 text-sm font-semibold",
+                          hoveredGroup === group.title ? "bg-slate-100 text-[#0B1F3A]" : "text-slate-800"
+                        )}>
+                          {group.title}
+                          <Chevron className={cn("w-3.5 h-3.5 text-slate-400 transition-transform", hoveredGroup === group.title && "rotate-90")} />
                         </div>
-                      ))}
-                    </div>
+                        {hoveredGroup === group.title && (
+                          <div className="pb-1">
+                            {group.items.map((sub) => (
+                              <Link
+                                key={sub.href}
+                                to={sub.href}
+                                onClick={() => {
+                                  setHoveredMenu(null);
+                                  setHoveredGroup(null);
+                                  setMobileMenuOpen(false);
+                                }}
+                                className={cn(
+                                  "block mx-2 px-2.5 py-1.5 rounded-md text-[13px] font-medium",
+                                  location.pathname === sub.href ? "bg-teal-50 text-teal-900" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                                )}
+                              >
+                                {sub.name}
+                              </Link>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
