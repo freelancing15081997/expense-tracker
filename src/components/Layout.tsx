@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { signOut, auth, db } from '../lib/firebase';
+import { logout, db } from '../lib/firebase';
 import { Wallet, LogOut, LayoutDashboard, Settings, Menu, X, Receipt, BookOpen, Bell, CheckCircle2, Search, FileText, CreditCard, ChevronLeft, ChevronRight, Plus, Users, ArrowRightLeft } from 'lucide-react';
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { collection, query, where, onSnapshot, updateDoc, doc } from 'firebase/firestore';
 import BrandLogo from './BrandLogo';
+import GlobalSearch from './GlobalSearch';
 import { BOOKS_NAV } from '../books/nav';
 
 function cn(...inputs: ClassValue[]) {
@@ -98,7 +99,8 @@ export default function Layout() {
           <BrandLogo size="sm" />
           <span className="font-black text-lg">Byjan</span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <GlobalSearch />
           <button onClick={() => setNotificationsPanelOpen(true)} className="relative p-2 text-zinc-400 hover:text-white">
             <Bell className="w-5 h-5" />
             {unreadCount > 0 && <span className="absolute top-1 right-1 w-2 h-2 bg-rose-500 rounded-full"></span>}
@@ -267,7 +269,7 @@ export default function Layout() {
             {/* Hover sign out menu (simple for now) */}
             <div className="absolute bottom-full left-0 mb-2 w-full bg-[#2a2a2a] rounded-xl border border-[#3a3a3a] shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
               <button 
-                onClick={() => signOut(auth)}
+                onClick={logout}
                 className="w-full flex items-center gap-2 p-3 text-white hover:bg-[#3a3a3a] rounded-xl text-sm font-medium transition-colors"
               >
                 <LogOut className="w-4 h-4" />
