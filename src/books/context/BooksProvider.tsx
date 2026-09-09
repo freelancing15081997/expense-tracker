@@ -285,7 +285,10 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
       setFiles(extras.files);
       setTemplates(extras.templates);
     } catch (err: any) {
-      setError(err?.message || 'Failed to open Books');
+      const quota = err?.code === 'resource-exhausted' || String(err?.message || '').includes('resource-exhausted') || String(err?.message || '').includes('429');
+      setError(quota
+        ? 'Firebase Firestore write quota is exhausted (not Vercel Blob). Wait for the daily Spark reset or enable billing on this Firebase project, then reload.'
+        : (err?.message || 'Failed to open Books'));
     } finally {
       setLoading(false);
     }

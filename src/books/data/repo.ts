@@ -72,8 +72,16 @@ function mapDocs<T>(snap: QuerySnapshot): T[] {
   return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Record<string, unknown>) } as T));
 }
 
+function provisionCacheKey(uid: string) {
+  return `byjan_books_ready_${uid}`;
+}
+
 export async function resolveTenantId(db: Firestore, uid: string, email: string, displayName: string): Promise<string> {
   const tenantId = uid;
+  try {
+    if (sessionStorage.getItem(provisionCacheKey(uid)) === '1') return tenantId;
+  } catch { /* private mode */ }
+
   const tRef = tenantRef(db, tenantId);
   const existing = await getDoc(tRef);
   if (!existing.exists()) {
@@ -91,38 +99,44 @@ export async function resolveTenantId(db: Firestore, uid: string, email: string,
     }));
   }
   const sentinel = doc(col(db, tenantId, 'entities'), 'default');
-  await runTransaction(db, async (tx) => {
-    const already = await tx.get(sentinel);
-    if (already.exists()) return;
-    const accounts = seedAccounts();
-    const periodId = periodIdFromDate(todayISO());
-    const [year, month] = periodId.split('-').map(Number);
-    const codeToId = new Map<string, string>();
-    tx.set(sentinel, clean({ name: displayName || 'Default entity', country: 'IN', isDefault: true }));
-    for (const account of accounts) {
-      const ref = doc(col(db, tenantId, 'accounts'));
-      codeToId.set(account.code, ref.id);
-      tx.set(ref, clean({ ...account, parentId: null, systemKey: account.systemKey || null }));
-    }
-    for (const account of accounts) {
-      if (!account.parentId) continue;
-      const id = codeToId.get(account.code);
-      const parentId = codeToId.get(account.parentId);
-      if (id && parentId) tx.update(doc(col(db, tenantId, 'accounts'), id), { parentId });
-    }
-    for (const tax of TAX_SEED) {
-      tx.set(doc(col(db, tenantId, 'taxCodes'), tax.id), clean({ name: tax.name, rateBps: tax.rateBps, active: true }));
-    }
-    tx.set(doc(col(db, tenantId, 'periods'), periodId), clean({ year, month, status: 'open' }));
-    tx.set(doc(col(db, tenantId, 'audit')), clean({
-      actorId: uid,
-      action: 'provision',
-      resource: 'tenant',
-      resourceId: tenantId,
-      at: nowISO(),
-    }));
-  });
-  await ensureExtendedWorkspace(db, tenantId);
+  const alreadySeeded = await getDoc(sentinel);
+  if (!alreadySeeded.exists()) {
+    await runTransaction(db, async (tx) => {
+      const already = await tx.get(sentinel);
+      if (already.exists()) return;
+      const accounts = seedAccounts();
+      const periodId = periodIdFromDate(todayISO());
+      const [year, month] = periodId.split('-').map(Number);
+      const codeToId = new Map<string, string>();
+      tx.set(sentinel, clean({ name: displayName || 'Default entity', country: 'IN', isDefault: true }));
+      for (const account of accounts) {
+        const ref = doc(col(db, tenantId, 'accounts'));
+        codeToId.set(account.code, ref.id);
+        tx.set(ref, clean({ ...account, parentId: null, systemKey: account.systemKey || null }));
+      }
+      for (const account of accounts) {
+        if (!account.parentId) continue;
+        const id = codeToId.get(account.code);
+        const parentId = codeToId.get(account.parentId);
+        if (id && parentId) tx.update(doc(col(db, tenantId, 'accounts'), id), { parentId });
+      }
+      for (const tax of TAX_SEED) {
+        tx.set(doc(col(db, tenantId, 'taxCodes'), tax.id), clean({ name: tax.name, rateBps: tax.rateBps, active: true }));
+      }
+      tx.set(doc(col(db, tenantId, 'periods'), periodId), clean({ year, month, status: 'open' }));
+      tx.set(doc(col(db, tenantId, 'audit')), clean({
+        actorId: uid,
+        action: 'provision',
+        resource: 'tenant',
+        resourceId: tenantId,
+        at: nowISO(),
+      }));
+    });
+    await ensureExtendedWorkspace(db, tenantId);
+  }
+  try {
+    sessionStorage.setItem(provisionCacheKey(uid), '1');
+  } catch { /* private mode */ }
   return tenantId;
 }
 

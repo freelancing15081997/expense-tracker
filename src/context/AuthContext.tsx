@@ -56,7 +56,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             customCategories: ['Office Supplies', 'Software Subscriptions', 'Travel', 'Meals', 'Legal & Professional'],
             createdAt: serverTimestamp(),
           };
-          void setDoc(userRef, profile).catch((err) => console.error(err));
+          setUserProfile(profile);
+          void setDoc(userRef, profile, { merge: true }).catch((err) => {
+            if ((err as { code?: string })?.code === 'resource-exhausted') return;
+            console.error(err);
+          });
         }, (err) => {
           console.error(err);
           if (err.code === 'resource-exhausted' && unsubscribeProfile) {
