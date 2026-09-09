@@ -2,6 +2,7 @@ import React from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import BooksProvider, { useBooks } from '../context/BooksProvider';
 import CommandPalette from '../ui/CommandPalette';
+import BrandLogo from '../../components/BrandLogo';
 import Dashboard from '../modules/dashboard/Dashboard';
 import ControlTower from '../modules/control/ControlTower';
 import Accounts from '../modules/accounting/Accounts';
@@ -37,7 +38,7 @@ function BooksReady({ children }: { children: React.ReactNode }) {
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center h-[60vh] gap-3">
-        <img src="/byjan-logo.jpg" alt="Byjan" className="w-20 h-20 rounded-xl object-contain bg-white" />
+        <BrandLogo size="md" />
         <p className="text-sm text-slate-500">Opening Books…</p>
       </div>
     );

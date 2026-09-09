@@ -3,9 +3,7 @@ import { getAuth, GoogleAuthProvider, signInWithPopup, createUserWithEmailAndPas
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
-// Handle dynamic config for AI Studio vs GitHub/Vercel Deployments
-// When deployed elsewhere, use standard Vite environment variables.
-
+// Allow configuration via environment variables for independent hosting
 const firebaseConfig = {
   apiKey: "AIzaSyDQUXdMTTUOONPbua5cWm75Jn-7-SkRwjE",
   authDomain: "gen-lang-client-0616065043.firebaseapp.com",

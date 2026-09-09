@@ -20,6 +20,8 @@ export default function Layout() {
   const location = useLocation();
   const tenant = useBooksTenantMeta();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isSidebarHovered, setIsSidebarHovered] = useState(false);
+  const isExpanded = mobileMenuOpen || isSidebarHovered;
   const [booksOpen, setBooksOpen] = useState(location.pathname.startsWith('/books'));
   const [openGroup, setOpenGroup] = useState<string | null>(null);
   const [notificationsPanelOpen, setNotificationsPanelOpen] = useState(false);
@@ -71,6 +73,7 @@ export default function Layout() {
 
   const navBtn = (active: boolean) => cn('byjan-nav', active && 'byjan-nav-active');
 
+  const showText = isExpanded;
   const sidebar = (
     <>
       <Link
@@ -82,22 +85,22 @@ export default function Layout() {
         title="Open main dashboard"
       >
         <BrandLogo size="sm" />
-        <div className="min-w-0">
+        {showText && (<div className="min-w-0 whitespace-nowrap">
           <p className="font-bold text-[17px] text-[#0B1F3A] tracking-tight leading-none">Byjan</p>
           <p className="text-[11px] text-slate-500 mt-1">Main dashboard</p>
-        </div>
+        </div>)}
       </Link>
 
-      <div className="px-3 mb-3">
-        <SearchTrigger variant="sidebar" />
+      <div className="px-3 mb-3 flex justify-center">
+        {showText ? <SearchTrigger variant="sidebar" /> : <SearchTrigger variant="icon" />}
       </div>
 
       <nav className="flex-1 overflow-y-auto px-3 pb-4 space-y-1">
-        <p className="text-[10px] font-bold tracking-widest text-slate-400 uppercase px-3 mb-1">Workspace</p>
+        {showText && <p className="text-[10px] font-bold tracking-widest text-slate-400 uppercase px-3 mb-1 whitespace-nowrap">Workspace</p>}
 
         <Link to="/expenses" className={navBtn(onExpenses)}>
           <ArrowRightLeft className="w-4 h-4 shrink-0" />
-          Expense Tracker
+          {showText && <span className="whitespace-nowrap">Expense Tracker</span>}
         </Link>
 
         <div>
@@ -110,31 +113,37 @@ export default function Layout() {
               )}
             >
               <BookOpen className="w-4 h-4 shrink-0" />
-              Books
+              {showText && <span className="whitespace-nowrap">Books</span>}
             </Link>
-            <button
-              type="button"
-              aria-label={booksOpen ? 'Collapse Books menu' : 'Expand Books menu'}
-              onClick={() => setBooksOpen((open) => !open)}
-              className="px-2 rounded-r-xl text-slate-500 hover:text-[#0B1F3A]"
-            >
-              {booksOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-            </button>
+            {showText && (
+              <button
+                type="button"
+                aria-label={booksOpen ? 'Collapse Books menu' : 'Expand Books menu'}
+                onClick={() => setBooksOpen((open) => !open)}
+                className="px-2 rounded-r-xl text-slate-500 hover:text-[#0B1F3A]"
+              >
+                {booksOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+              </button>
+            )}
           </div>
 
-          {booksOpen && (
+          {(booksOpen && showText) && (
             <div className="mt-1 ml-2 pl-3 border-l border-slate-200 space-y-0.5">
               {BOOKS_NAV.map((group) => {
                 const groupOpen = openGroup === group.title;
                 return (
-                  <div key={group.title}>
+                  <div 
+                    key={group.title}
+                    onMouseEnter={() => setOpenGroup(group.title)}
+                    onMouseLeave={() => { if (!group.items.some(i => location.pathname === i.href || location.pathname.startsWith(i.href+'/'))) setOpenGroup(null); }}
+                  >
                     <button
                       type="button"
                       onClick={() => setOpenGroup((current) => current === group.title ? null : group.title)}
-                      className="w-full flex items-center justify-between px-2 py-1.5 rounded-xl text-[13px] font-semibold text-slate-600 hover:bg-slate-50 hover:text-[#0B1F3A]"
+                      className="w-full flex items-center justify-between px-2 py-1.5 rounded-xl text-[13px] font-semibold text-slate-600 hover:bg-slate-50 hover:text-[#0B1F3A] whitespace-nowrap"
                     >
                       {group.title}
-                      <ChevronRight className={cn('w-3.5 h-3.5 text-slate-400 transition-transform', groupOpen && 'rotate-90')} />
+                      <ChevronRight className={cn('w-3.5 h-3.5 text-slate-400 transition-transform shrink-0', groupOpen && 'rotate-90')} />
                     </button>
                     {groupOpen && (
                       <div className="mb-1 space-y-0.5">
@@ -161,16 +170,16 @@ export default function Layout() {
 
         <Link to="/settings" className={navBtn(location.pathname === '/settings')}>
           <Settings className="w-4 h-4 shrink-0" />
-          Settings
+          {showText && <span className="whitespace-nowrap">Settings</span>}
         </Link>
       </nav>
 
       <div className="p-3 border-t border-slate-200 space-y-2">
-        {tenant && (
+        {tenant && showText && (
           <div className="px-3 py-2.5 rounded-xl bg-[#F8FAFC] border border-slate-200 shadow-[inset_0_1px_2px_rgba(11,31,58,0.06)]">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Books tenant</p>
-            <p className="text-xs font-semibold text-[#0B1F3A] truncate mt-0.5">{tenant.name}</p>
-            <p className="text-[10px] text-slate-500 truncate">erp_workspaces/{tenant.id.slice(0, 8)}… · {tenant.memberCount} member{tenant.memberCount === 1 ? '' : 's'}</p>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 whitespace-nowrap">Books tenant</p>
+            <p className="text-xs font-semibold text-[#0B1F3A] truncate mt-0.5 whitespace-nowrap">{tenant.name}</p>
+            <p className="text-[10px] text-slate-500 truncate whitespace-nowrap">erp_workspaces/{tenant.id.slice(0, 8)}… · {tenant.memberCount} member{tenant.memberCount === 1 ? '' : 's'}</p>
           </div>
         )}
         <div>
@@ -182,17 +191,18 @@ export default function Layout() {
                 userProfile?.displayName?.charAt(0).toUpperCase() || userProfile?.email?.charAt(0).toUpperCase()
               )}
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-[#0B1F3A] truncate">{userProfile?.displayName || 'User'}</p>
-              <p className="text-[10px] text-slate-500 truncate">{userProfile?.email}</p>
-            </div>
+            {showText && (<div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-[#0B1F3A] truncate whitespace-nowrap">{userProfile?.displayName || 'User'}</p>
+              <p className="text-[10px] text-slate-500 truncate whitespace-nowrap">{userProfile?.email}</p>
+            </div>)}
           </div>
           <button
             onClick={logout}
+            title="Sign out"
             className="mt-1 w-full flex items-center gap-2 px-3 py-2 text-slate-600 hover:bg-rose-50 hover:text-rose-700 rounded-xl text-sm font-medium"
           >
-            <LogOut className="w-4 h-4" />
-            Sign out
+            <LogOut className="w-4 h-4 shrink-0" />
+            {showText && <span className="whitespace-nowrap">Sign out</span>}
           </button>
         </div>
       </div>
@@ -225,9 +235,12 @@ export default function Layout() {
       )}
 
       <aside
+        onMouseEnter={() => setIsSidebarHovered(true)}
+        onMouseLeave={() => setIsSidebarHovered(false)}
         className={cn(
-          'byjan-rail fixed inset-y-0 left-0 z-50 w-72 flex flex-col md:relative md:translate-x-0 md:z-auto transition-transform',
-          mobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+          'byjan-rail fixed inset-y-0 left-0 z-50 flex flex-col md:relative md:translate-x-0 md:z-auto transition-all duration-300 overflow-hidden bg-white border-r border-slate-200',
+          mobileMenuOpen ? 'translate-x-0 w-72' : '-translate-x-full md:translate-x-0',
+          !mobileMenuOpen && (isSidebarHovered ? 'md:w-72 shadow-2xl md:shadow-none' : 'md:w-[72px]')
         )}
       >
         {sidebar}

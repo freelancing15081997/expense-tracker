@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
 import { doc, getDoc, setDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
+import BrandLogo from '../components/BrandLogo';
 
 export interface UserProfile {
   uid: string;
@@ -80,7 +81,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     <AuthContext.Provider value={{ currentUser, userProfile, loading }}>
       {loading ? (
         <div className="min-h-screen flex flex-col items-center justify-center bg-[#f3efe4] gap-3">
-          <img src="/byjan-logo.jpg" alt="Byjan" className="w-28 h-28 rounded-xl object-contain bg-white" />
+          <BrandLogo size="lg" />
           <p className="text-xs font-semibold tracking-[0.18em] text-slate-500">Trace Financials Easily</p>
         </div>
       ) : children}
