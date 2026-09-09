@@ -49,6 +49,10 @@ app.use("/neondb/auth", (req, res) => {
 app.all("/api/kv", (req, res) => {
   void handleKvRequest(req, res);
 });
+app.post("/api/migrate", async (req, res) => {
+  const { default: migrate } = await import("./api/migrate");
+  await migrate(req as any, res as any);
+});
 
 const SYSTEM_EMAIL = "byjanbooks@gmail.com";
 

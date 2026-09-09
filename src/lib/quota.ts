@@ -5,4 +5,4 @@ export function isFirestoreQuota(err: unknown) {
 }
 
 export const FIRESTORE_QUOTA_MESSAGE =
-  'Storage or database rate limit. Wait a minute and try again. Records are on Postgres and files on Vercel Blob — not Firebase.';
+  'The old Firebase database is out of free writes. This app now saves to Neon Postgres. Sign in again if your books have not copied yet.';

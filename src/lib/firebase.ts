@@ -7,7 +7,6 @@ import {
   signInWithEmailAndPassword,
   signOut,
 } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyDQUXdMTTUOONPbua5cWm75Jn-7-SkRwjE',
@@ -18,11 +17,9 @@ const firebaseConfig = {
   appId: '1:450686107760:web:ee4b53ae0ccd18c90734b5',
 };
 
-const DATABASE_ID = 'ai-studio-sharedsheetexpen-15aa5fbb-9604-4c59-b4a3-aa994442cb50';
-
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app, DATABASE_ID);
+export const db = { vendor: 'vercel' as const };
 
 const googleProvider = new GoogleAuthProvider();
 
