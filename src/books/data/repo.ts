@@ -442,6 +442,14 @@ export async function saveParty(
   return ref.id;
 }
 
+export async function deactivateParty(db: Firestore, tenantId: string, role: BooksRole, partyId: string) {
+  assertCan(role, 'edit');
+  await updateDoc(doc(col(db, tenantId, 'parties'), partyId), clean({
+    active: false,
+    deletedAt: nowISO(),
+  }));
+}
+
 export async function saveDocument(
   ctx: TxCtx,
   input: {

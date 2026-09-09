@@ -3,6 +3,7 @@ import { useBooks } from '../../context/BooksProvider';
 import { parseMoney, todayISO } from '../../core/money';
 import { btnGhost, btnPrimary, Card, Field, inputClass, Money, PageShell, Status } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
+import type { BankTxn } from '../../core/types';
 
 export default function Banking() {
   const books = useBooks();
@@ -89,7 +90,7 @@ export default function Banking() {
           <button className={btnPrimary} disabled={!can('post')}>Post bank journal</button>
         </form>
       </Card>
-      <PagedTable rows={bankTxns} empty="No bank journals yet.">
+      <PagedTable<BankTxn> rows={bankTxns} empty="No bank journals yet.">
         {(slice) => (
           <table className="w-full text-sm">
             <thead className="text-left text-slate-500 border-b border-slate-200">

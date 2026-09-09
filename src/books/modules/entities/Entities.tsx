@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useBooks } from '../../context/BooksProvider';
 import { btnPrimary, Card, Field, inputClass, PageShell } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
+import type { FinanceEntity } from '../../core/types';
 
 export default function Entities() {
   const { entities, can, createEntity } = useBooks();
@@ -31,7 +32,7 @@ export default function Entities() {
           </form>
         </Card>
       )}
-      <PagedTable rows={entities} empty="No entities." minWidth="min-w-[480px]">
+      <PagedTable<FinanceEntity> rows={entities} empty="No entities." minWidth="min-w-[480px]">
         {(slice) => (
           <ul className="divide-y divide-slate-100">
             {slice.map((row) => (

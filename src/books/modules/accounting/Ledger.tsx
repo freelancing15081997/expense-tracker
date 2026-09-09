@@ -5,19 +5,30 @@ import { signedBalance } from '../../engine/chartOfAccounts';
 import { Card, Money, PageShell } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
 
+type LedgerMovement = {
+  id: string;
+  date: string;
+  journalNumber: string;
+  memo?: string;
+  debitMinor: number;
+  creditMinor: number;
+};
+
+type LedgerRow = LedgerMovement & { shown: number };
+
 export default function Ledger() {
   const { accountId } = useParams();
   const { accounts, currency, ledger } = useBooks();
   const account = accounts.find((a) => a.id === accountId);
-  const [rows, setRows] = useState<any[]>([]);
+  const [rows, setRows] = useState<LedgerMovement[]>([]);
   const [error, setError] = useState('');
 
   useEffect(() => {
     if (!accountId) return;
-    ledger(accountId).then(setRows).catch((err) => setError(err.message || 'Failed to load ledger'));
+    ledger(accountId).then((data) => setRows(data as LedgerMovement[])).catch((err) => setError(err.message || 'Failed to load ledger'));
   }, [accountId, ledger]);
 
-  const withBalance = useMemo(() => {
+  const withBalance = useMemo((): LedgerRow[] => {
     if (!account) return [];
     let running = 0;
     return rows.map((row) => {
@@ -40,7 +51,7 @@ export default function Ledger() {
         <Money minor={signedBalance(account)} currency={currency} />
       </Card>
       {error && <p className="text-sm text-rose-600">{error}</p>}
-      <PagedTable rows={withBalance} empty="No movements on this account.">
+      <PagedTable<LedgerRow> rows={withBalance} empty="No movements on this account.">
         {(slice) => (
           <table className="w-full text-sm">
             <thead className="text-left text-slate-500 border-b border-slate-200">

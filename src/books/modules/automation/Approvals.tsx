@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useBooks } from '../../context/BooksProvider';
 import { btnGhost, btnPrimary, Card, Field, inputClass, PageShell, Status } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
+import type { Approval } from '../../core/types';
 
 export default function Approvals() {
   const books = useBooks();
@@ -48,7 +49,7 @@ export default function Approvals() {
           </form>
         </Card>
       )}
-      <PagedTable rows={approvals} empty="No approval requests." minWidth="min-w-[560px]">
+      <PagedTable<Approval> rows={approvals} empty="No approval requests." minWidth="min-w-[560px]">
         {(slice) => (
           <ul className="divide-y divide-slate-100">
             {slice.map((row) => (

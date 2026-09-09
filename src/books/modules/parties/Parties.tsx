@@ -72,9 +72,9 @@ function fromParty(p: FinanceParty): Form {
 
 export default function Parties({ kind }: { kind: PartyKind }) {
   const books = useBooks();
-  const { parties, documents, currency, can, createParty, uploadFile } = books;
+  const { parties, documents, currency, can, createParty, uploadFile, deactivateParty } = books;
   const [search, setSearch] = useState('');
-  const allRows = parties.filter((p) => p.kind === kind);
+  const allRows = parties.filter((p) => p.kind === kind && p.active !== false);
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return allRows;
@@ -284,7 +284,25 @@ export default function Parties({ kind }: { kind: PartyKind }) {
                     <p className="text-sm text-[#6B7280]">{selected.contactName || selected.email || 'No contact yet'}</p>
                   </div>
                 </div>
-                {can('edit') && <button className={btnGhost} onClick={() => openEdit(selected)}>Edit</button>}
+                {can('edit') && (
+                  <div className="flex gap-2">
+                    <button className={btnGhost} onClick={() => openEdit(selected)}>Edit</button>
+                    <button
+                      className={btnGhost}
+                      onClick={async () => {
+                        if (!confirm(`Deactivate ${selected.name}? They stay in the workspace for audit and disappear from this list.`)) return;
+                        try {
+                          await deactivateParty(selected.id);
+                          setSelected(null);
+                        } catch (err: any) {
+                          setError(err.message || 'Could not deactivate');
+                        }
+                      }}
+                    >
+                      Deactivate
+                    </button>
+                  </div>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div><p className="text-[#6B7280]">Email</p><p>{selected.email || '—'}</p></div>

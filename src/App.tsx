@@ -15,7 +15,7 @@ const BooksApp = lazy(() => import('./books/app/BooksApp'));
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentUser, loading } = useAuth();
   if (loading) return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-[#f3efe4] gap-3">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-[#F5F7FA] gap-3">
       <BrandLogo size="lg" />
       <p className="text-sm font-medium text-slate-600 tracking-wide">Trace Financials Easily</p>
     </div>
@@ -35,6 +35,7 @@ export default function App() {
             
             <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
               <Route index element={<Dashboard />} />
+              <Route path="expenses" element={<Dashboard />} />
               <Route path="book/:bookId" element={<BookView />} />
               <Route path="settings" element={<Settings />} />
           

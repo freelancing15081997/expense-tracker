@@ -3,6 +3,7 @@ import { useBooks } from '../../context/BooksProvider';
 import { parseMoney } from '../../core/money';
 import { btnGhost, btnPrimary, Card, Field, inputClass, Money, PageShell, Status } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
+import type { Project } from '../../core/types';
 
 export default function Projects() {
   const books = useBooks();
@@ -66,7 +67,7 @@ export default function Projects() {
           </form>
         </Card>
       )}
-      <PagedTable rows={projects} empty="No projects yet.">
+      <PagedTable<Project> rows={projects} empty="No projects yet.">
         {(slice) => (
           <table className="w-full text-sm">
             <thead className="text-left text-slate-500 border-b border-slate-200">

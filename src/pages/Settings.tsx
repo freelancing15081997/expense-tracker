@@ -4,9 +4,11 @@ import { db } from '../lib/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
 import { Save, Plus, X, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
+import { useBooksTenantMeta } from '../lib/tenant';
 
 export default function Settings() {
   const { userProfile } = useAuth();
+  const tenant = useBooksTenantMeta();
   
   // Profile State
   const [displayName, setDisplayName] = useState(userProfile?.displayName || '');
@@ -62,6 +64,21 @@ export default function Settings() {
         <p className="text-sm text-slate-500 mt-1">Configure your profile, defaults, and custom fields.</p>
       </div>
 
+      {tenant && (
+        <div className="grid sm:grid-cols-2 gap-3">
+          <div className="byjan-card p-4">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Your account</p>
+            <p className="text-sm font-semibold text-slate-900 mt-1">{userProfile?.email}</p>
+            <p className="text-xs text-slate-500 mt-1">Expense Tracker ledgers are isolated by membership on each <code className="text-[11px]">books/{'{id}'}</code> document. You never see another user’s ledgers.</p>
+          </div>
+          <div className="byjan-card p-4">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Books tenant</p>
+            <p className="text-sm font-semibold text-slate-900 mt-1">{tenant.name}</p>
+            <p className="text-xs text-slate-500 mt-1">Accounting lives at <code className="text-[11px]">erp_workspaces/{tenant.id}</code>. The requirement document forbids a second tenant architecture — this is the SET workspace.</p>
+          </div>
+        </div>
+      )}
+
       {message && (
         <div className="bg-emerald-50 text-emerald-800 p-3 rounded-md text-sm font-medium border border-emerald-200 flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4" /> {message}
@@ -77,8 +94,8 @@ export default function Settings() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column: General Settings */}
         <div className="lg:col-span-2 space-y-6">
-          <form id="settings-form" onSubmit={handleSave} className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
-            <div className="p-5 border-b border-slate-200 bg-slate-50">
+          <form id="settings-form" onSubmit={handleSave} className="byjan-card overflow-hidden">
+            <div className="p-5 border-b border-slate-200 bg-[#F8FAFC]">
               <h2 className="text-base font-semibold text-slate-900">General Information</h2>
             </div>
             <div className="p-5 space-y-5">
@@ -89,7 +106,7 @@ export default function Settings() {
                     type="email"
                     disabled
                     value={userProfile?.email || ''}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-md px-3 py-2 text-sm text-slate-500 cursor-not-allowed"
+                    className="byjan-input bg-slate-50 text-slate-500 cursor-not-allowed"
                   />
                 </div>
                 <div>
@@ -99,7 +116,7 @@ export default function Settings() {
                     required
                     value={displayName}
                     onChange={e => setDisplayName(e.target.value)}
-                    className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-zinc-600 focus:border-zinc-600 outline-none"
+                    className="byjan-input"
                   />
                 </div>
               </div>
@@ -127,8 +144,8 @@ export default function Settings() {
 
         {/* Right Column: Custom Categories */}
         <div className="lg:col-span-1 space-y-6">
-          <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full">
-            <div className="p-5 border-b border-slate-200 bg-slate-50">
+          <div className="byjan-card overflow-hidden flex flex-col h-full">
+            <div className="p-5 border-b border-slate-200 bg-[#F8FAFC]">
               <h2 className="text-base font-semibold text-slate-900">Custom Expense Categories</h2>
               <p className="text-xs text-slate-500 mt-1">Manage tags available when recording entries.</p>
             </div>
@@ -140,9 +157,9 @@ export default function Settings() {
                   value={newCategory}
                   onChange={e => setNewCategory(e.target.value)}
                   placeholder="New category..."
-                  className="flex-1 border border-slate-300 rounded-md px-3 py-1.5 text-sm focus:ring-1 focus:ring-zinc-600 outline-none"
+                  className="byjan-input"
                 />
-                <button type="submit" disabled={!newCategory.trim()} className="px-3 py-1.5 bg-slate-900 text-white rounded-md text-sm font-medium hover:bg-slate-800 disabled:opacity-50">
+                <button type="submit" disabled={!newCategory.trim()} className="byjan-btn px-3 py-1.5">
                   <Plus className="w-4 h-4" />
                 </button>
               </form>
@@ -173,7 +190,7 @@ export default function Settings() {
           type="submit" 
           form="settings-form"
           disabled={loading}
-          className="flex items-center gap-2 px-5 py-2 bg-zinc-600 text-white font-medium rounded-md hover:bg-zinc-700 transition-colors disabled:opacity-50 text-sm shadow-sm"
+          className="byjan-btn"
         >
           <Save className="w-4 h-4" />
           Save All Settings

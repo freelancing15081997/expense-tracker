@@ -3,6 +3,7 @@ import { useBooks } from '../../context/BooksProvider';
 import { parseMoney } from '../../core/money';
 import { btnGhost, btnPrimary, Card, Field, inputClass, Money, PageShell, Status } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
+import type { LeaseContract } from '../../core/types';
 
 export default function Leases() {
   const books = useBooks();
@@ -61,7 +62,7 @@ export default function Leases() {
           </form>
         </Card>
       )}
-      <PagedTable rows={leases} empty="No leases yet.">
+      <PagedTable<LeaseContract> rows={leases} empty="No leases yet.">
         {(slice) => (
           <table className="w-full text-sm">
             <thead className="text-left text-slate-500 border-b border-slate-200">

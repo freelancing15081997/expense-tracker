@@ -62,7 +62,7 @@ export default function Inbox() {
           </form>
         </Card>
       )}
-      <PagedTable rows={inbox} empty="Inbox is empty." minWidth="min-w-[560px]">
+      <PagedTable<InboxItem> rows={inbox} empty="Inbox is empty." minWidth="min-w-[560px]">
         {(slice) => (
           <ul className="divide-y divide-slate-100">
             {slice.map((row) => (

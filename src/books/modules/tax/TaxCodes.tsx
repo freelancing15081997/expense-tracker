@@ -3,6 +3,7 @@ import { useBooks } from '../../context/BooksProvider';
 import { parseMoney, todayISO } from '../../core/money';
 import { btnPrimary, Card, Field, inputClass, PageShell } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
+import type { TaxCode } from '../../core/types';
 
 export default function TaxCodes() {
   const books = useBooks();
@@ -16,7 +17,7 @@ export default function TaxCodes() {
 
   return (
     <PageShell title="Tax & TDS" subtitle="GST rates drive the tax engine. TDS withhold posts AP/expense Dr and TDS Payable Cr. E-Invoice is not connected.">
-      <PagedTable rows={taxCodes} empty="Tax codes will appear after workspace seed." minWidth="min-w-[560px]">
+      <PagedTable<TaxCode> rows={taxCodes} empty="Tax codes will appear after workspace seed." minWidth="min-w-[560px]">
         {(slice) => (
           <table className="w-full text-sm">
             <thead className="text-left text-slate-500 border-b border-slate-200">

@@ -3,6 +3,7 @@ import { useBooks } from '../../context/BooksProvider';
 import { parseMoney, parseQty } from '../../core/money';
 import { btnGhost, btnPrimary, Card, Field, inputClass, Money, PageShell, Status } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
+import type { Product } from '../../core/types';
 
 export default function Inventory() {
   const books = useBooks();
@@ -73,7 +74,7 @@ export default function Inventory() {
           </form>
         </Card>
       )}
-      <PagedTable rows={products} empty="No products yet." minWidth="min-w-[860px]">
+      <PagedTable<Product> rows={products} empty="No products yet." minWidth="min-w-[860px]">
         {(slice) => (
           <table className="w-full text-sm">
             <thead className="text-left text-slate-500 border-b border-slate-200">

@@ -4,7 +4,7 @@ import { useBooks } from '../../context/BooksProvider';
 import { signedBalance } from '../../engine/chartOfAccounts';
 import { btnGhost, btnPrimary, Card, Field, inputClass, Money, PageShell } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
-import type { AccountType } from '../../core/types';
+import type { AccountType, FinanceAccount } from '../../core/types';
 
 const TYPES: AccountType[] = ['asset', 'liability', 'equity', 'revenue', 'cogs', 'expense', 'other_income', 'other_expense'];
 
@@ -64,7 +64,7 @@ export default function Accounts() {
           </form>
         </Card>
       )}
-      <PagedTable rows={accounts} empty="No accounts yet.">
+      <PagedTable<FinanceAccount> rows={accounts} empty="No accounts yet.">
         {(slice) => (
             <table className="w-full text-sm">
               <thead className="text-left text-slate-500 border-b border-slate-200">

@@ -49,6 +49,7 @@ import {
   transferFunds,
   updateTenantName,
   voidDocument,
+  deactivateParty as deactivatePartyRecord,
   type TxCtx,
 } from '../data/repo';
 import {
@@ -130,6 +131,7 @@ type BooksContextValue = {
     gstTreatment?: string;
     pan?: string;
   }) => Promise<string>;
+  deactivateParty: (id: string) => Promise<void>;
   createAccount: (input: { code: string; name: string; type: FinanceAccount['type']; parentId: string | null }) => Promise<string>;
   createDocument: (input: {
     id?: string;
@@ -258,6 +260,8 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
         loadDomainCollections(db, id),
         loadFilesAndTemplates(db, id),
       ]);
+      const allowed = workspace.tenant.memberIds?.includes(currentUser.uid) || workspace.tenant.ownerId === currentUser.uid;
+      if (!allowed) throw new Error('Not a member of this Books workspace');
       setTenant(workspace.tenant);
       setAccounts(workspace.accounts);
       setParties(workspace.parties);
@@ -338,6 +342,7 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
       refresh,
       ctx,
       createParty: (input) => after(() => saveParty(db, tenantId!, role!, input)),
+      deactivateParty: (id) => after(() => deactivatePartyRecord(db, tenantId!, role!, id)),
       createAccount: (input) => after(() => saveAccount(db, tenantId!, role!, input)),
       createDocument: (input) => after(() => saveDocument(ctx(), { ...input, taxCodes })),
       postDoc: (id, payFromAccountId) => after(() => postDocument(ctx(), id, accounts, payFromAccountId)),

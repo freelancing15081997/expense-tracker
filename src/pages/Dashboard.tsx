@@ -3,7 +3,9 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { db } from '../lib/firebase';
 import { collection, query, where, getDocs, getDoc, addDoc, serverTimestamp, doc, updateDoc, deleteDoc, limit } from 'firebase/firestore';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
+import { isSoftDeleted } from '../lib/records';
+import { useBooksTenantMeta } from '../lib/tenant';
 import { getCurrencySymbol } from '../lib/currency';
 import { Loader2, Plus, Check, X, Users, Building2, Receipt, ArrowRight, BookOpen } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
@@ -29,6 +31,9 @@ interface InviteItem {
 export default function Dashboard() {
   const { currentUser, userProfile } = useAuth();
   const { addToast } = useToast();
+  const location = useLocation();
+  const tenant = useBooksTenantMeta();
+  const expensesOnly = location.pathname.startsWith('/expenses');
   const [books, setBooks] = useState<BookItem[]>([]);
   const [globalStats, setGlobalStats] = useState({ totalIn: 0, totalOut: 0, userActivity: {} as Record<string, number> });
   const [invites, setInvites] = useState<InviteItem[]>([]);
@@ -45,7 +50,11 @@ export default function Dashboard() {
       const qBooks = query(collection(db, 'books'), where(`roles.${currentUser.uid}.role`, 'in', ['owner', 'admin', 'contributor', 'viewer', 'auditor']));
       const bookSnaps = await getDocs(qBooks);
       const fetchedBooks: BookItem[] = [];
-      bookSnaps.forEach((doc) => fetchedBooks.push({ id: doc.id, ...doc.data() } as BookItem));
+      bookSnaps.forEach((doc) => {
+        const data = doc.data() as BookItem & { deleted?: boolean; deletedAt?: unknown };
+        if (isSoftDeleted(data)) return;
+        fetchedBooks.push({ id: doc.id, ...data } as BookItem);
+      });
       setBooks(fetchedBooks);
       setLoading(false);
 
@@ -56,6 +65,7 @@ export default function Dashboard() {
           const expSnap = await getDocs(query(collection(db, 'books', b.id, 'expenses'), limit(40)));
           expSnap.forEach(e => {
             const data = e.data();
+            if (isSoftDeleted(data)) return;
             if (data.entryType === 'in' || data.type === 'in') tIn += (data.amount || 0);
             else tOut += (data.amount || 0);
             const user = data.enteredBy || data.paidByName || data.createdBy || 'Unknown';
@@ -194,17 +204,23 @@ export default function Dashboard() {
     <div className="max-w-5xl mx-auto space-y-6">
       <div className="sticky top-0 z-20 -mx-4 md:-mx-6 lg:-mx-8 px-4 md:px-6 lg:px-8 py-3 bg-[#f8f9fa]/95 backdrop-blur border-b border-slate-200/70 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 font-display">Main dashboard</h1>
-          <p className="text-sm text-slate-500 mt-1">Expense Tracker and Books in one place. Search is instant — ⌘K.</p>
+          <h1 className="text-2xl font-bold text-slate-900 font-display">{expensesOnly ? 'Expense Tracker' : 'Main dashboard'}</h1>
+          <p className="text-sm text-slate-500 mt-1">
+            {expensesOnly
+              ? 'Ledgers you belong to. Entries are isolated per ledger by member roles.'
+              : 'Click the Byjan logo any time to return here. Expense Tracker and Books stay separate.'}
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link to="/books" className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-800 rounded-md text-sm font-medium hover:bg-slate-50">
-            <BookOpen className="w-4 h-4" />
-            Open Books
-          </Link>
+          {!expensesOnly && (
+            <Link to="/books" className="byjan-btn-ghost">
+              <BookOpen className="w-4 h-4" />
+              Open Books
+            </Link>
+          )}
           <button
             onClick={() => setShowNewBook(true)}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-zinc-600 text-white rounded-md text-sm font-medium hover:bg-zinc-700 transition-colors shadow-sm"
+            className="byjan-btn"
           >
             <Plus className="w-4 h-4" />
             New Expense Tracker
@@ -215,7 +231,7 @@ export default function Dashboard() {
       <Dialog.Root open={showNewBook} onOpenChange={setShowNewBook}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-slate-900/40 z-50 backdrop-blur-sm" />
-          <Dialog.Content className="fixed left-[50%] top-[50%] z-50 grid w-full max-w-md translate-x-[-50%] translate-y-[-50%] gap-4 border border-slate-200 bg-white p-5 shadow-lg sm:rounded-lg">
+          <Dialog.Content className="byjan-panel fixed left-[50%] top-[50%] z-50 grid w-full max-w-md translate-x-[-50%] translate-y-[-50%] gap-4 p-5">
             <div className="flex items-center justify-between">
               <Dialog.Title className="text-lg font-bold text-slate-900">Create New Expense Tracker</Dialog.Title>
               <Dialog.Close className="text-slate-400 hover:text-slate-700 rounded-md p-1"><X className="w-4 h-4"/></Dialog.Close>
@@ -226,7 +242,7 @@ export default function Dashboard() {
                 <input 
                   type="text" required autoFocus
                   value={newBookName} onChange={e => setNewBookName(e.target.value)}
-                  className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-zinc-600 outline-none"
+                  className="byjan-input"
                   placeholder="e.g. Acme Corp Q3"
                 />
               </div>
@@ -247,9 +263,9 @@ export default function Dashboard() {
               </div>
               <div className="flex justify-end gap-2 pt-2">
                 <Dialog.Close asChild>
-                  <button type="button" className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 rounded-md">Cancel</button>
+                  <button type="button" className="byjan-btn-ghost">Cancel</button>
                 </Dialog.Close>
-                <button type="submit" disabled={creating || !newBookName.trim()} className="px-4 py-2 bg-zinc-600 text-white text-sm font-medium rounded-md hover:bg-zinc-700 disabled:opacity-50 flex items-center gap-2">
+                <button type="submit" disabled={creating || !newBookName.trim()} className="byjan-btn">
                   {creating && <Loader2 className="w-4 h-4 animate-spin" />}
                   Create Expense Tracker
                 </button>
@@ -267,16 +283,16 @@ export default function Dashboard() {
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {invites.map(invite => (
-              <div key={invite.id} className="bg-white p-4 rounded-lg border border-zinc-200 shadow-sm flex flex-col gap-3">
+              <div key={invite.id} className="byjan-card byjan-lift p-4 flex flex-col gap-3">
                 <div>
                   <h3 className="font-semibold text-slate-900 text-sm truncate">{invite.bookName}</h3>
                   <p className="text-xs text-slate-500 mt-0.5">Invited as <span className="font-semibold text-slate-700 capitalize">{invite.role}</span></p>
                 </div>
                 <div className="flex items-center gap-2 mt-auto pt-1">
-                  <button onClick={() => handleAcceptInvite(invite)} disabled={acceptingId === invite.id} className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 bg-zinc-600 text-white text-xs font-medium rounded-md hover:bg-zinc-700 transition disabled:opacity-50">
-  {acceptingId === invite.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Accept
-</button>
-                  <button onClick={() => handleDeclineInvite(invite.id)} className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 bg-slate-100 text-slate-700 text-xs font-medium rounded-md hover:bg-slate-200 transition border border-slate-200">
+                  <button onClick={() => handleAcceptInvite(invite)} disabled={acceptingId === invite.id} className="byjan-btn flex-1 text-xs">
+                    {acceptingId === invite.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Accept
+                  </button>
+                  <button onClick={() => handleDeclineInvite(invite.id)} className="byjan-btn-ghost flex-1 text-xs">
                     <X className="w-3.5 h-3.5" /> Decline
                   </button>
                 </div>
@@ -286,25 +302,40 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className="grid lg:grid-cols-2 gap-6 items-start">
+      {!expensesOnly && (
+        <div className="grid sm:grid-cols-2 gap-3">
+          <div className="byjan-card p-4">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Expense Tracker tenancy</p>
+            <p className="text-sm font-semibold text-slate-900 mt-1">Per-ledger membership</p>
+            <p className="text-xs text-slate-500 mt-1">Each ledger lives under <code className="text-[11px]">books/{'{ledgerId}'}</code>. You only see ledgers where <code className="text-[11px]">roles.{'{your uid}'}</code> is set. Other users cannot see yours.</p>
+          </div>
+          <div className="byjan-card p-4">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Books tenant</p>
+            <p className="text-sm font-semibold text-slate-900 mt-1">{tenant?.name || 'Your Books workspace'}</p>
+            <p className="text-xs text-slate-500 mt-1">Accounting data is stored at <code className="text-[11px]">erp_workspaces/{tenant?.id || 'your-uid'}</code>. Queries never accept a tenant id from the browser — it is always the signed-in user.</p>
+          </div>
+        </div>
+      )}
+
+      <div className={expensesOnly ? 'space-y-4' : 'grid lg:grid-cols-2 gap-6 items-start'}>
         <section className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-base font-bold text-slate-900">Expense Tracker</h2>
+            <h2 className="text-base font-bold text-slate-900">{expensesOnly ? 'Your ledgers' : 'Expense Tracker'}</h2>
             <span className="text-xs text-slate-500">{books.length} ledger{books.length === 1 ? '' : 's'}</span>
           </div>
           {books.length > 0 && (
             <div className="grid grid-cols-3 gap-3">
-              <div className="bg-white p-4 rounded-lg border border-zinc-200">
+              <div className="byjan-card p-4">
                 <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Money in</h3>
                 <span className="text-lg font-bold text-emerald-600">+{globalStats.totalIn.toLocaleString()}</span>
               </div>
-              <div className="bg-white p-4 rounded-lg border border-zinc-200">
+              <div className="byjan-card p-4">
                 <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Money out</h3>
-                <span className="text-lg font-bold text-zinc-900">-{globalStats.totalOut.toLocaleString()}</span>
+                <span className="text-lg font-bold text-[#0B1F3A]">-{globalStats.totalOut.toLocaleString()}</span>
               </div>
-              <div className="bg-white p-4 rounded-lg border border-zinc-200">
+              <div className="byjan-card p-4">
                 <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Top</h3>
-                <span className="text-sm font-bold text-zinc-900 truncate block">
+                <span className="text-sm font-bold text-[#0B1F3A] truncate block">
                   {Object.entries(globalStats.userActivity).sort((a,b)=> (b[1] as number) - (a[1] as number))[0]?.[0] || '—'}
                 </span>
               </div>
@@ -315,17 +346,17 @@ export default function Dashboard() {
               <div className="w-6 h-6 border-2 border-slate-200 border-t-zinc-600 rounded-full animate-spin" />
             </div>
           ) : books.length === 0 ? (
-            <div className="text-center py-12 bg-white rounded-lg border border-slate-200 border-dashed">
+            <div className="text-center py-12 byjan-card border-dashed">
               <Building2 className="w-10 h-10 text-slate-300 mx-auto mb-3" />
               <h3 className="text-base font-semibold text-slate-900">No ledgers yet</h3>
               <p className="text-sm text-slate-500 mt-1">Create a tracker or wait for an invitation.</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className={expensesOnly ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3' : 'grid grid-cols-1 sm:grid-cols-2 gap-3'}>
               {books.map(book => {
                 const role = book.roles[currentUser!.uid]?.role || 'viewer';
                 return (
-                  <Link to={`/book/${book.id}`} key={book.id} className="group flex flex-col bg-white p-4 rounded-lg border border-slate-200 shadow-sm hover:shadow-md hover:border-zinc-300 transition-all">
+                  <Link to={`/book/${book.id}`} key={book.id} className="group flex flex-col byjan-card byjan-lift p-4">
                     <div className="flex items-start justify-between mb-3">
                       <div className="w-9 h-9 bg-slate-50 rounded-md flex items-center justify-center border border-slate-100">
                         <Receipt className="w-4 h-4 text-slate-600" />
@@ -346,6 +377,7 @@ export default function Dashboard() {
           )}
         </section>
 
+        {!expensesOnly && (
         <section className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-bold text-slate-900 flex items-center gap-2"><BookOpen className="w-4 h-4" /> Books</h2>
@@ -355,7 +387,7 @@ export default function Dashboard() {
           </div>
           <div className="grid sm:grid-cols-2 gap-3">
             {BOOKS_TREE.map((branch) => (
-              <Link key={branch.id} to={branch.href} className="rounded-xl border border-slate-200 bg-white p-3 hover:border-teal-300 hover:bg-teal-50/40 transition-colors">
+              <Link key={branch.id} to={branch.href} className="byjan-card byjan-lift p-3">
                 <p className="font-semibold text-sm text-slate-900">{branch.name}</p>
                 <p className="text-xs text-slate-500 mt-1 line-clamp-2">{branch.blurb}</p>
                 <p className="text-[11px] text-slate-400 mt-2">{branch.items.length} features</p>
@@ -363,7 +395,9 @@ export default function Dashboard() {
             ))}
           </div>
         </section>
+        )}
       </div>
     </div>
   );
 }
+

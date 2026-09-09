@@ -4,6 +4,7 @@ import { useBooks } from '../../context/BooksProvider';
 import { todayISO } from '../../core/money';
 import { btnPrimary, Card, Field, inputClass, Money, PageShell, Status } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
+import type { FinanceDocument } from '../../core/types';
 
 export default function PaymentRun() {
   const books = useBooks();
@@ -53,7 +54,7 @@ export default function PaymentRun() {
         {ok && <p className="text-sm text-emerald-800 md:col-span-3">{ok}</p>}
         {error && <p className="text-sm text-rose-700 md:col-span-3">{error}</p>}
       </Card>
-      <PagedTable rows={open} empty="No posted bills with a remaining balance.">
+      <PagedTable<FinanceDocument> rows={open} empty="No posted bills with a remaining balance.">
         {(slice) => (
           <table className="w-full text-sm">
             <thead className="text-left text-[#7a7368] border-b border-[#e6e0d4]">

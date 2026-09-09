@@ -4,6 +4,7 @@ import { useBooks } from '../../context/BooksProvider';
 import { signedBalance } from '../../engine/chartOfAccounts';
 import { Money, PageShell } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
+import type { FinanceAccount } from '../../core/types';
 
 export default function LedgerIndex() {
   const { accounts, currency } = useBooks();
@@ -11,7 +12,7 @@ export default function LedgerIndex() {
 
   return (
     <PageShell title="General Ledger" subtitle="Open any postable account to see journal movements and running balance.">
-      <PagedTable rows={rows} empty="Accounts are still seeding. Refresh in a moment.">
+      <PagedTable<FinanceAccount> rows={rows} empty="Accounts are still seeding. Refresh in a moment.">
         {(slice) => (
           <table className="w-full text-sm">
             <thead className="text-left text-slate-500 border-b border-slate-200">

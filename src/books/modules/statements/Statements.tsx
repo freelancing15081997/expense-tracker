@@ -5,13 +5,16 @@ import { btnGhost, Card, Field, inputClass, Money, PageShell, Status } from '../
 import { PagedTable } from '../../ui/PagedList';
 import { printCustomerStatement, printFinanceDocument } from '../../reporting/printDocument';
 import { booksFileUrl } from '../../storage/adapter';
+import type { FinanceDocument } from '../../core/types';
+
+type StatementRow = FinanceDocument & { outstanding: number; overdue: boolean };
 
 export default function Statements() {
   const { documents, parties, currency, tenant } = useBooks();
   const customers = parties.filter((p) => p.kind === 'customer');
   const [partyId, setPartyId] = useState(customers[0]?.id || '');
 
-  const rows = useMemo(() => {
+  const rows = useMemo((): StatementRow[] => {
     return documents
       .filter((d) => d.partyId === partyId && (d.kind === 'invoice' || d.kind === 'credit_note') && d.status !== 'voided')
       .map((d) => ({
@@ -46,7 +49,7 @@ export default function Statements() {
         </Field>
         <p className="text-sm text-slate-600 mt-3">Outstanding: <Money minor={outstanding} currency={currency} /></p>
       </Card>
-      <PagedTable rows={rows} empty="No invoices or credit notes for this customer.">
+      <PagedTable<StatementRow> rows={rows} empty="No invoices or credit notes for this customer.">
         {(slice) => (
           <table className="w-full text-sm">
             <thead className="text-left text-slate-500 border-b border-slate-200">

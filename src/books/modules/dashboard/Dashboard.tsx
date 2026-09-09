@@ -40,7 +40,8 @@ export default function Dashboard() {
   return (
     <PageShell title={tenant?.name || 'Books'} subtitle="Command center for every live Books feature. Posted balances only — adapters are labeled as not operational.">
       <div className="flex flex-wrap gap-2">
-        <Link to="/" className="px-3.5 py-2 rounded-xl border border-[#E5E7EB] text-sm font-medium hover:bg-[#F3F4F6]">Expense Tracker dashboard</Link>
+        <Link to="/" className="byjan-btn-ghost">Main dashboard</Link>
+        <Link to="/expenses" className="byjan-btn-ghost">Expense Tracker</Link>
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
         {cards.map((card) => (
@@ -54,7 +55,7 @@ export default function Dashboard() {
         {BOOKS_QUICK_CREATE.map((item) => (
           <Link key={item.href} to={item.href} className={btnPrimary}>{item.name}</Link>
         ))}
-        <Link to="/books/control-tower" className="px-3.5 py-2 rounded-xl border border-[#E5E7EB] text-sm font-medium hover:bg-[#F3F4F6]">Control Tower</Link>
+        <Link to="/books/control-tower" className="byjan-btn-ghost">Control Tower</Link>
       </div>
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">

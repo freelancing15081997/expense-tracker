@@ -3,7 +3,7 @@ import { useBooks } from '../../context/BooksProvider';
 import { parseMoney, todayISO } from '../../core/money';
 import { btnGhost, btnPrimary, Card, Field, inputClass, PageShell } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
-import type { JournalLineInput } from '../../core/types';
+import type { JournalLineInput, RecurringTemplate } from '../../core/types';
 
 const emptyLine = () => ({ accountId: '', debit: '', credit: '' });
 
@@ -71,7 +71,7 @@ export default function Recurring() {
           </form>
         </Card>
       )}
-      <PagedTable rows={recurring} empty="No recurring templates yet." minWidth="min-w-[560px]">
+      <PagedTable<RecurringTemplate> rows={recurring} empty="No recurring templates yet." minWidth="min-w-[560px]">
         {(slice) => (
           <ul className="divide-y divide-slate-100">
             {slice.map((row) => (

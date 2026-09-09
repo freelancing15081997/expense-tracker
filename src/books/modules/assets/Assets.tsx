@@ -3,6 +3,7 @@ import { useBooks } from '../../context/BooksProvider';
 import { parseMoney } from '../../core/money';
 import { btnGhost, btnPrimary, Card, Field, inputClass, Money, PageShell, Status } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
+import type { FixedAsset } from '../../core/types';
 
 export default function Assets() {
   const books = useBooks();
@@ -66,7 +67,7 @@ export default function Assets() {
           </form>
         </Card>
       )}
-      <PagedTable rows={assets} empty="No assets on the register.">
+      <PagedTable<FixedAsset> rows={assets} empty="No assets on the register.">
         {(slice) => (
           <table className="w-full text-sm">
             <thead className="text-left text-slate-500 border-b border-slate-200">

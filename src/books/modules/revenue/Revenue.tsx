@@ -3,6 +3,7 @@ import { useBooks } from '../../context/BooksProvider';
 import { parseMoney } from '../../core/money';
 import { btnGhost, btnPrimary, Card, Field, inputClass, Money, PageShell, Status } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
+import type { RevenueContract } from '../../core/types';
 
 export default function Revenue() {
   const books = useBooks();
@@ -67,7 +68,7 @@ export default function Revenue() {
           </form>
         </Card>
       )}
-      <PagedTable rows={contracts} empty="No revenue contracts.">
+      <PagedTable<RevenueContract> rows={contracts} empty="No revenue contracts.">
         {(slice) => (
           <table className="w-full text-sm">
             <thead className="text-left text-slate-500 border-b border-slate-200">

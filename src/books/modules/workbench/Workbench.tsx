@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useBooks } from '../../context/BooksProvider';
 import { btnGhost, btnPrimary, Card, Empty, Field, FileField, inputClass, PageShell, Status } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
+import type { Workpaper } from '../../core/types';
 
 export default function Workbench() {
   const books = useBooks();
@@ -110,7 +111,7 @@ export default function Workbench() {
           </form>
         </Card>
       )}
-      <PagedTable rows={workpapers} empty="No workpapers." minWidth="min-w-[560px]">
+      <PagedTable<Workpaper> rows={workpapers} empty="No workpapers." minWidth="min-w-[560px]">
         {(slice) => (
           <ul className="divide-y divide-slate-100">
             {slice.map((row) => (

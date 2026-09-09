@@ -3,6 +3,7 @@ import { useBooks } from '../../context/BooksProvider';
 import { periodIdFromDate, parseMoney, todayISO } from '../../core/money';
 import { btnGhost, btnPrimary, Card, Field, inputClass, Money, PageShell } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
+import type { BudgetLine } from '../../core/types';
 
 export default function Budgets() {
   const books = useBooks();
@@ -64,7 +65,7 @@ export default function Budgets() {
           </form>
         </Card>
       )}
-      <PagedTable rows={budgets} empty="No budget lines yet.">
+      <PagedTable<BudgetLine> rows={budgets} empty="No budget lines yet.">
         {(slice) => (
           <table className="w-full text-sm">
             <thead className="text-left text-slate-500 border-b border-slate-200">

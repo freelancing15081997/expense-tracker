@@ -4,7 +4,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { db } from '../lib/firebase';
-import { doc, getDoc, collection, query, onSnapshot, addDoc, serverTimestamp, deleteDoc, updateDoc, setDoc, deleteField } from 'firebase/firestore';
+import { doc, getDoc, collection, query, onSnapshot, addDoc, serverTimestamp, updateDoc, setDoc, deleteField } from 'firebase/firestore';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send } from 'lucide-react';
@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { format } from 'date-fns';
 import { getCurrencySymbol } from '../lib/currency';
+import { isSoftDeleted, softDeletePatch } from '../lib/records';
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import TransactionLoader from '../components/TransactionLoader';
@@ -101,7 +102,7 @@ export default function BookView() {
         addToast(isSelf ? 'You have left the ledger.' : 'Member removed.', 'success');
         
         if (isSelf) {
-          navigate('/');
+          navigate('/expenses');
         } else {
           // If we removed someone else, notify remaining team members
           await notifyTeamMembers('Member Removed', `${book.roles[uidToRemove]?.email} was removed from the ledger.`, `${book.roles[uidToRemove]?.email} was removed from ${book.name}`);
@@ -124,7 +125,11 @@ export default function BookView() {
     const q = query(collection(db, `books/${bookId}/expenses`));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const exps: any[] = [];
-      snapshot.forEach(doc => exps.push({ id: doc.id, ...doc.data() }));
+      snapshot.forEach(d => {
+        const data = d.data();
+        if (isSoftDeleted(data)) return;
+        exps.push({ id: d.id, ...data });
+      });
       exps.sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt));
       setExpenses(exps);
       setLoading(false);
@@ -342,13 +347,13 @@ export default function BookView() {
   };
 
   const handleDeleteExpense = async (id: string, description: string) => {
-    if (!canWrite) return;
-    if (confirm('Delete this entry permanently?')) {
+    if (!canWrite || !currentUser) return;
+    if (confirm('Remove this entry? It stays in the ledger for audit and is hidden from lists and totals.')) {
       setIsDeleting(id);
       try {
-        await deleteDoc(doc(db, `books/${bookId}/expenses`, id));
+        await updateDoc(doc(db, `books/${bookId}/expenses`, id), softDeletePatch(currentUser.uid));
         await notifyTeamMembers('Deleted an entry', `Removed entry for "${description}"`, `${userProfile?.displayName || currentUser?.email} deleted "${description}" from ${book.name}`);
-        addToast('Entry deleted successfully!', 'success');
+        addToast('Entry removed. The record is kept for audit.', 'success');
       } catch (err: any) {
         console.error("Delete failed:", err);
         addToast("Delete failed: " + err.message, 'error');
@@ -441,7 +446,7 @@ export default function BookView() {
         {/* Compact Modern Header */}
       <div className="sticky top-0 z-20 -mx-4 md:-mx-6 lg:-mx-8 px-4 md:px-6 lg:px-8 py-3 bg-[#f8f9fa]/95 backdrop-blur border-b border-slate-200/70 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex flex-col gap-1.5">
-          <Link to="/" className="inline-flex items-center text-[10px] font-bold text-zinc-400 hover:text-zinc-600 transition-colors uppercase tracking-widest">
+          <Link to="/expenses" className="inline-flex items-center text-[10px] font-bold text-zinc-400 hover:text-zinc-600 transition-colors uppercase tracking-widest">
             <ArrowLeft className="w-3 h-3 mr-1" /> Back
           </Link>
           <div className="flex items-center gap-3">
@@ -455,7 +460,7 @@ export default function BookView() {
         <div className="flex items-center gap-2">
           <button 
             onClick={() => setIsMembersModalOpen(true)}
-            className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:border-slate-300 hover:bg-slate-50 transition-all shadow-sm"
+            className="byjan-btn-ghost !px-3 !py-1.5"
           >
             <Users className="w-4 h-4 text-slate-400" />
             <span className="hidden sm:inline">Team</span>
@@ -463,7 +468,7 @@ export default function BookView() {
           {canWrite && (
             <button 
               onClick={openNewExpense}
-              className="flex items-center gap-2 px-3 sm:px-4 py-1.5 bg-zinc-600 text-white rounded-lg text-sm font-medium hover:bg-zinc-700 transition-all shadow-sm hover:shadow shadow-zinc-600/20"
+              className="byjan-btn !px-3 sm:!px-4 !py-1.5"
             >
               <Plus className="w-4 h-4" />
               <span className="hidden sm:inline">Add Entry</span>
@@ -475,10 +480,10 @@ export default function BookView() {
 
       <Tabs.Root defaultValue="ledger" className="space-y-5">
         <Tabs.List className="flex gap-4 border-b border-slate-200/60">
-          <Tabs.Trigger value="ledger" className="pb-2 text-sm font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-zinc-600 data-[state=active]:border-b-2 data-[state=active]:border-zinc-600 transition-colors">
+          <Tabs.Trigger value="ledger" className="pb-2 text-sm font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B1F3A] data-[state=active]:border-b-2 data-[state=active]:border-[#12B8A8] transition-colors">
             Ledger Entries
           </Tabs.Trigger>
-          <Tabs.Trigger value="analytics" className="pb-2 text-sm font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-zinc-600 data-[state=active]:border-b-2 data-[state=active]:border-zinc-600 transition-colors">
+          <Tabs.Trigger value="analytics" className="pb-2 text-sm font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B1F3A] data-[state=active]:border-b-2 data-[state=active]:border-[#12B8A8] transition-colors">
             Analytics & Reports
           </Tabs.Trigger>
         </Tabs.List>
@@ -486,15 +491,15 @@ export default function BookView() {
         <Tabs.Content value="ledger" className="space-y-4 outline-none">
           {/* Summary Cards */}
           <div className="flex flex-col sm:flex-row items-center gap-4">
-            <div className="w-full sm:w-auto flex-1 flex flex-row items-center justify-between bg-white p-3 px-5 rounded-lg border border-slate-200 shadow-sm">
+            <div className="w-full sm:w-auto flex-1 flex flex-row items-center justify-between byjan-card p-3 px-5">
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Net Balance</p>
               <h2 className={cn("text-lg font-bold", balance >= 0 ? "text-emerald-600" : "text-rose-600")}>{balance < 0 ? '-' : ''}{getCurrencySymbol(book.currency)} {Math.abs(balance).toLocaleString(undefined, {minimumFractionDigits: 2})}</h2>
             </div>
-            <div className="w-full sm:w-auto flex-1 flex flex-row items-center justify-between bg-white p-3 px-5 rounded-lg border border-slate-200 shadow-sm">
+            <div className="w-full sm:w-auto flex-1 flex flex-row items-center justify-between byjan-card p-3 px-5">
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Money Out</p>
               <h2 className="text-lg font-bold text-rose-600">{getCurrencySymbol(book.currency)} {totalOut.toLocaleString(undefined, {minimumFractionDigits: 2})}</h2>
             </div>
-            <div className="w-full sm:w-auto flex-1 flex flex-row items-center justify-between bg-white p-3 px-5 rounded-lg border border-slate-200 shadow-sm">
+            <div className="w-full sm:w-auto flex-1 flex flex-row items-center justify-between byjan-card p-3 px-5">
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Money In</p>
               <h2 className="text-lg font-bold text-emerald-600">{getCurrencySymbol(book.currency)} {totalIn.toLocaleString(undefined, {minimumFractionDigits: 2})}</h2>
             </div>
@@ -516,20 +521,20 @@ export default function BookView() {
                 placeholder="Search entries..." 
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-zinc-600/20 focus:border-zinc-600 outline-none transition-all"
+                className="byjan-input pl-9"
               />
             </div>
             <div className="flex items-center gap-2 w-full sm:w-auto">
-              <button onClick={() => generatePDF(false)} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
+              <button onClick={() => generatePDF(false)} className="byjan-btn-ghost flex-1 sm:flex-none !px-3 !py-2">
                 <Download className="w-4 h-4" /> <span className="hidden sm:inline">PDF</span>
               </button>
-              <button onClick={emailReport} disabled={sendingReport} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50">
+              <button onClick={emailReport} disabled={sendingReport} className="byjan-btn-ghost flex-1 sm:flex-none !px-3 !py-2">
                 {sendingReport ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} <span className="hidden sm:inline">Email</span>
               </button>
               
               <DropdownMenu.Root>
                 <DropdownMenu.Trigger asChild>
-                  <button className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
+                  <button className="byjan-btn-ghost !px-3 !py-2">
                     <Settings2 className="w-4 h-4" /> <span className="hidden sm:inline">Cols</span>
                   </button>
                 </DropdownMenu.Trigger>
@@ -553,7 +558,7 @@ export default function BookView() {
           </div>
 
           {/* Data Table */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+          <div className="byjan-table flex flex-col">
             
             {/* Desktop / Tablet View */}
             <div className="hidden md:block overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
@@ -622,7 +627,7 @@ export default function BookView() {
                 <div className="p-5 text-center text-sm text-slate-500 bg-white rounded-lg border border-slate-200">No entries found.</div>
               ) : (
                 paginatedExpenses.map((exp) => (
-                  <div key={exp.id} className="p-3.5 bg-white rounded-lg border border-slate-200 shadow-sm flex flex-col gap-2">
+                  <div key={exp.id} className="p-3.5 byjan-card flex flex-col gap-2">
                     <div className="flex justify-between items-start gap-2">
                       <div className="font-semibold text-slate-900 text-[14px] leading-tight flex-1">{exp.description}</div>
                       <div className={cn("font-bold text-[14px] whitespace-nowrap", exp.entryType === 'in' ? "text-emerald-600" : exp.entryType === 'transfer' ? "text-blue-600" : "text-slate-900")}>{exp.entryType === 'in' ? '+' : exp.entryType === 'transfer' ? '' : '-'}{getCurrencySymbol(book.currency)} {exp.amount.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
@@ -652,7 +657,7 @@ export default function BookView() {
           </div>
           {/* Pagination Controls */}
           {filteredExpenses.length > 0 && (
-            <div className="flex items-center justify-between px-3 py-2 bg-white border border-slate-200 rounded-lg mt-3">
+            <div className="flex items-center justify-between px-3 py-2 byjan-card mt-3">
               <span className="text-xs font-medium text-slate-500">
                 <span className="text-slate-900">{((currentPage - 1) * itemsPerPage) + 1}-{Math.min(currentPage * itemsPerPage, filteredExpenses.length)}</span> of <span className="text-slate-900">{filteredExpenses.length}</span>
               </span>
@@ -679,7 +684,7 @@ export default function BookView() {
 
         <Tabs.Content value="analytics" className="outline-none space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm">
+            <div className="byjan-card p-5">
               <h3 className="font-semibold text-sm text-slate-900 mb-4 flex items-center gap-2">
                 <FileBarChart className="w-4 h-4 text-slate-400" /> Top Categories
               </h3>
@@ -707,14 +712,14 @@ export default function BookView() {
               )}
             </div>
             
-            <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm flex flex-col">
+            <div className="byjan-card p-5 flex flex-col">
               <h3 className="font-semibold text-sm text-slate-900 mb-4 flex items-center gap-2">
                 <FileText className="w-4 h-4 text-slate-400" /> Export & Reports
               </h3>
               <p className="text-xs text-slate-500 mb-6 flex-1">Generate comprehensive CSV exports of the ledger for tax filing, audits, or external accounting software integration.</p>
               <button 
                 onClick={() => addToast("CSV Export coming soon.", "info")}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-md text-sm font-medium hover:bg-slate-800 transition-colors"
+                className="byjan-btn w-full"
               >
                 Download CSV Ledger
               </button>
@@ -727,7 +732,7 @@ export default function BookView() {
       <Dialog.Root open={isExpenseModalOpen} onOpenChange={setIsExpenseModalOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-slate-900/40 z-50 backdrop-blur-sm" />
-          <Dialog.Content className="fixed left-[50%] top-[50%] z-50 grid w-full max-w-md translate-x-[-50%] translate-y-[-50%] gap-4 border border-slate-200 bg-white p-5 shadow-xl rounded-lg">
+          <Dialog.Content className="byjan-panel fixed left-[50%] top-[50%] z-50 grid w-full max-w-md translate-x-[-50%] translate-y-[-50%] gap-4 p-5">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <Dialog.Title className="text-base font-bold text-slate-900">
                 {editingExpense ? 'Edit Entry' : 'Record Expense'}
@@ -766,7 +771,7 @@ export default function BookView() {
                 <input 
                   type="number" step="0.01" required autoFocus
                   value={amount} onChange={e=>setAmount(e.target.value)} 
-                  className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-zinc-600 outline-none" 
+                  className="byjan-input" 
                 />
               </div>
               <div>
@@ -774,7 +779,7 @@ export default function BookView() {
                 <input 
                   type="text" required 
                   value={description} onChange={e=>setDescription(e.target.value)} 
-                  className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-zinc-600 outline-none" 
+                  className="byjan-input" 
                   placeholder="e.g. Server Hosting"
                 />
               </div>
@@ -794,16 +799,16 @@ export default function BookView() {
                   <input 
                     type="text" required
                     value={customCatInput} onChange={e=>setCustomCatInput(e.target.value)}
-                    className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-zinc-600 outline-none"
+                    className="byjan-input"
                     placeholder="Enter custom category name"
                   />
                 )}
               </div>
               <div className="pt-2 flex justify-end gap-2">
                 <Dialog.Close asChild>
-                  <button type="button" className="px-4 py-2 rounded-md text-sm font-medium text-slate-600 hover:bg-slate-50 border border-slate-200">Cancel</button>
+                  <button type="button" className="byjan-btn-ghost">Cancel</button>
                 </Dialog.Close>
-                <button type="submit" disabled={isSaving} className="px-4 py-2 bg-zinc-600 text-white text-sm font-medium rounded-md hover:bg-zinc-700 disabled:opacity-50 flex items-center justify-center gap-1.5">
+                <button type="submit" disabled={isSaving} className="byjan-btn">
                   {isSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                   {editingExpense ? 'Save Changes' : 'Record Entry'}
                 </button>
@@ -817,7 +822,7 @@ export default function BookView() {
       <Dialog.Root open={isMembersModalOpen} onOpenChange={setIsMembersModalOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-slate-900/40 z-50 backdrop-blur-sm" />
-          <Dialog.Content className="fixed left-[50%] top-[50%] z-50 flex flex-col w-full max-w-lg max-h-[85vh] translate-x-[-50%] translate-y-[-50%] bg-white shadow-xl rounded-lg overflow-hidden border border-slate-200">
+          <Dialog.Content className="byjan-panel fixed left-[50%] top-[50%] z-50 flex flex-col w-full max-w-lg max-h-[85vh] translate-x-[-50%] translate-y-[-50%] overflow-hidden">
             <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
               <Dialog.Title className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <Users className="w-4 h-4 text-slate-500" /> Team Members
@@ -880,7 +885,7 @@ export default function BookView() {
                   <input 
                     type="email" required placeholder="email@company.com" 
                     value={inviteEmail} onChange={e => setInviteEmail(e.target.value)}
-                    className="flex-1 border border-slate-300 rounded-md px-3 py-1.5 text-sm focus:ring-1 focus:ring-zinc-600 outline-none"
+                    className="byjan-input"
                   />
                   <Select value={inviteRole} onValueChange={setInviteRole}>
                     <SelectTrigger className="w-full sm:w-32 h-[34px] py-1.5 border-slate-300">
@@ -893,10 +898,10 @@ export default function BookView() {
                       <SelectItem value="viewer">Viewer</SelectItem>
                     </SelectContent>
                   </Select>
-                  <button type="submit" disabled={inviting} className="px-4 py-1.5 bg-zinc-600 text-white text-sm font-medium rounded-md hover:bg-zinc-700 disabled:opacity-50 flex items-center justify-center gap-1.5">
-  {inviting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-  Invite
-</button>
+                  <button type="submit" disabled={inviting} className="byjan-btn">
+                    {inviting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    Invite
+                  </button>
                 </form>
               </div>
             )}

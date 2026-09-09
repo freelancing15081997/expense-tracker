@@ -40,7 +40,7 @@ export default function Register() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-[#F5F7FA] flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <div className="flex justify-center">
           <BrandLogo size="lg" />
@@ -51,14 +51,14 @@ export default function Register() {
         <p className="mt-1 text-center text-xs font-semibold tracking-[0.18em] text-slate-500">Trace Financials Easily</p>
         <p className="mt-2 text-center text-sm text-slate-600">
           Or{' '}
-          <Link to="/login" className="font-medium text-emerald-600 hover:text-emerald-500">
+          <Link to="/login" className="font-medium text-teal-700 hover:text-teal-600">
             sign in to your existing account
           </Link>
         </p>
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10 border border-slate-200">
+        <div className="byjan-panel py-8 px-4 sm:px-10">
           {error && (
             <div className="mb-4 bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-md flex items-center gap-2 text-sm">
               <AlertCircle className="w-4 h-4" />
@@ -78,7 +78,7 @@ export default function Register() {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="focus:ring-emerald-500 focus:border-emerald-500 block w-full pl-10 sm:text-sm border-slate-300 rounded-md py-2 border"
+                  className="byjan-input pl-10"
                   placeholder="you@example.com"
                 />
               </div>
@@ -95,7 +95,7 @@ export default function Register() {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="focus:ring-emerald-500 focus:border-emerald-500 block w-full pl-10 sm:text-sm border-slate-300 rounded-md py-2 border"
+                  className="byjan-input pl-10"
                   placeholder="••••••••"
                   minLength={6}
                 />
@@ -106,7 +106,7 @@ export default function Register() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 focus:outline-none disabled:opacity-50"
+                className="byjan-btn w-full"
               >
                 Register
               </button>
@@ -127,7 +127,7 @@ export default function Register() {
               <button
                 onClick={handleGoogleLogin}
                 disabled={loading}
-                className="w-full inline-flex justify-center py-2 px-4 border border-slate-300 rounded-md shadow-sm bg-white text-sm font-medium text-slate-500 hover:bg-slate-50"
+                className="byjan-btn-ghost w-full"
               >
                 <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-5 h-5" />
                 <span className="ml-2">Sign in with Google</span>

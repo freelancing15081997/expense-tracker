@@ -2,12 +2,13 @@ import React from 'react';
 import { useBooks } from '../../context/BooksProvider';
 import { PageShell } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
+import type { AuditEvent } from '../../core/types';
 
 export default function AuditLog() {
   const { audit } = useBooks();
   return (
     <PageShell title="Audit Trail" subtitle="Every post, payment, reversal, and void is recorded. Audit rows cannot be edited.">
-      <PagedTable rows={audit} empty="No audit events yet. Post a journal or invoice to see lineage.">
+      <PagedTable<AuditEvent> rows={audit} empty="No audit events yet. Post a journal or invoice to see lineage.">
         {(slice) => (
           <table className="w-full text-sm">
             <thead className="text-left text-slate-500 border-b border-slate-200">

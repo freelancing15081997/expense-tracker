@@ -5,6 +5,7 @@ import { db } from '../lib/firebase';
 import { collection, query, where, getDocs, limit } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
 import { BOOKS_FLAT_LINKS, BOOKS_QUICK_CREATE } from '../books/nav';
+import { isSoftDeleted } from '../lib/records';
 
 export function openGlobalSearch() {
   window.dispatchEvent(new Event('byjan-open-search'));
@@ -24,7 +25,7 @@ interface SearchResult {
   hint: string;
 }
 
-const FEATURES = [...BOOKS_QUICK_CREATE, ...BOOKS_FLAT_LINKS, { name: 'Expense Tracker', href: '/' }, { name: 'Workspace', href: '/' }, { name: 'Settings', href: '/settings' }]
+const FEATURES = [...BOOKS_QUICK_CREATE, ...BOOKS_FLAT_LINKS, { name: 'Main Dashboard', href: '/' }, { name: 'Expense Tracker', href: '/expenses' }, { name: 'Settings', href: '/settings' }]
   .filter((item, i, arr) => arr.findIndex((x) => x.href === item.href) === i);
 
 type CachedBook = { id: string; name: string; currency?: string };
@@ -52,9 +53,10 @@ async function loadBooksFast(uid: string): Promise<CachedBook[]> {
     limit(30)
   );
   const snap = await getDocs(booksQuery);
-  const books = snap.docs.map((d) => {
+  const books = snap.docs.flatMap((d) => {
     const data = d.data();
-    return { id: d.id, name: data.name || 'Ledger', currency: data.currency };
+    if (isSoftDeleted(data)) return [];
+    return [{ id: d.id, name: data.name || 'Ledger', currency: data.currency }];
   });
   bookCache.uid = uid;
   bookCache.books = books;
@@ -73,11 +75,11 @@ export function SearchTrigger({
       <button
         type="button"
         onClick={open}
-        className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl bg-white/15 border border-white/25 text-left text-sm text-white hover:bg-white/25 transition-colors"
+        className="w-full flex items-center gap-2 px-3 py-2 rounded-xl bg-[#F8FAFC] border border-slate-200 text-left text-sm text-slate-600 hover:bg-white byjan-lift"
       >
-        <Search className="w-4 h-4 text-white shrink-0" />
-        <span className="flex-1 text-white/90">Search features, names…</span>
-        <kbd className="hidden lg:inline px-1.5 py-0.5 text-[10px] font-semibold text-white/80 bg-black/20 border border-white/20 rounded">⌘K</kbd>
+        <Search className="w-4 h-4 text-slate-500 shrink-0" />
+        <span className="flex-1">Search…</span>
+        <kbd className="hidden lg:inline px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 bg-white border border-slate-200 rounded">⌘K</kbd>
       </button>
     );
   }
@@ -86,7 +88,7 @@ export function SearchTrigger({
       <button
         type="button"
         onClick={open}
-        className="flex items-center gap-2 w-full max-w-xl px-3 py-2 text-sm text-slate-800 bg-white hover:bg-slate-50 rounded-xl border border-slate-200 shadow-sm transition-colors"
+        className="flex items-center gap-2 w-full max-w-xl px-3 py-2 text-sm text-slate-800 bg-white hover:bg-slate-50 rounded-xl border border-slate-200 shadow-[0_1px_1px_rgba(11,31,58,0.04),0_8px_18px_-12px_rgba(11,31,58,0.18)] transition-colors"
       >
         <Search className="w-4 h-4 text-slate-600" />
         <span className="flex-1 text-left text-slate-500">Search features, customers, expenses…</span>
@@ -96,7 +98,7 @@ export function SearchTrigger({
   }
   if (variant === 'icon') {
     return (
-      <button type="button" onClick={open} className="p-2.5 rounded-xl bg-white/15 border border-white/25 text-white hover:bg-white/25" title="Search (⌘K)">
+      <button type="button" onClick={open} className="p-2 rounded-lg text-slate-600 hover:bg-slate-100" title="Search (⌘K)">
         <Search className="w-4 h-4" />
       </button>
     );
@@ -105,7 +107,7 @@ export function SearchTrigger({
     <button
       type="button"
       onClick={open}
-      className="flex items-center gap-2 px-3 py-1.5 text-sm text-white bg-white/15 hover:bg-white/25 rounded-lg border border-white/25 transition-colors"
+      className="flex items-center gap-2 px-3 py-1.5 text-sm text-slate-700 bg-slate-100 hover:bg-slate-50 rounded-lg border border-slate-200 transition-colors"
     >
       <Search className="w-4 h-4" />
       <span className="hidden sm:inline">Search</span>
@@ -213,7 +215,7 @@ export default function GlobalSearch() {
 
   return (
     <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[80] flex items-start justify-center pt-[12vh]">
-      <div ref={searchRef} className="w-full max-w-2xl mx-4 bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+      <div ref={searchRef} className="w-full max-w-2xl mx-4 byjan-panel overflow-hidden">
         <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-200">
           <Search className="w-5 h-5 text-slate-500" />
           <input

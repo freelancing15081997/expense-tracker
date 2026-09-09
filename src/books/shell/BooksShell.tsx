@@ -12,8 +12,8 @@ export default function BooksShell({ children }: { children: React.ReactNode }) 
   const siblings = (BOOKS_TREE.find((branch) => branch.id === current.id)?.items || []).filter((item) => item.href !== module.href);
 
   return (
-    <div className="books-root h-full min-h-0 flex flex-col text-[#0B1F3A] bg-[#F8FAFC]">
-      <header className="shrink-0 z-20 border-b border-[#E5E7EB] bg-white px-4 md:px-7 py-3 md:py-4">
+    <div className="books-root h-full min-h-0 flex flex-col text-[#0B1F3A] bg-[#F5F7FA]">
+      <header className="shrink-0 z-20 border-b border-[#E5E7EB] bg-white px-4 md:px-7 py-3 md:py-4 shadow-[0_1px_0_rgba(11,31,58,0.04)]">
         <p className="text-[10px] uppercase tracking-[0.18em] text-[#12B8A8] font-semibold truncate">
           {current.name} · {tenant?.name || 'Byjan Books'} · {role || 'workspace'}
         </p>
@@ -24,7 +24,7 @@ export default function BooksShell({ children }: { children: React.ReactNode }) 
           </div>
           <div className="flex flex-wrap gap-2 items-center">
             {siblings.slice(0, 5).map((rel) => (
-              <Link key={rel.href} to={rel.href} className="px-3 py-1.5 rounded-full border border-[#E5E7EB] text-xs font-medium text-[#0B1F3A] hover:bg-[#F3F4F6]">
+              <Link key={rel.href} to={rel.href} className="byjan-btn-ghost !px-3 !py-1.5 text-xs">
                 {rel.name}
               </Link>
             ))}

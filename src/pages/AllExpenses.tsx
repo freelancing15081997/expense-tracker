@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { db } from '../lib/firebase';
 import { collection, query, getDocs, orderBy, where } from 'firebase/firestore';
 import { Receipt, ArrowUpRight, ArrowDownRight, Loader2, ArrowLeftRight, BookOpen } from 'lucide-react';
+import { isSoftDeleted } from '../lib/records';
 
 export default function AllExpenses() {
   const { currentUser } = useAuth();
@@ -20,15 +21,19 @@ export default function AllExpenses() {
         let allExps: any[] = [];
         
         for (const b of bookSnaps.docs) {
-          if (b.data().roles && b.data().roles[currentUser.uid] && ['owner', 'admin', 'contributor', 'viewer', 'auditor'].includes(b.data().roles[currentUser.uid].role)) {
+          const bookData = b.data();
+          if (isSoftDeleted(bookData)) continue;
+          if (bookData.roles && bookData.roles[currentUser.uid] && ['owner', 'admin', 'contributor', 'viewer', 'auditor'].includes(bookData.roles[currentUser.uid].role)) {
             const expSnap = await getDocs(collection(db, 'books', b.id, 'expenses'));
-            expSnap.forEach(doc => {
+            expSnap.forEach(expDoc => {
+              const data = expDoc.data();
+              if (isSoftDeleted(data)) return;
               allExps.push({
-                id: doc.id,
+                id: expDoc.id,
                 bookId: b.id,
                 bookName: b.data().name,
                 currency: b.data().currency,
-                ...doc.data()
+                ...data
               });
             });
           }
@@ -63,14 +68,14 @@ export default function AllExpenses() {
   return (
     <div className="max-w-5xl mx-auto space-y-6 animate-in fade-in duration-500">
       <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-bold text-zinc-900 tracking-tight flex items-center gap-2">
-          <BookOpen className="w-6 h-6 text-zinc-700" />
+        <h1 className="text-2xl font-bold text-[#0B1F3A] tracking-tight flex items-center gap-2">
+          <BookOpen className="w-6 h-6 text-[#0B1F3A]" />
           Books (Auditing)
         </h1>
         <p className="text-sm text-zinc-500">Global bookkeeping view across all ledgers for auditing purposes.</p>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-zinc-200 overflow-hidden">
+      <div className="byjan-table">
         {expenses.length === 0 ? (
           <div className="p-8 text-center text-zinc-500">
             <Receipt className="w-12 h-12 mx-auto mb-3 text-zinc-300" />

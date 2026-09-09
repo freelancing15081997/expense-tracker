@@ -4,6 +4,7 @@ import { useBooks } from '../../context/BooksProvider';
 import { todayISO } from '../../core/money';
 import { Card, Money, PageShell, Status } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
+import type { FinanceDocument } from '../../core/types';
 
 export default function Collections() {
   const { documents, parties, currency } = useBooks();
@@ -19,7 +20,7 @@ export default function Collections() {
           <Link to="/books/invoices" className="underline underline-offset-2">Invoices</Link>
         </div>
       </Card>
-      <PagedTable rows={rows} empty="No overdue posted invoices.">
+      <PagedTable<FinanceDocument> rows={rows} empty="No overdue posted invoices.">
         {(slice) => (
           <table className="w-full text-sm">
             <thead className="text-left text-[#7a7368] border-b border-[#e6e0d4]">

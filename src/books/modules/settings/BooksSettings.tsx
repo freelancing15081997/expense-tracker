@@ -88,6 +88,12 @@ export default function BooksSettings() {
           <textarea className={inputClass} rows={3} value={invoiceFooter} onChange={(e) => setInvoiceFooter(e.target.value)} disabled={!can('manage_settings')} />
         </Field>
         <p className="text-sm text-slate-500">Base currency: <strong>{tenant?.baseCurrency}</strong> · Your role: <strong>{role}</strong></p>
+        <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 text-sm space-y-1">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Tenant isolation</p>
+          <p>Workspace: <strong>{tenant?.name}</strong></p>
+          <p className="text-slate-600">Path <code className="text-xs">erp_workspaces/{tenant?.id}</code>. Tenant id is the signed-in Firebase user. The spec forbids a second tenancy system — this is SET’s Books tenant.</p>
+          <p className="text-slate-600">{tenant?.memberIds?.length || 1} workspace member{(tenant?.memberIds?.length || 1) === 1 ? '' : 's'}.</p>
+        </div>
         {logoUrl && (
           <div className="w-20 h-20 rounded-2xl border border-[#E5E7EB] overflow-hidden bg-white">
             <img src={logoUrl} alt="Company logo" className="w-full h-full object-contain" />
