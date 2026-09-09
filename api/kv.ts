@@ -85,33 +85,92 @@ function decodeDoc(raw: any) {
   return { path, data };
 }
 
-async function firestoreGet(token: string, path: string) {
-  const res = await fetch(`${FIRESTORE_ROOT}/${path}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) return null;
-  return decodeDoc(await res.json()).data;
+function encodeFsValue(value: unknown): Record<string, unknown> {
+  if (value === null || value === undefined) return { nullValue: null };
+  if (typeof value === 'boolean') return { booleanValue: value };
+  if (typeof value === 'number') {
+    return Number.isInteger(value) ? { integerValue: String(value) } : { doubleValue: value };
+  }
+  if (Array.isArray(value)) return { arrayValue: { values: value.map(encodeFsValue) } };
+  return { stringValue: String(value) };
 }
 
-async function firestoreList(token: string, colPath: string) {
-  const out: { id: string; data: Record<string, unknown> }[] = [];
-  let pageToken = '';
-  for (let i = 0; i < 20; i++) {
-    const url = new URL(`${FIRESTORE_ROOT}/${colPath}`);
-    url.searchParams.set('pageSize', '100');
-    if (pageToken) url.searchParams.set('pageToken', pageToken);
-    const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${token}` } });
-    if (!res.ok) break;
-    const payload = await res.json();
-    for (const doc of payload.documents || []) {
-      const decoded = decodeDoc(doc);
+function firestoreRoots() {
+  return [
+    FIRESTORE_ROOT,
+    `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents`,
+  ];
+}
+
+async function firestoreGet(token: string, path: string) {
+  for (const root of firestoreRoots()) {
+    const res = await fetch(`${root}/${path}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok) return decodeDoc(await res.json()).data;
+  }
+  return null;
+}
+
+async function firestoreQuery(token: string, colPath: string, constraints: any[] = []) {
+  const parts = colPath.split('/').filter(Boolean);
+  const collectionId = parts.pop();
+  if (!collectionId) return [];
+  const parentPath = parts.join('/');
+  const filters: any[] = [];
+  const structuredQuery: any = { from: [{ collectionId }] };
+  for (const c of constraints) {
+    if (c.type === 'where' && c.op === '==') {
+      filters.push({
+        fieldFilter: {
+          field: { fieldPath: c.field },
+          op: 'EQUAL',
+          value: encodeFsValue(c.value),
+        },
+      });
+    } else if (c.type === 'where' && c.op === 'in') {
+      filters.push({
+        fieldFilter: {
+          field: { fieldPath: c.field },
+          op: 'IN',
+          value: { arrayValue: { values: (Array.isArray(c.value) ? c.value : []).map(encodeFsValue) } },
+        },
+      });
+    } else if (c.type === 'orderBy') {
+      structuredQuery.orderBy = [{
+        field: { fieldPath: c.field },
+        direction: c.dir === 'desc' ? 'DESCENDING' : 'ASCENDING',
+      }];
+    } else if (c.type === 'limit') {
+      structuredQuery.limit = Number(c.n) || 100;
+    }
+  }
+  if (filters.length === 1) structuredQuery.where = filters[0];
+  else if (filters.length > 1) structuredQuery.where = { compositeFilter: { op: 'AND', filters } };
+
+  for (const root of firestoreRoots()) {
+    const url = parentPath ? `${root}/${parentPath}:runQuery` : `${root}:runQuery`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ structuredQuery }),
+    });
+    if (!res.ok) continue;
+    const rows = await res.json();
+    if (!Array.isArray(rows)) continue;
+    const out: { id: string; data: Record<string, unknown> }[] = [];
+    for (const row of rows) {
+      if (!row?.document) continue;
+      const decoded = decodeDoc(row.document);
       const id = String(decoded.path.split('/').pop() || '');
       if (id) out.push({ id, data: decoded.data });
     }
-    pageToken = payload.nextPageToken || '';
-    if (!pageToken) break;
+    if (out.length || res.ok) return out;
   }
-  return out;
+  return [];
 }
 
 async function pgGet(path: string) {
@@ -243,7 +302,7 @@ async function readDoc(path: string, token: string) {
   return firestoreGet(token, path);
 }
 
-async function readList(path: string, token: string) {
+async function readList(path: string, token: string, constraints: any[] = []) {
   const byId = new Map<string, { id: string; data: Record<string, unknown> }>();
   try {
     for (const row of await localList(path)) byId.set(row.id, row);
@@ -251,7 +310,7 @@ async function readList(path: string, token: string) {
     // Fall through to Firestore.
   }
   try {
-    for (const row of await firestoreList(token, path)) {
+    for (const row of await firestoreQuery(token, path, constraints)) {
       if (!byId.has(row.id)) byId.set(row.id, row);
     }
   } catch {
@@ -355,8 +414,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (op === 'list' || op === 'query') {
-      let docs = await readList(path, token);
       const constraints = Array.isArray(body.constraints) ? body.constraints : [];
+      let docs = await readList(path, token, constraints);
       for (const c of constraints) {
         if (c.type === 'where' && c.op === '==') {
           docs = docs.filter((row) => getAt({ id: row.id, ...row.data }, c.field) === c.value);

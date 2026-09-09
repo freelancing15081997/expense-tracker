@@ -17,7 +17,7 @@ const firebaseConfig = {
   appId: '1:450686107760:web:ee4b53ae0ccd18c90734b5',
 };
 
-const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = { vendor: 'vercel' as const };
 

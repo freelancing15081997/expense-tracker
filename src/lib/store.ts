@@ -5,6 +5,7 @@ export type DocRef = { path: string; id: string; kind?: 'doc' };
 export type ColRef = { kind: 'col'; path: string };
 
 const DELETE = { __delete: true };
+const FIRESTORE_DB = 'ai-studio-sharedsheetexpen-15aa5fbb-9604-4c59-b4a3-aa994442cb50';
 
 export function deleteField() {
   return DELETE;
@@ -37,6 +38,44 @@ function autoId() {
     for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
   }
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function pathParts(path: string) {
+  return path.split('/').filter(Boolean);
+}
+
+let namedDb: any = null;
+async function firestoreDb() {
+  if (namedDb) return namedDb;
+  const { getFirestore } = await import('firebase/firestore');
+  const { app } = await import('./firebase');
+  namedDb = getFirestore(app, FIRESTORE_DB);
+  return namedDb;
+}
+
+async function readFirestoreDoc(path: string) {
+  const { doc, getDoc } = await import('firebase/firestore');
+  const snap = await getDoc(doc(await firestoreDb(), ...pathParts(path)));
+  return snap.exists() ? snap.data() : null;
+}
+
+async function readFirestoreDocs(path: string, constraints: Constraint[] = []) {
+  const {
+    collection,
+    getDocs,
+    query,
+    where,
+    limit,
+    orderBy,
+  } = await import('firebase/firestore');
+  const col = collection(await firestoreDb(), ...pathParts(path));
+  const parsed = constraints.map((c) => {
+    if (c.type === 'where') return where(c.field, c.op as any, c.value);
+    if (c.type === 'limit') return limit(c.n);
+    return orderBy(c.field, (c.dir as 'asc' | 'desc') || 'asc');
+  });
+  const snap = parsed.length ? await getDocs(query(col, ...parsed)) : await getDocs(col);
+  return snap.docs.map((row) => ({ id: row.id, data: row.data() as Record<string, unknown> }));
 }
 
 export function collection(_db: Firestore, ...segments: string[]): ColRef {
@@ -83,8 +122,19 @@ function wrapDoc(id: string, data: any, path: string) {
 }
 
 export async function getDoc(ref: DocRef) {
-  const payload = await call({ op: 'get', path: ref.path });
-  return wrapDoc(ref.id, payload.data, ref.path);
+  let data: Record<string, unknown> | null = null;
+  try {
+    data = await readFirestoreDoc(ref.path);
+  } catch {
+    // Named Firestore DB is the source of old ledgers; keep going if rules/network fail.
+  }
+  try {
+    const payload = await call({ op: 'get', path: ref.path });
+    if (payload.data) data = payload.data;
+  } catch {
+    // Production KV may be missing Postgres/Blob; Firestore data is enough to render.
+  }
+  return wrapDoc(ref.id, data, ref.path);
 }
 
 export async function setDoc(ref: DocRef, data: Record<string, unknown>, opts?: { merge?: boolean }) {
@@ -111,11 +161,26 @@ export type QuerySnapshot = {
 };
 
 export async function getDocs(source: { path: string; constraints?: Constraint[] }): Promise<QuerySnapshot> {
-  const payload = await call({ op: 'query', path: source.path, constraints: source.constraints || [] });
-  const docs = (payload.docs || []).map((row: any) => ({
-    id: row.id,
-    data: () => row.data,
-    exists: () => Boolean(row.data),
+  const byId = new Map<string, Record<string, unknown>>();
+  try {
+    for (const row of await readFirestoreDocs(source.path, source.constraints || [])) {
+      byId.set(row.id, row.data);
+    }
+  } catch {
+    // Query must run on Firestore so security rules can match roles.{uid}.
+  }
+  try {
+    const payload = await call({ op: 'query', path: source.path, constraints: source.constraints || [] });
+    for (const row of payload.docs || []) {
+      if (row?.id && row.data) byId.set(row.id, row.data);
+    }
+  } catch {
+    // KV overlay is optional.
+  }
+  const docs = [...byId.entries()].map(([id, data]) => ({
+    id,
+    data: () => data,
+    exists: () => Boolean(data),
   }));
   return {
     docs,
