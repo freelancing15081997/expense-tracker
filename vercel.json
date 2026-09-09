@@ -1,4 +1,5 @@
 {
+  "installCommand": "npm install --include=dev",
   "buildCommand": "npx vite build",
   "outputDirectory": "dist",
   "headers": [
