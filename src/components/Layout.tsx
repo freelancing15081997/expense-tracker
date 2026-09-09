@@ -5,7 +5,7 @@ import { logout, db } from '../lib/firebase';
 import { LogOut, Settings, Menu, X, Bell, CheckCircle2, ArrowRightLeft, ChevronDown, ChevronRight } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { collection, query, where, getDocs, updateDoc, doc } from 'firebase/firestore';
+import { collection, query, where, getDocs, updateDoc, doc } from '../lib/store';
 import BrandLogo from './BrandLogo';
 import GlobalSearch, { SearchTrigger } from './GlobalSearch';
 import { BOOKS_NAV } from '../books/nav';

@@ -26,15 +26,16 @@ export function inspectFile(file: File) {
 
 export async function storeBooksFile(tenantId: string, fileId: string, file: File) {
   const meta = inspectFile(file);
+  const { authHeaders } = await import('../../lib/auth-client');
   const res = await fetch('/api/blob/upload', {
     method: 'POST',
-    headers: {
+    headers: await authHeaders({
       'content-type': meta.contentType,
       'x-tenant-id': tenantId,
       'x-file-id': fileId,
       'x-file-ext': meta.ext,
       'x-file-name': encodeURIComponent(meta.name),
-    },
+    }),
     body: file,
   });
   const payload = await res.json().catch(() => ({ error: 'Upload failed' }));
@@ -57,7 +58,7 @@ export async function removeBooksBlob(path: string) {
   if (!path.startsWith('http') && !path.startsWith('erp_workspaces/')) return;
   await fetch('/api/blob/delete', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: await (await import('../../lib/auth-client')).authHeaders({ 'content-type': 'application/json' }),
     body: JSON.stringify({ url: path }),
   }).catch(() => undefined);
 }

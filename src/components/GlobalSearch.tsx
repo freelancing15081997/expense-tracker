@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Search, X, Receipt, BookOpen, LayoutGrid, Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../lib/firebase';
-import { collection, query, where, getDocs, limit } from 'firebase/firestore';
+import { collection, query, where, getDocs, limit } from '../lib/store';
 import { useNavigate } from 'react-router-dom';
 import { BOOKS_FLAT_LINKS, BOOKS_QUICK_CREATE } from '../books/nav';
 import { isSoftDeleted } from '../lib/records';

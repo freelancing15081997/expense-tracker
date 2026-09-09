@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth, UserProfile } from '../context/AuthContext';
 import { db } from '../lib/firebase';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc } from '../lib/store';
 import { Save, Plus, X, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 import { useBooksTenantMeta } from '../lib/tenant';

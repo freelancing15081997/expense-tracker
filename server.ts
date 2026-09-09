@@ -4,6 +4,9 @@ import express from "express";
 import path from "path";
 import nodemailer from "nodemailer";
 import { handleBlobDeleteRequest, handleBlobUploadRequest } from "./api/blob/store";
+import { handleAuthRequest } from "./api/auth/handler";
+import { handleKvRequest } from "./api/kv/handler";
+import { requireUser } from "./api/vercel/helpers";
 
 dns.setDefaultResultOrder('ipv4first');
 
@@ -20,6 +23,13 @@ app.post("/api/blob/delete", express.json({ limit: "1mb" }), (req, res) => {
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
+app.all("/api/auth", (req, res) => {
+  void handleAuthRequest(req, res);
+});
+app.all("/api/kv", (req, res) => {
+  void handleKvRequest(req, res);
+});
+
 const SYSTEM_EMAIL = "byjanbooks@gmail.com";
 
 const createTransporter = () => {
@@ -35,6 +45,8 @@ const createTransporter = () => {
 };
 
 app.post("/api/email/send-report", async (req, res) => {
+  const uid = await requireUser(req, res);
+  if (!uid) return;
   const { to, subject, message, pdfBase64, filename } = req.body;
   if (!to || !subject || !pdfBase64) {
     return res.status(400).json({ error: "Missing required fields" });
@@ -66,6 +78,8 @@ app.post("/api/email/send-report", async (req, res) => {
 });
 
 app.post("/api/email/send", async (req, res) => {
+  const uid = await requireUser(req, res);
+  if (!uid) return;
   const { to, subject, message } = req.body;
   if (!to || !subject || !message) {
     return res.status(400).json({ error: "Missing required fields" });

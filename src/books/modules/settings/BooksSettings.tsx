@@ -91,7 +91,7 @@ export default function BooksSettings() {
         <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 text-sm space-y-1">
           <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Tenant isolation</p>
           <p>Workspace: <strong>{tenant?.name}</strong></p>
-          <p className="text-slate-600">Path <code className="text-xs">erp_workspaces/{tenant?.id}</code>. Tenant id is the signed-in Firebase user. The spec forbids a second tenancy system — this is SET’s Books tenant.</p>
+          <p className="text-slate-600">Path <code className="text-xs">erp_workspaces/{tenant?.id}</code>. Tenant id is the signed-in user. The spec forbids a second tenancy system — this is SET’s Books tenant.</p>
           <p className="text-slate-600">{tenant?.memberIds?.length || 1} workspace member{(tenant?.memberIds?.length || 1) === 1 ? '' : 's'}.</p>
         </div>
         {logoUrl && (
@@ -103,7 +103,7 @@ export default function BooksSettings() {
           <FileField
             label="Company logo (shown on invoices, bills, and statements)"
             accept="image/png,image/jpeg,image/webp"
-            hint="Uploads to Vercel Blob first (image bytes never go to Firebase). Save writes only the URL to Firestore."
+            hint="Uploads the image to Vercel Blob, then stores the URL with the company record on Blob KV."
             onFiles={async (files) => {
               const file = files[0];
               if (!file) return;
@@ -111,11 +111,11 @@ export default function BooksSettings() {
                 const stored = await uploadFile({ domain: 'workspace-logo', file });
                 setLogoUrl(stored.url || stored.path);
                 if (stored.quotaBlocked) {
-                  setMessage(stored.message || 'Logo is on Vercel Blob. Firestore is rate-limited — wait, then click Save company profile.');
+                  setMessage(stored.message || 'Logo is on Vercel Blob. Wait a minute, then click Save company profile.');
                   return;
                 }
                 await rename(name || tenant?.name || 'Byjan Books', stored.path, profile);
-                setMessage('Company logo saved on Vercel Blob. Record URL stored in Firestore.');
+                setMessage('Company logo saved on Vercel Blob.');
               } catch (err: any) {
                 setMessage(err.message || 'Logo upload failed');
               }

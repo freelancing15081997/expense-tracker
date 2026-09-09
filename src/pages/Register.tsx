@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import { createUserWithEmailAndPassword, signInWithGoogle, auth } from '../lib/firebase';
+import { authClient } from '../lib/auth-client';
 import { Mail, Lock, AlertCircle, User } from 'lucide-react';
 import BrandLogo from '../components/BrandLogo';
 
@@ -17,23 +16,15 @@ export default function Register() {
     try {
       setError('');
       setLoading(true);
-      await createUserWithEmailAndPassword(auth, email, password);
+      const result = await authClient.signUp.email({
+        name: email.split('@')[0] || 'User',
+        email,
+        password,
+      });
+      if ((result as any)?.error) throw new Error((result as any).error.message || 'Failed to create an account');
       navigate('/');
     } catch (err: any) {
       setError(err.message || 'Failed to create an account');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleGoogleLogin = async () => {
-    try {
-      setError('');
-      setLoading(true);
-      await signInWithGoogle();
-      navigate('/');
-    } catch (err: any) {
-      setError(err.message || 'Failed to sign in with Google');
     } finally {
       setLoading(false);
     }
@@ -112,28 +103,6 @@ export default function Register() {
               </button>
             </div>
           </form>
-
-          <div className="mt-6">
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-slate-300" />
-              </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-white text-slate-500">Or continue with</span>
-              </div>
-            </div>
-
-            <div className="mt-6">
-              <button
-                onClick={handleGoogleLogin}
-                disabled={loading}
-                className="byjan-btn-ghost w-full"
-              >
-                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-5 h-5" />
-                <span className="ml-2">Sign in with Google</span>
-              </button>
-            </div>
-          </div>
         </div>
       </div>
     </div>

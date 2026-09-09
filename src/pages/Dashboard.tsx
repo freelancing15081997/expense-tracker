@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { db } from '../lib/firebase';
-import { collection, query, where, getDocs, getDoc, addDoc, serverTimestamp, doc, updateDoc, deleteDoc, limit } from 'firebase/firestore';
+import { collection, query, where, getDocs, getDoc, addDoc, serverTimestamp, doc, updateDoc, deleteDoc, limit } from '../lib/store';
 import { Link, useLocation } from 'react-router-dom';
 import { isSoftDeleted } from '../lib/records';
 import { useBooksTenantMeta } from '../lib/tenant';
@@ -135,7 +135,7 @@ export default function Dashboard() {
           
         if (emails.length > 0) {
           const { getAccessToken } = await import('../lib/firebase');
-          const token = getAccessToken();
+          const token = await getAccessToken();
           if (token) {
             const emailContent = [
               `To: ${emails.join(', ')}`,
@@ -147,7 +147,10 @@ export default function Dashboard() {
             const encodedEmail = btoa(unescape(encodeURIComponent(emailContent))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
             const res = await fetch('/api/email/send', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+              },
               body: JSON.stringify({
                 to: emails.join(", "),
                 subject: `${userProfile.displayName || userProfile.email} joined ${invite.bookName} expense book`,

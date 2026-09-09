@@ -1,4 +1,4 @@
-import { doc, getDocs, setDoc, updateDoc, type Firestore, type QuerySnapshot } from 'firebase/firestore';
+import { doc, getDocs, setDoc, updateDoc, type Firestore, type QuerySnapshot } from '../../lib/store';
 import { clean } from '../core/clean';
 import { assertCan } from '../core/permissions';
 import type { BooksFile, BooksTemplate } from '../core/types';

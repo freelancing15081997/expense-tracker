@@ -1,5 +1,6 @@
 import { del, put } from '@vercel/blob';
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'http';
+import { requireUser } from '../vercel/helpers';
 
 const MAX_BYTES = 8 * 1024 * 1024;
 const ALLOWED_EXT = new Set(['pdf', 'png', 'jpg', 'jpeg', 'webp', 'csv', 'txt', 'xlsx']);
@@ -72,6 +73,9 @@ export async function handleBlobUploadRequest(
     return;
   }
 
+  const uid = await requireUser(req, res);
+  if (!uid) return;
+
   try {
     const tenantId = header(req.headers, 'x-tenant-id').trim();
     const fileId = header(req.headers, 'x-file-id').trim();
@@ -127,6 +131,9 @@ export async function handleBlobDeleteRequest(
     sendJson(res, 405, { error: 'Method not allowed' });
     return;
   }
+
+  const uid = await requireUser(req, res);
+  if (!uid) return;
 
   try {
     const payload = req.body && typeof req.body === 'object' ? req.body : JSON.parse((await readBody(req)).toString('utf8') || '{}');

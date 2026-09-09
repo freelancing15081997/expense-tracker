@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc } from './store';
 import { db } from './firebase';
 import { useAuth } from '../context/AuthContext';
 
@@ -10,7 +10,7 @@ export type BooksTenantMeta = {
   memberCount: number;
 };
 
-/** Books tenant id is the signed-in Firebase uid (SET model — not a second tenancy system). */
+/** Books tenant id is the signed-in user id (SET model — not a second tenancy system). */
 export function useBooksTenantMeta() {
   const { currentUser } = useAuth();
   const [tenant, setTenant] = useState<BooksTenantMeta | null>(null);

@@ -4,7 +4,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { db } from '../lib/firebase';
-import { doc, getDoc, collection, query, onSnapshot, addDoc, serverTimestamp, updateDoc, setDoc, deleteField } from 'firebase/firestore';
+import { doc, getDoc, collection, query, onSnapshot, addDoc, serverTimestamp, updateDoc, setDoc, deleteField } from '../lib/store';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send } from 'lucide-react';
@@ -24,6 +24,11 @@ function cn(...inputs: ClassValue[]) {
 }
 
 function expenseMillis(value: any) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
   try {
     if (value && typeof value.toMillis === 'function') return value.toMillis();
   } catch { /* pending server timestamp */ }
@@ -198,9 +203,10 @@ export default function BookView() {
     setSendingReport(true);
     try {
       const pdfBase64 = generatePDF(true).split(',')[1];
+      const { authHeaders } = await import('../lib/auth-client');
       const res = await fetch('/api/email/send-report', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           to: currentUser.email,
           subject: `${book?.name} - Expense Report`,
@@ -368,11 +374,10 @@ export default function BookView() {
     try {
       // In production (Render), the frontend might be running under a different URL base if not configured properly, 
       // but absolute path /api/email/send works if the React app and Node app are on the exact same domain.
+      const { authHeaders } = await import('../lib/auth-client');
       const res = await fetch('/api/email/send', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: await authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ to: toEmail, subject, message })
       });
       if (!res.ok) {

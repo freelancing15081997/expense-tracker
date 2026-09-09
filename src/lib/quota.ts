@@ -5,4 +5,4 @@ export function isFirestoreQuota(err: unknown) {
 }
 
 export const FIRESTORE_QUOTA_MESSAGE =
-  'Firebase Firestore is rate-limited (not Vercel Blob). The file, if any, is already on Vercel Blob. Wait for the daily Spark quota reset or enable billing, then save the record again.';
+  'Storage or database rate limit. Wait a minute and try again. Records are on Postgres and files on Vercel Blob — not Firebase.';

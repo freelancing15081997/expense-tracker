@@ -13,7 +13,7 @@ import {
   type Firestore,
   type QuerySnapshot,
   type Transaction,
-} from 'firebase/firestore';
+} from '../../lib/store';
 import { clean } from '../core/clean';
 import { periodIdFromDate, todayISO } from '../core/money';
 import { assertCan, type BooksAction } from '../core/permissions';
