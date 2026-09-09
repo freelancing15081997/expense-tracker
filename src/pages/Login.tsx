@@ -1,9 +1,8 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { authClient } from '../lib/auth-client';
+import { signInWithEmailAndPassword, signInWithGoogle, auth } from '../lib/firebase';
 import { Mail, Lock, AlertCircle } from 'lucide-react';
 import BrandLogo from '../components/BrandLogo';
-import SocialSignIn from '../components/SocialSignIn';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -17,11 +16,23 @@ export default function Login() {
     try {
       setError('');
       setLoading(true);
-      const result = await authClient.signIn.email({ email, password });
-      if ((result as any)?.error) throw new Error((result as any).error.message || 'Failed to sign in');
+      await signInWithEmailAndPassword(auth, email, password);
       navigate('/');
     } catch (err: any) {
       setError(err.message || 'Failed to sign in');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    try {
+      setError('');
+      setLoading(true);
+      await signInWithGoogle();
+      navigate('/');
+    } catch (err: any) {
+      setError(err.message || 'Failed to sign in with Google');
     } finally {
       setLoading(false);
     }
@@ -33,9 +44,7 @@ export default function Login() {
         <div className="flex justify-center">
           <BrandLogo size="lg" />
         </div>
-        <h2 className="mt-6 text-center text-3xl font-extrabold text-slate-900">
-          Sign in to Byjan
-        </h2>
+        <h2 className="mt-6 text-center text-3xl font-extrabold text-slate-900">Sign in to Byjan</h2>
         <p className="mt-1 text-center text-xs font-semibold tracking-[0.18em] text-slate-500">Trace Financials Easily</p>
         <p className="mt-2 text-center text-sm text-slate-600">
           Or{' '}
@@ -54,15 +63,22 @@ export default function Login() {
             </div>
           )}
 
-          <SocialSignIn disabled={loading} />
+          <button
+            type="button"
+            onClick={handleGoogleLogin}
+            disabled={loading}
+            className="w-full inline-flex items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-60"
+          >
+            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" className="w-5 h-5" />
+            Continue with Google
+          </button>
+
           <div className="my-6 flex items-center gap-3 text-xs uppercase tracking-wide text-slate-400">
             <span className="h-px flex-1 bg-slate-200" />
             or email
             <span className="h-px flex-1 bg-slate-200" />
           </div>
-          <p className="mb-4 text-xs text-slate-500">
-            Used Byjan before? Google accounts still work with the same Google login. Old Firebase passwords do not — register again with the same email, then your books can be attached.
-          </p>
+
           <form className="space-y-6" onSubmit={handleEmailLogin}>
             <div>
               <label className="block text-sm font-medium text-slate-700">Email address</label>
@@ -80,7 +96,6 @@ export default function Login() {
                 />
               </div>
             </div>
-
             <div>
               <label className="block text-sm font-medium text-slate-700">Password</label>
               <div className="mt-1 relative rounded-md shadow-sm">
@@ -97,7 +112,6 @@ export default function Login() {
                 />
               </div>
             </div>
-
             <button type="submit" disabled={loading} className="byjan-btn w-full">
               Sign in
             </button>

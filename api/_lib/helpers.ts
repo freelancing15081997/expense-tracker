@@ -1,17 +1,20 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { randomBytes } from 'crypto';
 import type { IncomingMessage, ServerResponse } from 'http';
-import { authBaseUrl, sendJson } from './http';
+import { sendJson } from './http';
 
 export { applyCors, authBaseUrl, readJsonBody, requestPath, sendJson, ALLOWED_API_METHODS } from './http';
 export { kvDel, kvGet, kvList, kvListPrefix, kvSet } from './db';
 
-let jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
-function getJwks() {
-  const base = authBaseUrl();
-  if (!base) throw new Error('Neon Auth is not configured. Set NEON_AUTH_BASE_URL.');
-  if (!jwks) jwks = createRemoteJWKSet(new URL(`${base}/.well-known/jwks.json`));
-  return jwks;
+const FIREBASE_PROJECT = 'gen-lang-client-0616065043';
+let firebaseJwks: ReturnType<typeof createRemoteJWKSet> | null = null;
+function getFirebaseJwks() {
+  if (!firebaseJwks) {
+    firebaseJwks = createRemoteJWKSet(
+      new URL('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com'),
+    );
+  }
+  return firebaseJwks;
 }
 
 function readCookies(req: IncomingMessage) {
@@ -41,18 +44,12 @@ export type NeonSession = {
 export async function readNeonSession(req: IncomingMessage): Promise<NeonSession | null> {
   const token = extractToken(req);
   if (!token) return null;
-  const base = authBaseUrl();
-  if (!base) return null;
   try {
-    let payload: { sub?: unknown; id?: unknown; email?: unknown; name?: unknown };
-    try {
-      ({ payload } = await jwtVerify(token, getJwks(), {
-        issuer: [new URL(base).origin, base],
-      }));
-    } catch {
-      ({ payload } = await jwtVerify(token, getJwks()));
-    }
-    const uid = String(payload.sub || payload.id || '');
+    const { payload } = await jwtVerify(token, getFirebaseJwks(), {
+      issuer: `https://securetoken.google.com/${FIREBASE_PROJECT}`,
+      audience: FIREBASE_PROJECT,
+    });
+    const uid = String(payload.user_id || payload.sub || '');
     if (!uid) return null;
     return {
       uid,

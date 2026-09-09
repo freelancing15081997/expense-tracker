@@ -1,81 +1,60 @@
-export { db } from './store';
-import { authClient, getJwtToken } from './auth-client';
+import { initializeApp, getApps, getApp } from 'firebase/app';
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+} from 'firebase/auth';
+import { getFirestore } from 'firebase/firestore';
 
-export type SessionUser = {
-  uid: string;
-  email: string;
-  displayName?: string;
+const firebaseConfig = {
+  apiKey: 'AIzaSyDQUXdMTTUOONPbua5cWm75Jn-7-SkRwjE',
+  authDomain: 'gen-lang-client-0616065043.firebaseapp.com',
+  projectId: 'gen-lang-client-0616065043',
+  storageBucket: 'gen-lang-client-0616065043.firebasestorage.app',
+  messagingSenderId: '450686107760',
+  appId: '1:450686107760:web:ee4b53ae0ccd18c90734b5',
 };
 
-let sessionUser: SessionUser | null = null;
-const authListeners = new Set<(user: SessionUser | null) => void>();
+const DATABASE_ID = 'ai-studio-sharedsheetexpen-15aa5fbb-9604-4c59-b4a3-aa994442cb50';
 
-function emit() {
-  authListeners.forEach((fn) => fn(sessionUser));
-}
+const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+export const auth = getAuth(app);
+export const db = getFirestore(app, DATABASE_ID);
 
-function mapUser(user: any): SessionUser | null {
-  if (!user) return null;
-  const email = String(user.email || '');
-  return {
-    uid: String(user.id || user.sub || ''),
-    email,
-    displayName: String(user.name || email.split('@')[0] || 'User'),
-  };
-}
-
-export async function hydrateSession() {
-  const result = await authClient.getSession();
-  sessionUser = mapUser((result as any)?.data?.user);
-  auth.currentUser = sessionUser;
-  emit();
-  return sessionUser;
-}
-
-export function onAuthStateChanged(_auth: unknown, cb: (user: SessionUser | null) => void) {
-  authListeners.add(cb);
-  void hydrateSession().then(() => cb(sessionUser));
-  return () => { authListeners.delete(cb); };
-}
-
-export const auth = { currentUser: null as SessionUser | null };
-
-export async function signInWithEmailAndPassword(_auth: unknown, email: string, password: string) {
-  const result = await authClient.signIn.email({ email, password });
-  if ((result as any)?.error) throw new Error((result as any).error.message || 'Failed to sign in');
-  const user = await hydrateSession();
-  return { user };
-}
-
-export async function createUserWithEmailAndPassword(_auth: unknown, email: string, password: string) {
-  const result = await authClient.signUp.email({
-    name: email.split('@')[0] || 'User',
-    email,
-    password,
-  });
-  if ((result as any)?.error) throw new Error((result as any).error.message || 'Failed to create an account');
-  const user = await hydrateSession();
-  return { user };
-}
+const googleProvider = new GoogleAuthProvider();
 
 export async function signInWithGoogle() {
-  const callbackURL = typeof window !== 'undefined'
-    ? `${window.location.origin}${window.location.pathname || '/'}#/`
-    : '/';
-  const result = await authClient.signIn.social({
-    provider: 'google',
-    callbackURL,
-  });
-  if ((result as any)?.error) throw new Error((result as any).error.message || 'Google sign-in failed');
-  return hydrateSession();
+  try {
+    return await signInWithPopup(auth, googleProvider);
+  } catch (error: any) {
+    if (error.code === 'auth/popup-blocked') {
+      throw new Error('Popup was blocked. Please allow popups for this site.');
+    }
+    if (error.code === 'auth/popup-closed-by-user') {
+      throw new Error('Sign-in popup was closed before completing.');
+    }
+    if (error.code === 'auth/unauthorized-domain') {
+      throw new Error('This domain is not authorized for Google Sign-In.');
+    }
+    throw error;
+  }
 }
 
 export async function logout() {
-  await authClient.signOut();
-  sessionUser = null;
-  auth.currentUser = null;
-  emit();
+  await signOut(auth);
 }
 
-export const signOut = logout;
-export const getAccessToken = getJwtToken;
+export async function getAccessToken() {
+  const user = auth.currentUser;
+  if (!user) return null;
+  return user.getIdToken();
+}
+
+export {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+};
