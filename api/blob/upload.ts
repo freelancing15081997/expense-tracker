@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { handleBlobUploadRequest } from './store';
+import { handleBlobUploadRequest } from '../_lib/blob-store';
 
 export const config = {
   api: {

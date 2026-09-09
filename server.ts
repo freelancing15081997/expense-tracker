@@ -3,10 +3,10 @@ import "dotenv/config";
 import express from "express";
 import path from "path";
 import nodemailer from "nodemailer";
-import { handleBlobDeleteRequest, handleBlobUploadRequest } from "./api/blob/store";
-import { handleAuthRequest } from "./api/auth/handler";
-import { handleKvRequest } from "./api/kv/handler";
-import { applyCors, requireUser } from "./api/vercel/helpers";
+import { handleBlobDeleteRequest, handleBlobUploadRequest } from "./api/_lib/blob-store";
+import { handleAuthRequest } from "./api/_lib/auth-handler";
+import { handleKvRequest } from "./api/_lib/kv-handler";
+import { applyCors, requireUser } from "./api/_lib/helpers";
 
 dns.setDefaultResultOrder('ipv4first');
 

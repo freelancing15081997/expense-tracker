@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import nodemailer from 'nodemailer';
-import { readSession } from '../vercel/helpers';
+import { readSession } from '../_lib/helpers';
 
 const SYSTEM_EMAIL = "byjanbooks@gmail.com";
 

@@ -1,8 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'http';
-import { kvGet } from '../vercel/db';
-import { applyCors, readJsonBody, readNeonSession, requestPath, sendJson } from '../vercel/helpers';
-import { neonAuthSuffix, proxyToNeonAuth } from '../vercel/auth-proxy';
-import { remapFirebaseUidIfNeeded } from '../vercel/remap';
+import { kvGet } from './db';
+import { applyCors, readJsonBody, readNeonSession, requestPath, sendJson } from './helpers';
+import { neonAuthSuffix, proxyToNeonAuth } from './auth-proxy';
+import { remapFirebaseUidIfNeeded } from './remap';
 
 function publicUser(uid: string, email: string, displayName: string, extra?: Record<string, unknown> | null) {
   return {

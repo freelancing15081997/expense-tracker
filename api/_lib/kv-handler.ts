@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'http';
-import { applyCors, kvDel, kvGet, kvList, kvSet, newId, readJsonBody, readNeonSession, sendJson } from '../vercel/helpers';
-import { remapFirebaseUidIfNeeded } from '../vercel/remap';
+import { applyCors, kvDel, kvGet, kvList, kvSet, newId, readJsonBody, readNeonSession, sendJson } from './helpers';
+import { remapFirebaseUidIfNeeded } from './remap';
 
 function getAt(obj: any, path: string) {
   return path.split('.').reduce((acc, key) => (acc == null ? acc : acc[key]), obj);

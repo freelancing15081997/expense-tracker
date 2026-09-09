@@ -1,6 +1,6 @@
 import { del, put } from '@vercel/blob';
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'http';
-import { applyCors, requireUser } from '../vercel/helpers';
+import { applyCors, requireUser } from './helpers';
 
 const MAX_BYTES = 8 * 1024 * 1024;
 const ALLOWED_EXT = new Set(['pdf', 'png', 'jpg', 'jpeg', 'webp', 'csv', 'txt', 'xlsx']);
