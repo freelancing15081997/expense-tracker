@@ -4,3 +4,9 @@ import { handleAuthRequest } from './handler';
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   await handleAuthRequest(req, res);
 }
+
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
