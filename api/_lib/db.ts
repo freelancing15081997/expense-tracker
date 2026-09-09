@@ -34,7 +34,7 @@ export function ensureSchema() {
         data JSONB NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )`;
-      await db`CREATE INDEX IF NOT EXISTS documents_path_prefix ON documents (path text_pattern_ops)`;
+      await db`CREATE INDEX IF NOT EXISTS documents_path_idx ON documents (path)`;
     })().catch((err) => {
       schemaReady = null;
       throw err;
@@ -88,7 +88,7 @@ export async function kvList(prefix: string) {
   const base = `${cleanPath(prefix)}/`;
   const rows = (await db`
     SELECT path, data FROM documents
-    WHERE starts_with(path, ${base})
+    WHERE path LIKE ${base + '%'}
   `) as { path: string; data: unknown }[];
   const out: { id: string; data: Record<string, unknown> }[] = [];
   for (const row of rows) {
@@ -108,7 +108,7 @@ export async function kvListPrefix(prefix: string) {
   const child = `${p}/`;
   const rows = (await db`
     SELECT path, data FROM documents
-    WHERE path = ${p} OR starts_with(path, ${child})
+    WHERE path = ${p} OR path LIKE ${child + '%'}
   `) as { path: string; data: unknown }[];
   const out: { path: string; data: Record<string, unknown> }[] = [];
   for (const row of rows) {

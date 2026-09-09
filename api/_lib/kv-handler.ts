@@ -23,7 +23,11 @@ export async function handleKvRequest(req: IncomingMessage & { body?: unknown },
     sendJson(res, 401, { error: 'Sign in required' });
     return;
   }
-  await remapFirebaseUidIfNeeded(session);
+  try {
+    await remapFirebaseUidIfNeeded(session);
+  } catch {
+    // Remap is best-effort; do not block reads/writes.
+  }
 
   try {
     const body = await readJsonBody(req);

@@ -66,7 +66,7 @@ async function call(body: Record<string, unknown>) {
   });
   const payload = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const err: any = new Error(payload.error || 'Data request failed');
+    const err: any = new Error(payload.error || `Data request failed (${res.status})`);
     err.code = res.status === 429 ? 'resource-exhausted' : 'failed';
     throw err;
   }
