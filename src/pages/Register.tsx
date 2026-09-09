@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { authClient } from '../lib/auth-client';
 import { Mail, Lock, AlertCircle, User } from 'lucide-react';
 import BrandLogo from '../components/BrandLogo';
+import SocialSignIn from '../components/SocialSignIn';
 
 export default function Register() {
   const [email, setEmail] = useState('');
@@ -57,6 +58,12 @@ export default function Register() {
             </div>
           )}
 
+          <SocialSignIn disabled={loading} />
+          <div className="my-6 flex items-center gap-3 text-xs uppercase tracking-wide text-slate-400">
+            <span className="h-px flex-1 bg-slate-200" />
+            or email
+            <span className="h-px flex-1 bg-slate-200" />
+          </div>
           <form className="space-y-6" onSubmit={handleRegister}>
             <div>
               <label className="block text-sm font-medium text-slate-700">Email address</label>

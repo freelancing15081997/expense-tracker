@@ -59,7 +59,15 @@ export async function createUserWithEmailAndPassword(_auth: unknown, email: stri
 }
 
 export async function signInWithGoogle() {
-  throw new Error('Use email and password. Google is not enabled for this app.');
+  const callbackURL = typeof window !== 'undefined'
+    ? `${window.location.origin}${window.location.pathname || '/'}#/`
+    : '/';
+  const result = await authClient.signIn.social({
+    provider: 'google',
+    callbackURL,
+  });
+  if ((result as any)?.error) throw new Error((result as any).error.message || 'Google sign-in failed');
+  return hydrateSession();
 }
 
 export async function logout() {

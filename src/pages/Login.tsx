@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { authClient } from '../lib/auth-client';
 import { Mail, Lock, AlertCircle } from 'lucide-react';
 import BrandLogo from '../components/BrandLogo';
+import SocialSignIn from '../components/SocialSignIn';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -53,6 +54,15 @@ export default function Login() {
             </div>
           )}
 
+          <SocialSignIn disabled={loading} />
+          <div className="my-6 flex items-center gap-3 text-xs uppercase tracking-wide text-slate-400">
+            <span className="h-px flex-1 bg-slate-200" />
+            or email
+            <span className="h-px flex-1 bg-slate-200" />
+          </div>
+          <p className="mb-4 text-xs text-slate-500">
+            Used Byjan before? Google accounts still work with the same Google login. Old Firebase passwords do not — register again with the same email, then your books can be attached.
+          </p>
           <form className="space-y-6" onSubmit={handleEmailLogin}>
             <div>
               <label className="block text-sm font-medium text-slate-700">Email address</label>
