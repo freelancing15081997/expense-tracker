@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useBooks } from '../../context/BooksProvider';
-import { btnGhost, btnPrimary, Card, Empty, Field, FileField, inputClass, PageShell, Status } from '../../ui';
+import { btnGhost, btnPrimary, Card, Empty, Field, FileField, IconBtn, inputClass, PageShell, Status } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
 import type { Workpaper } from '../../core/types';
 
@@ -103,10 +103,11 @@ export default function Workbench() {
             <FileField
               label="Supporting file"
               accept=".pdf,image/png,image/jpeg,image/webp,.xlsx,.csv"
+              files={pending}
               hint={pending ? pending.name : 'Optional workpaper attachment. 8 MB max.'}
               onFiles={(files) => setPending(files[0] || null)}
             />
-            <button className={btnPrimary}>Save workpaper</button>
+            <IconBtn action="save">Save workpaper</IconBtn>
             {error && <p className="text-sm text-rose-600">{error}</p>}
           </form>
         </Card>

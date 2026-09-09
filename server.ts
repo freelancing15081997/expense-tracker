@@ -3,11 +3,19 @@ import "dotenv/config";
 import express from "express";
 import path from "path";
 import nodemailer from "nodemailer";
+import { handleBlobDeleteRequest, handleBlobUploadRequest } from "./api/blob/store";
 
 dns.setDefaultResultOrder('ipv4first');
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
+
+app.post("/api/blob/upload", express.raw({ type: "*/*", limit: "9mb" }), (req, res) => {
+  void handleBlobUploadRequest(req, res);
+});
+app.post("/api/blob/delete", express.json({ limit: "1mb" }), (req, res) => {
+  void handleBlobDeleteRequest(req, res);
+});
 
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));

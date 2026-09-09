@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useBooks } from '../../context/BooksProvider';
 import { parseMoney } from '../../core/money';
-import { btnGhost, btnPrimary, Card, Field, inputClass, Money, PageShell, Status } from '../../ui';
+import { btnGhost, btnPrimary, Card, Field, IconBtn, inputClass, Money, PageShell, Status } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
 import type { Project } from '../../core/types';
 
@@ -27,7 +27,7 @@ export default function Projects() {
     <PageShell
       title="Projects"
       subtitle="Project spend is the posted documents tagged to the project. No estimated WIP is invented."
-      actions={can('create') && <button className={btnPrimary} onClick={() => setOpen(true)}>New project</button>}
+      actions={can('create') && <IconBtn action="create" onClick={() => setOpen(true)}>New project</IconBtn>}
     >
       {open && (
         <Card className="p-4">

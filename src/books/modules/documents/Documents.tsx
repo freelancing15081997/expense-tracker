@@ -4,7 +4,7 @@ import { useBooks } from '../../context/BooksProvider';
 import { addDays, formatMoney, lineAmount, parseMoney, parseQty, todayISO } from '../../core/money';
 import { computeDocument } from '../../engine/tax';
 import { Plus, Trash2 } from 'lucide-react';
-import { btnGhost, btnPrimary, Card, Empty, Field, inputClass, Money, PageShell, Status } from '../../ui';
+import { btnGhost, btnPrimary, Card, Empty, Field, FileField, IconBtn, inputClass, Money, PageShell, Status } from '../../ui';
 import { MenuDropdown } from '../../ui/MenuDropdown';
 import { Pager, usePaging } from '../../ui/PagedList';
 import { printFinanceDocument } from '../../reporting/printDocument';
@@ -159,8 +159,8 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
       title={title}
       subtitle={kind === 'expense' ? 'Separate from Expense Tracker. Posting writes the journal immediately on pay-from account.' : 'Draft → post (journal) → payment (journal). Totals are computed by the tax engine.'}
       actions={can('create') && (
-        <button
-          className={btnPrimary}
+        <IconBtn
+          action="create"
           onClick={() => {
             setError('');
             setOpen(true);
@@ -176,7 +176,7 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
           }}
         >
           New {kind}
-        </button>
+        </IconBtn>
       )}
     >
       {open && (
@@ -232,18 +232,14 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
                 <input type="checkbox" checked={interstate} onChange={(e) => setInterstate(e.target.checked)} />
                 Interstate supply (IGST)
               </label>
-              <Field label="Supporting files (receipt, PO, contract)">
-                <input
-                  type="file"
-                  multiple
-                  className="block text-sm"
-                  onChange={(e) => {
-                    setPendingFiles(Array.from(e.target.files || []));
-                    e.target.value = '';
-                  }}
-                />
-                {pendingFiles.length > 0 && <p className="text-xs text-[#6B7280] mt-1">{pendingFiles.length} file(s) will upload when you save the draft.</p>}
-              </Field>
+              <FileField
+                label="Supporting files (receipt, PO, contract)"
+                accept=".pdf,image/png,image/jpeg,image/webp,.xlsx,.csv,.txt"
+                multiple
+                files={pendingFiles}
+                hint={pendingFiles.length > 0 ? `${pendingFiles.length} file(s) will upload when you save the draft.` : 'Receipt, PO, or contract. 8 MB max per file.'}
+                onFiles={setPendingFiles}
+              />
             </section>
             {kind !== 'expense' && (
               <section className="grid md:grid-cols-2 gap-3">
@@ -317,7 +313,7 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
             </section>
             <div className="flex flex-wrap gap-3 items-start justify-between">
               <div className="flex gap-2">
-                <button className={btnPrimary} disabled={busy}>{busy ? 'Saving…' : 'Save draft'}</button>
+                <IconBtn action="save" disabled={busy}>{busy ? 'Saving…' : 'Save draft'}</IconBtn>
                 <button type="button" className={btnGhost} onClick={() => setOpen(false)}>Cancel</button>
               </div>
               {preview && (
@@ -418,7 +414,7 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
                     <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
                       <div className="flex flex-wrap gap-2 justify-end">
                         {row.status === 'draft' && canPost && can('post') && (
-                          <button className={btnPrimary} onClick={() => books.postDoc(row.id, kind === 'expense' ? (payFrom || cashAccounts[0]?.id) : undefined)}>Post</button>
+                          <IconBtn action="post" onClick={() => books.postDoc(row.id, kind === 'expense' ? (payFrom || cashAccounts[0]?.id) : undefined)}>Post</IconBtn>
                         )}
                         {row.status === 'draft' && convertTo && can('create') && (
                           <button className={btnPrimary} onClick={() => books.convertDoc(row.id, convertTo).catch((err) => setError(err.message))}>Convert</button>

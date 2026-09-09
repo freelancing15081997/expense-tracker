@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useBooks } from '../../context/BooksProvider';
 import { parseMoney, todayISO } from '../../core/money';
-import { btnGhost, btnPrimary, Card, Field, inputClass, PageShell } from '../../ui';
+import { btnGhost, btnPrimary, Card, Field, IconBtn, inputClass, PageShell } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
 import type { JournalLineInput, RecurringTemplate } from '../../core/types';
 
@@ -20,7 +20,7 @@ export default function Recurring() {
     <PageShell
       title="Recurring Journals"
       subtitle="Save a balanced template and run it. Each run posts a new immutable journal."
-      actions={can('create') && <button className={btnPrimary} onClick={() => setOpen(true)}>New template</button>}
+      actions={can('create') && <IconBtn action="create" onClick={() => setOpen(true)}>New template</IconBtn>}
     >
       {open && (
         <Card className="p-4 space-y-3">

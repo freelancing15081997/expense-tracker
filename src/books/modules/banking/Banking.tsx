@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useBooks } from '../../context/BooksProvider';
 import { parseMoney, todayISO } from '../../core/money';
-import { btnGhost, btnPrimary, Card, Field, inputClass, Money, PageShell, Status } from '../../ui';
+import { btnGhost, Card, Field, IconBtn, inputClass, Money, PageShell, Status } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
 import type { BankTxn } from '../../core/types';
 
@@ -57,7 +57,7 @@ export default function Banking() {
           <Field label="Date"><input type="date" className={inputClass} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
           <Field label="Memo"><input className={inputClass} value={memo} onChange={(e) => setMemo(e.target.value)} /></Field>
           <div className="flex items-end gap-2">
-            <button className={btnPrimary} disabled={busy || !can('post')}>{busy ? 'Posting…' : 'Post transfer'}</button>
+            <IconBtn action="post" disabled={busy || !can('post')}>{busy ? 'Posting…' : 'Post transfer'}</IconBtn>
             {ok && <p className="text-sm text-emerald-700">{ok}</p>}
             {error && <p className="text-sm text-rose-600">{error}</p>}
           </div>
@@ -87,7 +87,7 @@ export default function Banking() {
           </Field>
           <Field label="Signed amount"><input className={inputClass} value={txnAmount} onChange={(e) => setTxnAmount(e.target.value)} required /></Field>
           <Field label="Memo"><input className={inputClass} value={txnMemo} onChange={(e) => setTxnMemo(e.target.value)} required /></Field>
-          <button className={btnPrimary} disabled={!can('post')}>Post bank journal</button>
+          <IconBtn action="post" disabled={!can('post')}>Post bank journal</IconBtn>
         </form>
       </Card>
       <PagedTable<BankTxn> rows={bankTxns} empty="No bank journals yet.">

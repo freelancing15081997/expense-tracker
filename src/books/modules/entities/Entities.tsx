@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useBooks } from '../../context/BooksProvider';
-import { btnPrimary, Card, Field, inputClass, PageShell } from '../../ui';
+import { Card, Field, IconBtn, inputClass, PageShell } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
 import type { FinanceEntity } from '../../core/types';
 
@@ -27,7 +27,7 @@ export default function Entities() {
             }}
           >
             <Field label="Entity name"><input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} required /></Field>
-            <button className={btnPrimary}>Add entity</button>
+            <IconBtn action="create">Add entity</IconBtn>
             {error && <p className="text-sm text-rose-600">{error}</p>}
           </form>
         </Card>

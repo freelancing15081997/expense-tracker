@@ -337,6 +337,8 @@ export interface BooksFile {
   size: number;
   contentType: string;
   path: string;
+  url?: string | null;
+  pathname?: string | null;
   status: 'active' | 'archived';
   createdAt: string;
   createdBy: string;

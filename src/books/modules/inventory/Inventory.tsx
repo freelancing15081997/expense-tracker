@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useBooks } from '../../context/BooksProvider';
 import { parseMoney, parseQty } from '../../core/money';
-import { btnGhost, btnPrimary, Card, Field, inputClass, Money, PageShell, Status } from '../../ui';
+import { btnGhost, btnPrimary, Card, Field, IconBtn, inputClass, Money, PageShell, Status } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
 import type { Product } from '../../core/types';
 
@@ -24,7 +24,7 @@ export default function Inventory() {
     <PageShell
       title="Inventory"
       subtitle="Stock in debits Inventory and credits the pay-from account. Stock out posts COGS. Services have no stock."
-      actions={can('create') && <button className={btnPrimary} onClick={() => setOpen(true)}>New product</button>}
+      actions={can('create') && <IconBtn action="create" onClick={() => setOpen(true)}>New product</IconBtn>}
     >
       {open && (
         <Card className="p-4">

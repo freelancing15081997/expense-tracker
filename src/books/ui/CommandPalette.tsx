@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useBooks } from '../context/BooksProvider';
 import { BOOKS_FLAT_LINKS, BOOKS_QUICK_CREATE } from '../nav';
+import { FeatureIcon } from './icons';
 
 export default function CommandPalette() {
   const navigate = useNavigate();
@@ -72,7 +73,10 @@ export default function CommandPalette() {
                   setQ('');
                 }}
               >
-                <span>{item.name}</span>
+                <span className="inline-flex items-center gap-2 min-w-0">
+                  <FeatureIcon href={item.href} className="w-4 h-4 shrink-0" />
+                  <span className="truncate">{item.name}</span>
+                </span>
                 <span className="text-[11px] uppercase tracking-wide text-[#8a8274]">{item.hint}</span>
               </button>
             </li>

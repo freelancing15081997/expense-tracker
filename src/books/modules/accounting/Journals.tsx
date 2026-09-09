@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useBooks } from '../../context/BooksProvider';
 import { parseMoney, todayISO } from '../../core/money';
-import { btnGhost, btnPrimary, Card, Empty, Field, inputClass, Money, PageShell, Status } from '../../ui';
+import { btnGhost, Card, Empty, Field, IconBtn, inputClass, Money, PageShell, Status } from '../../ui';
 import { Pager, usePaging } from '../../ui/PagedList';
 import type { JournalLineInput } from '../../core/types';
 
@@ -57,7 +57,7 @@ export default function Journals() {
     <PageShell
       title="Journal Entries"
       subtitle="Posted journals are immutable. Corrections use a reversal."
-      actions={can('post') && <button className={btnPrimary} onClick={() => setOpen(true)}>New journal</button>}
+      actions={can('post') && <IconBtn action="create" onClick={() => setOpen(true)}>New journal</IconBtn>}
     >
       {open && (
         <Card className="p-4 space-y-3">
@@ -95,7 +95,7 @@ export default function Journals() {
             </div>
             <div className="flex flex-wrap gap-2 items-center">
               <button type="button" className={btnGhost} onClick={() => setLines((rows) => [...rows, emptyLine()])}>Add line</button>
-              <button className={btnPrimary} disabled={busy}>{busy ? 'Posting…' : 'Post journal'}</button>
+              <IconBtn action="post" disabled={busy}>{busy ? 'Posting…' : 'Post journal'}</IconBtn>
               <button type="button" className={btnGhost} onClick={() => setOpen(false)}>Cancel</button>
               {preview && <span className="text-sm text-slate-500">Debit <Money minor={preview.reduce((s, l) => s + l.debitMinor, 0)} currency={currency} /> · Credit <Money minor={preview.reduce((s, l) => s + l.creditMinor, 0)} currency={currency} /></span>}
               {error && <p className="text-sm text-rose-600">{error}</p>}

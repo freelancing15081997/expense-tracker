@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useBooks } from '../../context/BooksProvider';
 import { booksFileUrl } from '../../storage/adapter';
-import { btnGhost, btnPrimary, Card, Field, FileField, inputClass, PageShell, Status } from '../../ui';
+import { btnGhost, btnPrimary, Card, Field, FileField, IconBtn, inputClass, PageShell, Status } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
 import type { InboxItem } from '../../core/types';
 
@@ -52,11 +52,12 @@ export default function Inbox() {
             <FileField
               label="Source file"
               accept=".pdf,image/png,image/jpeg,image/webp"
+              files={pending}
               hint={pending ? pending.name : 'Receipt, invoice scan, or contract. 8 MB max.'}
               onFiles={(files) => setPending(files[0] || null)}
             />
             <div className="md:col-span-2 flex items-center gap-2">
-              <button className={btnPrimary}>Add to inbox</button>
+            <IconBtn action="create">Add to inbox</IconBtn>
               {error && <p className="text-sm text-rose-600">{error}</p>}
             </div>
           </form>

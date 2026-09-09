@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useBooks } from '../../context/BooksProvider';
 import { parseMoney } from '../../core/money';
-import { btnGhost, btnPrimary, Card, Field, inputClass, Money, PageShell, Status } from '../../ui';
+import { btnGhost, btnPrimary, Card, Field, IconBtn, inputClass, Money, PageShell, Status } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
 import type { FixedAsset } from '../../core/types';
 
@@ -22,7 +22,7 @@ export default function Assets() {
     <PageShell
       title="Fixed Assets"
       subtitle="Acquisition posts Asset Dr / pay-from Cr. Depreciation posts Expense Dr / Accumulated Depreciation Cr. Journals are immutable."
-      actions={can('create') && <button className={btnPrimary} onClick={() => setOpen(true)}>Acquire asset</button>}
+      actions={can('create') && <IconBtn action="create" onClick={() => setOpen(true)}>Acquire asset</IconBtn>}
     >
       {open && (
         <Card className="p-4">

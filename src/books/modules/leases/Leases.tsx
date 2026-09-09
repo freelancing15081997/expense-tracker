@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useBooks } from '../../context/BooksProvider';
 import { parseMoney } from '../../core/money';
-import { btnGhost, btnPrimary, Card, Field, inputClass, Money, PageShell, Status } from '../../ui';
+import { btnGhost, btnPrimary, Card, Field, IconBtn, inputClass, Money, PageShell, Status } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
 import type { LeaseContract } from '../../core/types';
 
@@ -21,7 +21,7 @@ export default function Leases() {
     <PageShell
       title="Leases"
       subtitle="Each payment posts Rent Dr / cash Cr. This is a cash-lease register, not a fake ROU capitalization."
-      actions={can('create') && <button className={btnPrimary} onClick={() => setOpen(true)}>New lease</button>}
+      actions={can('create') && <IconBtn action="create" onClick={() => setOpen(true)}>New lease</IconBtn>}
     >
       {open && (
         <Card className="p-4">

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useBooks } from '../../context/BooksProvider';
 import { booksFileUrl } from '../../storage/adapter';
-import { btnPrimary, Card, Field, FileField, inputClass, PageShell, Status } from '../../ui';
+import { Card, Field, FileField, IconBtn, inputClass, PageShell, Status } from '../../ui';
 import { BOOKS_CATALOG } from '../../catalog';
 
 export default function BooksSettings() {
@@ -118,19 +118,19 @@ export default function BooksSettings() {
           />
         )}
         {can('manage_settings') && (
-          <button
-            className={btnPrimary}
-            onClick={async () => {
-              try {
-                await rename(name, undefined, profile);
-                setMessage('Company profile saved');
-              } catch (err: any) {
-                setMessage(err.message || 'Save failed');
-              }
-            }}
-          >
-            Save company profile
-          </button>
+            <IconBtn
+              action="save"
+              onClick={async () => {
+                try {
+                  await rename(name, undefined, profile);
+                  setMessage('Company profile saved');
+                } catch (err: any) {
+                  setMessage(err.message || 'Save failed');
+                }
+              }}
+            >
+              Save company profile
+            </IconBtn>
         )}
         {message && <p className="text-sm text-slate-600">{message}</p>}
       </Card>

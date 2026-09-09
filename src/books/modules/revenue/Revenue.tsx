@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useBooks } from '../../context/BooksProvider';
 import { parseMoney } from '../../core/money';
-import { btnGhost, btnPrimary, Card, Field, inputClass, Money, PageShell, Status } from '../../ui';
+import { btnGhost, btnPrimary, Card, Field, IconBtn, inputClass, Money, PageShell, Status } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
 import type { RevenueContract } from '../../core/types';
 
@@ -21,7 +21,7 @@ export default function Revenue() {
     <PageShell
       title="Revenue Recognition"
       subtitle="Cash received credits Deferred Revenue. Recognize posts Deferred Dr / Sales Cr for one month of the contract."
-      actions={can('create') && <button className={btnPrimary} onClick={() => setOpen(true)}>New contract</button>}
+      actions={can('create') && <IconBtn action="create" onClick={() => setOpen(true)}>New contract</IconBtn>}
     >
       {open && (
         <Card className="p-4">

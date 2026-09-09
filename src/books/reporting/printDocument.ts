@@ -5,6 +5,10 @@ function nl(value?: string | null) {
   return escapeHtml(value || '').replace(/\n/g, '<br/>');
 }
 
+function byjanMark() {
+  return `<img class="byjan-mark" src="${escapeHtml(`${window.location.origin}/logo.png`)}" alt="Byjan" />`;
+}
+
 function companyBlock(tenant: FinanceTenant) {
   return [
     nl(tenant.address),
@@ -43,6 +47,7 @@ export function printFinanceDocument(input: {
       body { font-family: Inter, Arial, sans-serif; color: #0B1F3A; padding: 32px; }
       .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; }
       img.logo { max-height: 64px; max-width: 140px; object-fit: contain; }
+      img.byjan-mark { width: 28px; height: 28px; object-fit: cover; object-position: 50% 10%; border-radius: 6px; border: 1px solid #E5E7EB; background: #fff; }
       h1 { margin: 8px 0 0; }
       table { width: 100%; border-collapse: collapse; margin-top: 24px; }
       th, td { border-bottom: 1px solid #E5E7EB; text-align: left; padding: 8px 6px; font-size: 13px; }
@@ -56,6 +61,7 @@ export function printFinanceDocument(input: {
   </head><body>
     <div class="top">
       <div>
+        ${byjanMark()}
         ${companyLogo ? `<img class="logo" src="${companyLogo}" alt="Company" />` : ''}
         <h1>${escapeHtml(tenant.name)}</h1>
         <p class="muted">Byjan · Trace Financials Easily</p>
@@ -123,6 +129,7 @@ export function printCustomerStatement(input: {
       body { font-family: Inter, Arial, sans-serif; color: #0B1F3A; padding: 32px; }
       .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; }
       img.logo { max-height: 64px; max-width: 140px; object-fit: contain; }
+      img.byjan-mark { width: 28px; height: 28px; object-fit: cover; object-position: 50% 10%; border-radius: 6px; border: 1px solid #E5E7EB; background: #fff; }
       table { width: 100%; border-collapse: collapse; margin-top: 24px; }
       th, td { border-bottom: 1px solid #E5E7EB; text-align: left; padding: 8px 6px; font-size: 13px; }
       .num { text-align: right; }
@@ -131,6 +138,7 @@ export function printCustomerStatement(input: {
   </head><body>
     <div class="top">
       <div>
+        ${byjanMark()}
         ${companyLogo ? `<img class="logo" src="${companyLogo}" alt="Company" />` : ''}
         <h1>${escapeHtml(tenant.name)}</h1>
         <p class="muted">Byjan · Trace Financials Easily</p>

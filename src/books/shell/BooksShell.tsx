@@ -2,7 +2,7 @@ import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { BOOKS_TREE, branchByPath, moduleByPath } from '../catalog/modules';
 import { useBooks } from '../context/BooksProvider';
-import { BooksPageMode } from '../ui';
+import { BooksPageMode, FeatureIcon } from '../ui';
 
 export default function BooksShell({ children }: { children: React.ReactNode }) {
   const location = useLocation();
@@ -19,12 +19,16 @@ export default function BooksShell({ children }: { children: React.ReactNode }) 
         </p>
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between mt-1">
           <div className="min-w-0">
-            <h1 className="font-display text-xl md:text-2xl font-semibold tracking-tight truncate">{module.name}</h1>
+            <h1 className="font-display text-xl md:text-2xl font-semibold tracking-tight truncate flex items-center gap-2.5">
+              <FeatureIcon href={module.href} className="w-6 h-6 shrink-0" />
+              {module.name}
+            </h1>
             <p className="text-sm text-[#4B5563] mt-1 leading-relaxed hidden sm:block">{module.blurb}</p>
           </div>
           <div className="flex flex-wrap gap-2 items-center">
             {siblings.slice(0, 5).map((rel) => (
               <Link key={rel.href} to={rel.href} className="byjan-btn-ghost !px-3 !py-1.5 text-xs">
+                <FeatureIcon href={rel.href} className="w-3.5 h-3.5" />
                 {rel.name}
               </Link>
             ))}

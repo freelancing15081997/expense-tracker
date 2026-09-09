@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useBooks } from '../../context/BooksProvider';
 import { signedBalance } from '../../engine/chartOfAccounts';
-import { btnGhost, btnPrimary, Card, Field, inputClass, Money, PageShell } from '../../ui';
+import { btnGhost, btnPrimary, Card, Field, IconBtn, inputClass, Money, PageShell } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
 import type { AccountType, FinanceAccount } from '../../core/types';
 
@@ -38,7 +38,7 @@ export default function Accounts() {
     <PageShell
       title="Chart of Accounts"
       subtitle="Hierarchical accounts. Parent accounts cannot be posted to."
-      actions={can('create') && <button className={btnPrimary} onClick={() => setOpen(true)}>Add account</button>}
+      actions={can('create') && <IconBtn action="create" onClick={() => setOpen(true)}>Add account</IconBtn>}
     >
       {open && (
         <Card className="p-4">

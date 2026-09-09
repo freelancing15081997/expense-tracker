@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useBooks } from '../../context/BooksProvider';
 import { signedBalance } from '../../engine/chartOfAccounts';
-import { Card, Kpi, Money, PageShell, Status, btnPrimary } from '../../ui';
+import { Card, FeatureIcon, GroupIcon, Kpi, Money, PageShell, Status, btnPrimary } from '../../ui';
 import { todayISO } from '../../core/money';
 import { BOOKS_QUICK_CREATE } from '../../nav';
 import { BOOKS_TREE } from '../../catalog/modules';
@@ -46,14 +46,22 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
         {cards.map((card) => (
           <Link key={card.label} to={card.href}>
-            <Kpi label={card.label}><Money minor={card.value} currency={currency} /></Kpi>
+            <Kpi label={card.label}>
+              <span className="flex items-center gap-2">
+                <FeatureIcon href={card.href} className="w-5 h-5" />
+                <Money minor={card.value} currency={currency} />
+              </span>
+            </Kpi>
           </Link>
         ))}
       </div>
 
       <div className="flex flex-wrap gap-2">
         {BOOKS_QUICK_CREATE.map((item) => (
-          <Link key={item.href} to={item.href} className={btnPrimary}>{item.name}</Link>
+          <Link key={item.href} to={item.href} className={btnPrimary}>
+            <FeatureIcon href={item.href} className="w-3.5 h-3.5" />
+            {item.name}
+          </Link>
         ))}
         <Link to="/books/control-tower" className="byjan-btn-ghost">Control Tower</Link>
       </div>
@@ -80,14 +88,20 @@ export default function Dashboard() {
           {BOOKS_TREE.map((branch) => (
             <Card key={branch.id} className="p-4 space-y-3">
               <div>
-                <Link to={branch.href} className="font-semibold text-[#0B1F3A] hover:underline">{branch.name}</Link>
+                <Link to={branch.href} className="font-semibold text-[#0B1F3A] hover:underline inline-flex items-center gap-2">
+                  <GroupIcon title={branch.name} className="w-4 h-4" />
+                  {branch.name}
+                </Link>
                 <p className="text-xs text-[#6B7280] mt-1">{branch.blurb}</p>
               </div>
               <ul className="space-y-1">
                 {branch.items.map((item) => (
                   <li key={item.href}>
-                    <Link to={item.href} className="text-sm text-[#0B1F3A] hover:text-teal-800 flex justify-between gap-2">
-                      <span>{item.name}</span>
+                    <Link to={item.href} className="text-sm text-[#0B1F3A] hover:text-teal-800 flex justify-between gap-2 items-center">
+                      <span className="inline-flex items-center gap-2 min-w-0">
+                        <FeatureIcon href={item.href} className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">{item.name}</span>
+                      </span>
                       <span className="text-[10px] uppercase tracking-wide text-emerald-700">Live</span>
                     </Link>
                   </li>

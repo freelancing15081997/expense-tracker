@@ -1,8 +1,9 @@
 import React from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import BooksProvider, { useBooks } from '../context/BooksProvider';
 import CommandPalette from '../ui/CommandPalette';
-import BrandLogo from '../../components/BrandLogo';
+import { BooksLoader } from '../ui/BooksLoader';
+import { moduleByPath } from '../catalog/modules';
 import Dashboard from '../modules/dashboard/Dashboard';
 import ControlTower from '../modules/control/ControlTower';
 import Accounts from '../modules/accounting/Accounts';
@@ -35,13 +36,10 @@ import Collections from '../modules/receivables/Collections';
 
 function BooksReady({ children }: { children: React.ReactNode }) {
   const { loading, error, refresh } = useBooks();
+  const location = useLocation();
+  const module = moduleByPath(location.pathname);
   if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center h-[60vh] gap-3">
-        <BrandLogo size="md" />
-        <p className="text-sm text-slate-500">Opening Books…</p>
-      </div>
-    );
+    return <BooksLoader feature={module.name} href={module.href} />;
   }
   if (error) {
     return (

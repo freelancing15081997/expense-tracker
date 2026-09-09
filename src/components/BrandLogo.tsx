@@ -12,16 +12,20 @@ const sizes = {
 };
 
 export default function BrandLogo({ size = 'sm', className = '' }: BrandLogoProps) {
+  const crop = size === 'lg'
+    ? 'object-contain p-[4%]'
+    : 'object-cover object-[50%_10%] scale-[1.35] origin-center';
+
   return (
-    <div className={`${sizes[size]} ${className}`.trim()}>
+    <div className={`${sizes[size]} ${className} overflow-hidden rounded-lg bg-white shrink-0 ring-1 ring-slate-200/80`.trim()}>
       <img
         src="/logo.png"
         onError={(e) => {
-          e.currentTarget.onerror = null; // Prevent infinite loops
-          e.currentTarget.src = "/byjan-logo.jpg";
+          e.currentTarget.onerror = null;
+          e.currentTarget.src = '/byjan-logo.jpg';
         }}
         alt="Byjan — Trace Financials Easily"
-        className="w-full h-full rounded-lg object-contain bg-white shrink-0"
+        className={`w-full h-full ${crop}`}
       />
     </div>
   );

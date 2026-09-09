@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useBooks } from '../../context/BooksProvider';
 import { todayISO } from '../../core/money';
-import { btnPrimary, Card, Field, inputClass, Money, PageShell, Status } from '../../ui';
+import { Card, Field, IconBtn, inputClass, Money, PageShell, Status } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
 import type { FinanceDocument } from '../../core/types';
 
@@ -31,8 +31,8 @@ export default function PaymentRun() {
         <Field label="Date"><input type="date" className={inputClass} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
         <div className="flex items-end justify-between gap-3">
           <p className="text-sm text-[#6b6458]">Selected <Money minor={total} currency={currency} /></p>
-          <button
-            className={btnPrimary}
+          <IconBtn
+            action="pay"
             disabled={!can('post') || chosen.length === 0}
             onClick={async () => {
               try {
@@ -49,7 +49,7 @@ export default function PaymentRun() {
             }}
           >
             Post payments
-          </button>
+          </IconBtn>
         </div>
         {ok && <p className="text-sm text-emerald-800 md:col-span-3">{ok}</p>}
         {error && <p className="text-sm text-rose-700 md:col-span-3">{error}</p>}

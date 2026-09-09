@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useBooks } from '../../context/BooksProvider';
 import { booksFileUrl } from '../../storage/adapter';
 import { formatMinorPlain, parseMoney } from '../../core/money';
-import { btnGhost, btnPrimary, Card, Empty, Field, FileField, inputClass, Money, PageShell, Status } from '../../ui';
+import { btnGhost, btnPrimary, Card, Empty, Field, FileField, IconBtn, inputClass, Money, PageShell, Status } from '../../ui';
 import { Pager, usePaging } from '../../ui/PagedList';
 import type { FinanceParty, PartyKind } from '../../core/types';
 
@@ -175,7 +175,7 @@ export default function Parties({ kind }: { kind: PartyKind }) {
       subtitle={kind === 'customer'
         ? 'Master record for receivables: identity, tax, address, logo, and linked invoices.'
         : 'Master record for payables: identity, tax, address, logo, and linked bills.'}
-      actions={can('create') && <button className={btnPrimary} onClick={() => openEdit()}>New {kind}</button>}
+      actions={can('create') && <IconBtn action="create" onClick={() => openEdit()}>New {kind}</IconBtn>}
     >
       <div className="grid lg:grid-cols-[1.15fr_0.85fr] gap-5">
         <div className="space-y-5">
@@ -218,11 +218,12 @@ export default function Parties({ kind }: { kind: PartyKind }) {
                 <FileField
                   label={`${title.slice(0, -1)} logo`}
                   accept="image/png,image/jpeg,image/webp"
+                  files={pendingLogo}
                   hint={pendingLogo ? pendingLogo.name : 'PNG, JPG, or WEBP · 8 MB max. Shown on invoices, bills, and statements.'}
                   onFiles={(files) => setPendingLogo(files[0] || null)}
                 />
                 <div className="flex gap-2">
-                  <button className={btnPrimary} disabled={busy}>{busy ? 'Saving…' : 'Save record'}</button>
+                  <IconBtn action="save" disabled={busy}>{busy ? 'Saving…' : 'Save record'}</IconBtn>
                   <button type="button" className={btnGhost} onClick={() => { setOpen(false); setEditing(null); }}>Cancel</button>
                   {error && <p className="text-sm text-rose-600">{error}</p>}
                 </div>

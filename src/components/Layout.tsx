@@ -2,13 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { logout, db } from '../lib/firebase';
-import { LogOut, Settings, Menu, X, BookOpen, Bell, CheckCircle2, ArrowRightLeft, ChevronDown, ChevronRight } from 'lucide-react';
+import { LogOut, Settings, Menu, X, Bell, CheckCircle2, ArrowRightLeft, ChevronDown, ChevronRight } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { collection, query, where, onSnapshot, updateDoc, doc } from 'firebase/firestore';
 import BrandLogo from './BrandLogo';
 import GlobalSearch, { SearchTrigger } from './GlobalSearch';
 import { BOOKS_NAV } from '../books/nav';
+import { FeatureIcon, GroupIcon, BooksGlyph } from '../books/ui/icons';
 import { useBooksTenantMeta } from '../lib/tenant';
 
 function cn(...inputs: ClassValue[]) {
@@ -112,7 +113,7 @@ export default function Layout() {
                 onBooks ? 'text-[#0B1F3A]' : 'text-slate-700 hover:bg-slate-50 rounded-xl'
               )}
             >
-              <BookOpen className="w-4 h-4 shrink-0" />
+              <BooksGlyph name="book" className="w-4 h-4 shrink-0" />
               {showText && <span className="whitespace-nowrap">Books</span>}
             </Link>
             {showText && (
@@ -142,7 +143,10 @@ export default function Layout() {
                       onClick={() => setOpenGroup((current) => current === group.title ? null : group.title)}
                       className="w-full flex items-center justify-between px-2 py-1.5 rounded-xl text-[13px] font-semibold text-slate-600 hover:bg-slate-50 hover:text-[#0B1F3A] whitespace-nowrap"
                     >
-                      {group.title}
+                      <span className="flex items-center gap-2 min-w-0">
+                        <GroupIcon title={group.title} className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">{group.title}</span>
+                      </span>
                       <ChevronRight className={cn('w-3.5 h-3.5 text-slate-400 transition-transform shrink-0', groupOpen && 'rotate-90')} />
                     </button>
                     {groupOpen && (
@@ -156,6 +160,7 @@ export default function Layout() {
                               location.pathname === sub.href ? 'byjan-subnav-active' : ''
                             )}
                           >
+                            <FeatureIcon href={sub.href} className="w-3.5 h-3.5 shrink-0" />
                             {sub.name}
                           </Link>
                         ))}
@@ -176,10 +181,11 @@ export default function Layout() {
 
       <div className="p-3 border-t border-slate-200 space-y-2">
         {tenant && showText && (
-          <div className="px-3 py-2.5 rounded-xl bg-[#F8FAFC] border border-slate-200 shadow-[inset_0_1px_2px_rgba(11,31,58,0.06)]">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 whitespace-nowrap">Books tenant</p>
-            <p className="text-xs font-semibold text-[#0B1F3A] truncate mt-0.5 whitespace-nowrap">{tenant.name}</p>
-            <p className="text-[10px] text-slate-500 truncate whitespace-nowrap">erp_workspaces/{tenant.id.slice(0, 8)}… · {tenant.memberCount} member{tenant.memberCount === 1 ? '' : 's'}</p>
+          <div
+            className="mx-1 px-2 py-0.5 rounded-full bg-[#EEF2F6] border border-slate-200 text-[10px] font-semibold text-[#0B1F3A] truncate"
+            title={`${tenant.name} · erp_workspaces/${tenant.id}`}
+          >
+            {tenant.name}
           </div>
         )}
         <div>

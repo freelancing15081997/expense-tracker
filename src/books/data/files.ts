@@ -36,18 +36,20 @@ export async function uploadWorkspaceFile(ctx: TxCtx, input: { domain: string; r
     size: stored.size,
     contentType: stored.contentType,
     path: stored.path,
+    url: stored.url || stored.path,
+    pathname: stored.pathname || null,
     status: 'active',
     createdAt: nowISO(),
     createdBy: ctx.uid,
   }));
-  return { id: fileRef.id, path: stored.path };
+  return { id: fileRef.id, path: stored.path, url: stored.url || stored.path };
 }
 
 export async function archiveWorkspaceFile(ctx: TxCtx, file: BooksFile) {
   assertCan(ctx.role, 'edit');
   await updateDoc(doc(col(ctx.db, ctx.tenantId, 'files'), file.id), { status: 'archived' });
   try {
-    await removeBooksBlob(file.path);
+    await removeBooksBlob(file.url || file.path);
   } catch {
     // Blob may already be gone; metadata stays archived.
   }

@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useBooks } from '../../context/BooksProvider';
 import { periodIdFromDate, parseMoney, todayISO } from '../../core/money';
-import { btnGhost, btnPrimary, Card, Field, inputClass, Money, PageShell } from '../../ui';
+import { btnGhost, btnPrimary, Card, Field, IconBtn, inputClass, Money, PageShell } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
 import type { BudgetLine } from '../../core/types';
 
@@ -30,7 +30,7 @@ export default function Budgets() {
     <PageShell
       title="Budgets"
       subtitle="Variance uses posted journal lines in that period. Forecasts and scenarios are not invented numbers."
-      actions={can('create') && <button className={btnPrimary} onClick={() => setOpen(true)}>Budget line</button>}
+      actions={can('create') && <IconBtn action="create" onClick={() => setOpen(true)}>Budget line</IconBtn>}
     >
       {open && (
         <Card className="p-4">

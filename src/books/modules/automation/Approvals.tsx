@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useBooks } from '../../context/BooksProvider';
-import { btnGhost, btnPrimary, Card, Field, inputClass, PageShell, Status } from '../../ui';
+import { btnGhost, btnPrimary, Card, Field, IconBtn, inputClass, PageShell, Status } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
 import type { Approval } from '../../core/types';
 
@@ -44,7 +44,7 @@ export default function Approvals() {
               </select>
             </Field>
             <Field label="Notes"><input className={inputClass} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
-            <button className={btnPrimary}>Request approval</button>
+            <IconBtn action="create">Request approval</IconBtn>
             {error && <p className="text-sm text-rose-600">{error}</p>}
           </form>
         </Card>
@@ -62,7 +62,7 @@ export default function Approvals() {
                   <Status value={row.status} />
                   {row.status === 'pending' && can('post') && (
                     <>
-                      <button className={btnPrimary} onClick={() => books.decide(row.id, 'approved')}>Approve</button>
+                      <IconBtn action="post" onClick={() => books.decide(row.id, 'approved')}>Approve</IconBtn>
                       <button className={btnGhost} onClick={() => books.decide(row.id, 'rejected')}>Reject</button>
                     </>
                   )}

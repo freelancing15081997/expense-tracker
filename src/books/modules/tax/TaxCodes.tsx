@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useBooks } from '../../context/BooksProvider';
 import { parseMoney, todayISO } from '../../core/money';
-import { btnPrimary, Card, Field, inputClass, PageShell } from '../../ui';
+import { Card, Field, IconBtn, inputClass, PageShell } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
 import type { TaxCode } from '../../core/types';
 
@@ -68,7 +68,7 @@ export default function TaxCodes() {
           </Field>
           <Field label="Memo"><input className={inputClass} value={memo} onChange={(e) => setMemo(e.target.value)} /></Field>
           <div className="flex items-end gap-2">
-            <button className={btnPrimary} disabled={!can('post')}>Post TDS</button>
+            <IconBtn action="post" disabled={!can('post')}>Post TDS</IconBtn>
             {ok && <p className="text-sm text-emerald-700">{ok}</p>}
             {error && <p className="text-sm text-rose-600">{error}</p>}
           </div>
