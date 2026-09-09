@@ -1,6 +1,6 @@
 import { del, put } from '@vercel/blob';
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'http';
-import { requireUser } from '../vercel/helpers';
+import { applyCors, requireUser } from '../vercel/helpers';
 
 const MAX_BYTES = 8 * 1024 * 1024;
 const ALLOWED_EXT = new Set(['pdf', 'png', 'jpg', 'jpeg', 'webp', 'csv', 'txt', 'xlsx']);
@@ -63,6 +63,7 @@ export async function handleBlobUploadRequest(
   req: IncomingMessage & { body?: unknown },
   res: ServerResponse,
 ) {
+  applyCors(req, res);
   if (req.method === 'OPTIONS') {
     res.statusCode = 204;
     res.end();
@@ -122,6 +123,7 @@ export async function handleBlobDeleteRequest(
   req: IncomingMessage & { body?: any },
   res: ServerResponse,
 ) {
+  applyCors(req, res);
   if (req.method === 'OPTIONS') {
     res.statusCode = 204;
     res.end();

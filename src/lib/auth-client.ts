@@ -1,10 +1,28 @@
 import { createAuthClient } from '@neondatabase/neon-js/auth';
 import { BetterAuthReactAdapter } from '@neondatabase/neon-js/auth/react/adapters';
 
-const authUrl = import.meta.env.VITE_NEON_AUTH_URL as string | undefined;
+function neonAuthConnection() {
+  const raw = String(import.meta.env.VITE_NEON_AUTH_URL || '').replace(/\/+$/, '');
+  if (raw) {
+    try {
+      const parsed = new URL(raw);
+      return {
+        url: parsed.origin,
+        basePath: parsed.pathname.replace(/\/+$/, '') || '/neondb/auth',
+      };
+    } catch {
+      return { url: raw, basePath: '' };
+    }
+  }
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  return { url: origin, basePath: '/api/auth' };
+}
 
-export const authClient = createAuthClient(authUrl || '', {
+const conn = neonAuthConnection();
+
+export const authClient = createAuthClient(conn.url, {
   adapter: BetterAuthReactAdapter({
+    basePath: conn.basePath,
     fetchOptions: { credentials: 'include' },
   } as any),
 });

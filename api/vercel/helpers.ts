@@ -1,7 +1,27 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { randomBytes } from 'crypto';
 import type { IncomingMessage, ServerResponse } from 'http';
-export { kvDel, kvGet, kvList, kvSet } from './db';
+export { kvDel, kvGet, kvList, kvListPrefix, kvSet } from './db';
+
+export const ALLOWED_API_METHODS = 'GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS';
+
+export function requestPath(req: IncomingMessage) {
+  const raw = String((req as IncomingMessage & { originalUrl?: string }).originalUrl || req.url || '/');
+  return new URL(raw, 'http://local');
+}
+
+export function applyCors(req: IncomingMessage, res: ServerResponse) {
+  const origin = String(req.headers.origin || '').trim();
+  res.setHeader('Access-Control-Allow-Origin', origin || '*');
+  if (origin) res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Methods', ALLOWED_API_METHODS);
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'Authorization,Content-Type,X-CSRF-Token,X-Requested-With,Accept,Accept-Version,Content-Length,X-Tenant-Id,X-File-Id,X-File-Ext,X-File-Name,X-Content-Type,X-Api-Version',
+  );
+  res.setHeader('Allow', ALLOWED_API_METHODS);
+  res.setHeader('Access-Control-Max-Age', '86400');
+}
 
 export function sendJson(res: ServerResponse, status: number, payload: unknown) {
   res.statusCode = status;
@@ -9,7 +29,7 @@ export function sendJson(res: ServerResponse, status: number, payload: unknown) 
   res.end(JSON.stringify(payload));
 }
 
-function authBaseUrl() {
+export function authBaseUrl() {
   const raw = process.env.NEON_AUTH_BASE_URL || process.env.VITE_NEON_AUTH_URL || '';
   return raw.replace(/\/+$/, '');
 }
@@ -52,9 +72,14 @@ export async function readNeonSession(req: IncomingMessage): Promise<NeonSession
   const base = authBaseUrl();
   if (!base) return null;
   try {
-    const { payload } = await jwtVerify(token, getJwks(), {
-      issuer: new URL(base).origin,
-    });
+    let payload: { sub?: unknown; id?: unknown; email?: unknown; name?: unknown };
+    try {
+      ({ payload } = await jwtVerify(token, getJwks(), {
+        issuer: [new URL(base).origin, base],
+      }));
+    } catch {
+      ({ payload } = await jwtVerify(token, getJwks()));
+    }
     const uid = String(payload.sub || payload.id || '');
     if (!uid) return null;
     return {

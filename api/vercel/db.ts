@@ -100,3 +100,21 @@ export async function kvList(prefix: string) {
   }
   return out;
 }
+
+export async function kvListPrefix(prefix: string) {
+  await ensureSchema();
+  const db = getSql();
+  const p = cleanPath(prefix);
+  const child = `${p}/`;
+  const rows = (await db`
+    SELECT path, data FROM documents
+    WHERE path = ${p} OR starts_with(path, ${child})
+  `) as { path: string; data: unknown }[];
+  const out: { path: string; data: Record<string, unknown> }[] = [];
+  for (const row of rows) {
+    const data = asObject(row.data);
+    if (!data) continue;
+    out.push({ path: String(row.path), data });
+  }
+  return out;
+}

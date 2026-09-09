@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "start": "node --dns-result-order=ipv4first dist/server.cjs"
+    "start": "node --dns-result-order=ipv4first dist/server.cjs",
+    "migrate:firestore": "node scripts/migrate-firestore-to-postgres.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

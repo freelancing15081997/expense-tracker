@@ -1,11 +1,13 @@
 import type { IncomingMessage, ServerResponse } from 'http';
-import { kvDel, kvGet, kvList, kvSet, newId, readJsonBody, readSession, sendJson } from '../vercel/helpers';
+import { applyCors, kvDel, kvGet, kvList, kvSet, newId, readJsonBody, readNeonSession, sendJson } from '../vercel/helpers';
+import { remapFirebaseUidIfNeeded } from '../vercel/remap';
 
 function getAt(obj: any, path: string) {
   return path.split('.').reduce((acc, key) => (acc == null ? acc : acc[key]), obj);
 }
 
 export async function handleKvRequest(req: IncomingMessage & { body?: unknown }, res: ServerResponse) {
+  applyCors(req, res);
   if (req.method === 'OPTIONS') {
     res.statusCode = 204;
     res.end();
@@ -16,11 +18,12 @@ export async function handleKvRequest(req: IncomingMessage & { body?: unknown },
     return;
   }
 
-  const uid = await readSession(req);
-  if (!uid) {
+  const session = await readNeonSession(req);
+  if (!session?.uid) {
     sendJson(res, 401, { error: 'Sign in required' });
     return;
   }
+  await remapFirebaseUidIfNeeded(session);
 
   try {
     const body = await readJsonBody(req);

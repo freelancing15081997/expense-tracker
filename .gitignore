@@ -7,3 +7,4 @@ coverage/
 .env*
 !.env.example
 storage_requirements.txt
+vercel.env

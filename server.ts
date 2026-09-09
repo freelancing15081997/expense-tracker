@@ -6,12 +6,29 @@ import nodemailer from "nodemailer";
 import { handleBlobDeleteRequest, handleBlobUploadRequest } from "./api/blob/store";
 import { handleAuthRequest } from "./api/auth/handler";
 import { handleKvRequest } from "./api/kv/handler";
-import { requireUser } from "./api/vercel/helpers";
+import { applyCors, requireUser } from "./api/vercel/helpers";
 
 dns.setDefaultResultOrder('ipv4first');
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
+
+app.use("/api", (req, res, next) => {
+  applyCors(req, res);
+  if (req.method === "OPTIONS") {
+    res.status(204).end();
+    return;
+  }
+  next();
+});
+app.use("/neondb/auth", (req, res, next) => {
+  applyCors(req, res);
+  if (req.method === "OPTIONS") {
+    res.status(204).end();
+    return;
+  }
+  next();
+});
 
 app.post("/api/blob/upload", express.raw({ type: "*/*", limit: "9mb" }), (req, res) => {
   void handleBlobUploadRequest(req, res);
@@ -23,7 +40,10 @@ app.post("/api/blob/delete", express.json({ limit: "1mb" }), (req, res) => {
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-app.all("/api/auth", (req, res) => {
+app.use("/api/auth", (req, res) => {
+  void handleAuthRequest(req, res);
+});
+app.use("/neondb/auth", (req, res) => {
   void handleAuthRequest(req, res);
 });
 app.all("/api/kv", (req, res) => {
