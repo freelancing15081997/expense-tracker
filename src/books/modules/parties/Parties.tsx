@@ -2,9 +2,20 @@ import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useBooks } from '../../context/BooksProvider';
 import { booksFileUrl } from '../../storage/adapter';
+import { formatMinorPlain, parseMoney } from '../../core/money';
 import { btnGhost, btnPrimary, Card, Empty, Field, FileField, inputClass, Money, PageShell, Status } from '../../ui';
 import { Pager, usePaging } from '../../ui/PagedList';
 import type { FinanceParty, PartyKind } from '../../core/types';
+
+const GST_TREATMENTS = [
+  { id: '', label: 'Not specified' },
+  { id: 'registered', label: 'Registered' },
+  { id: 'unregistered', label: 'Unregistered' },
+  { id: 'consumer', label: 'Consumer' },
+  { id: 'composition', label: 'Composition' },
+  { id: 'sez', label: 'SEZ' },
+  { id: 'overseas', label: 'Overseas' },
+];
 
 type Form = {
   name: string;
@@ -13,17 +24,26 @@ type Form = {
   website: string;
   contactName: string;
   taxId: string;
+  pan: string;
+  gstTreatment: string;
   address: string;
   city: string;
   state: string;
   pincode: string;
+  shippingAddress: string;
+  shippingCity: string;
+  shippingState: string;
+  shippingPincode: string;
+  creditLimit: string;
   notes: string;
   terms: string;
 };
 
 const emptyForm = (): Form => ({
-  name: '', email: '', phone: '', website: '', contactName: '', taxId: '',
-  address: '', city: '', state: '', pincode: '', notes: '', terms: '30',
+  name: '', email: '', phone: '', website: '', contactName: '', taxId: '', pan: '', gstTreatment: 'registered',
+  address: '', city: '', state: '', pincode: '',
+  shippingAddress: '', shippingCity: '', shippingState: '', shippingPincode: '',
+  creditLimit: '', notes: '', terms: '30',
 });
 
 function fromParty(p: FinanceParty): Form {
@@ -34,10 +54,17 @@ function fromParty(p: FinanceParty): Form {
     website: p.website || '',
     contactName: p.contactName || '',
     taxId: p.taxId,
+    pan: p.pan || '',
+    gstTreatment: p.gstTreatment || '',
     address: p.address || '',
     city: p.city || '',
     state: p.state || '',
     pincode: p.pincode || '',
+    shippingAddress: p.shippingAddress || '',
+    shippingCity: p.shippingCity || '',
+    shippingState: p.shippingState || '',
+    shippingPincode: p.shippingPincode || '',
+    creditLimit: p.creditLimitMinor ? formatMinorPlain(p.creditLimitMinor) : '',
     notes: p.notes || '',
     terms: String(p.paymentTermsDays || 0),
   };
@@ -46,7 +73,13 @@ function fromParty(p: FinanceParty): Form {
 export default function Parties({ kind }: { kind: PartyKind }) {
   const books = useBooks();
   const { parties, documents, currency, can, createParty, uploadFile } = books;
-  const rows = parties.filter((p) => p.kind === kind);
+  const [search, setSearch] = useState('');
+  const allRows = parties.filter((p) => p.kind === kind);
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return allRows;
+    return allRows.filter((p) => [p.name, p.email, p.taxId, p.pan, p.city].some((v) => (v || '').toLowerCase().includes(q)));
+  }, [allRows, search]);
   const paging = usePaging(rows, 10);
   const title = kind === 'customer' ? 'Customers' : 'Vendors';
   const [form, setForm] = useState<Form>(emptyForm());
@@ -68,49 +101,42 @@ export default function Parties({ kind }: { kind: PartyKind }) {
     .filter((d) => (d.kind === 'invoice' || d.kind === 'bill') && d.status === 'posted')
     .reduce((s, d) => s + (d.totalMinor - d.paidMinor), 0);
 
-  const set = (key: keyof Form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setForm((f) => ({ ...f, [key]: e.target.value }));
+  const set = (key: keyof Form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setForm((f) => ({ ...f, [key]: e.target.value }));
+
+  const payload = (id?: string, logoPath?: string | null) => ({
+    id,
+    kind,
+    name: form.name,
+    email: form.email,
+    phone: form.phone,
+    website: form.website,
+    contactName: form.contactName,
+    taxId: form.taxId,
+    pan: form.pan,
+    gstTreatment: form.gstTreatment,
+    address: form.address,
+    city: form.city,
+    state: form.state,
+    pincode: form.pincode,
+    shippingAddress: form.shippingAddress,
+    shippingCity: form.shippingCity,
+    shippingState: form.shippingState,
+    shippingPincode: form.shippingPincode,
+    creditLimitMinor: form.creditLimit.trim() ? parseMoney(form.creditLimit) : 0,
+    notes: form.notes,
+    paymentTermsDays: Number(form.terms) || 0,
+    logoPath: logoPath === undefined ? (editing?.logoPath || null) : logoPath,
+  });
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       setBusy(true);
       setError('');
-      const id = await createParty({
-        id: editing?.id,
-        kind,
-        name: form.name,
-        email: form.email,
-        phone: form.phone,
-        website: form.website,
-        contactName: form.contactName,
-        taxId: form.taxId,
-        address: form.address,
-        city: form.city,
-        state: form.state,
-        pincode: form.pincode,
-        notes: form.notes,
-        paymentTermsDays: Number(form.terms) || 0,
-        logoPath: editing?.logoPath || null,
-      });
+      const id = await createParty(payload(editing?.id));
       if (pendingLogo) {
         const stored = await uploadFile({ domain: `${kind}-logo`, resourceId: id, file: pendingLogo });
-        await createParty({
-          id,
-          kind,
-          name: form.name,
-          email: form.email,
-          phone: form.phone,
-          website: form.website,
-          contactName: form.contactName,
-          taxId: form.taxId,
-          address: form.address,
-          city: form.city,
-          state: form.state,
-          pincode: form.pincode,
-          notes: form.notes,
-          paymentTermsDays: Number(form.terms) || 0,
-          logoPath: stored.path,
-        });
+        await createParty(payload(id, stored.path));
       }
       setOpen(false);
       setEditing(null);
@@ -167,13 +193,24 @@ export default function Parties({ kind }: { kind: PartyKind }) {
                   <Field label="Phone"><input className={inputClass} value={form.phone} onChange={set('phone')} /></Field>
                   <Field label="Website"><input className={inputClass} value={form.website} onChange={set('website')} /></Field>
                   <Field label="GSTIN / Tax ID"><input className={inputClass} value={form.taxId} onChange={set('taxId')} /></Field>
+                  <Field label="PAN"><input className={inputClass} value={form.pan} onChange={set('pan')} /></Field>
+                  <Field label="GST treatment">
+                    <select className={inputClass} value={form.gstTreatment} onChange={set('gstTreatment')}>
+                      {GST_TREATMENTS.map((t) => <option key={t.id || 'none'} value={t.id}>{t.label}</option>)}
+                    </select>
+                  </Field>
                   <Field label="Payment terms (days)"><input className={inputClass} value={form.terms} onChange={set('terms')} /></Field>
+                  <Field label="Credit limit"><input className={inputClass} value={form.creditLimit} onChange={set('creditLimit')} placeholder="0.00" /></Field>
                 </section>
                 <section className="grid md:grid-cols-2 gap-3">
-                  <Field label="Address"><input className={inputClass} value={form.address} onChange={set('address')} /></Field>
+                  <Field label="Billing address"><input className={inputClass} value={form.address} onChange={set('address')} /></Field>
                   <Field label="City"><input className={inputClass} value={form.city} onChange={set('city')} /></Field>
                   <Field label="State"><input className={inputClass} value={form.state} onChange={set('state')} /></Field>
                   <Field label="PIN"><input className={inputClass} value={form.pincode} onChange={set('pincode')} /></Field>
+                  <Field label="Shipping address"><input className={inputClass} value={form.shippingAddress} onChange={set('shippingAddress')} placeholder="Leave blank to use billing" /></Field>
+                  <Field label="Shipping city"><input className={inputClass} value={form.shippingCity} onChange={set('shippingCity')} /></Field>
+                  <Field label="Shipping state"><input className={inputClass} value={form.shippingState} onChange={set('shippingState')} /></Field>
+                  <Field label="Shipping PIN"><input className={inputClass} value={form.shippingPincode} onChange={set('shippingPincode')} /></Field>
                   <div className="md:col-span-2">
                     <Field label="Internal notes"><textarea className={inputClass} rows={3} value={form.notes} onChange={set('notes')} /></Field>
                   </div>
@@ -194,7 +231,10 @@ export default function Parties({ kind }: { kind: PartyKind }) {
           )}
 
           <Card>
-            {rows.length === 0 ? <Empty text={`No ${title.toLowerCase()} yet.`} /> : (
+            <div className="p-4 border-b border-[#E5E7EB]">
+              <input className={`${inputClass} max-w-sm`} value={search} onChange={(e) => setSearch(e.target.value)} placeholder={`Search ${title.toLowerCase()}`} />
+            </div>
+            {rows.length === 0 ? <Empty text={allRows.length === 0 ? `No ${title.toLowerCase()} yet.` : 'No matches.'} /> : (
               <>
               <div className="overflow-x-auto">
               <table className="w-full text-sm min-w-[640px]">
@@ -202,7 +242,8 @@ export default function Parties({ kind }: { kind: PartyKind }) {
                   <tr>
                     <th className="px-4 py-3 font-medium">Party</th>
                     <th className="px-4 py-3 font-medium">Contact</th>
-                    <th className="px-4 py-3 font-medium">Tax</th>
+                    <th className="px-4 py-3 font-medium">GSTIN</th>
+                    <th className="px-4 py-3 font-medium">Treatment</th>
                     <th className="px-4 py-3 font-medium">Terms</th>
                   </tr>
                 </thead>
@@ -215,6 +256,7 @@ export default function Parties({ kind }: { kind: PartyKind }) {
                       </td>
                       <td className="px-4 py-3 text-[#4B5563]">{row.contactName || row.email || '—'}</td>
                       <td className="px-4 py-3 text-[#4B5563]">{row.taxId || '—'}</td>
+                      <td className="px-4 py-3 text-[#4B5563]">{row.gstTreatment || '—'}</td>
                       <td className="px-4 py-3">{row.paymentTermsDays} days</td>
                     </tr>
                   ))}
@@ -248,8 +290,12 @@ export default function Parties({ kind }: { kind: PartyKind }) {
                 <div><p className="text-[#6B7280]">Email</p><p>{selected.email || '—'}</p></div>
                 <div><p className="text-[#6B7280]">Phone</p><p>{selected.phone || '—'}</p></div>
                 <div><p className="text-[#6B7280]">GSTIN</p><p>{selected.taxId || '—'}</p></div>
+                <div><p className="text-[#6B7280]">PAN</p><p>{selected.pan || '—'}</p></div>
+                <div><p className="text-[#6B7280]">GST treatment</p><p>{selected.gstTreatment || '—'}</p></div>
                 <div><p className="text-[#6B7280]">Terms</p><p>{selected.paymentTermsDays} days</p></div>
-                <div className="col-span-2"><p className="text-[#6B7280]">Address</p><p>{[selected.address, selected.city, selected.state, selected.pincode].filter(Boolean).join(', ') || '—'}</p></div>
+                <div className="col-span-2"><p className="text-[#6B7280]">Billing address</p><p>{[selected.address, selected.city, selected.state, selected.pincode].filter(Boolean).join(', ') || '—'}</p></div>
+                <div className="col-span-2"><p className="text-[#6B7280]">Shipping address</p><p>{[selected.shippingAddress || selected.address, selected.shippingCity || selected.city, selected.shippingState || selected.state, selected.shippingPincode || selected.pincode].filter(Boolean).join(', ') || '—'}</p></div>
+                <div className="col-span-2"><p className="text-[#6B7280]">Credit limit</p><p>{selected.creditLimitMinor ? <Money minor={selected.creditLimitMinor} currency={currency} /> : 'No limit recorded'}</p></div>
                 {selected.notes && <div className="col-span-2"><p className="text-[#6B7280]">Notes</p><p>{selected.notes}</p></div>}
               </div>
               <div className="rounded-2xl bg-[#F0FDFA] px-4 py-3">

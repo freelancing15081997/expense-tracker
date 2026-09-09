@@ -54,7 +54,13 @@ export default function Layout() {
     const unsub = onSnapshot(q, (snap) => {
       const notifs: any[] = [];
       snap.forEach(d => notifs.push({ id: d.id, ...d.data() }));
-      notifs.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+      const millis = (value: any) => {
+        try {
+          if (value && typeof value.toMillis === 'function') return value.toMillis();
+        } catch { /* pending server timestamp */ }
+        return 0;
+      };
+      notifs.sort((a, b) => millis(b.createdAt) - millis(a.createdAt));
       setNotifications(notifs);
     }, (err) => { console.error("Snapshot error on", q, err); });
     return () => unsub();

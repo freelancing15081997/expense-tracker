@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx --dns-result-order=ipv4first server.ts",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "vercel-build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
@@ -24,6 +25,7 @@
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",
     "dotenv": "^17.2.3",
+    "esbuild": "^0.25.0",
     "express": "^4.21.2",
     "firebase": "^12.18.0",
     "framer-motion": "^13.2.0",
@@ -46,7 +48,6 @@
     "@types/nodemailer": "^8.0.1",
     "@vercel/node": "^12.0.1",
     "autoprefixer": "^10.4.21",
-    "esbuild": "^0.25.0",
     "tailwind-scrollbar": "^4.0.2",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",

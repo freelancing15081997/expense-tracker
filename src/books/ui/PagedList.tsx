@@ -1,5 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { btnGhost, Card, Empty } from './index';
+
+const btnGhost = 'px-3.5 py-2 rounded-xl border border-[#E5E7EB] text-[#0B1F3A] text-sm font-medium hover:bg-[#F3F4F6] disabled:opacity-50 transition-colors';
+
+function Card({ children }: { children: React.ReactNode }) {
+  return <div className="bg-white border border-[#E5E7EB] rounded-2xl shadow-[0_1px_0_rgba(11,31,58,0.04)]">{children}</div>;
+}
+
+function Empty({ text }: { text: string }) {
+  return <div className="px-5 py-14 text-center text-sm text-[#7a7368]">{text}</div>;
+}
 
 export function usePaging<T>(rows: T[], pageSize = 10) {
   const [page, setPage] = useState(1);
@@ -27,19 +36,16 @@ export function Pager({ page, pages, total, pageSize, onPage }: { page: number; 
   );
 }
 
-export function PagedTable<T = any>({
-  rows,
-  empty,
-  pageSize = 10,
-  minWidth = 'min-w-[720px]',
-  children,
-}: {
+type PagedTableProps<T> = {
   rows: T[];
   empty: string;
   pageSize?: number;
   minWidth?: string;
   children: (slice: T[]) => React.ReactNode;
-}) {
+};
+
+export function PagedTable<T extends object>(props: PagedTableProps<T>) {
+  const { rows, empty, pageSize = 10, minWidth = 'min-w-[720px]', children } = props;
   const paging = usePaging(rows, pageSize);
   if (rows.length === 0) return <Card><Empty text={empty} /></Card>;
   return (

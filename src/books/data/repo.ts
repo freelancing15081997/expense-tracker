@@ -399,6 +399,13 @@ export async function saveParty(
     pincode?: string;
     notes?: string;
     logoPath?: string | null;
+    shippingAddress?: string;
+    shippingCity?: string;
+    shippingState?: string;
+    shippingPincode?: string;
+    creditLimitMinor?: number;
+    gstTreatment?: string;
+    pan?: string;
   }
 ) {
   assertCan(role, input.id ? 'edit' : 'create');
@@ -419,6 +426,13 @@ export async function saveParty(
     notes: (input.notes || '').trim(),
     logoPath: input.logoPath ?? null,
     paymentTermsDays: Math.max(0, Math.min(365, Math.floor(input.paymentTermsDays || 0))),
+    shippingAddress: (input.shippingAddress || '').trim(),
+    shippingCity: (input.shippingCity || '').trim(),
+    shippingState: (input.shippingState || '').trim(),
+    shippingPincode: (input.shippingPincode || '').trim(),
+    creditLimitMinor: Math.max(0, Math.floor(input.creditLimitMinor || 0)),
+    gstTreatment: (input.gstTreatment || '').trim(),
+    pan: (input.pan || '').trim(),
     active: true,
     updatedAt: nowISO(),
   };
@@ -440,6 +454,12 @@ export async function saveDocument(
     interstate: boolean;
     memo: string;
     projectId?: string | null;
+    poNumber?: string;
+    customerNotes?: string;
+    terms?: string;
+    placeOfSupply?: string;
+    billTo?: string;
+    shipTo?: string;
     taxCodes: TaxCode[];
   }
 ) {
@@ -467,6 +487,12 @@ export async function saveDocument(
     paymentJournalIds: [],
     memo: input.memo.trim(),
     projectId: input.projectId || null,
+    poNumber: (input.poNumber || '').trim(),
+    customerNotes: (input.customerNotes || '').trim(),
+    terms: (input.terms || '').trim(),
+    placeOfSupply: (input.placeOfSupply || '').trim(),
+    billTo: (input.billTo || '').trim(),
+    shipTo: (input.shipTo || '').trim(),
     convertedFromId: null,
     updatedAt: nowISO(),
   };
@@ -720,13 +746,41 @@ export async function saveAccount(
   return ref.id;
 }
 
-export async function updateTenantName(db: Firestore, tenantId: string, role: BooksRole, name: string, logoPath?: string | null) {
+export async function updateTenantName(
+  db: Firestore,
+  tenantId: string,
+  role: BooksRole,
+  name: string,
+  logoPath?: string | null,
+  profile?: {
+    gstin?: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    pincode?: string;
+    phone?: string;
+    email?: string;
+    website?: string;
+    invoiceFooter?: string;
+  }
+) {
   assertCan(role, 'manage_settings');
   const trimmed = name.trim();
   if (trimmed.length < 2) throw new BooksError('Workspace name is required');
   await updateDoc(tenantRef(db, tenantId), clean({
     name: trimmed,
     ...(logoPath !== undefined ? { logoPath } : {}),
+    ...(profile ? {
+      gstin: (profile.gstin || '').trim(),
+      address: (profile.address || '').trim(),
+      city: (profile.city || '').trim(),
+      state: (profile.state || '').trim(),
+      pincode: (profile.pincode || '').trim(),
+      phone: (profile.phone || '').trim(),
+      email: (profile.email || '').trim(),
+      website: (profile.website || '').trim(),
+      invoiceFooter: (profile.invoiceFooter || '').trim(),
+    } : {}),
   }));
 }
 

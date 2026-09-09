@@ -1,10 +1,10 @@
-
 import dns from 'dns';
-dns.setDefaultResultOrder('ipv4first');
 import "dotenv/config";
 import express from "express";
 import path from "path";
 import nodemailer from "nodemailer";
+
+dns.setDefaultResultOrder('ipv4first');
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;

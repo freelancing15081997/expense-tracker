@@ -7,8 +7,30 @@ import { BOOKS_CATALOG } from '../../catalog';
 export default function BooksSettings() {
   const { tenant, periods, role, can, rename, close, reopen, uploadFile } = useBooks();
   const [name, setName] = useState(tenant?.name || '');
+  const [gstin, setGstin] = useState(tenant?.gstin || '');
+  const [address, setAddress] = useState(tenant?.address || '');
+  const [city, setCity] = useState(tenant?.city || '');
+  const [state, setState] = useState(tenant?.state || '');
+  const [pincode, setPincode] = useState(tenant?.pincode || '');
+  const [phone, setPhone] = useState(tenant?.phone || '');
+  const [email, setEmail] = useState(tenant?.email || '');
+  const [website, setWebsite] = useState(tenant?.website || '');
+  const [invoiceFooter, setInvoiceFooter] = useState(tenant?.invoiceFooter || '');
   const [message, setMessage] = useState('');
   const [logoUrl, setLogoUrl] = useState('');
+
+  useEffect(() => {
+    setName(tenant?.name || '');
+    setGstin(tenant?.gstin || '');
+    setAddress(tenant?.address || '');
+    setCity(tenant?.city || '');
+    setState(tenant?.state || '');
+    setPincode(tenant?.pincode || '');
+    setPhone(tenant?.phone || '');
+    setEmail(tenant?.email || '');
+    setWebsite(tenant?.website || '');
+    setInvoiceFooter(tenant?.invoiceFooter || '');
+  }, [tenant]);
 
   useEffect(() => {
     if (!tenant?.logoPath) {
@@ -18,11 +40,52 @@ export default function BooksSettings() {
     booksFileUrl(tenant.logoPath).then(setLogoUrl).catch(() => setLogoUrl(''));
   }, [tenant?.logoPath]);
 
+  const profile = {
+    gstin,
+    address,
+    city,
+    state,
+    pincode,
+    phone,
+    email,
+    website,
+    invoiceFooter,
+  };
+
   return (
-    <PageShell title="Books Settings" subtitle="Workspace controls. Currency is locked to the tenant base currency used by every journal.">
-      <Card className="p-4 space-y-3">
-        <Field label="Workspace name">
-          <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} disabled={!can('manage_settings')} />
+    <PageShell title="Books Settings" subtitle="Company identity used on invoices, bills, and statements. Currency is locked to the tenant base currency used by every journal.">
+      <Card className="p-4 space-y-4">
+        <div className="grid md:grid-cols-2 gap-3">
+          <Field label="Legal / workspace name">
+            <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} disabled={!can('manage_settings')} />
+          </Field>
+          <Field label="GSTIN">
+            <input className={inputClass} value={gstin} onChange={(e) => setGstin(e.target.value)} disabled={!can('manage_settings')} />
+          </Field>
+          <Field label="Address">
+            <input className={inputClass} value={address} onChange={(e) => setAddress(e.target.value)} disabled={!can('manage_settings')} />
+          </Field>
+          <Field label="City">
+            <input className={inputClass} value={city} onChange={(e) => setCity(e.target.value)} disabled={!can('manage_settings')} />
+          </Field>
+          <Field label="State">
+            <input className={inputClass} value={state} onChange={(e) => setState(e.target.value)} disabled={!can('manage_settings')} />
+          </Field>
+          <Field label="PIN">
+            <input className={inputClass} value={pincode} onChange={(e) => setPincode(e.target.value)} disabled={!can('manage_settings')} />
+          </Field>
+          <Field label="Phone">
+            <input className={inputClass} value={phone} onChange={(e) => setPhone(e.target.value)} disabled={!can('manage_settings')} />
+          </Field>
+          <Field label="Email">
+            <input className={inputClass} value={email} onChange={(e) => setEmail(e.target.value)} disabled={!can('manage_settings')} />
+          </Field>
+          <Field label="Website">
+            <input className={inputClass} value={website} onChange={(e) => setWebsite(e.target.value)} disabled={!can('manage_settings')} />
+          </Field>
+        </div>
+        <Field label="Default invoice / bill footer">
+          <textarea className={inputClass} rows={3} value={invoiceFooter} onChange={(e) => setInvoiceFooter(e.target.value)} disabled={!can('manage_settings')} />
         </Field>
         <p className="text-sm text-slate-500">Base currency: <strong>{tenant?.baseCurrency}</strong> · Your role: <strong>{role}</strong></p>
         {logoUrl && (
@@ -40,7 +103,7 @@ export default function BooksSettings() {
               if (!file) return;
               try {
                 const stored = await uploadFile({ domain: 'workspace-logo', file });
-                await rename(name || tenant?.name || 'Byjan Books', stored.path);
+                await rename(name || tenant?.name || 'Byjan Books', stored.path, profile);
                 setMessage('Company logo saved. It will appear on customer/vendor prints.');
               } catch (err: any) {
                 setMessage(err.message || 'Logo upload failed');
@@ -53,14 +116,14 @@ export default function BooksSettings() {
             className={btnPrimary}
             onClick={async () => {
               try {
-                await rename(name);
-                setMessage('Saved');
+                await rename(name, undefined, profile);
+                setMessage('Company profile saved');
               } catch (err: any) {
                 setMessage(err.message || 'Save failed');
               }
             }}
           >
-            Save
+            Save company profile
           </button>
         )}
         {message && <p className="text-sm text-slate-600">{message}</p>}

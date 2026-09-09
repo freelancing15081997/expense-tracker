@@ -21,6 +21,22 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+function expenseMillis(value: any) {
+  try {
+    if (value && typeof value.toMillis === 'function') return value.toMillis();
+  } catch { /* pending server timestamp */ }
+  return 0;
+}
+
+function expenseDateLabel(exp: any) {
+  try {
+    if (exp?.createdAt && typeof exp.createdAt.toDate === 'function') {
+      return format(exp.createdAt.toDate(), 'MMM dd, yyyy');
+    }
+  } catch { /* pending server timestamp */ }
+  return exp?.date || '';
+}
+
 export default function BookView() {
   const { bookId } = useParams();
   const { currentUser, userProfile } = useAuth();
@@ -108,7 +124,7 @@ export default function BookView() {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const exps: any[] = [];
       snapshot.forEach(doc => exps.push({ id: doc.id, ...doc.data() }));
-      exps.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+      exps.sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt));
       setExpenses(exps);
       setLoading(false);
     }, (err) => { console.error("Snapshot error on", q, err); });
@@ -146,7 +162,9 @@ export default function BookView() {
     doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 14, 30);
     
     const tableData = filteredExpenses.map(exp => [
-      exp.createdAt ? new Date(exp.createdAt.toDate()).toLocaleDateString() : exp.date,
+      exp.createdAt && typeof exp.createdAt.toDate === 'function'
+        ? new Date(exp.createdAt.toDate()).toLocaleDateString()
+        : (exp.date || ''),
       exp.description,
       exp.category,
       exp.paidByName,
@@ -183,9 +201,9 @@ export default function BookView() {
         })
       });
       if (!res.ok) throw new Error('Failed to send email');
-      addToast({ title: 'Report Sent', description: `PDF report sent to ${currentUser.email}`, type: 'success' });
+      addToast(`PDF report sent to ${currentUser.email}`, 'success');
     } catch (err) {
-      addToast({ title: 'Error', description: 'Failed to send report email', type: 'error' });
+      addToast('Failed to send report email', 'error');
     } finally {
       setSendingReport(false);
     }
@@ -275,7 +293,11 @@ export default function BookView() {
     if (!canWrite) return;
     setIsSaving(true);
     const finalCategory = category === '__custom__' ? customCatInput.trim() : category;
-    if (!finalCategory) return addToast("Please specify a category", 'error');
+    if (!finalCategory) {
+      setIsSaving(false);
+      addToast('Please specify a category', 'error');
+      return;
+    }
 
     try {
       if (editingExpense) {
@@ -285,8 +307,9 @@ export default function BookView() {
           category: finalCategory,
           entryType: entryType
         });
-        await notifyTeamMembers('Edited an entry', `Updated ${entryType === 'in' ? 'money in' : 'money out'} for "${description}" to ${getCurrencySymbol(book.currency)} ${amount} in category "${finalCategory}"`, `${userProfile?.displayName || currentUser?.email} updated "${description}" to ${getCurrencySymbol(book.currency)}${amount} in ${book.name}`);
         addToast('Entry updated successfully!', 'success');
+        setIsExpenseModalOpen(false);
+        notifyTeamMembers('Edited an entry', `Updated ${entryType === 'in' ? 'money in' : 'money out'} for "${description}" to ${getCurrencySymbol(book.currency)} ${amount} in category "${finalCategory}"`, `${userProfile?.displayName || currentUser?.email} updated "${description}" to ${getCurrencySymbol(book.currency)}${amount} in ${book.name}`).catch(console.error);
       } else {
         await addDoc(collection(db, `books/${bookId}/expenses`), {
           amount: Number(amount),
@@ -297,10 +320,14 @@ export default function BookView() {
           paidByName: userProfile?.displayName || currentUser?.email,
           createdAt: serverTimestamp()
         });
-        await notifyTeamMembers('Added a new entry', `Recorded ${entryType === 'in' ? 'money in' : 'money out'} of ${getCurrencySymbol(book.currency)} ${amount} for "${description}" in category "${finalCategory}"`, `${userProfile?.displayName || currentUser?.email} added "${description}" (${getCurrencySymbol(book.currency)}${amount}) to ${book.name}`);
         addToast('Entry recorded successfully!', 'success');
+        setCurrentPage(1);
+        setIsExpenseModalOpen(false);
+        setAmount('');
+        setDescription('');
+        setCustomCatInput('');
+        notifyTeamMembers('Added a new entry', `Recorded ${entryType === 'in' ? 'money in' : 'money out'} of ${getCurrencySymbol(book.currency)} ${amount} for "${description}" in category "${finalCategory}"`, `${userProfile?.displayName || currentUser?.email} added "${description}" (${getCurrencySymbol(book.currency)}${amount}) to ${book.name}`).catch(console.error);
       }
-      setIsExpenseModalOpen(false);
     } catch (err) {
       console.error(err);
       addToast('Error saving expense', 'error');
@@ -538,7 +565,7 @@ export default function BookView() {
                     paginatedExpenses.map((exp) => (
                       <tr key={exp.id} className="hover:bg-slate-50/50 transition-colors group">
                         <td className="px-5 py-3 font-medium text-slate-900 text-sm max-w-xs truncate" title={exp.description}>{exp.description}</td>
-                        {visibleColumns.date && <td className="px-5 py-3 text-slate-500 text-sm">{exp.createdAt ? format(exp.createdAt.toDate(), 'MMM dd, yyyy') : exp.date}</td>}
+                        {visibleColumns.date && <td className="px-5 py-3 text-slate-500 text-sm">{expenseDateLabel(exp)}</td>}
                         {visibleColumns.category && (
                           <td className="px-5 py-3">
                             <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-700 border border-slate-200">
@@ -592,7 +619,7 @@ export default function BookView() {
                     </div>
                     <div className="flex justify-between items-end mt-1">
                       <div className="flex flex-col gap-1 text-[11px] text-slate-500">
-                        <span className="flex items-center gap-1.5">{exp.createdAt ? format(exp.createdAt.toDate(), 'MMM dd, yyyy') : exp.date}</span>
+                        <span className="flex items-center gap-1.5">{expenseDateLabel(exp)}</span>
                         <span className="flex items-center gap-1.5">{exp.paidByName}</span>
                       </div>
                       <div className="flex items-center gap-2">

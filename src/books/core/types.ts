@@ -48,6 +48,15 @@ export interface FinanceTenant {
   postedCount: number;
   version: number;
   logoPath?: string | null;
+  gstin?: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  pincode?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  website?: string | null;
+  invoiceFooter?: string | null;
 }
 
 export interface FinanceEntity {
@@ -121,6 +130,13 @@ export interface FinanceParty {
   logoPath: string | null;
   paymentTermsDays: number;
   active: boolean;
+  shippingAddress?: string;
+  shippingCity?: string;
+  shippingState?: string;
+  shippingPincode?: string;
+  creditLimitMinor?: number;
+  gstTreatment?: string;
+  pan?: string;
 }
 
 export interface DocumentLineInput {
@@ -158,6 +174,12 @@ export interface FinanceDocument {
   memo: string;
   projectId: string | null;
   convertedFromId: string | null;
+  poNumber?: string;
+  customerNotes?: string;
+  terms?: string;
+  placeOfSupply?: string;
+  billTo?: string;
+  shipTo?: string;
   idempotencyKey: string;
   createdBy: string;
   createdAt: string;

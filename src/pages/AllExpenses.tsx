@@ -34,7 +34,13 @@ export default function AllExpenses() {
           }
         }
         
-        allExps.sort((a, b) => (b.date || b.createdAt?.toMillis() || 0) - (a.date || a.createdAt?.toMillis() || 0));
+        const millis = (value: any) => {
+          try {
+            if (value && typeof value.toMillis === 'function') return value.toMillis();
+          } catch { /* pending server timestamp */ }
+          return 0;
+        };
+        allExps.sort((a, b) => millis(b.createdAt) - millis(a.createdAt) || String(b.date || '').localeCompare(String(a.date || '')));
         setExpenses(allExps);
       } catch (err) {
         console.error("Failed to fetch all expenses:", err);

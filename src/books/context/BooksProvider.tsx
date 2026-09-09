@@ -122,6 +122,13 @@ type BooksContextValue = {
     pincode?: string;
     notes?: string;
     logoPath?: string | null;
+    shippingAddress?: string;
+    shippingCity?: string;
+    shippingState?: string;
+    shippingPincode?: string;
+    creditLimitMinor?: number;
+    gstTreatment?: string;
+    pan?: string;
   }) => Promise<string>;
   createAccount: (input: { code: string; name: string; type: FinanceAccount['type']; parentId: string | null }) => Promise<string>;
   createDocument: (input: {
@@ -134,6 +141,12 @@ type BooksContextValue = {
     interstate: boolean;
     memo: string;
     projectId?: string | null;
+    poNumber?: string;
+    customerNotes?: string;
+    terms?: string;
+    placeOfSupply?: string;
+    billTo?: string;
+    shipTo?: string;
   }) => Promise<string>;
   postDoc: (id: string, payFromAccountId?: string) => Promise<void>;
   payDoc: (id: string, amountMinor: number, date: string, cashAccountId: string) => Promise<void>;
@@ -143,7 +156,17 @@ type BooksContextValue = {
   reverse: (journalId: string) => Promise<void>;
   close: (periodId: string) => Promise<void>;
   reopen: (periodId: string) => Promise<void>;
-  rename: (name: string, logoPath?: string | null) => Promise<void>;
+  rename: (name: string, logoPath?: string | null, profile?: {
+    gstin?: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    pincode?: string;
+    phone?: string;
+    email?: string;
+    website?: string;
+    invoiceFooter?: string;
+  }) => Promise<void>;
   ledger: (accountId: string) => ReturnType<typeof loadLedger>;
   transfer: (input: { fromAccountId: string; toAccountId: string; amountMinor: number; date: string; memo: string }) => Promise<void>;
   createRecurring: (input: { name: string; description: string; lines: JournalLineInput[] }) => Promise<string>;
@@ -325,7 +348,7 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
       reverse: (journalId) => after(() => reverseJournal(ctx(), journalId)),
       close: (periodId) => after(() => closePeriod(ctx(), periodId)),
       reopen: (periodId) => after(() => reopenPeriod(ctx(), periodId)),
-      rename: (name, logoPath) => after(() => updateTenantName(db, tenantId!, role!, name, logoPath)),
+      rename: (name, logoPath, profile) => after(() => updateTenantName(db, tenantId!, role!, name, logoPath, profile)),
       ledger: (accountId) => loadLedger(db, tenantId!, accountId),
       transfer: (input) => after(() => transferFunds(ctx(), input)),
       createRecurring: (input) => after(() => saveRecurring(ctx(), input)),
