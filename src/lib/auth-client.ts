@@ -2,18 +2,8 @@ import { createAuthClient } from '@neondatabase/neon-js/auth';
 import { BetterAuthReactAdapter } from '@neondatabase/neon-js/auth/react/adapters';
 
 function neonAuthConnection() {
-  const raw = String(import.meta.env.VITE_NEON_AUTH_URL || '').replace(/\/+$/, '');
-  if (raw) {
-    try {
-      const parsed = new URL(raw);
-      return {
-        url: parsed.origin,
-        basePath: parsed.pathname.replace(/\/+$/, '') || '/neondb/auth',
-      };
-    } catch {
-      return { url: raw, basePath: '' };
-    }
-  }
+  // Same-origin /api/auth so session cookies stay on easypado.com.
+  // The serverless routes proxy through to Neon Auth.
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   return { url: origin, basePath: '/api/auth' };
 }
