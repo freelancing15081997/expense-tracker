@@ -124,3 +124,36 @@ body {
   background-color: #303030;
   opacity: 8%;
 }
+
+.nav-item-3d {
+  transform: translateZ(0);
+  transition: transform 120ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 120ms cubic-bezier(0.22, 1, 0.36, 1), background-color 120ms ease;
+}
+.nav-item-3d:hover {
+  transform: translateY(-1px) scale(1.02);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.28);
+}
+.nav-flyout {
+  transform-origin: left center;
+  animation: navFlyIn 140ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  box-shadow: 12px 18px 40px rgba(11, 31, 58, 0.28), 0 0 0 1px rgba(15, 23, 42, 0.06);
+  backface-visibility: hidden;
+}
+@keyframes navFlyIn {
+  from {
+    opacity: 0;
+    transform: perspective(900px) rotateY(-14deg) translateX(-10px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: perspective(900px) rotateY(0deg) translateX(0) scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nav-item-3d, .nav-item-3d:hover, .nav-flyout {
+    animation: none;
+    transform: none;
+    transition: none;
+    box-shadow: none;
+  }
+}

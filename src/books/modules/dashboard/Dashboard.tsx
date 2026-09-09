@@ -39,6 +39,9 @@ export default function Dashboard() {
 
   return (
     <PageShell title={tenant?.name || 'Books'} subtitle="Command center for every live Books feature. Posted balances only — adapters are labeled as not operational.">
+      <div className="flex flex-wrap gap-2">
+        <Link to="/" className="px-3.5 py-2 rounded-xl border border-[#E5E7EB] text-sm font-medium hover:bg-[#F3F4F6]">Expense Tracker dashboard</Link>
+      </div>
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
         {cards.map((card) => (
           <Link key={card.label} to={card.href}>

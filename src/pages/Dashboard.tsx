@@ -2,15 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { db } from '../lib/firebase';
-import { collection, query, where, getDocs, getDoc, addDoc, serverTimestamp, doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, getDoc, addDoc, serverTimestamp, doc, updateDoc, deleteDoc, limit } from 'firebase/firestore';
 import { Link } from 'react-router-dom';
 import { getCurrencySymbol } from '../lib/currency';
 import { Loader2, Plus, Check, X, Users, Building2, Receipt, ArrowRight, BookOpen } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 import { BOOKS_TREE } from '../books/catalog/modules';
-import * as Dialog from '@radix-ui/react-dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 
 interface BookItem {
   id: string;
@@ -48,22 +46,23 @@ export default function Dashboard() {
       const bookSnaps = await getDocs(qBooks);
       const fetchedBooks: BookItem[] = [];
       bookSnaps.forEach((doc) => fetchedBooks.push({ id: doc.id, ...doc.data() } as BookItem));
-            setBooks(fetchedBooks);
-      
+      setBooks(fetchedBooks);
+      setLoading(false);
+
       let tIn = 0; let tOut = 0;
       let activity: Record<string, number> = {};
-      for (const b of fetchedBooks) {
+      await Promise.all(fetchedBooks.slice(0, 12).map(async (b) => {
         try {
-          const expSnap = await getDocs(collection(db, 'books', b.id, 'expenses'));
+          const expSnap = await getDocs(query(collection(db, 'books', b.id, 'expenses'), limit(40)));
           expSnap.forEach(e => {
             const data = e.data();
-            if (data.type === 'in') tIn += (data.amount || 0);
+            if (data.entryType === 'in' || data.type === 'in') tIn += (data.amount || 0);
             else tOut += (data.amount || 0);
-            const user = data.createdBy || 'Unknown';
+            const user = data.enteredBy || data.paidByName || data.createdBy || 'Unknown';
             activity[user] = (activity[user] || 0) + 1;
           });
-        } catch(e){}
-      }
+        } catch { /* ledger may be empty */ }
+      }));
       setGlobalStats({ totalIn: tIn, totalOut: tOut, userActivity: activity });
 
       const qInvites = query(collection(db, 'invites'), where('email', '==', userProfile.email));
@@ -195,16 +194,22 @@ export default function Dashboard() {
     <div className="max-w-5xl mx-auto space-y-6">
       <div className="sticky top-0 z-20 -mx-4 md:-mx-6 lg:-mx-8 px-4 md:px-6 lg:px-8 py-3 bg-[#f8f9fa]/95 backdrop-blur border-b border-slate-200/70 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 font-display">Workspace</h1>
-          <p className="text-sm text-slate-500 mt-1">Expense Tracker ledgers and Books accounting — search any feature with ⌘K.</p>
+          <h1 className="text-2xl font-bold text-slate-900 font-display">Main dashboard</h1>
+          <p className="text-sm text-slate-500 mt-1">Expense Tracker and Books in one place. Search is instant — ⌘K.</p>
         </div>
-        <button 
-          onClick={() => setShowNewBook(true)}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-zinc-600 text-white rounded-md text-sm font-medium hover:bg-zinc-700 transition-colors shadow-sm"
-        >
-          <Plus className="w-4 h-4" />
-          New Expense Tracker
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <Link to="/books" className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-800 rounded-md text-sm font-medium hover:bg-slate-50">
+            <BookOpen className="w-4 h-4" />
+            Open Books
+          </Link>
+          <button
+            onClick={() => setShowNewBook(true)}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-zinc-600 text-white rounded-md text-sm font-medium hover:bg-zinc-700 transition-colors shadow-sm"
+          >
+            <Plus className="w-4 h-4" />
+            New Expense Tracker
+          </button>
+        </div>
       </div>
 
       <Dialog.Root open={showNewBook} onOpenChange={setShowNewBook}>
@@ -254,30 +259,9 @@ export default function Dashboard() {
         </Dialog.Portal>
       </Dialog.Root>
 
-      <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h2 className="text-base font-bold text-slate-900 flex items-center gap-2"><BookOpen className="w-4 h-4" /> Books</h2>
-            <p className="text-sm text-slate-500 mt-0.5">Accounting, sales, purchases, banking, and control — live posting, not placeholders.</p>
-          </div>
-          <Link to="/books" className="inline-flex items-center gap-1 text-sm font-semibold text-teal-800 hover:underline">
-            Open dashboard <ArrowRight className="w-4 h-4" />
-          </Link>
-        </div>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {BOOKS_TREE.map((branch) => (
-            <Link key={branch.id} to={branch.href} className="rounded-xl border border-slate-200 p-3 hover:border-teal-300 hover:bg-teal-50/40 transition-colors">
-              <p className="font-semibold text-sm text-slate-900">{branch.name}</p>
-              <p className="text-xs text-slate-500 mt-1 line-clamp-2">{branch.blurb}</p>
-              <p className="text-[11px] text-slate-400 mt-2">{branch.items.length} features</p>
-            </Link>
-          ))}
-        </div>
-      </div>
-
       {invites.length > 0 && (
         <div className="space-y-3">
-          <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide text-slate-500 flex items-center gap-1.5">
+          <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500 flex items-center gap-1.5">
             <Users className="w-4 h-4 text-zinc-600" />
             Pending Invitations
           </h2>
@@ -302,66 +286,84 @@ export default function Dashboard() {
         </div>
       )}
 
-            {books.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <div className="bg-white p-5 rounded-lg border border-zinc-200 shadow-sm flex flex-col justify-between">
-            <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Total Money In</h3>
-            <span className="text-2xl font-bold text-emerald-600">+{globalStats.totalIn.toLocaleString()}</span>
+      <div className="grid lg:grid-cols-2 gap-6 items-start">
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-bold text-slate-900">Expense Tracker</h2>
+            <span className="text-xs text-slate-500">{books.length} ledger{books.length === 1 ? '' : 's'}</span>
           </div>
-          <div className="bg-white p-5 rounded-lg border border-zinc-200 shadow-sm flex flex-col justify-between">
-            <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Total Money Out</h3>
-            <span className="text-2xl font-bold text-zinc-900">-{globalStats.totalOut.toLocaleString()}</span>
-          </div>
-          <div className="bg-white p-5 rounded-lg border border-zinc-200 shadow-sm flex flex-col justify-between">
-            <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Top Contributor</h3>
-            <span className="text-lg font-bold text-zinc-900 truncate">
-              {Object.entries(globalStats.userActivity).sort((a,b)=> (b[1] as number) - (a[1] as number))[0]?.[0] || 'No entries yet'}
-            </span>
-          </div>
-        </div>
-      )}
+          {books.length > 0 && (
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-white p-4 rounded-lg border border-zinc-200">
+                <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Money in</h3>
+                <span className="text-lg font-bold text-emerald-600">+{globalStats.totalIn.toLocaleString()}</span>
+              </div>
+              <div className="bg-white p-4 rounded-lg border border-zinc-200">
+                <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Money out</h3>
+                <span className="text-lg font-bold text-zinc-900">-{globalStats.totalOut.toLocaleString()}</span>
+              </div>
+              <div className="bg-white p-4 rounded-lg border border-zinc-200">
+                <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Top</h3>
+                <span className="text-sm font-bold text-zinc-900 truncate block">
+                  {Object.entries(globalStats.userActivity).sort((a,b)=> (b[1] as number) - (a[1] as number))[0]?.[0] || '—'}
+                </span>
+              </div>
+            </div>
+          )}
+          {loading ? (
+            <div className="py-12 flex justify-center">
+              <div className="w-6 h-6 border-2 border-slate-200 border-t-zinc-600 rounded-full animate-spin" />
+            </div>
+          ) : books.length === 0 ? (
+            <div className="text-center py-12 bg-white rounded-lg border border-slate-200 border-dashed">
+              <Building2 className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+              <h3 className="text-base font-semibold text-slate-900">No ledgers yet</h3>
+              <p className="text-sm text-slate-500 mt-1">Create a tracker or wait for an invitation.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {books.map(book => {
+                const role = book.roles[currentUser!.uid]?.role || 'viewer';
+                return (
+                  <Link to={`/book/${book.id}`} key={book.id} className="group flex flex-col bg-white p-4 rounded-lg border border-slate-200 shadow-sm hover:shadow-md hover:border-zinc-300 transition-all">
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="w-9 h-9 bg-slate-50 rounded-md flex items-center justify-center border border-slate-100">
+                        <Receipt className="w-4 h-4 text-slate-600" />
+                      </div>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase tracking-wide ${getRoleBadgeColor(role)}`}>
+                        {role}
+                      </span>
+                    </div>
+                    <h3 className="text-sm font-bold text-slate-900 truncate">{book.name}</h3>
+                    <div className="mt-3 flex items-center justify-between text-xs border-t border-slate-100 pt-3">
+                      <span className="flex items-center gap-1 text-slate-500"><Users className="w-3.5 h-3.5" />{Object.keys(book.roles).length}</span>
+                      <span className="font-bold text-slate-700">{getCurrencySymbol(book.currency)}</span>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </section>
 
-      <h2 className="text-sm font-bold text-slate-500 uppercase tracking-wide">Expense Tracker ledgers</h2>
-
-      {loading ? (
-        <div className="py-12 flex justify-center">
-          <div className="w-6 h-6 border-2 border-slate-200 border-t-zinc-600 rounded-full animate-spin" />
-        </div>
-      ) : books.length === 0 ? (
-        <div className="text-center py-16 bg-white rounded-lg border border-slate-200 border-dashed shadow-sm">
-          <Building2 className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-          <h3 className="text-base font-semibold text-slate-900">No Expense Trackers Found</h3>
-          <p className="text-sm text-slate-500 mt-1 max-w-xs mx-auto">Create a new tracker to track expenses or wait for an invitation.</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {books.map(book => {
-            const role = book.roles[currentUser!.uid]?.role || 'viewer';
-            return (
-              <Link to={`/book/${book.id}`} key={book.id} className="group flex flex-col bg-white p-5 rounded-lg border border-slate-200 shadow-sm hover:shadow-md hover:border-zinc-300 transition-all">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="w-10 h-10 bg-slate-50 rounded-md flex items-center justify-center border border-slate-100 group-hover:bg-zinc-50 transition-colors">
-                    <Receipt className="w-5 h-5 text-slate-600 group-hover:text-zinc-600" />
-                  </div>
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase tracking-wide ${getRoleBadgeColor(role)}`}>
-                    {role}
-                  </span>
-                </div>
-                <h3 className="text-base font-bold text-slate-900 mb-1 truncate">{book.name}</h3>
-                <div className="mt-auto pt-4 flex items-center justify-between text-xs border-t border-slate-100">
-                  <div className="flex items-center gap-1.5 text-slate-500 font-medium">
-                    <Users className="w-3.5 h-3.5" />
-                    {Object.keys(book.roles).length} members
-                  </div>
-                  <div className="flex items-center gap-1 text-slate-700 font-bold bg-slate-50 px-2 py-1 rounded">
-                    {getCurrencySymbol(book.currency)}
-                  </div>
-                </div>
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-bold text-slate-900 flex items-center gap-2"><BookOpen className="w-4 h-4" /> Books</h2>
+            <Link to="/books" className="inline-flex items-center gap-1 text-sm font-semibold text-teal-800 hover:underline">
+              Open dashboard <ArrowRight className="w-4 h-4" />
+            </Link>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-3">
+            {BOOKS_TREE.map((branch) => (
+              <Link key={branch.id} to={branch.href} className="rounded-xl border border-slate-200 bg-white p-3 hover:border-teal-300 hover:bg-teal-50/40 transition-colors">
+                <p className="font-semibold text-sm text-slate-900">{branch.name}</p>
+                <p className="text-xs text-slate-500 mt-1 line-clamp-2">{branch.blurb}</p>
+                <p className="text-[11px] text-slate-400 mt-2">{branch.items.length} features</p>
               </Link>
-            );
-          })}
-        </div>
-      )}
+            ))}
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

@@ -4,7 +4,6 @@ import { useAuth } from '../context/AuthContext';
 import { db } from '../lib/firebase';
 import { collection, query, where, getDocs, limit } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
-import { format } from 'date-fns';
 import { BOOKS_FLAT_LINKS, BOOKS_QUICK_CREATE } from '../books/nav';
 
 export function openGlobalSearch() {
@@ -25,17 +24,42 @@ interface SearchResult {
   hint: string;
 }
 
-const FEATURES = [...BOOKS_QUICK_CREATE, ...BOOKS_FLAT_LINKS, { name: 'Expense Tracker', href: '/' }, { name: 'Settings', href: '/settings' }]
+const FEATURES = [...BOOKS_QUICK_CREATE, ...BOOKS_FLAT_LINKS, { name: 'Expense Tracker', href: '/' }, { name: 'Workspace', href: '/' }, { name: 'Settings', href: '/settings' }]
   .filter((item, i, arr) => arr.findIndex((x) => x.href === item.href) === i);
 
-function safeDateLabel(data: any) {
-  if (typeof data?.date === 'string' && data.date) return data.date;
-  try {
-    if (data?.createdAt && typeof data.createdAt.toDate === 'function') {
-      return format(data.createdAt.toDate(), 'MMM dd, yyyy');
-    }
-  } catch { /* pending timestamp */ }
-  return '';
+type CachedBook = { id: string; name: string; currency?: string };
+const bookCache: { uid: string; books: CachedBook[]; at: number } = { uid: '', books: [], at: 0 };
+
+function featureResults(term: string): SearchResult[] {
+  const needle = term.trim().toLowerCase();
+  const source = needle
+    ? FEATURES.filter((item) => item.name.toLowerCase().includes(needle) || item.href.toLowerCase().includes(needle))
+    : FEATURES.slice(0, 10);
+  return source.map((item) => ({
+    id: item.href,
+    type: 'feature' as const,
+    href: item.href,
+    description: item.name,
+    hint: item.href.startsWith('/books') ? 'Books' : 'Workspace',
+  }));
+}
+
+async function loadBooksFast(uid: string): Promise<CachedBook[]> {
+  if (bookCache.uid === uid && Date.now() - bookCache.at < 45_000) return bookCache.books;
+  const booksQuery = query(
+    collection(db, 'books'),
+    where(`roles.${uid}.role`, 'in', ['owner', 'admin', 'contributor', 'viewer', 'auditor']),
+    limit(30)
+  );
+  const snap = await getDocs(booksQuery);
+  const books = snap.docs.map((d) => {
+    const data = d.data();
+    return { id: d.id, name: data.name || 'Ledger', currency: data.currency };
+  });
+  bookCache.uid = uid;
+  bookCache.books = books;
+  bookCache.at = Date.now();
+  return books;
 }
 
 export function SearchTrigger({
@@ -129,97 +153,50 @@ export default function GlobalSearch() {
   }, []);
 
   useEffect(() => {
+    if (currentUser) loadBooksFast(currentUser.uid).catch(() => {});
+  }, [currentUser]);
+
+  useEffect(() => {
     const term = searchQuery.trim();
-    if (term.length < 1) {
-      setResults(FEATURES.slice(0, 8).map((item) => ({
-        id: item.href,
-        type: 'feature' as const,
-        href: item.href,
-        description: item.name,
-        hint: 'Feature',
+    const instant = featureResults(term);
+    if (currentUser && bookCache.uid === currentUser.uid) {
+      const needle = term.toLowerCase();
+      const books = needle
+        ? bookCache.books.filter((b) => b.name.toLowerCase().includes(needle))
+        : bookCache.books.slice(0, 5);
+      instant.push(...books.map((b) => ({
+        id: b.id,
+        type: 'book' as const,
+        href: `/book/${b.id}`,
+        bookName: b.name,
+        description: b.name,
+        currency: b.currency,
+        hint: 'Expense Tracker',
       })));
-      return;
     }
-    const searchTimeout = setTimeout(() => performSearch(term), 200);
-    return () => clearTimeout(searchTimeout);
+    setResults(instant.slice(0, 18));
+    setLoading(false);
+
+    if (!currentUser || term.length < 1) return;
+    let cancelled = false;
+    loadBooksFast(currentUser.uid).then((books) => {
+      if (cancelled) return;
+      const needle = term.toLowerCase();
+      const extra = books
+        .filter((b) => b.name.toLowerCase().includes(needle))
+        .map((b) => ({
+          id: b.id,
+          type: 'book' as const,
+          href: `/book/${b.id}`,
+          bookName: b.name,
+          description: b.name,
+          currency: b.currency,
+          hint: 'Expense Tracker',
+        }));
+      setResults([...featureResults(term), ...extra].slice(0, 18));
+    }).catch(() => {});
+    return () => { cancelled = true; };
   }, [searchQuery, currentUser]);
-
-  const performSearch = async (term: string) => {
-    const needle = term.toLowerCase();
-    const searchResults: SearchResult[] = FEATURES
-      .filter((item) => item.name.toLowerCase().includes(needle) || item.href.toLowerCase().includes(needle))
-      .map((item) => ({
-        id: item.href,
-        type: 'feature' as const,
-        href: item.href,
-        description: item.name,
-        hint: 'Feature',
-      }));
-
-    if (!currentUser) {
-      setResults(searchResults.slice(0, 18));
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const booksQuery = query(
-        collection(db, 'books'),
-        where(`roles.${currentUser.uid}.role`, 'in', ['owner', 'admin', 'contributor', 'viewer', 'auditor']),
-        limit(20)
-      );
-      const booksSnapshot = await getDocs(booksQuery);
-
-      for (const bookDoc of booksSnapshot.docs) {
-        const bookData = bookDoc.data();
-        const bookName = bookData.name || '';
-        if (bookName.toLowerCase().includes(needle)) {
-          searchResults.push({
-            id: bookDoc.id,
-            type: 'book',
-            href: `/book/${bookDoc.id}`,
-            bookName,
-            description: bookName,
-            currency: bookData.currency,
-            hint: 'Expense Tracker',
-          });
-        }
-
-        const expensesSnapshot = await getDocs(query(collection(db, `books/${bookDoc.id}/expenses`), limit(30)));
-        expensesSnapshot.forEach((expDoc) => {
-          const expData = expDoc.data();
-          const description = expData.description || '';
-          const category = expData.category || '';
-          const enteredBy = expData.enteredBy || expData.paidByName || '';
-          const matches =
-            description.toLowerCase().includes(needle) ||
-            category.toLowerCase().includes(needle) ||
-            enteredBy.toLowerCase().includes(needle) ||
-            String(expData.amount || '').includes(needle);
-          if (!matches) return;
-          searchResults.push({
-            id: expDoc.id,
-            type: 'expense',
-            href: `/book/${bookDoc.id}`,
-            bookName,
-            description: description || 'Entry',
-            amount: expData.amount,
-            currency: bookData.currency,
-            date: safeDateLabel(expData),
-            category,
-            enteredBy,
-            hint: 'Entry',
-          });
-        });
-      }
-      setResults(searchResults.slice(0, 18));
-    } catch (error) {
-      console.error('Search error:', error);
-      setResults(searchResults.slice(0, 18));
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleResultClick = (result: SearchResult) => {
     navigate(result.href);
