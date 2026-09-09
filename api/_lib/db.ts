@@ -1,7 +1,12 @@
 import { neon } from '@neondatabase/serverless';
 
 function postgresUrl() {
-  const raw = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+  const raw =
+    process.env.DATABASE_URL ||
+    process.env.POSTGRES_URL ||
+    process.env.DATABASE_URL_UNPOOLED ||
+    process.env.POSTGRES_URL_NON_POOLING ||
+    process.env.POSTGRES_PRISMA_URL;
   if (!raw) throw new Error('Postgres is not configured. Set DATABASE_URL or POSTGRES_URL.');
   try {
     const url = new URL(raw);

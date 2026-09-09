@@ -26,7 +26,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { neon } = await import('@neondatabase/serverless');
     const { createRemoteJWKSet, jwtVerify } = await import('jose');
 
-    const rawUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL || '';
+    const rawUrl =
+      process.env.DATABASE_URL ||
+      process.env.POSTGRES_URL ||
+      process.env.DATABASE_URL_UNPOOLED ||
+      process.env.POSTGRES_URL_NON_POOLING ||
+      process.env.POSTGRES_PRISMA_URL ||
+      '';
     if (!rawUrl) {
       json(res, 500, { error: 'Postgres is not configured. Set DATABASE_URL on Vercel.' });
       return;
