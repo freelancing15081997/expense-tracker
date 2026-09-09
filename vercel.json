@@ -12,7 +12,7 @@
     }
   ],
   "rewrites": [
-    { "source": "/neondb/auth/:path*", "destination": "/api/auth/:path*" },
+    { "source": "/neondb/auth/:path*", "destination": "/api/auth" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }
