@@ -1,18 +1,30 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useBooks } from '../../context/BooksProvider';
-import { btnGhost, btnPrimary, Card, Empty, Field, FileField, IconBtn, inputClass, PageShell, Status } from '../../ui';
+import { btnGhost, btnPrimary, Card, Empty, Field, FileField, IconBtn, inputClass, PageShell, RecordFlyout, Status } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
 import type { Workpaper } from '../../core/types';
 
 export default function Workbench() {
   const books = useBooks();
-  const { accounts, documents, journals, periods, bankTxns, workpapers, can, close, reopen } = books;
+  const { accounts, documents, journals, periods, bankTxns, workpapers, entities, can, close, reopen } = books;
   const [title, setTitle] = useState('');
-  const [periodId, setPeriodId] = useState(periods[0]?.id || '');
+  const [periodId, setPeriodId] = useState(() => sessionStorage.getItem('byjan_wb_period') || '');
+  const [entityId, setEntityId] = useState(() => sessionStorage.getItem('byjan_wb_entity') || '');
   const [notes, setNotes] = useState('');
   const [pending, setPending] = useState<File | null>(null);
   const [error, setError] = useState('');
+  const [selectedPaper, setSelectedPaper] = useState<Workpaper | null>(null);
+
+  useEffect(() => {
+    if (!periodId && periods[0]) setPeriodId(periods[0].id);
+    if (!entityId && entities[0]) setEntityId(entities.find((e) => e.isDefault)?.id || entities[0].id);
+  }, [entityId, entities, periodId, periods]);
+
+  useEffect(() => {
+    if (periodId) sessionStorage.setItem('byjan_wb_period', periodId);
+    if (entityId) sessionStorage.setItem('byjan_wb_entity', entityId);
+  }, [entityId, periodId]);
 
   const health = useMemo(() => {
     const debit = accounts.reduce((s, a) => s + a.debitTotalMinor, 0);
@@ -31,10 +43,47 @@ export default function Workbench() {
     ];
   }, [accounts, bankTxns, documents, journals, periods]);
 
-  const queue = documents.filter((d) => d.status === 'draft').slice(0, 12);
+  const queue = documents.filter((d) => {
+    if (d.status !== 'draft') return false;
+    if (!periodId) return true;
+    return d.date.startsWith(periodId.slice(0, 7));
+  }).slice(0, 12);
+  const papers = workpapers.filter((w) => !periodId || w.periodId === periodId);
+  const currentEntity = entities.find((e) => e.id === entityId) || entities.find((e) => e.isDefault) || entities[0];
 
   return (
-    <PageShell title="CA Workbench" subtitle="Month-end close, review queue, and workpapers. Every check is from posted books.">
+    <PageShell title="CA Workbench" subtitle="Your month-end close desk. Switch period (and entity, if you have more than one) to review a different close.">
+      <Card className="p-4">
+        <div className="grid md:grid-cols-2 gap-3">
+          <Field label="Working period">
+            <select
+              className={inputClass}
+              value={periodId}
+              onChange={(e) => setPeriodId(e.target.value)}
+            >
+              {periods.length === 0 && <option value="">No periods yet</option>}
+              {periods.sort((a, b) => b.id.localeCompare(a.id)).map((period) => (
+                <option key={period.id} value={period.id}>{period.id} · {period.status}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Entity / books">
+            <select
+              className={inputClass}
+              value={entityId}
+              onChange={(e) => setEntityId(e.target.value)}
+            >
+              {entities.length === 0 && <option value="">This workspace</option>}
+              {entities.map((entity) => (
+                <option key={entity.id} value={entity.id}>{entity.name}{entity.isDefault ? ' (default)' : ''}</option>
+              ))}
+            </select>
+          </Field>
+        </div>
+        <p className="text-xs text-slate-500 mt-2">
+          CA Workbench is for closing {currentEntity?.name || 'this workspace'} for the selected month: trial balance, draft documents, bank rec, and workpapers. Use the switches above to move from one close to another. Day-to-day invoicing stays in Sales / Purchases.
+        </p>
+      </Card>
       <div className="grid md:grid-cols-3 gap-3">
         {health.map((item) => (
           <Card key={item.label} className={`p-4 ${item.ok ? '' : 'border-amber-300'}`}>
@@ -112,26 +161,35 @@ export default function Workbench() {
           </form>
         </Card>
       )}
-      <PagedTable<Workpaper> rows={workpapers} empty="No workpapers." minWidth="min-w-[560px]">
+      <PagedTable<Workpaper> rows={papers} empty="No workpapers for this period." minWidth="min-w-[560px]">
         {(slice) => (
           <ul className="divide-y divide-slate-100">
             {slice.map((row) => (
-              <li key={row.id} className="px-4 py-3 flex items-center justify-between gap-3 text-sm">
+              <li key={row.id} className="px-4 py-3 flex items-center justify-between gap-3 text-sm cursor-pointer hover:bg-slate-50" onClick={() => setSelectedPaper(row)}>
                 <div>
                   <p className="font-medium">{row.title}</p>
                   <p className="text-slate-500">{row.periodId} · {row.notes}{row.filePath ? ' · file attached' : ''}</p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Status value={row.status} />
-                  {row.status === 'open' && can('post') && (
-                    <button className={btnGhost} onClick={() => books.markWorkpaperReviewed(row.id)}>Review</button>
-                  )}
-                </div>
+                <Status value={row.status} />
               </li>
             ))}
           </ul>
         )}
       </PagedTable>
+      {selectedPaper && (
+        <RecordFlyout
+          title={selectedPaper.title}
+          subtitle={`Workpaper · ${selectedPaper.periodId}`}
+          onClose={() => setSelectedPaper(null)}
+          actions={selectedPaper.status === 'open' && can('post') ? (
+            <button className={btnGhost} onClick={() => { books.markWorkpaperReviewed(selectedPaper.id); setSelectedPaper(null); }}>Review</button>
+          ) : null}
+        >
+          <p className="text-sm text-slate-600">{selectedPaper.notes || 'No notes'}</p>
+          <Status value={selectedPaper.status} />
+          {selectedPaper.filePath ? <p className="text-sm">Supporting file is attached to this workpaper.</p> : <p className="text-sm text-slate-500">No supporting file.</p>}
+        </RecordFlyout>
+      )}
     </PageShell>
   );
 }

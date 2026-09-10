@@ -63,6 +63,9 @@ export async function storeBooksFile(tenantId: string, fileId: string, file: Fil
 
   try {
     const { authHeaders } = await import('../../lib/auth-client');
+    if (file.size <= 3.5 * 1024 * 1024) {
+      return await uploadViaServer(pathname, safeTenant, safeFile, file, meta);
+    }
     const { upload } = await import('@vercel/blob/client');
     const blob = await upload(pathname, file, {
       access: 'private',

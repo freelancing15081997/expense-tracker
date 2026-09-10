@@ -193,6 +193,8 @@ export function IconBtn({
 
 export { FeatureIcon, ActionIcon, GroupIcon } from './icons';
 export { BooksLoader } from './BooksLoader';
+export { default as RecordFlyout } from './RecordFlyout';
+export { default as AttachmentList } from './AttachmentList';
 
 export function Empty({ text }: { text: string }) {
   return <div className="px-5 py-14 text-center text-sm text-slate-500">{text}</div>;

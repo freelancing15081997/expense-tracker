@@ -4,12 +4,13 @@ import { useBooks } from '../../context/BooksProvider';
 import { addDays, formatMoney, lineAmount, parseMoney, parseQty, todayISO } from '../../core/money';
 import { computeDocument } from '../../engine/tax';
 import { Plus, Trash2 } from 'lucide-react';
-import { btnGhost, btnPrimary, Card, Empty, Field, FileField, IconBtn, inputClass, Money, PageShell, Status } from '../../ui';
+import { btnGhost, btnPrimary, Card, Empty, Field, FileField, IconBtn, inputClass, Money, PageShell, RecordFlyout, AttachmentList, Status } from '../../ui';
 import { MenuDropdown } from '../../ui/MenuDropdown';
 import { Pager, usePaging } from '../../ui/PagedList';
 import { printFinanceDocument } from '../../reporting/printDocument';
 import { booksFileUrl } from '../../storage/adapter';
-import type { DocumentKind, DocumentLineInput } from '../../core/types';
+import { formatMinorPlain } from '../../core/money';
+import type { DocumentKind, DocumentLineInput, FinanceDocument } from '../../core/types';
 
 type LineForm = { description: string; qty: string; price: string; taxCode: string; accountId: string };
 
@@ -38,7 +39,7 @@ function linePreviewMinor(line: LineForm): number | null {
 
 export default function Documents({ kind }: { kind: DocumentKind }) {
   const books = useBooks();
-  const { documents, parties, postingAccounts, taxCodes, currency, can, projects } = books;
+  const { documents, parties, postingAccounts, taxCodes, currency, can, projects, files, uploadFile } = books;
   const allRows = documents.filter((d) => d.kind === kind && d.status !== 'voided');
   const salesKinds = ['invoice', 'quote', 'credit_note'];
   const partyKind = kind === 'expense' ? null : salesKinds.includes(kind) ? 'customer' : 'vendor';
@@ -69,6 +70,8 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
       setMemo(fromTemplate);
       setOpen(true);
     }
+    const openId = searchParams.get('open');
+    if (openId) setSelectedId(openId);
   }, [searchParams]);
   const [interstate, setInterstate] = useState(false);
   const [payFrom, setPayFrom] = useState(cashAccounts[0]?.id || '');
@@ -83,6 +86,8 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
   const [quickEmail, setQuickEmail] = useState('');
   const [quickTax, setQuickTax] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [savingHint, setSavingHint] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [poNumber, setPoNumber] = useState('');
@@ -111,6 +116,48 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
     }
   }, [lines, taxCodes, interstate]);
 
+  const resetForm = () => {
+    setEditingId(null);
+    setMemo('');
+    setPendingFiles([]);
+    setPoNumber('');
+    setCustomerNotes('');
+    setBillTo('');
+    setShipTo('');
+    setPartyId('');
+    setLines([emptyLine(defaultAccount, taxCodes[0]?.id || 'GST18')]);
+    setPlaceOfSupply('');
+    setTerms(books.tenant?.invoiceFooter || 'Payment due as per terms. Goods once sold are subject to the recorded tax treatment.');
+  };
+
+  const loadForm = (row: FinanceDocument) => {
+    setEditingId(row.id);
+    setPartyId(row.partyId || '');
+    setDate(row.date);
+    setDueDate(row.dueDate || addDays(row.date, 30));
+    setMemo(row.memo || '');
+    setInterstate(row.interstate);
+    setProjectId(row.projectId || '');
+    setPoNumber(row.poNumber || '');
+    setCustomerNotes(row.customerNotes || '');
+    setTerms(row.terms || books.tenant?.invoiceFooter || '');
+    setPlaceOfSupply(row.placeOfSupply || '');
+    setBillTo(row.billTo || '');
+    setShipTo(row.shipTo || '');
+    setPendingFiles([]);
+    setLines(row.lines.length
+      ? row.lines.map((line) => ({
+          description: line.description,
+          qty: String(line.qtyMilli / 1000),
+          price: formatMinorPlain(line.unitPriceMinor),
+          taxCode: line.taxCode,
+          accountId: line.accountId,
+        }))
+      : [emptyLine(defaultAccount, taxCodes[0]?.id || 'GST18')]);
+    setOpen(true);
+    setError('');
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -118,6 +165,7 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
       setError('');
       if (kind !== 'expense' && !partyId) throw new Error(partyKind === 'customer' ? 'Select a customer' : 'Select a vendor');
       const id = await books.createDocument({
+        id: editingId || undefined,
         kind,
         partyId: partyId || null,
         date,
@@ -133,23 +181,19 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
         billTo,
         shipTo,
       });
-      for (const file of pendingFiles) {
-        await books.uploadFile({ domain: kind, resourceId: id, file });
-      }
+      const queued = pendingFiles.slice();
       setOpen(false);
-      setMemo('');
-      setPendingFiles([]);
-      setPoNumber('');
-      setCustomerNotes('');
-      setBillTo('');
-      setShipTo('');
-      setPartyId('');
-      setLines([emptyLine(defaultAccount, taxCodes[0]?.id || 'GST18')]);
-      setPlaceOfSupply('');
-      setTerms(books.tenant?.invoiceFooter || 'Payment due as per terms. Goods once sold are subject to the recorded tax treatment.');
+      resetForm();
+      setSelectedId(id);
+      setBusy(false);
+      if (queued.length) {
+        setSavingHint('Saving supporting files…');
+        Promise.all(queued.map((file) => uploadFile({ domain: kind, resourceId: id, file })))
+          .catch((err) => setError(err?.message || 'Document saved. A supporting file failed — attach it from the preview.'))
+          .finally(() => setSavingHint(''));
+      }
     } catch (err: any) {
       setError(err.message || 'Could not save');
-    } finally {
       setBusy(false);
     }
   };
@@ -163,29 +207,22 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
           action="create"
           onClick={() => {
             setError('');
+            resetForm();
             setOpen(true);
-            setPartyId('');
-            setMemo('');
-            setPoNumber('');
-            setCustomerNotes('');
-            setBillTo('');
-            setShipTo('');
-            setPlaceOfSupply('');
-            setTerms(books.tenant?.invoiceFooter || 'Payment due as per terms. Goods once sold are subject to the recorded tax treatment.');
-            setLines([emptyLine(defaultAccount, taxCodes[0]?.id || 'GST18')]);
           }}
         >
           New {kind}
         </IconBtn>
       )}
     >
+      {savingHint && <p className="text-xs text-slate-500">{savingHint}</p>}
       {open && (
         <Card className="p-5 space-y-6">
           <form onSubmit={submit} className="space-y-6">
             <section>
               <p className="text-[10px] uppercase tracking-[0.16em] text-[#12B8A8] font-semibold">Document</p>
-              <h2 className="font-display text-xl mt-1">New {title.slice(0, -1).toLowerCase()}</h2>
-              <p className="text-sm text-[#6B7280] mt-1">Draft only until you post. Tax is computed by the engine, not typed in.</p>
+              <h2 className="font-display text-xl mt-1">{editingId ? `Edit ${title.slice(0, -1).toLowerCase()}` : `New ${title.slice(0, -1).toLowerCase()}`}</h2>
+              <p className="text-sm text-[#6B7280] mt-1">{editingId ? 'Draft only — posted documents stay locked.' : 'Draft only until you post. Tax is computed by the engine, not typed in.'}</p>
             </section>
             <section className="grid md:grid-cols-3 gap-3">
               {kind !== 'expense' && (
@@ -313,7 +350,7 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
             </section>
             <div className="flex flex-wrap gap-3 items-start justify-between">
               <div className="flex gap-2">
-                <IconBtn action="save" disabled={busy}>{busy ? 'Saving…' : 'Save draft'}</IconBtn>
+                <IconBtn action="save" disabled={busy}>{busy ? 'Saving…' : editingId ? 'Update draft' : 'Save draft'}</IconBtn>
                 <button type="button" className={btnGhost} onClick={() => setOpen(false)}>Cancel</button>
               </div>
               {preview && (
@@ -413,6 +450,9 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
                     <td className="px-4 py-2.5"><Status value={row.status} /></td>
                     <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
                       <div className="flex flex-wrap gap-2 justify-end">
+                        {row.status === 'draft' && can('edit') && (
+                          <button className={btnGhost} onClick={() => loadForm(row)}>Edit</button>
+                        )}
                         {row.status === 'draft' && canPost && can('post') && (
                           <IconBtn action="post" onClick={() => books.postDoc(row.id, kind === 'expense' ? (payFrom || cashAccounts[0]?.id) : undefined)}>Post</IconBtn>
                         )}
@@ -448,60 +488,75 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
         const row = allRows.find((d) => d.id === selectedId);
         if (!row) return null;
         const party = parties.find((p) => p.id === row.partyId);
+        const attached = files.filter((f) => f.resourceId === row.id && f.status !== 'archived');
+        const canEdit = row.status === 'draft' && can('edit');
         return (
-          <Card className="p-5 space-y-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-[10px] uppercase tracking-[0.16em] text-[#12B8A8] font-semibold">{row.kind.replace('_', ' ')}</p>
-                <h2 className="font-display text-xl mt-1">{row.number}</h2>
-                <p className="text-sm text-[#6B7280]">{party?.name || 'No party'} · {row.date}{row.dueDate ? ` · due ${row.dueDate}` : ''}</p>
-              </div>
-              <button type="button" className={btnGhost} onClick={() => setSelectedId(null)}>Close</button>
+          <RecordFlyout
+            title={row.number}
+            subtitle={`${row.kind.replace('_', ' ')} · ${party?.name || (kind === 'expense' ? 'Books expense' : 'No party')} · ${row.date}`}
+            onClose={() => setSelectedId(null)}
+            actions={canEdit && (
+              <button type="button" className={btnGhost} onClick={() => { loadForm(row); setSelectedId(null); }}>
+                Edit
+              </button>
+            )}
+          >
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div><p className="text-xs text-slate-500">Status</p><Status value={row.status} /></div>
+              <div><p className="text-xs text-slate-500">Total</p><p className="font-semibold"><Money minor={row.totalMinor} currency={currency} /></p></div>
+              <div><p className="text-xs text-slate-500">PO / reference</p><p>{row.poNumber || row.memo || '—'}</p></div>
+              <div><p className="text-xs text-slate-500">Place of supply</p><p>{row.placeOfSupply || '—'}</p></div>
+              <div className="col-span-2 whitespace-pre-line"><p className="text-xs text-slate-500">Bill to</p><p>{row.billTo || (party ? partyBlock(party) : '—')}</p></div>
+              <div className="col-span-2 whitespace-pre-line"><p className="text-xs text-slate-500">Ship to</p><p>{row.shipTo || '—'}</p></div>
             </div>
-            <div className="grid md:grid-cols-3 gap-4 text-sm">
-              <div><p className="text-[#6B7280]">Status</p><Status value={row.status} /></div>
-              <div><p className="text-[#6B7280]">PO / reference</p><p>{row.poNumber || row.memo || '—'}</p></div>
-              <div><p className="text-[#6B7280]">Place of supply</p><p>{row.placeOfSupply || '—'}</p></div>
-              <div className="whitespace-pre-line"><p className="text-[#6B7280]">Bill to</p><p>{row.billTo || (party ? partyBlock(party) : '—')}</p></div>
-              <div className="whitespace-pre-line"><p className="text-[#6B7280]">Ship to</p><p>{row.shipTo || '—'}</p></div>
-              <div>
-                <p className="text-[#6B7280]">Totals</p>
-                <p>Taxable {formatMoney(row.tax.exclusiveMinor, currency)}</p>
-                {row.tax.igstMinor > 0
-                  ? <p>IGST {formatMoney(row.tax.igstMinor, currency)}</p>
-                  : <p>CGST {formatMoney(row.tax.cgstMinor, currency)} · SGST {formatMoney(row.tax.sgstMinor, currency)}</p>}
-                <p className="font-semibold">Total {formatMoney(row.totalMinor, currency)}</p>
-              </div>
-            </div>
-            <div className="overflow-x-auto rounded-2xl border border-[#E5E7EB]">
+            <div className="rounded-2xl border border-slate-200 overflow-hidden">
               <table className="w-full text-sm">
-                <thead className="bg-[#F8FAFC] text-left text-[#6B7280]">
+                <thead className="bg-slate-50 text-left text-slate-500">
                   <tr>
                     <th className="px-3 py-2 font-medium">Description</th>
                     <th className="px-3 py-2 font-medium text-right">Qty</th>
                     <th className="px-3 py-2 font-medium text-right">Rate</th>
-                    <th className="px-3 py-2 font-medium">Tax</th>
                   </tr>
                 </thead>
                 <tbody>
                   {row.lines.map((line, i) => (
-                    <tr key={i} className="border-t border-[#F3F4F6]">
+                    <tr key={i} className="border-t border-slate-100">
                       <td className="px-3 py-2">{line.description}</td>
                       <td className="px-3 py-2 text-right">{(line.qtyMilli / 1000).toFixed(3)}</td>
                       <td className="px-3 py-2 text-right">{formatMoney(line.unitPriceMinor, currency)}</td>
-                      <td className="px-3 py-2">{line.taxCode}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+            <div>
+              <p className="text-sm font-semibold mb-2">Supporting documents</p>
+              <AttachmentList files={attached} empty="No files attached to this record." />
+              {can('create') && (
+                <div className="mt-3">
+                  <FileField
+                    label="Add a file"
+                    accept=".pdf,image/png,image/jpeg,image/webp,.xlsx,.csv,.txt"
+                    hint="Attaches immediately to this record."
+                    onFiles={(picked) => {
+                      const file = picked[0];
+                      if (!file) return;
+                      setSavingHint('Uploading file…');
+                      uploadFile({ domain: kind, resourceId: row.id, file })
+                        .catch((err) => setError(err.message || 'Upload failed'))
+                        .finally(() => setSavingHint(''));
+                    }}
+                  />
+                </div>
+              )}
+            </div>
             {(row.customerNotes || row.terms) && (
-              <div className="grid md:grid-cols-2 gap-4 text-sm">
-                {row.customerNotes && <div><p className="text-[#6B7280]">Notes</p><p className="whitespace-pre-line">{row.customerNotes}</p></div>}
-                {row.terms && <div><p className="text-[#6B7280]">Terms</p><p className="whitespace-pre-line">{row.terms}</p></div>}
+              <div className="grid gap-3 text-sm">
+                {row.customerNotes && <div><p className="text-xs text-slate-500">Notes</p><p className="whitespace-pre-line">{row.customerNotes}</p></div>}
+                {row.terms && <div><p className="text-xs text-slate-500">Terms</p><p className="whitespace-pre-line">{row.terms}</p></div>}
               </div>
             )}
-          </Card>
+          </RecordFlyout>
         );
       })()}
       {kind === 'expense' && can('post') && cashAccounts.length > 0 && (

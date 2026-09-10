@@ -1,7 +1,6 @@
 import React from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import BooksProvider, { useBooks } from '../context/BooksProvider';
-import CommandPalette from '../ui/CommandPalette';
 import { BooksLoader } from '../ui/BooksLoader';
 import { moduleByPath } from '../catalog/modules';
 import Dashboard from '../modules/dashboard/Dashboard';
@@ -52,12 +51,7 @@ function BooksReady({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
-  return (
-    <>
-      <CommandPalette />
-      {children}
-    </>
-  );
+  return <>{children}</>;
 }
 
 export default function BooksApp() {

@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useBooks } from '../../context/BooksProvider';
 import { parseMoney, todayISO } from '../../core/money';
-import { btnGhost, Card, Empty, Field, IconBtn, inputClass, Money, PageShell, Status } from '../../ui';
+import { btnGhost, Card, Empty, Field, IconBtn, inputClass, Money, PageShell, RecordFlyout, Status } from '../../ui';
 import { Pager, usePaging } from '../../ui/PagedList';
 import type { JournalLineInput } from '../../core/types';
 
@@ -9,6 +10,8 @@ const emptyLine = (): { accountId: string; debit: string; credit: string; memo: 
 
 export default function Journals() {
   const { journals, postingAccounts, currency, can, postJournal, reverse, accounts } = useBooks();
+  const [searchParams] = useSearchParams();
+  const [selectedId, setSelectedId] = useState<string | null>(searchParams.get('open'));
   const [open, setOpen] = useState(false);
   const [date, setDate] = useState(todayISO());
   const [description, setDescription] = useState('');
@@ -107,37 +110,51 @@ export default function Journals() {
         {journals.length === 0 ? <Empty text="No journals yet. Post an invoice, bill, expense, or manual entry." /> : (
           <div className="divide-y divide-slate-100">
             {paging.slice.map((journal) => (
-              <details key={journal.id} className="px-4 py-3">
-                <summary className="cursor-pointer flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-sm font-medium text-slate-800">{journal.number} · {journal.description}</span>
-                  <span className="flex items-center gap-2">
-                    <Money minor={journal.debitTotalMinor} currency={currency} />
-                    <Status value={journal.status} />
-                  </span>
-                </summary>
-                <div className="mt-3 text-sm">
-                  <p className="text-slate-500 mb-2">{journal.date} · {journal.type}{journal.sourceId ? ` · source ${journal.sourceType}` : ''}</p>
-                  <table className="w-full">
-                    <tbody>
-                      {journal.lines.map((line, i) => (
-                        <tr key={i} className="border-t border-slate-100">
-                          <td className="py-1.5">{accountName(line.accountId)}</td>
-                          <td className="py-1.5 text-right tabular-nums">{line.debitMinor ? format(line.debitMinor, currency) : ''}</td>
-                          <td className="py-1.5 text-right tabular-nums">{line.creditMinor ? format(line.creditMinor, currency) : ''}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {journal.status === 'posted' && can('reverse') && (
-                    <button className={`${btnGhost} mt-3`} onClick={() => reverse(journal.id)}>Reverse</button>
-                  )}
-                </div>
-              </details>
+              <button
+                key={journal.id}
+                type="button"
+                className="w-full text-left px-4 py-3 hover:bg-slate-50 flex flex-wrap items-center justify-between gap-2"
+                onClick={() => setSelectedId(journal.id)}
+              >
+                <span className="text-sm font-medium text-slate-800">{journal.number} · {journal.description}</span>
+                <span className="flex items-center gap-2">
+                  <Money minor={journal.debitTotalMinor} currency={currency} />
+                  <Status value={journal.status} />
+                </span>
+              </button>
             ))}
             <Pager page={paging.page} pages={paging.pages} total={paging.total} pageSize={paging.pageSize} onPage={paging.setPage} />
           </div>
         )}
       </Card>
+      {selectedId && (() => {
+        const journal = journals.find((j) => j.id === selectedId);
+        if (!journal) return null;
+        return (
+          <RecordFlyout
+            title={journal.number}
+            subtitle={`${journal.date} · ${journal.type}${journal.sourceId ? ` · ${journal.sourceType}` : ''}`}
+            onClose={() => setSelectedId(null)}
+            actions={journal.status === 'posted' && can('reverse') ? (
+              <button className={btnGhost} onClick={() => reverse(journal.id)}>Reverse</button>
+            ) : null}
+          >
+            <p className="text-sm font-medium">{journal.description}</p>
+            <table className="w-full text-sm">
+              <tbody>
+                {journal.lines.map((line, i) => (
+                  <tr key={i} className="border-t border-slate-100">
+                    <td className="py-1.5">{accountName(line.accountId)}</td>
+                    <td className="py-1.5 text-right tabular-nums">{line.debitMinor ? format(line.debitMinor, currency) : ''}</td>
+                    <td className="py-1.5 text-right tabular-nums">{line.creditMinor ? format(line.creditMinor, currency) : ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="text-sm text-slate-500">Journals are immutable after post. Use Reverse to correct.</p>
+          </RecordFlyout>
+        );
+      })()}
     </PageShell>
   );
 }

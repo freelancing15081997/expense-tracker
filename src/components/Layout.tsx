@@ -110,12 +110,16 @@ export default function Layout() {
       </aside>
 
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-        <div className="hidden md:flex shrink-0 items-center gap-3 px-4 h-12 bg-white border-b border-slate-200">
-          <SearchTrigger variant="bar" />
+        <div className="hidden md:flex shrink-0 items-center gap-3 px-5 h-14 bg-white border-b border-slate-200">
+          <div className="flex-1 flex justify-center min-w-0">
+            <div className="w-full max-w-2xl">
+              <SearchTrigger variant="bar" />
+            </div>
+          </div>
           <button
             type="button"
             onClick={() => setNotificationsPanelOpen(true)}
-            className="relative ml-auto w-10 h-10 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 flex items-center justify-center shadow-[0_1px_2px_rgba(11,31,58,0.06)]"
+            className="relative w-10 h-10 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 flex items-center justify-center shadow-[0_1px_2px_rgba(11,31,58,0.06)]"
             title="Notifications"
           >
             <Bell className="w-5 h-5" />

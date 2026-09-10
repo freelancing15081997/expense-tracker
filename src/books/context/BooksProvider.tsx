@@ -78,6 +78,7 @@ import {
   withholdTds,
 } from '../data/domains';
 import { archiveTemplate as removeTemplate, archiveWorkspaceFile, loadFilesAndTemplates, saveTemplate, uploadWorkspaceFile } from '../data/files';
+import { documentHref, setBooksSearchHits } from '../../lib/search-index';
 
 type BooksContextValue = {
   loading: boolean;
@@ -327,6 +328,49 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
     void refresh();
   }, [currentUser?.uid]);
 
+  useEffect(() => {
+    if (!tenant) {
+      setBooksSearchHits([]);
+      return;
+    }
+    const currency = tenant.baseCurrency || 'INR';
+    setBooksSearchHits([
+      ...documents.slice(0, 80).map((d) => ({
+        id: `doc-${d.id}`,
+        type: 'record' as const,
+        href: documentHref(d.kind, d.id),
+        description: `${d.number}${d.memo ? ` · ${d.memo}` : ''}`,
+        hint: d.kind.replace('_', ' '),
+        amount: d.totalMinor / 100,
+        currency,
+        date: d.date,
+      })),
+      ...parties.filter((p) => p.active !== false).slice(0, 80).map((p) => ({
+        id: `party-${p.id}`,
+        type: 'record' as const,
+        href: `${p.kind === 'vendor' ? '/books/vendors' : '/books/customers'}?open=${p.id}`,
+        description: p.name,
+        hint: p.kind,
+        category: p.taxId || p.email || undefined,
+      })),
+      ...accounts.filter((a) => a.active).slice(0, 80).map((a) => ({
+        id: `acct-${a.id}`,
+        type: 'record' as const,
+        href: `/books/ledger/${a.id}`,
+        description: `${a.code} ${a.name}`,
+        hint: 'ledger',
+      })),
+      ...journals.slice(0, 40).map((j) => ({
+        id: `jnl-${j.id}`,
+        type: 'record' as const,
+        href: `/books/journals?open=${j.id}`,
+        description: `${j.number} · ${j.description}`,
+        hint: 'journal',
+        date: j.date,
+      })),
+    ]);
+  }, [accounts, documents, journals, parties, tenant]);
+
   const ctx = useCallback((): TxCtx => {
     if (!currentUser || !tenantId || !role) throw new Error('Books workspace is not ready');
     return { db, tenantId, uid: currentUser.uid, role };
@@ -409,7 +453,26 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
       postTds: (input) => after(() => withholdTds(ctx(), input, accounts)),
       uploadFile: async (input) => {
         const result = await uploadWorkspaceFile(ctx(), input);
-        if (!result.quotaBlocked) await refreshFiles().catch(() => undefined);
+        setFiles((prev) => {
+          if (prev.some((file) => file.id === result.id)) return prev;
+          const name = input.file.name.replace(/[/\\]/g, '').trim();
+          const ext = name.split('.').pop()?.toLowerCase() || '';
+          return [{
+            id: result.id,
+            domain: input.domain,
+            resourceId: input.resourceId || null,
+            name,
+            ext,
+            size: input.file.size,
+            contentType: input.file.type || '',
+            path: result.path,
+            url: result.url,
+            status: 'active',
+            createdAt: new Date().toISOString(),
+            createdBy: currentUser?.uid || '',
+          }, ...prev];
+        });
+        if (!result.quotaBlocked) void refreshFiles().catch(() => undefined);
         return result;
       },
       archiveFile: async (file) => {
@@ -419,7 +482,7 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
       createTemplate: (input) => after(() => saveTemplate(ctx(), input)),
       archiveTemplate: (id) => after(() => removeTemplate(ctx(), id)),
     };
-  }, [accounts, approvals, assets, audit, bankTxns, budgets, contracts, ctx, documents, entities, error, files, inbox, journals, leases, loading, parties, periods, products, projects, recurring, refresh, refreshFiles, role, scheduleRefresh, taxCodes, templates, tenant, tenantId, workpapers]);
+  }, [accounts, approvals, assets, audit, bankTxns, budgets, contracts, ctx, currentUser, documents, entities, error, files, inbox, journals, leases, loading, parties, periods, products, projects, recurring, refresh, refreshFiles, role, scheduleRefresh, taxCodes, templates, tenant, tenantId, workpapers]);
 
   return <BooksContext.Provider value={value}>{children}</BooksContext.Provider>;
 }

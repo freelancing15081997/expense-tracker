@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useBooks } from '../../context/BooksProvider';
 import { booksFileUrl } from '../../storage/adapter';
-import { btnGhost, btnPrimary, Card, Field, FileField, IconBtn, inputClass, PageShell, Status } from '../../ui';
+import { btnGhost, Card, Field, FileField, IconBtn, inputClass, PageShell, RecordFlyout, Status } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
 import type { InboxItem } from '../../core/types';
 
@@ -13,6 +13,8 @@ export default function Inbox() {
   const [notes, setNotes] = useState('');
   const [pending, setPending] = useState<File | null>(null);
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [selected, setSelected] = useState<InboxItem | null>(null);
 
   return (
     <PageShell title="Document Inbox" subtitle="Capture supporting documents as files plus metadata. OCR is not connected — nothing here pretends to extract or post.">
@@ -24,17 +26,23 @@ export default function Inbox() {
               e.preventDefault();
               try {
                 setError('');
-                let filePath: string | null = null;
-                if (pending) {
-                  const stored = await books.uploadFile({ domain: 'inbox', file: pending });
-                  filePath = stored.path;
-                }
-                await books.createInbox({ title, kind, notes, filePath });
+                setBusy(true);
+                const file = pending;
+                const nextTitle = title;
+                const nextNotes = notes;
                 setTitle('');
                 setNotes('');
                 setPending(null);
+                let filePath: string | null = null;
+                if (file) {
+                  const stored = await books.uploadFile({ domain: 'inbox', file });
+                  filePath = stored.path;
+                }
+                await books.createInbox({ title: nextTitle, kind, notes: nextNotes, filePath });
               } catch (err: any) {
                 setError(err.message);
+              } finally {
+                setBusy(false);
               }
             }}
           >
@@ -57,7 +65,7 @@ export default function Inbox() {
               onFiles={(files) => setPending(files[0] || null)}
             />
             <div className="md:col-span-2 flex items-center gap-2">
-            <IconBtn action="create">Add to inbox</IconBtn>
+              <IconBtn action="create" disabled={busy}>{busy ? 'Saving…' : 'Add to inbox'}</IconBtn>
               {error && <p className="text-sm text-rose-600">{error}</p>}
             </div>
           </form>
@@ -67,25 +75,35 @@ export default function Inbox() {
         {(slice) => (
           <ul className="divide-y divide-slate-100">
             {slice.map((row) => (
-              <li key={row.id} className="px-4 py-3 flex items-center justify-between gap-3 text-sm">
+              <li key={row.id} className="px-4 py-3 flex items-center justify-between gap-3 text-sm cursor-pointer hover:bg-slate-50" onClick={() => setSelected(row)}>
                 <div className="min-w-0">
                   <p className="font-medium truncate">{row.title}</p>
                   <p className="text-slate-500 capitalize">{row.kind} · {row.notes || 'No notes'}</p>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  {row.filePath && (
-                    <button className={btnGhost} onClick={async () => window.open(await booksFileUrl(row.filePath!), '_blank', 'noopener')}>Open file</button>
-                  )}
-                  <Status value={row.status} />
-                  {row.status === 'open' && can('edit') && (
-                    <button className={btnGhost} onClick={() => books.markInboxLinked(row.id)}>Mark linked</button>
-                  )}
-                </div>
+                <Status value={row.status} />
               </li>
             ))}
           </ul>
         )}
       </PagedTable>
+      {selected && (
+        <RecordFlyout
+          title={selected.title}
+          subtitle={`${selected.kind} · inbox`}
+          onClose={() => setSelected(null)}
+          actions={selected.status === 'open' && can('edit') ? (
+            <button className={btnGhost} onClick={() => { books.markInboxLinked(selected.id); setSelected(null); }}>Mark linked</button>
+          ) : null}
+        >
+          <p className="text-sm text-slate-600">{selected.notes || 'No notes'}</p>
+          <Status value={selected.status} />
+          {selected.filePath ? (
+            <button className={btnGhost} onClick={async () => window.open(await booksFileUrl(selected.filePath!), '_blank', 'noopener')}>Open supporting file</button>
+          ) : (
+            <p className="text-sm text-slate-500">No file attached.</p>
+          )}
+        </RecordFlyout>
+      )}
     </PageShell>
   );
 }

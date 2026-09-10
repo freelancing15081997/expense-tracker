@@ -1,9 +1,9 @@
-import React, { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useBooks } from '../../context/BooksProvider';
 import { booksFileUrl } from '../../storage/adapter';
 import { formatMinorPlain, parseMoney } from '../../core/money';
-import { btnGhost, btnPrimary, Card, Empty, Field, FileField, IconBtn, inputClass, Money, PageShell, Status } from '../../ui';
+import { btnGhost, btnPrimary, Card, Empty, Field, FileField, IconBtn, inputClass, Money, PageShell, RecordFlyout, Status } from '../../ui';
 import { Pager, usePaging } from '../../ui/PagedList';
 import type { FinanceParty, PartyKind } from '../../core/types';
 
@@ -86,6 +86,7 @@ export default function Parties({ kind }: { kind: PartyKind }) {
   const [editing, setEditing] = useState<FinanceParty | null>(null);
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<FinanceParty | null>(null);
+  const [searchParams] = useSearchParams();
   const [logoUrl, setLogoUrl] = useState<string>('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -176,6 +177,13 @@ export default function Parties({ kind }: { kind: PartyKind }) {
     }
   };
 
+  useEffect(() => {
+    const openId = searchParams.get('open');
+    if (!openId) return;
+    const hit = allRows.find((p) => p.id === openId);
+    if (hit) void show(hit);
+  }, [searchParams, allRows.map((p) => p.id).join('|')]);
+
   return (
     <PageShell
       title={title}
@@ -184,7 +192,7 @@ export default function Parties({ kind }: { kind: PartyKind }) {
         : 'Master record for payables: identity, tax, address, logo, and linked bills.'}
       actions={can('create') && <IconBtn action="create" onClick={() => openEdit()}>New {kind}</IconBtn>}
     >
-      <div className="grid lg:grid-cols-[1.15fr_0.85fr] gap-5">
+      <div className="space-y-5">
         <div className="space-y-5">
           {open && (
             <Card className="p-5 space-y-5">
@@ -276,75 +284,69 @@ export default function Parties({ kind }: { kind: PartyKind }) {
             )}
           </Card>
         </div>
-
-        <Card className="p-5 h-fit">
-          {!selected ? (
-            <Empty text={`Select a ${kind} to see the full profile, logo, and linked documents.`} />
-          ) : (
-            <div className="space-y-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-14 h-14 rounded-2xl bg-[#F3F4F6] overflow-hidden flex items-center justify-center text-[#0B1F3A] font-bold">
-                    {logoUrl ? <img src={logoUrl} alt="" className="w-full h-full object-cover" /> : selected.name.slice(0, 1)}
-                  </div>
-                  <div>
-                    <h2 className="font-display text-xl">{selected.name}</h2>
-                    <p className="text-sm text-[#6B7280]">{selected.contactName || selected.email || 'No contact yet'}</p>
-                  </div>
-                </div>
-                {can('edit') && (
-                  <div className="flex gap-2">
-                    <button className={btnGhost} onClick={() => openEdit(selected)}>Edit</button>
-                    <button
-                      className={btnGhost}
-                      onClick={async () => {
-                        if (!confirm(`Deactivate ${selected.name}? They stay in the workspace for audit and disappear from this list.`)) return;
-                        try {
-                          await deactivateParty(selected.id);
-                          setSelected(null);
-                        } catch (err: any) {
-                          setError(err.message || 'Could not deactivate');
-                        }
-                      }}
-                    >
-                      Deactivate
-                    </button>
-                  </div>
-                )}
-              </div>
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div><p className="text-[#6B7280]">Email</p><p>{selected.email || '—'}</p></div>
-                <div><p className="text-[#6B7280]">Phone</p><p>{selected.phone || '—'}</p></div>
-                <div><p className="text-[#6B7280]">GSTIN</p><p>{selected.taxId || '—'}</p></div>
-                <div><p className="text-[#6B7280]">PAN</p><p>{selected.pan || '—'}</p></div>
-                <div><p className="text-[#6B7280]">GST treatment</p><p>{selected.gstTreatment || '—'}</p></div>
-                <div><p className="text-[#6B7280]">Terms</p><p>{selected.paymentTermsDays} days</p></div>
-                <div className="col-span-2"><p className="text-[#6B7280]">Billing address</p><p>{[selected.address, selected.city, selected.state, selected.pincode].filter(Boolean).join(', ') || '—'}</p></div>
-                <div className="col-span-2"><p className="text-[#6B7280]">Shipping address</p><p>{[selected.shippingAddress || selected.address, selected.shippingCity || selected.city, selected.shippingState || selected.state, selected.shippingPincode || selected.pincode].filter(Boolean).join(', ') || '—'}</p></div>
-                <div className="col-span-2"><p className="text-[#6B7280]">Credit limit</p><p>{selected.creditLimitMinor ? <Money minor={selected.creditLimitMinor} currency={currency} /> : 'No limit recorded'}</p></div>
-                {selected.notes && <div className="col-span-2"><p className="text-[#6B7280]">Notes</p><p>{selected.notes}</p></div>}
-              </div>
-              <div className="rounded-2xl bg-[#F0FDFA] px-4 py-3">
-                <p className="text-xs uppercase tracking-[0.14em] text-[#0f766e]">Open {kind === 'customer' ? 'receivable' : 'payable'}</p>
-                <p className="text-xl font-display mt-1"><Money minor={outstanding} currency={currency} /></p>
-              </div>
-              <div>
-                <p className="text-sm font-semibold mb-2">Linked documents</p>
-                {related.length === 0 ? <p className="text-sm text-[#6B7280]">None yet.</p> : (
-                  <ul className="space-y-2 text-sm">
-                    {related.slice(0, 8).map((d) => (
-                      <li key={d.id} className="flex justify-between gap-3">
-                        <Link to={d.kind === 'bill' || d.kind === 'purchase_order' || d.kind === 'vendor_credit' ? '/books/bills' : '/books/invoices'} className="underline underline-offset-2">{d.number}</Link>
-                        <span className="flex items-center gap-2"><Status value={d.status} /><Money minor={d.totalMinor} currency={currency} /></span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </div>
-          )}
-        </Card>
       </div>
+
+      {selected && (
+        <RecordFlyout
+          title={selected.name}
+          subtitle={selected.contactName || selected.email || `${kind} profile`}
+          onClose={() => setSelected(null)}
+          actions={can('edit') && (
+            <button className={btnGhost} onClick={() => { openEdit(selected); setSelected(null); }}>Edit</button>
+          )}
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-14 h-14 rounded-2xl bg-[#F3F4F6] overflow-hidden flex items-center justify-center text-[#0B1F3A] font-bold">
+              {logoUrl ? <img src={logoUrl} alt="" className="w-full h-full object-cover" /> : selected.name.slice(0, 1)}
+            </div>
+            <div>
+              <p className="text-sm text-slate-500">{selected.city || 'No location'}</p>
+              <p className="text-xs text-slate-400">{selected.gstTreatment || 'GST treatment not set'}</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div><p className="text-xs text-slate-500">Email</p><p>{selected.email || '—'}</p></div>
+            <div><p className="text-xs text-slate-500">Phone</p><p>{selected.phone || '—'}</p></div>
+            <div><p className="text-xs text-slate-500">GSTIN</p><p>{selected.taxId || '—'}</p></div>
+            <div><p className="text-xs text-slate-500">PAN</p><p>{selected.pan || '—'}</p></div>
+            <div className="col-span-2"><p className="text-xs text-slate-500">Billing</p><p>{[selected.address, selected.city, selected.state, selected.pincode].filter(Boolean).join(', ') || '—'}</p></div>
+            <div className="col-span-2"><p className="text-xs text-slate-500">Credit limit</p><p>{selected.creditLimitMinor ? <Money minor={selected.creditLimitMinor} currency={currency} /> : 'No limit recorded'}</p></div>
+          </div>
+          <div className="rounded-2xl bg-[#F0FDFA] px-4 py-3">
+            <p className="text-xs uppercase tracking-[0.14em] text-[#0f766e]">Open {kind === 'customer' ? 'receivable' : 'payable'}</p>
+            <p className="text-xl font-display mt-1"><Money minor={outstanding} currency={currency} /></p>
+          </div>
+          <div>
+            <p className="text-sm font-semibold mb-2">Linked documents</p>
+            {related.length === 0 ? <p className="text-sm text-slate-500">None yet.</p> : (
+              <ul className="space-y-2 text-sm">
+                {related.slice(0, 8).map((d) => (
+                  <li key={d.id} className="flex justify-between gap-3">
+                    <Link to={d.kind === 'bill' || d.kind === 'purchase_order' || d.kind === 'vendor_credit' ? `/books/bills?open=${d.id}` : `/books/invoices?open=${d.id}`} className="underline underline-offset-2">{d.number}</Link>
+                    <span className="flex items-center gap-2"><Status value={d.status} /><Money minor={d.totalMinor} currency={currency} /></span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          {can('edit') && (
+            <button
+              className={btnGhost}
+              onClick={async () => {
+                if (!confirm(`Deactivate ${selected.name}? They stay in the workspace for audit and disappear from this list.`)) return;
+                try {
+                  await deactivateParty(selected.id);
+                  setSelected(null);
+                } catch (err: any) {
+                  setError(err.message || 'Could not deactivate');
+                }
+              }}
+            >
+              Deactivate
+            </button>
+          )}
+        </RecordFlyout>
+      )}
     </PageShell>
   );
 }

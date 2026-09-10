@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, Receipt, BookOpen, LayoutGrid, Loader2 } from 'lucide-react';
+import { Search, X, Receipt, BookOpen, LayoutGrid, Loader2, FileText } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../lib/firebase';
 import { collection, query, where, getDocs, limit } from '../lib/store';
 import { useNavigate } from 'react-router-dom';
 import { BOOKS_FLAT_LINKS, BOOKS_QUICK_CREATE } from '../books/nav';
 import { isSoftDeleted } from '../lib/records';
+import { getBooksSearchHits, subscribeBooksSearch, type SearchHit } from '../lib/search-index';
 
 export function openGlobalSearch() {
   window.dispatchEvent(new Event('byjan-open-search'));
@@ -13,7 +14,7 @@ export function openGlobalSearch() {
 
 interface SearchResult {
   id: string;
-  type: 'expense' | 'book' | 'feature';
+  type: 'expense' | 'book' | 'feature' | 'record';
   href: string;
   bookName?: string;
   description: string;
@@ -88,10 +89,10 @@ export function SearchTrigger({
       <button
         type="button"
         onClick={open}
-        className="flex items-center gap-2 w-full max-w-xl px-3 py-2 text-sm text-slate-800 bg-white hover:bg-slate-50 rounded-xl border border-slate-200 shadow-[0_1px_1px_rgba(11,31,58,0.04),0_8px_18px_-12px_rgba(11,31,58,0.18)] transition-colors"
+        className="flex items-center gap-2.5 w-full px-4 h-11 text-sm text-slate-800 bg-[#F8FAFC] hover:bg-white rounded-2xl border border-slate-200 shadow-[0_1px_1px_rgba(11,31,58,0.04),0_8px_18px_-12px_rgba(11,31,58,0.18)] transition-colors"
       >
-        <Search className="w-6 h-6 text-slate-600" />
-        <span className="flex-1 text-left text-slate-500">Search features, customers, expenses…</span>
+        <Search className="w-5 h-5 text-slate-500" />
+        <span className="flex-1 text-left text-slate-500">Search invoices, people, ledgers, features…</span>
         <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 bg-slate-100 border border-slate-200 rounded">⌘K</kbd>
       </button>
     );
@@ -129,14 +130,18 @@ export default function GlobalSearch() {
   const navigate = useNavigate();
   const searchRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const ignoreClose = useRef(0);
+  const [booksHits, setBooksHits] = useState<SearchHit[]>(() => getBooksSearchHits());
 
   const open = () => {
+    ignoreClose.current = Date.now();
     setIsOpen(true);
     setTimeout(() => inputRef.current?.focus(), 50);
   };
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
+      if (Date.now() - ignoreClose.current < 250) return;
       if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
         setIsOpen(false);
       }
@@ -163,11 +168,13 @@ export default function GlobalSearch() {
     if (currentUser?.uid) loadBooksFast(currentUser.uid).catch(() => {});
   }, [currentUser?.uid]);
 
+  useEffect(() => subscribeBooksSearch(() => setBooksHits(getBooksSearchHits())), []);
+
   useEffect(() => {
     const term = searchQuery.trim();
-    const instant = featureResults(term);
+    const needle = term.toLowerCase();
+    const instant: SearchResult[] = featureResults(term);
     if (currentUser && bookCache.uid === currentUser.uid) {
-      const needle = term.toLowerCase();
       const books = needle
         ? bookCache.books.filter((b) => b.name.toLowerCase().includes(needle))
         : bookCache.books.slice(0, 5);
@@ -181,14 +188,21 @@ export default function GlobalSearch() {
         hint: 'Expense Tracker',
       })));
     }
-    setResults(instant.slice(0, 18));
+    if (needle) {
+      instant.push(...booksHits.filter((hit) =>
+        hit.description.toLowerCase().includes(needle) || hit.hint.toLowerCase().includes(needle)
+      ).slice(0, 12));
+    } else {
+      instant.push(...booksHits.slice(0, 6));
+    }
+    const deduped = instant.filter((item, i, arr) => arr.findIndex((x) => x.id === item.id && x.href === item.href) === i);
+    setResults(deduped.slice(0, 18));
     setLoading(false);
 
-    if (!currentUser || term.length < 1) return;
+    if (!currentUser || term.length < 2) return;
     let cancelled = false;
-    loadBooksFast(currentUser.uid).then((books) => {
+    loadBooksFast(currentUser.uid).then(async (books) => {
       if (cancelled) return;
-      const needle = term.toLowerCase();
       const extra = books
         .filter((b) => b.name.toLowerCase().includes(needle))
         .map((b) => ({
@@ -200,10 +214,41 @@ export default function GlobalSearch() {
           currency: b.currency,
           hint: 'Expense Tracker',
         }));
-      setResults([...featureResults(term), ...extra].slice(0, 18));
+      const expenseHits: SearchResult[] = [];
+      for (const book of books.slice(0, 6)) {
+        try {
+          const snap = await getDocs(query(collection(db, 'books', book.id, 'expenses'), limit(20)));
+          snap.forEach((d) => {
+            const data = d.data();
+            if (isSoftDeleted(data)) return;
+            const hay = `${data.description || ''} ${data.category || ''} ${data.enteredBy || ''}`.toLowerCase();
+            if (!hay.includes(needle) && String(data.amount || '') !== term) return;
+            expenseHits.push({
+              id: `${book.id}-${d.id}`,
+              type: 'expense',
+              href: `/book/${book.id}`,
+              bookName: book.name,
+              description: String(data.description || 'Expense'),
+              amount: Number(data.amount || 0),
+              currency: book.currency,
+              date: data.date,
+              category: data.category,
+              enteredBy: data.enteredBy,
+              hint: 'Expense',
+            });
+          });
+        } catch {
+          // keep search responsive if a ledger list is slow
+        }
+        if (cancelled || expenseHits.length >= 8) break;
+      }
+      if (cancelled) return;
+      setResults([...featureResults(term), ...extra, ...booksHits.filter((hit) =>
+        hit.description.toLowerCase().includes(needle) || hit.hint.toLowerCase().includes(needle)
+      ), ...expenseHits].filter((item, i, arr) => arr.findIndex((x) => x.id === item.id) === i).slice(0, 18));
     }).catch(() => {});
     return () => { cancelled = true; };
-  }, [searchQuery, currentUser]);
+  }, [searchQuery, currentUser, booksHits]);
 
   const handleResultClick = (result: SearchResult) => {
     navigate(result.href);
@@ -228,7 +273,7 @@ export default function GlobalSearch() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search features, names, ledgers, expenses…"
+            placeholder="Search invoices, customers, ledgers, expenses…"
             className="flex-1 text-sm outline-none text-slate-900 placeholder:text-slate-400"
             autoFocus
           />
@@ -250,7 +295,7 @@ export default function GlobalSearch() {
                   className="w-full px-4 py-3 hover:bg-slate-50 transition-colors text-left flex items-start gap-3 border-b border-slate-100 last:border-0"
                 >
                   <div className="mt-0.5">
-                    {result.type === 'feature' ? <LayoutGrid className="w-4 h-4 text-teal-600" /> : result.type === 'book' ? <BookOpen className="w-4 h-4 text-blue-600" /> : <Receipt className="w-4 h-4 text-emerald-600" />}
+                    {result.type === 'feature' ? <LayoutGrid className="w-4 h-4 text-teal-600" /> : result.type === 'book' ? <BookOpen className="w-4 h-4 text-blue-600" /> : result.type === 'record' ? <FileText className="w-4 h-4 text-indigo-600" /> : <Receipt className="w-4 h-4 text-emerald-600" />}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-0.5">
@@ -275,7 +320,7 @@ export default function GlobalSearch() {
           )}
         </div>
         <div className="px-4 py-2 bg-slate-50 border-t border-slate-200 text-xs text-slate-500 flex items-center justify-between">
-          <span>Features, ledgers, and people names</span>
+          <span>Invoices, people, ledgers, and features</span>
           <span>⌘K / Ctrl+K</span>
         </div>
       </div>
