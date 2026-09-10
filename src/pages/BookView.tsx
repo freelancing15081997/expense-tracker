@@ -15,7 +15,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 import { format } from 'date-fns';
 import { getCurrencySymbol } from '../lib/currency';
 import { isSoftDeleted, softDeletePatch } from '../lib/records';
-import { inboundMailboxAddress, inboundMailboxRecord } from '../lib/inbound-mail';
+import { inboundMailboxAddress, ledgerAppLink, openLedgerButtonHtml, syncInboundMailbox } from '../lib/inbound-mail';
 import { authHeaders } from '../lib/auth-client';
 import { ReceiptModal } from '../components/ReceiptModal';
 import { clsx, type ClassValue } from "clsx";
@@ -58,6 +58,7 @@ export default function BookView() {
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
   const [isMembersModalOpen, setIsMembersModalOpen] = useState(false);
+  const [inboundAddress, setInboundAddress] = useState('');
   const [editingExpense, setEditingExpense] = useState<any>(null);
   
   // Form State
@@ -111,7 +112,7 @@ export default function BookView() {
         delete nextRoles[uidToRemove];
         const nextBook = { ...book, roles: nextRoles };
         setBook(nextBook);
-        void setDoc(doc(db, 'inbound_mailboxes', book.id), inboundMailboxRecord(nextBook)).catch(() => undefined);
+        void syncInboundMailbox(nextBook).then((record) => setInboundAddress(record.address)).catch(() => undefined);
         
         addToast(isSelf ? 'You have left the ledger.' : 'Member removed.', 'success');
         
@@ -135,7 +136,8 @@ export default function BookView() {
       if (docSnap.exists()) {
         const next = { id: docSnap.id, ...docSnap.data() };
         setBook(next);
-        void setDoc(doc(db, 'inbound_mailboxes', next.id), inboundMailboxRecord(next)).catch(() => undefined);
+        setInboundAddress(inboundMailboxAddress(String(next.name || 'ledger')));
+        void syncInboundMailbox(next).then((record) => setInboundAddress(record.address)).catch(() => undefined);
       }
     };
     fetchBook();
@@ -181,9 +183,9 @@ export default function BookView() {
   };
 
   const copyInboundAddress = async () => {
-    if (!book?.id) return;
+    const address = inboundAddress || inboundMailboxAddress(book?.name || 'ledger');
     try {
-      await navigator.clipboard.writeText(inboundMailboxAddress(book.id));
+      await navigator.clipboard.writeText(address);
       setCopiedInbound(true);
       window.setTimeout(() => setCopiedInbound(false), 1600);
     } catch {
@@ -290,6 +292,7 @@ export default function BookView() {
           action,
           detail,
           senderName: userProfile?.displayName || currentUser?.email,
+          link: ledgerAppLink(bookId || book.id),
           createdAt: serverTimestamp(),
           read: false
         });
@@ -326,10 +329,12 @@ export default function BookView() {
               <p style="margin: 0 0 8px 0; font-size: 14px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Details</p>
               <p style="margin: 0; font-size: 16px; color: #0f172a; font-weight: 500;">${detail}</p>
             </div>
+            <p style="color: #374151; font-size: 15px; line-height: 1.5; margin-top: 20px;">Every roommate on this ledger is notified. Open Byjan to review the entry.</p>
+            ${openLedgerButtonHtml(bookId || book.id)}
           </div>
           
           <div style="text-align: center; margin-top: 24px;">
-            <p style="color: #9ca3af; font-size: 12px; margin: 0;">This is an automated notification from your ExpenseShare application.</p>
+            <p style="color: #9ca3af; font-size: 12px; margin: 0;">This is an automated notification from Byjan.</p>
           </div>
         </div>
       `;
@@ -475,7 +480,7 @@ export default function BookView() {
       const sent = await sendEmailNotification(
         inviteEmail.toLowerCase(),
         `Invitation to ledger: ${book.name}`,
-        `<p>Hello,</p><p>You have been invited to join the ledger <b>${book.name}</b> on ExpenseShare.</p><p>Please log in to your dashboard to accept the invitation.</p>`
+        `<p>Hello,</p><p>You have been invited to join the ledger <b>${book.name}</b> on Byjan.</p><p>Open the app, sign in, and accept the invitation from your dashboard.</p>${openLedgerButtonHtml(book.id, 'Open Byjan')}`
       );
       if (sent) {
         addToast('Invitation added and email notification sent!', 'success');
@@ -926,15 +931,15 @@ export default function BookView() {
                 <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
                   <Mail className="w-3.5 h-3.5" /> Receipt by email
                 </p>
-                <p className="text-sm text-slate-600 leading-relaxed">Forward a PhonePe mail to this ledger. We store the receipt and a draft. Category starts as Uncategorized until someone edits it.</p>
+                <p className="text-sm text-slate-600 leading-relaxed">Forward a PhonePe receipt to this address. Byjan adds a draft entry on your behalf, then emails every roommate with a link to open the ledger.</p>
                 <div className="flex items-center gap-2">
-                  <code className="flex-1 text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 truncate">{inboundMailboxAddress(book.id)}</code>
+                  <code className="flex-1 text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 truncate">{inboundAddress || inboundMailboxAddress(book.name)}</code>
                   <button type="button" className="byjan-btn-ghost !px-2.5" onClick={() => void copyInboundAddress()}>
                     <Copy className="w-3.5 h-3.5" />
                     {copiedInbound ? 'Copied' : 'Copy'}
                   </button>
                 </div>
-                <p className="text-[11px] text-slate-500">Mail is received on inbound.easypado.com. Sending from byjanbooks@easypado.com stays as it is.</p>
+                <p className="text-[11px] text-slate-500">The address uses this ledger’s name so it is easy to type. Sending from byjanbooks@easypado.com stays as it is.</p>
               </div>
               <div className="space-y-2">
                 {Object.entries(book.roles).map(([uid, data]: [string, any]) => (

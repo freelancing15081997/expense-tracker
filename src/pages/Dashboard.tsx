@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { db } from '../lib/firebase';
-import { collection, query, where, getDocs, getDoc, addDoc, serverTimestamp, doc, updateDoc, deleteDoc, setDoc, limit } from '../lib/store';
+import { collection, query, where, getDocs, getDoc, addDoc, serverTimestamp, doc, updateDoc, deleteDoc, limit } from '../lib/store';
 import { Link, useLocation } from 'react-router-dom';
 import { isSoftDeleted } from '../lib/records';
 import { useBooksTenantMeta } from '../lib/tenant';
@@ -12,7 +12,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 import AppLoader from '../components/AppLoader';
 import { BOOKS_TREE } from '../books/catalog/modules';
-import { inboundMailboxRecord } from '../lib/inbound-mail';
+import { openLedgerButtonHtml, syncInboundMailbox } from '../lib/inbound-mail';
 
 interface BookItem {
   id: string;
@@ -102,13 +102,20 @@ export default function Dashboard() {
     if (!currentUser || !userProfile || !newBookName.trim()) return;
     setCreating(true);
     try {
-      await addDoc(collection(db, 'books'), {
+      const created = await addDoc(collection(db, 'books'), {
         name: newBookName,
         ownerId: currentUser.uid,
         currency: newCurrency,
         createdAt: serverTimestamp(),
         roles: { [currentUser.uid]: { role: 'owner', email: userProfile.email } }
       });
+      void syncInboundMailbox({
+        id: created.id,
+        name: newBookName,
+        currency: newCurrency,
+        ownerId: currentUser.uid,
+        roles: { [currentUser.uid]: { role: 'owner', email: userProfile.email } },
+      }).catch(() => undefined);
       setNewBookName('');
       setShowNewBook(false);
       fetchData();
@@ -131,13 +138,13 @@ export default function Dashboard() {
       const bookSnap = await getDoc(doc(db, 'books', invite.bookId));
       if (bookSnap.exists()) {
         const bookData = bookSnap.data();
-        void setDoc(doc(db, 'inbound_mailboxes', invite.bookId), inboundMailboxRecord({
+        void syncInboundMailbox({
           id: invite.bookId,
           name: String(bookData.name || invite.bookName),
           currency: String(bookData.currency || 'INR'),
           ownerId: String(bookData.ownerId || ''),
           roles: (bookData.roles || {}) as Record<string, { role?: string; email?: string }>,
-        })).catch(() => undefined);
+        }).catch(() => undefined);
         const emails = Object.values(bookData.roles)
           .map((r: any) => r.email)
           .filter((email: string) => email !== userProfile.email);
@@ -174,10 +181,11 @@ export default function Dashboard() {
           <div style="background-color: #ffffff; padding: 24px; border-radius: 8px; border: 1px solid #f3f4f6; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
             <p style="color: #374151; font-size: 15px; line-height: 1.5; margin-top: 0;">Hello,</p>
             <p style="color: #374151; font-size: 15px; line-height: 1.5;">Great news! <strong style="color: #10b981;">${userProfile.displayName || userProfile.email}</strong> has accepted your invitation and successfully joined your ledger.</p>
+            ${openLedgerButtonHtml(invite.bookId)}
           </div>
           
           <div style="text-align: center; margin-top: 24px;">
-            <p style="color: #9ca3af; font-size: 12px; margin: 0;">This is an automated notification from your ExpenseShare application.</p>
+            <p style="color: #9ca3af; font-size: 12px; margin: 0;">This is an automated notification from Byjan.</p>
           </div>
         </div>
       `

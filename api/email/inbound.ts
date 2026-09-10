@@ -239,8 +239,26 @@ function firstString(...values: unknown[]) {
   return '';
 }
 
-function parseBookId(text: string) {
-  const match = String(text || '').match(/l-([a-zA-Z0-9_-]+)@inbound\.easypado\.com/i);
+function inboundLocals(text: string) {
+  return (String(text || '').match(/[A-Z0-9._+-]+@inbound\.easypado\.com/gi) || [])
+    .map((row) => row.split('@')[0].toLowerCase())
+    .filter(Boolean);
+}
+
+function inboundMailboxSlug(name: string) {
+  const slug = String(name || '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[^\w\s-]/g, '')
+    .replace(/[_\s]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 40);
+  return slug || 'ledger';
+}
+
+function parseBookIdLocal(local: string) {
+  const match = String(local || '').match(/^l-([a-zA-Z0-9]{16,})$/i);
   return match ? match[1] : '';
 }
 
@@ -293,6 +311,28 @@ async function loadMailbox(bookId: string) {
   const fromIndex = asMailbox(bookId, await docGet(`inbound_mailboxes/${bookId}`));
   if (fromIndex && Object.keys(fromIndex.roles).length) return fromIndex;
   return asMailbox(bookId, await docGet(`books/${bookId}`));
+}
+
+async function resolveBookId(item: any) {
+  const locals = [
+    ...inboundLocals(JSON.stringify(item)),
+    ...emailsFrom(item.To).flatMap(inboundLocals),
+    ...emailsFrom(item.Cc).flatMap(inboundLocals),
+    ...emailsFrom(item.Recipient).flatMap(inboundLocals),
+    ...emailsFrom(item.Recipients).flatMap(inboundLocals),
+  ];
+  const unique = [...new Set(locals)];
+  for (const local of unique) {
+    const fromId = parseBookIdLocal(local);
+    if (fromId) return fromId;
+  }
+  for (const local of unique) {
+    const slug = inboundMailboxSlug(local);
+    const alias = await docGet(`inbound_aliases/${slug}`);
+    const bookId = String(alias?.bookId || '').trim();
+    if (bookId) return bookId;
+  }
+  return '';
 }
 
 function matchMember(mailbox: Mailbox, fromEmail: string) {
@@ -373,22 +413,26 @@ async function sendMail(to: string, subject: string, html: string) {
   }
 }
 
-async function notifyMembers(mailbox: Mailbox, detail: string, bookId: string) {
+async function notifyMembers(mailbox: Mailbox, detail: string, bookId: string, senderName: string) {
   const emails = Object.values(mailbox.roles).map((row) => String(row?.email || '').toLowerCase()).filter(Boolean);
   const unique = [...new Set(emails)];
   const link = `${APP_ORIGIN}/#/book/${bookId}`;
   const html = `
-    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
-      <p style="font-weight:700;color:#0B1F3A">Byjan</p>
-      <p>A PhonePe receipt arrived for <strong>${mailbox.name}</strong>.</p>
-      <p>${detail}</p>
-      <p>Open the ledger, set the category if needed, and keep or edit the draft.</p>
-      <p><a href="${link}">Open ledger</a></p>
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px">
+      <p style="font-weight:700;color:#0B1F3A;letter-spacing:1px">Byjan</p>
+      <h2 style="color:#111827;font-size:20px;margin:12px 0 8px">Receipt added for you</h2>
+      <p style="color:#374151;font-size:15px;line-height:1.5"><strong>${senderName}</strong> shared a receipt for <strong>${mailbox.name}</strong>. Byjan added a draft entry on their behalf. Every roommate on this ledger is notified.</p>
+      <p style="color:#0f172a;font-size:15px;font-weight:500">${detail}</p>
+      <p style="color:#64748b;font-size:13px">Open the ledger to set the category if needed, then keep or edit the draft.</p>
+      <p style="text-align:center;margin:28px 0 8px">
+        <a href="${link}" style="display:inline-block;background:#0B1F3A;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:700;font-size:14px">Open ledger in Byjan</a>
+      </p>
+      <p style="text-align:center;color:#64748b;font-size:12px;margin:0">Or paste this link:<br/><a href="${link}" style="color:#0B1F3A">${link}</a></p>
     </div>
   `;
   for (const email of unique) {
     try {
-      await sendMail(email, `Receipt arrived in ${mailbox.name}`, html);
+      await sendMail(email, `Byjan added a receipt in ${mailbox.name}`, html);
     } catch (err) {
       console.error('inbound notify failed', email, err);
     }
@@ -400,9 +444,10 @@ async function notifyMembers(mailbox: Mailbox, detail: string, bookId: string) {
       userId: uid,
       bookId,
       bookName: mailbox.name,
-      action: 'Receipt by email',
+      action: 'shared a receipt. Byjan added a draft entry',
       detail,
-      senderName: 'Inbound mail',
+      senderName,
+      link,
       createdAt: new Date().toISOString(),
       read: false,
     }).catch(() => undefined);
@@ -416,15 +461,7 @@ function itemsFrom(body: any): any[] {
 }
 
 async function processItem(item: any) {
-  const recipients = [
-    ...emailsFrom(item.To),
-    ...emailsFrom(item.Cc),
-    ...emailsFrom(item.Recipient),
-    ...emailsFrom(item.Recipients),
-    ...emailsFrom(item.Headers?.['Delivered-To']),
-    ...emailsFrom(item.Headers?.['X-Original-To']),
-  ];
-  const bookId = recipients.map(parseBookId).find(Boolean) || parseBookId(JSON.stringify(item));
+  const bookId = await resolveBookId(item);
   if (!bookId) return { skipped: 'no ledger address' };
 
   const messageId = firstString(item.Uuid, item.MessageId, item.Headers?.['Message-ID'], item.Headers?.['Message-Id']) || newId();
@@ -479,7 +516,7 @@ async function processItem(item: any) {
   const detail = amount
     ? `Draft ${mailbox.currency} ${amount.toFixed(2)} · ${category} · from ${member.email}`
     : `Draft from ${member.email}. Amount was not in the mail — open the ledger and fill it in.`;
-  await notifyMembers(mailbox, detail, bookId);
+  await notifyMembers(mailbox, detail, bookId, member.email);
   return { ok: true, bookId, expenseId: id, amount, category };
 }
 

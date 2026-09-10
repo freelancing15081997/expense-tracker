@@ -164,24 +164,30 @@ export default function Layout() {
                 <div className="text-center text-slate-400 text-sm py-8">No notifications yet.</div>
               ) : (
                 notifications.map((notif) => (
-                  <div
-                    key={notif.id}
-                    className={cn(
-                      'p-3 rounded-xl border text-sm',
-                      notif.read ? 'bg-white border-slate-200' : 'bg-indigo-50/50 border-indigo-200'
-                    )}
-                  >
+                    <Link
+                      key={notif.id}
+                      to={notif.bookId ? `/book/${notif.bookId}` : '#'}
+                      onClick={() => {
+                        setNotificationsPanelOpen(false);
+                        if (!notif.read) void handleMarkAsRead(notif.id);
+                      }}
+                      className={cn(
+                        'block p-3 rounded-xl border text-sm text-left',
+                        notif.read ? 'bg-white border-slate-200 hover:border-slate-300' : 'bg-indigo-50/50 border-indigo-200 hover:border-indigo-300'
+                      )}
+                    >
                     <div className="flex justify-between items-start mb-1">
                       <span className="font-semibold text-slate-800">{notif.bookName}</span>
                       {!notif.read && (
-                        <button onClick={() => handleMarkAsRead(notif.id)} className="text-indigo-600 hover:text-indigo-700" title="Mark as read">
+                        <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); void handleMarkAsRead(notif.id); }} className="text-indigo-600 hover:text-indigo-700" title="Mark as read">
                           <CheckCircle2 className="w-4 h-4" />
                         </button>
                       )}
                     </div>
                     <p className="text-slate-600"><span className="font-medium text-slate-700">{notif.senderName}</span> {notif.action.toLowerCase()}.</p>
                     <p className="text-slate-500 mt-1 text-xs">{notif.detail}</p>
-                  </div>
+                    {notif.bookId ? <p className="text-indigo-600 mt-2 text-xs font-semibold">Open ledger →</p> : null}
+                    </Link>
                 ))
               )}
             </div>
