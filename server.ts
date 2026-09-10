@@ -62,7 +62,7 @@ app.post("/api/migrate", async (req, res) => {
   await migrate(req as any, res as any);
 });
 
-const SYSTEM_EMAIL = "byjanbooks@gmail.com";
+const SYSTEM_EMAIL = process.env.MAIL_FROM || "byjanbooks@easypado.com";
 
 const createTransporter = () => {
   return nodemailer.createTransport({

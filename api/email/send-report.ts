@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 const FIREBASE_PROJECT = 'gen-lang-client-0616065043';
-const SYSTEM_EMAIL = 'byjanbooks@gmail.com';
+const SYSTEM_EMAIL = process.env.MAIL_FROM || 'byjanbooks@easypado.com';
 
 function json(res: VercelResponse, status: number, payload: unknown) {
   res.statusCode = status;
