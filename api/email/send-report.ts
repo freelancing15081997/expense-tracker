@@ -1,7 +1,13 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 const FIREBASE_PROJECT = 'gen-lang-client-0616065043';
-const SYSTEM_EMAIL = process.env.MAIL_FROM || 'byjanbooks@easypado.com';
+const DEFAULT_FROM = 'byjanbooks@easypado.com';
+
+function mailFrom() {
+  const raw = String(process.env.MAIL_FROM || DEFAULT_FROM).trim();
+  if (!raw || /gmail\.com$/i.test(raw)) return DEFAULT_FROM;
+  return raw;
+}
 
 function json(res: VercelResponse, status: number, payload: unknown) {
   res.statusCode = status;
@@ -78,8 +84,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const nodemailerMod: any = await import('nodemailer');
     const createTransport = nodemailerMod.createTransport || nodemailerMod.default?.createTransport;
     const textMessage = message ? message.replace(/<[^>]*>?/gm, '') : 'Please find the attached report.';
+    const from = mailFrom();
     const mail = {
-      from: `"Byjan Notifications" <${SYSTEM_EMAIL}>`,
+      from: `"Byjan Notifications" <${from}>`,
+      replyTo: from,
+      envelope: { from, to },
       to,
       subject,
       text: textMessage,

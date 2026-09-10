@@ -62,7 +62,12 @@ app.post("/api/migrate", async (req, res) => {
   await migrate(req as any, res as any);
 });
 
-const SYSTEM_EMAIL = process.env.MAIL_FROM || "byjanbooks@easypado.com";
+const DEFAULT_FROM = "byjanbooks@easypado.com";
+const SYSTEM_EMAIL = (() => {
+  const raw = String(process.env.MAIL_FROM || DEFAULT_FROM).trim();
+  if (!raw || /gmail\.com$/i.test(raw)) return DEFAULT_FROM;
+  return raw;
+})();
 
 const createTransporter = () => {
   return nodemailer.createTransport({
@@ -89,6 +94,8 @@ app.post("/api/email/send-report", async (req, res) => {
     
     const info = await transporter.sendMail({
       from: `"Byjan Notifications" <${SYSTEM_EMAIL}>`,
+      replyTo: SYSTEM_EMAIL,
+      envelope: { from: SYSTEM_EMAIL, to },
       to,
       subject,
       text: textMessage,
@@ -122,6 +129,8 @@ app.post("/api/email/send", async (req, res) => {
     
     const info = await transporter.sendMail({
       from: `"Byjan Notifications" <${SYSTEM_EMAIL}>`,
+      replyTo: SYSTEM_EMAIL,
+      envelope: { from: SYSTEM_EMAIL, to },
       to,
       subject,
       text: textMessage,
