@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { r2PutBytes } from '../_lib/r2';
 
 const FIREBASE_PROJECT = 'gen-lang-client-0616065043';
 const MAX_BYTES = 8 * 1024 * 1024;
@@ -55,15 +56,6 @@ async function requireUid(req: VercelRequest) {
   return String(payload.user_id || payload.sub || '');
 }
 
-function blobAuth() {
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
-  const storeId = process.env.BLOB_STORE_ID;
-  return {
-    ...(token ? { token } : {}),
-    ...(storeId ? { storeId } : {}),
-  };
-}
-
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const origin = String(req.headers.origin || '');
@@ -113,17 +105,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    const { put } = await import('@vercel/blob');
     const pathname = `erp_workspaces/${tenantId}/files/${fileId}.${ext}`;
-    const blob = await put(pathname, body, {
-      access: 'private',
-      addRandomSuffix: false,
-      allowOverwrite: true,
-      contentType: contentType || ALLOWED_MIME[ext][0],
-      ...blobAuth(),
-    });
-    const url = (blob as { downloadUrl?: string }).downloadUrl || blob.url || pathname;
-    json(res, 200, { url, pathname: blob.pathname || pathname });
+    await r2PutBytes(pathname, body, contentType || ALLOWED_MIME[ext][0]);
+    json(res, 200, { url: pathname, pathname });
   } catch (err: any) {
     json(res, 500, { error: err?.message || 'Upload failed' });
   }

@@ -12,14 +12,14 @@
  *
  * Optional:
  *   FIREBASE_PROJECT_ID  FIREBASE_DATABASE_ID
- *   BLOB_READ_WRITE_TOKEN  (copy Firebase Storage receipt bytes to Vercel Blob)
+ *   R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_ENDPOINT / R2_BUCKET_NAME
+ *   (live Books files go to Cloudflare R2; this script leaves Firebase Storage URLs as-is)
  *
  * Run: npm run migrate:firestore
  */
 import 'dotenv/config';
 import { createRequire } from 'module';
 import { neon } from '@neondatabase/serverless';
-import { put } from '@vercel/blob';
 
 const require = createRequire(import.meta.url);
 
@@ -158,45 +158,8 @@ function isFirebaseFileUrl(url) {
 }
 
 async function copyFirebaseFiles(rows) {
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
-  if (!token) {
-    console.log('Skipping Blob copy (BLOB_READ_WRITE_TOKEN not set). Firebase Storage URLs are left as-is.');
-    return { copied: 0, left: 0 };
-  }
-  const cache = new Map();
-  let copied = 0;
-  let left = 0;
-  for (const row of rows) {
-    row.data = await walkUrls(row.data, async (url) => {
-      if (typeof url !== 'string' || !url.startsWith('http') || !isFirebaseFileUrl(url)) return url;
-      if (cache.has(url)) return cache.get(url);
-      try {
-        const res = await fetch(url);
-        if (!res.ok) {
-          left += 1;
-          cache.set(url, url);
-          return url;
-        }
-        const buf = Buffer.from(await res.arrayBuffer());
-        const ext = (url.split('?')[0].split('.').pop() || 'bin').replace(/[^a-z0-9]/gi, '').slice(0, 8) || 'bin';
-        const pathname = `migrated/${copied}-${Date.now()}.${ext}`;
-        const blob = await put(pathname, buf, {
-          access: 'public',
-          token,
-          addRandomSuffix: true,
-          ...(process.env.BLOB_STORE_ID ? { storeId: process.env.BLOB_STORE_ID } : {}),
-        });
-        cache.set(url, blob.url);
-        copied += 1;
-        return blob.url;
-      } catch {
-        left += 1;
-        cache.set(url, url);
-        return url;
-      }
-    });
-  }
-  return { copied, left };
+  console.log('Skipping Firebase Storage copy. Live uploads use Cloudflare R2; existing Storage URLs are left as-is.');
+  return { copied: 0, left: 0 };
 }
 
 async function listAuthUsers(admin) {
@@ -291,10 +254,10 @@ async function main() {
     console.log('\nContinuing anyway to set up the schema...');
   }
 
-  console.log('\n📦 Copying Firebase Storage files to Vercel Blob...');
+  console.log('\n📦 File copy...');
   const fileStats = await copyFirebaseFiles(rows);
   if (fileStats.copied > 0) {
-    console.log(`✓ Copied ${fileStats.copied} files to Vercel Blob`);
+    console.log(`✓ Copied ${fileStats.copied} files`);
   }
   if (fileStats.left > 0) {
     console.log(`⚠️  ${fileStats.left} files left on Firebase Storage`);

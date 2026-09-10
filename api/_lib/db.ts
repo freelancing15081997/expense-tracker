@@ -1,4 +1,5 @@
 import { neon } from '@neondatabase/serverless';
+import { r2Del, r2GetJson, r2ListKeys, r2PutJson } from './r2';
 
 const DOC_PREFIX = 'documents/';
 
@@ -37,15 +38,6 @@ function blobKey(path: string) {
   return `${DOC_PREFIX}${cleanPath(path)}.json`;
 }
 
-function blobAuth() {
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
-  const storeId = process.env.BLOB_STORE_ID;
-  return {
-    ...(token ? { token } : {}),
-    ...(storeId ? { storeId } : {}),
-  };
-}
-
 let schemaReady: Promise<void> | null = null;
 function ensureSchema() {
   if (!schemaReady) {
@@ -77,43 +69,20 @@ function asObject(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
-async function streamToText(stream: ReadableStream<Uint8Array>) {
-  return await new Response(stream).text();
-}
-
 async function blobGet(path: string): Promise<Record<string, unknown> | null> {
-  const { get } = await import('@vercel/blob');
-  const result = await get(blobKey(path), { access: 'private', useCache: false, ...blobAuth() });
-  if (!result || result.statusCode !== 200 || !result.stream) return null;
-  return asObject(JSON.parse(await streamToText(result.stream)));
+  return asObject(await r2GetJson(blobKey(path)));
 }
 
 async function blobSet(path: string, data: unknown) {
-  const { put } = await import('@vercel/blob');
-  await put(blobKey(path), JSON.stringify(data ?? {}), {
-    access: 'private',
-    addRandomSuffix: false,
-    allowOverwrite: true,
-    contentType: 'application/json',
-    ...blobAuth(),
-  });
+  await r2PutJson(blobKey(path), data ?? {});
 }
 
 async function blobDel(path: string) {
-  const { del } = await import('@vercel/blob');
-  await del(blobKey(path), blobAuth());
+  await r2Del(blobKey(path));
 }
 
 async function blobListKeys(prefix: string) {
-  const { list } = await import('@vercel/blob');
-  const keys: string[] = [];
-  let cursor: string | undefined;
-  do {
-    const page = await list({ prefix, cursor, limit: 1000, ...blobAuth() });
-    for (const blob of page.blobs) keys.push(blob.pathname);
-    cursor = page.hasMore ? page.cursor : undefined;
-  } while (cursor);
-  return keys;
+  return r2ListKeys(prefix);
 }
 
 export async function kvGet(path: string): Promise<Record<string, unknown> | null> {

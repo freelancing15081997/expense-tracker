@@ -8,3 +8,4 @@ coverage/
 !.env.example
 storage_requirements.txt
 vercel.env
+error.txt

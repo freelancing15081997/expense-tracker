@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { r2FileKey, r2GetBytes } from '../_lib/r2';
 
 const FIREBASE_PROJECT = 'gen-lang-client-0616065043';
 
@@ -24,15 +25,6 @@ async function requireUid(req: VercelRequest) {
   return String(payload.user_id || payload.sub || '');
 }
 
-function blobAuth() {
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
-  const storeId = process.env.BLOB_STORE_ID;
-  return {
-    ...(token ? { token } : {}),
-    ...(storeId ? { storeId } : {}),
-  };
-}
-
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     if (req.method === 'OPTIONS') {
@@ -55,33 +47,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       json(res, 400, { error: 'Missing file' });
       return;
     }
-    const allowed =
-      target.startsWith('erp_workspaces/') ||
-      target.includes('.blob.vercel-storage.com/') ||
-      target.includes('blob.vercel-storage.com/');
-    if (!allowed) {
+    let key = '';
+    try {
+      key = r2FileKey(target);
+    } catch {
       json(res, 400, { error: 'Invalid file' });
       return;
     }
-    if (target.startsWith('erp_workspaces/')) {
-      const workspaceId = target.split('/').filter(Boolean)[1] || '';
-      if (workspaceId !== uid && !workspaceId.startsWith(`${uid}_`)) {
-        json(res, 403, { error: 'Not allowed to read this Books file' });
-        return;
-      }
+    const workspaceId = key.split('/').filter(Boolean)[1] || '';
+    if (workspaceId !== uid && !workspaceId.startsWith(`${uid}_`)) {
+      json(res, 403, { error: 'Not allowed to read this Books file' });
+      return;
     }
-    const { get } = await import('@vercel/blob');
-    const result = await get(target, { access: 'private', useCache: true, ...blobAuth() });
-    if (!result || result.statusCode !== 200 || !result.stream) {
+    const file = await r2GetBytes(key);
+    if (!file) {
       json(res, 404, { error: 'File not found' });
       return;
     }
-    const contentType = result.blob.contentType || 'application/octet-stream';
     res.statusCode = 200;
-    res.setHeader('content-type', contentType);
+    res.setHeader('content-type', file.contentType);
     res.setHeader('cache-control', 'private, max-age=3600');
-    const buf = Buffer.from(await new Response(result.stream).arrayBuffer());
-    res.end(buf);
+    res.end(file.body);
   } catch (err: any) {
     json(res, 500, { error: err?.message || 'File read failed' });
   }

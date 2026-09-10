@@ -1,6 +1,6 @@
-import { del, put } from '@vercel/blob';
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'http';
 import { applyCors, requireUser } from './helpers';
+import { r2Del, r2FileKey, r2PutBytes } from './r2';
 
 const MAX_BYTES = 8 * 1024 * 1024;
 const ALLOWED_EXT = new Set(['pdf', 'png', 'jpg', 'jpeg', 'webp', 'csv', 'txt', 'xlsx']);
@@ -40,22 +40,16 @@ function readBody(req: IncomingMessage & { body?: unknown }): Promise<Buffer> {
   });
 }
 
-function token() {
-  const value = process.env.BLOB_READ_WRITE_TOKEN;
-  if (!value) throw new Error('Blob storage is not configured');
-  return value;
-}
-
-function blobErrorStatus(err: any) {
+function storeErrorStatus(err: any) {
   const status = Number(err?.status || err?.statusCode || 0);
   if (status === 429 || /429|rate.?limit/i.test(String(err?.message || ''))) return 429;
-  if (err?.message === 'Blob storage is not configured') return 503;
+  if (String(err?.message || '').includes('not configured')) return 503;
   return 500;
 }
 
-function blobErrorMessage(err: any, fallback: string) {
-  if (err?.message === 'Blob storage is not configured') return err.message;
-  if (blobErrorStatus(err) === 429) return 'Blob storage rate limit reached. Wait a minute and try again.';
+function storeErrorMessage(err: any, fallback: string) {
+  if (String(err?.message || '').includes('not configured')) return err.message;
+  if (storeErrorStatus(err) === 429) return 'File storage rate limit reached. Wait a minute and try again.';
   return fallback;
 }
 
@@ -108,18 +102,10 @@ export async function handleBlobUploadRequest(
     }
 
     const pathname = `erp_workspaces/${tenantId}/files/${fileId}.${ext}`;
-    const blob = await put(pathname, body, {
-      access: 'private',
-      token: token(),
-      ...(process.env.BLOB_STORE_ID ? { storeId: process.env.BLOB_STORE_ID } : {}),
-      contentType: contentType || ALLOWED_MIME[ext][0],
-      addRandomSuffix: false,
-      allowOverwrite: true,
-    });
-
-    sendJson(res, 200, { url: (blob as { downloadUrl?: string }).downloadUrl || blob.url || pathname, pathname: blob.pathname || pathname });
+    await r2PutBytes(pathname, body, contentType || ALLOWED_MIME[ext][0]);
+    sendJson(res, 200, { url: pathname, pathname });
   } catch (err: any) {
-    sendJson(res, blobErrorStatus(err), { error: blobErrorMessage(err, 'Upload failed') });
+    sendJson(res, storeErrorStatus(err), { error: storeErrorMessage(err, 'Upload failed') });
   }
 }
 
@@ -145,20 +131,18 @@ export async function handleBlobDeleteRequest(
     const payload = req.body && typeof req.body === 'object' ? req.body : JSON.parse((await readBody(req)).toString('utf8') || '{}');
     const url = String(payload.url || payload.pathname || '').trim();
     if (!url) {
-      sendJson(res, 400, { error: 'Missing blob url' });
+      sendJson(res, 400, { error: 'Missing file path' });
       return;
     }
-    const allowed =
-      url.startsWith('erp_workspaces/') ||
-      url.includes('.blob.vercel-storage.com/') ||
-      url.includes('blob.vercel-storage.com/');
-    if (!allowed) {
-      sendJson(res, 400, { error: 'Invalid blob url' });
+    const key = r2FileKey(url);
+    const workspaceId = key.split('/').filter(Boolean)[1] || '';
+    if (workspaceId !== uid && !workspaceId.startsWith(`${uid}_`)) {
+      sendJson(res, 403, { error: 'Not allowed to delete this Books file' });
       return;
     }
-    await del(url, { token: token() });
+    await r2Del(key);
     sendJson(res, 200, { ok: true });
   } catch (err: any) {
-    sendJson(res, blobErrorStatus(err), { error: blobErrorMessage(err, 'Delete failed') });
+    sendJson(res, storeErrorStatus(err), { error: storeErrorMessage(err, 'Delete failed') });
   }
 }

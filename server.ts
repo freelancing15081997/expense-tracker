@@ -5,7 +5,6 @@ import path from "path";
 import nodemailer from "nodemailer";
 import { handleBlobDeleteRequest, handleBlobUploadRequest } from "./api/_lib/blob-store";
 import { handleAuthRequest } from "./api/_lib/auth-handler";
-import { handleKvRequest } from "./api/_lib/kv-handler";
 import { applyCors, requireUser } from "./api/_lib/helpers";
 
 dns.setDefaultResultOrder('ipv4first');
@@ -54,8 +53,9 @@ app.use("/api/auth", (req, res) => {
 app.use("/neondb/auth", (req, res) => {
   void handleAuthRequest(req, res);
 });
-app.all("/api/kv", (req, res) => {
-  void handleKvRequest(req, res);
+app.all("/api/kv", async (req, res) => {
+  const { default: kv } = await import("./api/kv");
+  await kv(req as any, res as any);
 });
 app.post("/api/migrate", async (req, res) => {
   const { default: migrate } = await import("./api/migrate");

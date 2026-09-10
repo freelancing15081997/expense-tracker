@@ -29,7 +29,7 @@ export function inspectFile(file: File) {
 }
 
 function uploadError(payload: { error?: string }, status: number) {
-  if (status === 429) return payload.error || 'Blob storage rate limit reached. Wait a minute and try again.';
+  if (status === 429) return payload.error || 'File storage rate limit reached. Wait a minute and try again.';
   return payload.error || 'Upload failed';
 }
 
@@ -60,32 +60,7 @@ export async function storeBooksFile(tenantId: string, fileId: string, file: Fil
   const safeFile = safeId(fileId);
   if (safeTenant.length < 4 || safeFile.length < 4) throw new Error('Invalid upload path');
   const pathname = `erp_workspaces/${safeTenant}/files/${safeFile}.${meta.ext}`;
-
-  try {
-    const { authHeaders } = await import('../../lib/auth-client');
-    if (file.size <= 3.5 * 1024 * 1024) {
-      return await uploadViaServer(pathname, safeTenant, safeFile, file, meta);
-    }
-    const { upload } = await import('@vercel/blob/client');
-    const blob = await upload(pathname, file, {
-      access: 'private',
-      handleUploadUrl: '/api/blob/handle',
-      headers: await authHeaders(),
-      contentType: meta.contentType,
-      multipart: file.size > 4 * 1024 * 1024,
-      clientPayload: JSON.stringify({ tenantId: safeTenant, fileId: safeFile }),
-    });
-    const storedPath = blob.pathname || pathname;
-    const url = (blob as { downloadUrl?: string }).downloadUrl || blob.url || storedPath;
-    if (!url && !storedPath) throw new Error('Upload did not return a file URL');
-    return { ...meta, path: storedPath, url, pathname: storedPath };
-  } catch (err: any) {
-    const message = String(err?.message || '');
-    if (/not allowed|sign in required|file type|invalid upload/i.test(message) && !/public access|private store|failed to fetch|404|500|function/i.test(message)) {
-      throw err instanceof Error ? err : new Error(message || 'Upload failed');
-    }
-    return uploadViaServer(pathname, safeTenant, safeFile, file, meta);
-  }
+  return uploadViaServer(pathname, safeTenant, safeFile, file, meta);
 }
 
 const fileUrlCache = new Map<string, { url: string; at: number }>();
@@ -97,7 +72,8 @@ export async function booksFileUrl(path: string) {
   if (cached && Date.now() - cached.at < 5 * 60_000) return cached.url;
   const needsProxy =
     path.startsWith('erp_workspaces/') ||
-    path.includes('blob.vercel-storage.com');
+    path.includes('blob.vercel-storage.com') ||
+    path.includes('r2.cloudflarestorage.com');
   if (needsProxy) {
     const { authHeaders } = await import('../../lib/auth-client');
     const res = await fetch(`/api/blob/file?path=${encodeURIComponent(path)}`, {
@@ -110,7 +86,7 @@ export async function booksFileUrl(path: string) {
     return url;
   }
   if (path.startsWith('https://') || path.startsWith('http://')) return path;
-  throw new Error('File URL is unavailable. Re-upload the file to Vercel Blob.');
+  throw new Error('File URL is unavailable. Re-upload the file.');
 }
 
 export async function removeBooksBlob(path: string) {

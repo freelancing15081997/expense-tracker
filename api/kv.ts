@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { r2Del, r2GetJson, r2ListKeys, r2PutJson } from './_lib/r2';
 
 const FIREBASE_PROJECT = 'gen-lang-client-0616065043';
 const FIRESTORE_DB = 'ai-studio-sharedsheetexpen-15aa5fbb-9604-4c59-b4a3-aa994442cb50';
@@ -48,15 +49,6 @@ function postgresUrl() {
   } catch {
     return raw;
   }
-}
-
-function blobAuth() {
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
-  const storeId = process.env.BLOB_STORE_ID;
-  return {
-    ...(token ? { token } : {}),
-    ...(storeId ? { storeId } : {}),
-  };
 }
 
 function cleanPath(path: string) {
@@ -269,28 +261,17 @@ function touchBlobList(path: string, data: Record<string, unknown> | null) {
 }
 
 async function blobGet(path: string) {
-  const { get } = await import('@vercel/blob');
-  const result = await get(blobKey(path), { access: 'private', useCache: false, ...blobAuth() });
-  if (!result || result.statusCode !== 200 || !result.stream) return null;
-  return asObject(JSON.parse(await new Response(result.stream).text()));
+  return asObject(await r2GetJson(blobKey(path)));
 }
 
 async function blobSet(path: string, data: unknown) {
-  const { put } = await import('@vercel/blob');
-  await put(blobKey(path), JSON.stringify(data ?? {}), {
-    access: 'private',
-    addRandomSuffix: false,
-    allowOverwrite: true,
-    contentType: 'application/json',
-    ...blobAuth(),
-  });
+  await r2PutJson(blobKey(path), data ?? {});
   const obj = asObject(data) || {};
   touchBlobList(path, obj);
 }
 
 async function blobDel(path: string) {
-  const { del } = await import('@vercel/blob');
-  await del(blobKey(path), blobAuth());
+  await r2Del(blobKey(path));
   touchBlobList(path, null);
 }
 
@@ -299,20 +280,14 @@ async function blobList(prefix: string) {
   const cached = blobListCache.get(key);
   if (cached && Date.now() - cached.at < 20_000) return cached.rows;
 
-  const { list } = await import('@vercel/blob');
   const base = `${DOC_PREFIX}${key}/`;
   const ids: string[] = [];
-  let cursor: string | undefined;
-  do {
-    const page = await list({ prefix: base, cursor, limit: 1000, ...blobAuth() });
-    for (const item of page.blobs) {
-      if (!item.pathname.endsWith('.json')) continue;
-      const rest = item.pathname.slice(base.length, -5);
-      if (!rest || rest.includes('/')) continue;
-      ids.push(rest);
-    }
-    cursor = page.hasMore ? page.cursor : undefined;
-  } while (cursor);
+  for (const objectKey of await r2ListKeys(base)) {
+    if (!objectKey.endsWith('.json')) continue;
+    const rest = objectKey.slice(base.length, -5);
+    if (!rest || rest.includes('/')) continue;
+    ids.push(rest);
+  }
 
   const out: { id: string; data: Record<string, unknown> }[] = [];
   const chunk = 32;
@@ -349,7 +324,8 @@ type WorkspaceSnap = {
   docs: Record<string, Record<string, unknown>>;
 };
 
-const SNAP_NAME = '_snapshot';
+const SNAP_NAME = 'meta/pack';
+const LEGACY_SNAP_NAME = '_snapshot';
 const snapMem = new Map<string, { at: number; snap: WorkspaceSnap; dirty?: boolean }>();
 const snapLocks = new Map<string, Promise<void>>();
 
@@ -359,7 +335,7 @@ function erpParts(path: string): { ws: string; rel: string } | null {
   if (bits.length < 2) return null;
   const ws = bits[1];
   const rel = bits.slice(2).join('/');
-  if (!rel || rel === SNAP_NAME) return null;
+  if (!rel || rel === SNAP_NAME || rel === LEGACY_SNAP_NAME) return null;
   return { ws, rel };
 }
 
@@ -392,7 +368,7 @@ async function pgLoadWorkspace(ws: string): Promise<WorkspaceSnap> {
   const snap = emptySnap();
   for (const row of rows) {
     const rel = String(row.path).slice(prefix.length);
-    if (!rel || rel === SNAP_NAME || rel.includes('/' + SNAP_NAME)) continue;
+    if (!rel || rel === SNAP_NAME || rel === LEGACY_SNAP_NAME) continue;
     const data = asObject(row.data);
     if (!data) continue;
     if (rel === 'meta/tenant') snap.tenant = data;
@@ -402,20 +378,14 @@ async function pgLoadWorkspace(ws: string): Promise<WorkspaceSnap> {
 }
 
 async function blobBuildWorkspace(ws: string): Promise<WorkspaceSnap> {
-  const { list } = await import('@vercel/blob');
   const base = `${DOC_PREFIX}erp_workspaces/${ws}/`;
   const rels: string[] = [];
-  let cursor: string | undefined;
-  do {
-    const page = await list({ prefix: base, cursor, limit: 1000, ...blobAuth() });
-    for (const item of page.blobs) {
-      if (!item.pathname.endsWith('.json')) continue;
-      const rel = item.pathname.slice(base.length, -5);
-      if (!rel || rel === SNAP_NAME) continue;
-      rels.push(rel);
-    }
-    cursor = page.hasMore ? page.cursor : undefined;
-  } while (cursor);
+  for (const objectKey of await r2ListKeys(base)) {
+    if (!objectKey.endsWith('.json')) continue;
+    const rel = objectKey.slice(base.length, -5);
+    if (!rel || rel === SNAP_NAME || rel === LEGACY_SNAP_NAME) continue;
+    rels.push(rel);
+  }
   const snap = emptySnap();
   for (let i = 0; i < rels.length; i += 24) {
     const slice = rels.slice(i, i + 24);
@@ -440,7 +410,7 @@ async function loadSnap(ws: string): Promise<WorkspaceSnap> {
     snapMem.set(ws, { at: Date.now(), snap });
     return snap;
   }
-  const stored = asObject(await blobGet(snapPath(ws)).catch(() => null)) as WorkspaceSnap | null;
+  const stored = (asObject(await blobGet(snapPath(ws))) || asObject(await blobGet(`erp_workspaces/${ws}/${LEGACY_SNAP_NAME}`))) as WorkspaceSnap | null;
   if (stored && stored.docs && typeof stored.docs === 'object') {
     const snap: WorkspaceSnap = {
       v: Number(stored.v || 1),
@@ -620,7 +590,7 @@ async function readDoc(path: string, token: string) {
     const local = await localGet(path);
     if (local) return local;
   } catch {
-    // Production often has no DATABASE_URL; Blob may also be missing.
+    // Production often has no DATABASE_URL; object store may also be empty.
   }
   if (isErpPath(path)) return null;
   return firestoreGet(token, path);

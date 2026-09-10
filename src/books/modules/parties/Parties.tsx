@@ -144,7 +144,7 @@ export default function Parties({ kind }: { kind: PartyKind }) {
           await createParty(payload(id, stored.path));
         } catch (linkErr: any) {
           setError(stored.quotaBlocked
-            ? (stored.message || 'Party saved. Logo is on Vercel Blob. Wait a minute and try linking it again.')
+            ? (stored.message || 'Party saved. Logo is stored. Wait a minute and try linking it again.')
             : (linkErr.message || 'Could not link logo'));
           return;
         }

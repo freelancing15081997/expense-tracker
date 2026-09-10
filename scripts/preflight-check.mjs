@@ -107,13 +107,18 @@ try {
   console.log('  Install with: npm install\n');
 }
 
-// Check optional Blob storage
-console.log('\n📦 Optional services...');
-const hasBlobToken = Boolean(process.env.BLOB_READ_WRITE_TOKEN);
-if (hasBlobToken) {
-  success('Vercel Blob configured (files will be migrated)');
+// Check Cloudflare R2
+console.log('\n📦 File storage...');
+const hasR2 = Boolean(
+  process.env.R2_ACCESS_KEY_ID &&
+  process.env.R2_SECRET_ACCESS_KEY &&
+  process.env.R2_ENDPOINT &&
+  process.env.R2_BUCKET_NAME,
+);
+if (hasR2) {
+  success('Cloudflare R2 configured');
 } else {
-  warn('BLOB_READ_WRITE_TOKEN not set (files will stay on Firebase)');
+  warn('R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_ENDPOINT / R2_BUCKET_NAME not set');
 }
 
 // Summary

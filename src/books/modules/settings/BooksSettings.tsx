@@ -103,7 +103,7 @@ export default function BooksSettings() {
           <FileField
             label="Company logo (shown on invoices, bills, and statements)"
             accept="image/png,image/jpeg,image/webp"
-            hint="Uploads the image to Vercel Blob, then stores the URL with the company record on Blob KV."
+            hint="Uploads the image to Cloudflare R2, then stores the path with the company record."
             onFiles={async (files) => {
               const file = files[0];
               if (!file) return;
@@ -115,11 +115,11 @@ export default function BooksSettings() {
                   setLogoUrl('');
                 }
                 if (stored.quotaBlocked) {
-                  setMessage(stored.message || 'Logo is on Vercel Blob. Wait a minute, then click Save company profile.');
+                  setMessage(stored.message || 'Logo is stored. Wait a minute, then click Save company profile.');
                   return;
                 }
                 await rename(name || tenant?.name || 'Byjan Books', stored.path, profile);
-                setMessage('Company logo saved on Vercel Blob.');
+                setMessage('Company logo saved.');
               } catch (err: any) {
                 setMessage(err.message || 'Logo upload failed');
               }

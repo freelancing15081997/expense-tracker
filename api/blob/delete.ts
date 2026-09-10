@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { r2Del, r2FileKey } from '../_lib/r2';
 
 const FIREBASE_PROJECT = 'gen-lang-client-0616065043';
 
@@ -48,27 +49,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
     const url = String(body.url || body.pathname || '').trim();
     if (!url) {
-      json(res, 400, { error: 'Missing blob url' });
+      json(res, 400, { error: 'Missing file path' });
       return;
     }
-    const allowed =
-      url.startsWith('erp_workspaces/') ||
-      url.includes('.blob.vercel-storage.com/') ||
-      url.includes('blob.vercel-storage.com/');
-    if (!allowed) {
-      json(res, 400, { error: 'Invalid blob url' });
+    let key = '';
+    try {
+      key = r2FileKey(url);
+    } catch {
+      json(res, 400, { error: 'Invalid file path' });
       return;
     }
-    if (url.startsWith('erp_workspaces/')) {
-      const workspaceId = url.split('/').filter(Boolean)[1] || '';
-      if (workspaceId !== uid && !workspaceId.startsWith(`${uid}_`)) {
-        json(res, 403, { error: 'Not allowed to delete this Books file' });
-        return;
-      }
+    const workspaceId = key.split('/').filter(Boolean)[1] || '';
+    if (workspaceId !== uid && !workspaceId.startsWith(`${uid}_`)) {
+      json(res, 403, { error: 'Not allowed to delete this Books file' });
+      return;
     }
-    const { del } = await import('@vercel/blob');
-    const token = process.env.BLOB_READ_WRITE_TOKEN;
-    await del(url, token ? { token } : {});
+    await r2Del(key);
     json(res, 200, { ok: true });
   } catch (err: any) {
     json(res, 500, { error: err?.message || 'Delete failed' });
