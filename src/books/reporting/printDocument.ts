@@ -1,6 +1,7 @@
 import { formatMoney, lineAmount } from '../core/money';
 import { formatDisplayDate, getRuntimePrefs } from '../../lib/app-prefs';
 import type { FinanceDocument, FinanceParty, FinanceTenant } from '../core/types';
+import { documentProfile } from '../modules/documents/kindProfile';
 
 function nl(value?: string | null) {
   return escapeHtml(value || '').replace(/\n/g, '<br/>');
@@ -28,6 +29,7 @@ export function printFinanceDocument(input: {
   partyLogo?: string;
 }) {
   const { tenant, document, party, companyLogo, partyLogo } = input;
+  const profile = documentProfile(document.kind);
   const win = window.open('', '_blank', 'noopener,width=900,height=1100');
   if (!win) throw new Error('Allow pop-ups to print this document');
   const billTo = document.billTo || [party?.name, party?.address, [party?.city, party?.state, party?.pincode].filter(Boolean).join(', '), party?.taxId ? `GSTIN ${party.taxId}` : ''].filter(Boolean).join('\n');
@@ -35,15 +37,17 @@ export function printFinanceDocument(input: {
   const lines = document.lines.map((line) => `
     <tr>
       <td>${escapeHtml(line.description)}</td>
-      <td class="num">${(line.qtyMilli / 1000).toFixed(3)}</td>
+      ${profile.showQty ? `<td class="num">${(line.qtyMilli / 1000).toFixed(3)}</td>` : ''}
       <td class="num">${formatMoney(line.unitPriceMinor, tenant.baseCurrency)}</td>
-      <td class="num">${escapeHtml(line.taxCode)}</td>
+      ${profile.showTax ? `<td class="num">${escapeHtml(line.taxCode)}</td>` : ''}
       <td class="num">${formatMoney(lineAmount(line.qtyMilli, line.unitPriceMinor), tenant.baseCurrency)}</td>
     </tr>
   `).join('');
-  const taxRows = document.tax.igstMinor > 0
-    ? `<p>IGST ${formatMoney(document.tax.igstMinor, tenant.baseCurrency)}</p>`
-    : `<p>CGST ${formatMoney(document.tax.cgstMinor, tenant.baseCurrency)}</p><p>SGST ${formatMoney(document.tax.sgstMinor, tenant.baseCurrency)}</p>`;
+  const taxRows = !profile.showTax
+    ? ''
+    : document.tax.igstMinor > 0
+      ? `<p>IGST ${formatMoney(document.tax.igstMinor, tenant.baseCurrency)}</p>`
+      : `<p>CGST ${formatMoney(document.tax.cgstMinor, tenant.baseCurrency)}</p><p>SGST ${formatMoney(document.tax.sgstMinor, tenant.baseCurrency)}</p>`;
   win.document.write(`<!doctype html><html><head><title>${document.number}</title>
     <style>
       body { font-family: Inter, Arial, sans-serif; color: #0B1F3A; padding: 32px; }
@@ -71,30 +75,30 @@ export function printFinanceDocument(input: {
       </div>
       <div style="text-align:right">
         ${partyLogo ? `<img class="logo" src="${partyLogo}" alt="Party" />` : ''}
-        <p><strong>${escapeHtml(document.kind.replace('_', ' '))}</strong></p>
+        <p><strong>${escapeHtml(profile.singular)}</strong></p>
         <p>${escapeHtml(document.number)}</p>
-        <p class="muted">Date ${escapeHtml(formatDisplayDate(document.date))}${document.dueDate ? ` · Due ${escapeHtml(formatDisplayDate(document.dueDate))}` : ''}</p>
-        ${document.poNumber ? `<p class="muted">Ref ${escapeHtml(document.poNumber)}</p>` : ''}
-        ${document.placeOfSupply ? `<p class="muted">Place of supply ${escapeHtml(document.placeOfSupply)}</p>` : ''}
+        <p class="muted">${escapeHtml(profile.issueDateLabel)} ${escapeHtml(formatDisplayDate(document.date))}${document.dueDate && profile.dueDateLabel ? ` · ${escapeHtml(profile.dueDateLabel)} ${escapeHtml(formatDisplayDate(document.dueDate))}` : ''}</p>
+        ${document.poNumber && profile.referenceLabel ? `<p class="muted">${escapeHtml(profile.referenceLabel)} ${escapeHtml(document.poNumber)}</p>` : ''}
+        ${document.placeOfSupply && profile.placeOfSupplyLabel ? `<p class="muted">${escapeHtml(profile.placeOfSupplyLabel)} ${escapeHtml(document.placeOfSupply)}</p>` : ''}
       </div>
     </div>
     <div class="grid">
-      <div class="box"><p class="label">Bill to</p><p>${nl(billTo)}</p></div>
-      <div class="box"><p class="label">Ship to</p><p>${nl(shipTo) || '—'}</p></div>
+      ${profile.billToLabel ? `<div class="box"><p class="label">${escapeHtml(profile.billToLabel)}</p><p>${nl(billTo)}</p></div>` : ''}
+      ${profile.shipToLabel ? `<div class="box"><p class="label">${escapeHtml(profile.shipToLabel)}</p><p>${nl(shipTo) || '—'}</p></div>` : ''}
     </div>
     <table>
-      <thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Tax</th><th class="num">Amount</th></tr></thead>
+      <thead><tr><th>Description</th>${profile.showQty ? `<th class="num">${escapeHtml(profile.qtyLabel)}</th>` : ''}<th class="num">${escapeHtml(profile.rateLabel)}</th>${profile.showTax ? '<th class="num">Tax</th>' : ''}<th class="num">Amount</th></tr></thead>
       <tbody>${lines}</tbody>
     </table>
     <div class="foot">
       <div class="muted" style="max-width:55%">
-        ${document.customerNotes ? `<p><strong>Notes</strong><br/>${nl(document.customerNotes)}</p>` : ''}
-        ${document.terms ? `<p style="margin-top:12px"><strong>Terms</strong><br/>${nl(document.terms)}</p>` : ''}
-        <p style="margin-top:12px">${escapeHtml(document.memo || '')}</p>
+        ${document.customerNotes && profile.notesLabel ? `<p><strong>${escapeHtml(profile.notesLabel)}</strong><br/>${nl(document.customerNotes)}</p>` : ''}
+        ${document.terms && profile.termsLabel ? `<p style="margin-top:12px"><strong>${escapeHtml(profile.termsLabel)}</strong><br/>${nl(document.terms)}</p>` : ''}
+        ${document.memo ? `<p style="margin-top:12px"><strong>${escapeHtml(profile.memoLabel)}</strong><br/>${escapeHtml(document.memo)}</p>` : ''}
         ${tenant.invoiceFooter ? `<p style="margin-top:12px">${nl(tenant.invoiceFooter)}</p>` : ''}
       </div>
       <div>
-        <p>Taxable ${formatMoney(document.tax.exclusiveMinor, tenant.baseCurrency)}</p>
+        <p>${profile.showTax ? `Taxable ${formatMoney(document.tax.exclusiveMinor, tenant.baseCurrency)}` : `Amount ${formatMoney(document.tax.exclusiveMinor, tenant.baseCurrency)}`}</p>
         ${taxRows}
         <p><strong>Total ${formatMoney(document.totalMinor, tenant.baseCurrency)}</strong></p>
       </div>

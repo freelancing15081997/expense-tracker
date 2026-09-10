@@ -12,6 +12,7 @@ import { printFinanceDocument } from '../../reporting/printDocument';
 import { booksFileUrl } from '../../storage/adapter';
 import { formatMinorPlain } from '../../core/money';
 import type { DocumentKind, DocumentLineInput, FinanceDocument } from '../../core/types';
+import { documentProfile } from './kindProfile';
 
 type LineForm = { description: string; qty: string; price: string; taxCode: string; accountId: string };
 
@@ -42,34 +43,17 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
   const books = useBooks();
   const { prefs } = useAppPrefs();
   const { documents, parties, postingAccounts, taxCodes, currency, can, projects, files, uploadFile } = books;
+  const profile = documentProfile(kind);
   const allRows = documents.filter((d) => d.kind === kind && d.status !== 'voided');
-  const salesKinds = ['invoice', 'quote', 'estimate', 'sales_order', 'credit_note', 'debit_note'];
-  const partyKind = kind === 'expense' ? null : salesKinds.includes(kind) ? 'customer' : 'vendor';
-  const defaultAccount = postingAccounts.find((a) => a.systemKey === (salesKinds.includes(kind) ? 'sales' : 'operating_expense'))?.id || '';
+  const partyKind = profile.partyRole;
+  const defaultAccount = postingAccounts.find((a) => a.systemKey === (profile.accountSide === 'income' ? 'sales' : 'operating_expense'))?.id || '';
+  const defaultTax = profile.showTax
+    ? (taxCodes[0]?.id || 'GST18')
+    : (taxCodes.find((t) => t.rateBps === 0)?.id || taxCodes.find((t) => t.id === 'EXEMPT')?.id || taxCodes[0]?.id || 'EXEMPT');
   const cashAccounts = postingAccounts.filter((a) => a.systemKey === 'cash' || a.systemKey === 'bank');
-  const titles: Record<DocumentKind, string> = {
-    invoice: 'Invoices',
-    bill: 'Bills',
-    expense: 'Books Expenses',
-    quote: 'Quotes',
-    estimate: 'Estimates',
-    sales_order: 'Sales Orders',
-    credit_note: 'Credit Notes',
-    debit_note: 'Debit Notes',
-    purchase_request: 'Purchase Requests',
-    purchase_order: 'Purchase Orders',
-    purchase_receipt: 'Purchase Receipts',
-    vendor_credit: 'Vendor Credits',
-  };
-  const title = titles[kind];
-  const convertTo = kind === 'quote' || kind === 'estimate' || kind === 'sales_order'
-    ? 'invoice'
-    : kind === 'purchase_request'
-      ? 'purchase_order'
-    : kind === 'purchase_order' || kind === 'purchase_receipt'
-      ? 'bill'
-      : null;
-  const canPost = !['quote', 'estimate', 'sales_order', 'purchase_request', 'purchase_order', 'purchase_receipt'].includes(kind);
+  const title = profile.plural;
+  const convertTo = profile.convertTo;
+  const canPost = profile.canPost;
 
   const [open, setOpen] = useState(false);
   const [partyId, setPartyId] = useState('');
@@ -90,7 +74,7 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
   const [payFrom, setPayFrom] = useState(
     cashAccounts.find((a) => a.systemKey === prefs.defaultCashAccount)?.id || cashAccounts[0]?.id || '',
   );
-  const [lines, setLines] = useState<LineForm[]>([emptyLine(defaultAccount, taxCodes[0]?.id || 'GST18')]);
+  const [lines, setLines] = useState<LineForm[]>([emptyLine(defaultAccount, defaultTax)]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [pay, setPay] = useState<{ id: string; amount: string; date: string; accountId: string } | null>(null);
@@ -124,12 +108,12 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
 
   const preview = useMemo(() => {
     try {
-      const parsed = parseLines(lines);
-      return computeDocument(parsed, new Map(taxCodes.map((t) => [t.id, t])), interstate);
+      const parsed = parseLines(lines, profile.showQty, profile.showTax ? null : defaultTax);
+      return computeDocument(parsed, new Map(taxCodes.map((t) => [t.id, t])), profile.showInterstate ? interstate : false);
     } catch {
       return null;
     }
-  }, [lines, taxCodes, interstate]);
+  }, [lines, taxCodes, interstate, profile.showQty, profile.showTax, profile.showInterstate, defaultTax]);
 
   const resetForm = () => {
     setEditingId(null);
@@ -140,9 +124,9 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
     setBillTo('');
     setShipTo('');
     setPartyId('');
-    setLines([emptyLine(defaultAccount, taxCodes[0]?.id || 'GST18')]);
+    setLines([emptyLine(defaultAccount, defaultTax)]);
     setPlaceOfSupply('');
-    setTerms(books.tenant?.invoiceFooter || 'Payment due as per terms. Goods once sold are subject to the recorded tax treatment.');
+    setTerms(books.tenant?.invoiceFooter || profile.defaultTerms);
   };
 
   const loadForm = (row: FinanceDocument) => {
@@ -168,7 +152,7 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
           taxCode: line.taxCode,
           accountId: line.accountId,
         }))
-      : [emptyLine(defaultAccount, taxCodes[0]?.id || 'GST18')]);
+      : [emptyLine(defaultAccount, defaultTax)]);
     setOpen(true);
     setError('');
   };
@@ -178,15 +162,15 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
     try {
       setBusy(true);
       setError('');
-      if (kind !== 'expense' && !partyId) throw new Error(partyKind === 'customer' ? 'Select a customer' : 'Select a vendor');
+      if (partyKind && kind !== 'purchase_request' && !partyId) throw new Error(`Select a ${partyKind}`);
       const id = await books.createDocument({
         id: editingId || undefined,
         kind,
         partyId: partyId || null,
         date,
-        dueDate: kind === 'expense' ? null : dueDate,
-        lines: parseLines(lines),
-        interstate,
+        dueDate: profile.dueDateLabel ? dueDate : null,
+        lines: parseLines(lines, profile.showQty, profile.showTax ? null : defaultTax),
+        interstate: profile.showInterstate ? interstate : false,
         memo,
         projectId: projectId || null,
         poNumber,
@@ -217,7 +201,7 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
   return (
     <PageShell
       title={title}
-      subtitle={kind === 'expense' ? 'Separate from Expense Tracker. Posting writes the journal immediately on pay-from account.' : 'Draft → post (journal) → payment (journal). Totals are computed by the tax engine.'}
+      subtitle={profile.meaning}
       actions={can('create') && (
         <IconBtn
           action="create"
@@ -227,7 +211,7 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
             setOpen(true);
           }}
         >
-          New {kind}
+          {profile.createLabel}
         </IconBtn>
       )}
     >
@@ -236,16 +220,16 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
         <Card className="p-5 space-y-6">
           <form onSubmit={submit} className="space-y-6">
             <section>
-              <p className="text-[10px] uppercase tracking-[0.16em] text-[#12B8A8] font-semibold">Document</p>
-              <h2 className="font-display text-xl mt-1">{editingId ? `Edit ${title.slice(0, -1).toLowerCase()}` : `New ${title.slice(0, -1).toLowerCase()}`}</h2>
-              <p className="text-sm text-[#6B7280] mt-1">{editingId ? 'Draft only — posted documents stay locked.' : 'Draft only until you post. Tax is computed by the engine, not typed in.'}</p>
+              <p className="text-[10px] uppercase tracking-[0.16em] text-[#12B8A8] font-semibold">{profile.singular}</p>
+              <h2 className="font-display text-xl mt-1">{editingId ? `Edit ${profile.singular.toLowerCase()}` : profile.createLabel}</h2>
+              <p className="text-sm text-[#6B7280] mt-1">{profile.formIntro}</p>
             </section>
             <section className="grid md:grid-cols-3 gap-3">
-              {kind !== 'expense' && (
-                <Field label={partyKind === 'customer' ? 'Customer' : 'Vendor'}>
+              {partyKind && (
+                <Field label={profile.partyLabel}>
                   <MenuDropdown
                     triggerLabel={parties.find((p) => p.id === partyId)?.name || `Select ${partyKind}`}
-                    triggerHint={partyKind === 'customer' ? 'Receivable party' : 'Payable party'}
+                    triggerHint={profile.partyHint}
                     items={parties.filter((p) => p.kind === partyKind && p.active).map((p) => ({
                       id: p.id,
                       label: p.name,
@@ -268,12 +252,12 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
                   />
                 </Field>
               )}
-              <Field label="Issue date"><input type="date" className={inputClass} value={date} onChange={(e) => setDate(e.target.value)} required /></Field>
-              {kind !== 'expense' && <Field label="Due date"><input type="date" className={inputClass} value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></Field>}
-              <Field label="Reference / memo"><input className={inputClass} value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="Internal memo" /></Field>
-              {kind !== 'expense' && <Field label={kind === 'bill' || kind === 'purchase_order' || kind === 'purchase_request' ? 'Vendor invoice / PO' : 'PO / reference'}><input className={inputClass} value={poNumber} onChange={(e) => setPoNumber(e.target.value)} placeholder="PO-1024" /></Field>}
-              {kind !== 'expense' && <Field label="Place of supply"><input className={inputClass} value={placeOfSupply} onChange={(e) => setPlaceOfSupply(e.target.value)} placeholder="State" /></Field>}
-              {projects.length > 0 && (
+              <Field label={profile.issueDateLabel}><input type="date" className={inputClass} value={date} onChange={(e) => setDate(e.target.value)} required /></Field>
+              {profile.dueDateLabel && <Field label={profile.dueDateLabel}><input type="date" className={inputClass} value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></Field>}
+              <Field label={profile.memoLabel}><input className={inputClass} value={memo} onChange={(e) => setMemo(e.target.value)} placeholder={profile.memoPlaceholder} /></Field>
+              {profile.referenceLabel && <Field label={profile.referenceLabel}><input className={inputClass} value={poNumber} onChange={(e) => setPoNumber(e.target.value)} placeholder={profile.referencePlaceholder} /></Field>}
+              {profile.placeOfSupplyLabel && <Field label={profile.placeOfSupplyLabel}><input className={inputClass} value={placeOfSupply} onChange={(e) => setPlaceOfSupply(e.target.value)} placeholder="State" /></Field>}
+              {profile.showProject && projects.length > 0 && (
                 <Field label="Project">
                   <select className={inputClass} value={projectId} onChange={(e) => setProjectId(e.target.value)}>
                     <option value="">None</option>
@@ -281,39 +265,48 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
                   </select>
                 </Field>
               )}
-              <label className="flex items-center gap-2 text-sm text-[#0B1F3A] mt-7">
-                <input type="checkbox" checked={interstate} onChange={(e) => setInterstate(e.target.checked)} />
-                Interstate supply (IGST)
-              </label>
+              {kind === 'expense' && cashAccounts.length > 0 && (
+                <Field label="Pay from">
+                  <select className={inputClass} value={payFrom} onChange={(e) => setPayFrom(e.target.value)}>
+                    {cashAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} {a.name}</option>)}
+                  </select>
+                </Field>
+              )}
+              {profile.showInterstate && (
+                <label className="flex items-center gap-2 text-sm text-[#0B1F3A] mt-7">
+                  <input type="checkbox" checked={interstate} onChange={(e) => setInterstate(e.target.checked)} />
+                  Interstate supply (IGST)
+                </label>
+              )}
               <FileField
-                label="Supporting files (receipt, PO, contract)"
+                label={profile.fileLabel}
                 accept=".pdf,image/png,image/jpeg,image/webp,.xlsx,.csv,.txt"
                 multiple
                 files={pendingFiles}
-                hint={pendingFiles.length > 0 ? `${pendingFiles.length} file(s) will upload when you save the draft.` : 'Receipt, PO, or contract. 8 MB max per file.'}
+                hint={pendingFiles.length > 0 ? `${pendingFiles.length} file(s) will upload when you save the draft.` : profile.fileHint}
                 onFiles={setPendingFiles}
               />
             </section>
-            {kind !== 'expense' && (
+            {(profile.billToLabel || profile.shipToLabel) && (
               <section className="grid md:grid-cols-2 gap-3">
-                <Field label="Bill to"><textarea className={inputClass} rows={4} value={billTo} onChange={(e) => setBillTo(e.target.value)} placeholder="Legal name, billing address, GSTIN" /></Field>
-                <Field label="Ship to"><textarea className={inputClass} rows={4} value={shipTo} onChange={(e) => setShipTo(e.target.value)} placeholder="Delivery address if different" /></Field>
+                {profile.billToLabel && <Field label={profile.billToLabel}><textarea className={inputClass} rows={4} value={billTo} onChange={(e) => setBillTo(e.target.value)} placeholder={profile.billToPlaceholder} /></Field>}
+                {profile.shipToLabel && <Field label={profile.shipToLabel}><textarea className={inputClass} rows={4} value={shipTo} onChange={(e) => setShipTo(e.target.value)} placeholder={profile.shipToPlaceholder} /></Field>}
               </section>
             )}
             <section>
               <div className="flex items-center justify-between mb-2">
                 <p className="text-sm font-semibold">Line items</p>
-                <button type="button" className={btnGhost} onClick={() => setLines((rows) => [...rows, emptyLine(defaultAccount, taxCodes[0]?.id || 'GST18')])}>Add line</button>
+                <button type="button" className={btnGhost} onClick={() => setLines((rows) => [...rows, emptyLine(defaultAccount, defaultTax)])}>Add line</button>
               </div>
               <div className="overflow-x-auto rounded-2xl border border-[#E5E7EB]">
                 <table className="w-full text-sm">
                   <thead className="bg-[#F8FAFC] text-left text-[#6B7280]">
                     <tr>
                       <th className="px-3 py-2 font-medium">Description</th>
-                      <th className="px-3 py-2 font-medium w-24">Qty</th>
-                      <th className="px-3 py-2 font-medium w-28">Rate</th>
-                      <th className="px-3 py-2 font-medium w-36">Tax</th>
-                      <th className="px-3 py-2 font-medium">Account</th>
+                      {profile.showQty && <th className="px-3 py-2 font-medium w-24">{profile.qtyLabel}</th>}
+                      <th className="px-3 py-2 font-medium w-28">{profile.rateLabel}</th>
+                      {profile.showTax && <th className="px-3 py-2 font-medium w-36">Tax</th>}
+                      {profile.showAccount && <th className="px-3 py-2 font-medium">{profile.accountLabel}</th>}
                       <th className="px-3 py-2 font-medium text-right w-28">Amount</th>
                       <th className="px-3 py-2 font-medium w-12"></th>
                     </tr>
@@ -321,21 +314,25 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
                   <tbody>
                     {lines.map((line, i) => (
                       <tr key={i} className="border-t border-[#F3F4F6]">
-                        <td className="p-2"><input className={inputClass} placeholder="What is this for?" value={line.description} onChange={(e) => setLines((rows) => rows.map((r, idx) => idx === i ? { ...r, description: e.target.value } : r))} /></td>
-                        <td className="p-2"><input className={inputClass} value={line.qty} onChange={(e) => setLines((rows) => rows.map((r, idx) => idx === i ? { ...r, qty: e.target.value } : r))} /></td>
+                        <td className="p-2"><input className={inputClass} placeholder={profile.linePlaceholder} value={line.description} onChange={(e) => setLines((rows) => rows.map((r, idx) => idx === i ? { ...r, description: e.target.value } : r))} /></td>
+                        {profile.showQty && <td className="p-2"><input className={inputClass} value={line.qty} onChange={(e) => setLines((rows) => rows.map((r, idx) => idx === i ? { ...r, qty: e.target.value } : r))} /></td>}
                         <td className="p-2"><input className={inputClass} value={line.price} onChange={(e) => setLines((rows) => rows.map((r, idx) => idx === i ? { ...r, price: e.target.value } : r))} /></td>
-                        <td className="p-2">
-                          <select className={inputClass} value={line.taxCode} onChange={(e) => setLines((rows) => rows.map((r, idx) => idx === i ? { ...r, taxCode: e.target.value } : r))}>
-                            {taxCodes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-                          </select>
-                        </td>
-                        <td className="p-2">
-                          <select className={inputClass} value={line.accountId} onChange={(e) => setLines((rows) => rows.map((r, idx) => idx === i ? { ...r, accountId: e.target.value } : r))}>
-                            {postingAccounts.filter((a) => salesKinds.includes(kind) ? a.type === 'revenue' || a.type === 'other_income' : a.type === 'expense' || a.type === 'cogs' || a.type === 'asset').map((a) => (
-                              <option key={a.id} value={a.id}>{a.code} {a.name}</option>
-                            ))}
-                          </select>
-                        </td>
+                        {profile.showTax && (
+                          <td className="p-2">
+                            <select className={inputClass} value={line.taxCode} onChange={(e) => setLines((rows) => rows.map((r, idx) => idx === i ? { ...r, taxCode: e.target.value } : r))}>
+                              {taxCodes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                            </select>
+                          </td>
+                        )}
+                        {profile.showAccount && (
+                          <td className="p-2">
+                            <select className={inputClass} value={line.accountId} onChange={(e) => setLines((rows) => rows.map((r, idx) => idx === i ? { ...r, accountId: e.target.value } : r))}>
+                              {postingAccounts.filter((a) => profile.accountSide === 'income' ? a.type === 'revenue' || a.type === 'other_income' : a.type === 'expense' || a.type === 'cogs' || a.type === 'asset').map((a) => (
+                                <option key={a.id} value={a.id}>{a.code} {a.name}</option>
+                              ))}
+                            </select>
+                          </td>
+                        )}
                         <td className="p-2 text-right tabular-nums text-sm">
                           {linePreviewMinor(line) == null ? '—' : formatMoney(linePreviewMinor(line)!, currency)}
                         </td>
@@ -356,14 +353,20 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
                 </table>
               </div>
             </section>
-            <section className="grid md:grid-cols-2 gap-3">
-              <Field label={kind === 'bill' || kind === 'purchase_order' || kind === 'purchase_request' || kind === 'vendor_credit' ? 'Notes to vendor' : 'Notes to customer'}>
-                <textarea className={inputClass} rows={3} value={customerNotes} onChange={(e) => setCustomerNotes(e.target.value)} placeholder="Shown on the printed document" />
-              </Field>
-              <Field label="Terms & conditions">
-                <textarea className={inputClass} rows={3} value={terms} onChange={(e) => setTerms(e.target.value)} />
-              </Field>
-            </section>
+            {(profile.notesLabel || profile.termsLabel) && (
+              <section className="grid md:grid-cols-2 gap-3">
+                {profile.notesLabel && (
+                  <Field label={profile.notesLabel}>
+                    <textarea className={inputClass} rows={3} value={customerNotes} onChange={(e) => setCustomerNotes(e.target.value)} placeholder={profile.notesPlaceholder} />
+                  </Field>
+                )}
+                {profile.termsLabel && (
+                  <Field label={profile.termsLabel}>
+                    <textarea className={inputClass} rows={3} value={terms} onChange={(e) => setTerms(e.target.value)} />
+                  </Field>
+                )}
+              </section>
+            )}
             <div className="flex flex-wrap gap-3 items-start justify-between">
               <div className="flex gap-2">
                 <IconBtn action="save" disabled={busy}>{busy ? 'Saving…' : editingId ? 'Update draft' : 'Save draft'}</IconBtn>
@@ -371,15 +374,15 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
               </div>
               {preview && (
                 <div className="min-w-[240px] rounded-2xl border border-[#E5E7EB] bg-[#F8FAFC] px-4 py-3 text-sm space-y-1">
-                  <div className="flex justify-between gap-6"><span className="text-[#6B7280]">Taxable</span><span>{formatMoney(preview.tax.exclusiveMinor, currency)}</span></div>
-                  {preview.tax.igstMinor > 0
+                  <div className="flex justify-between gap-6"><span className="text-[#6B7280]">{profile.showTax ? 'Taxable' : 'Amount'}</span><span>{formatMoney(preview.tax.exclusiveMinor, currency)}</span></div>
+                  {profile.showTax && (preview.tax.igstMinor > 0
                     ? <div className="flex justify-between gap-6"><span className="text-[#6B7280]">IGST</span><span>{formatMoney(preview.tax.igstMinor, currency)}</span></div>
                     : (
                       <>
                         <div className="flex justify-between gap-6"><span className="text-[#6B7280]">CGST</span><span>{formatMoney(preview.tax.cgstMinor, currency)}</span></div>
                         <div className="flex justify-between gap-6"><span className="text-[#6B7280]">SGST</span><span>{formatMoney(preview.tax.sgstMinor, currency)}</span></div>
                       </>
-                    )}
+                    ))}
                   <div className="flex justify-between gap-6 pt-1 border-t border-[#E5E7EB] font-semibold"><span>Total</span><span>{formatMoney(preview.totalMinor, currency)}</span></div>
                 </div>
               )}
@@ -428,7 +431,7 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
       )}
       <Card>
         <div className="flex flex-wrap gap-3 p-4 border-b border-[#E5E7EB]">
-          <input className={`${inputClass} max-w-sm`} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search number, party, PO, memo" />
+          <input className={`${inputClass} max-w-sm`} value={search} onChange={(e) => setSearch(e.target.value)} placeholder={`Search ${profile.singular.toLowerCase()}, ${profile.listParty.toLowerCase()}, ${profile.listRef.toLowerCase()}`} />
           <select className={`${inputClass} max-w-[180px]`} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
             <option value="all">All statuses</option>
             <option value="draft">Draft</option>
@@ -442,11 +445,11 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
             <thead className="text-left text-slate-500 border-b border-slate-200">
               <tr>
                 <th className="px-4 py-3 font-medium">Number</th>
-                <th className="px-4 py-3 font-medium">Date</th>
-                <th className="px-4 py-3 font-medium">Party</th>
-                <th className="px-4 py-3 font-medium">Reference</th>
+                <th className="px-4 py-3 font-medium">{profile.issueDateLabel}</th>
+                <th className="px-4 py-3 font-medium">{profile.listParty}</th>
+                <th className="px-4 py-3 font-medium">{profile.listRef}</th>
                 <th className="px-4 py-3 font-medium text-right">Total</th>
-                <th className="px-4 py-3 font-medium text-right">Due</th>
+                {profile.listDue && <th className="px-4 py-3 font-medium text-right">{profile.listDue}</th>}
                 <th className="px-4 py-3 font-medium">Status</th>
                 <th className="px-4 py-3 font-medium"></th>
               </tr>
@@ -459,10 +462,14 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
                   <tr key={row.id} className="border-b border-slate-100 align-top cursor-pointer hover:bg-[#F8FAFC]" onClick={() => setSelectedId(row.id)}>
                     <td className="px-4 py-2.5 font-medium">{row.number}</td>
                     <td className="px-4 py-2.5">{row.date}</td>
-                    <td className="px-4 py-2.5">{party?.name || (kind === 'expense' ? '—' : 'Unknown')}</td>
-                    <td className="px-4 py-2.5 text-[#6B7280]">{row.poNumber || row.placeOfSupply || '—'}</td>
+                    <td className="px-4 py-2.5">{party?.name || (kind === 'expense' ? (row.memo || '—') : '—')}</td>
+                    <td className="px-4 py-2.5 text-[#6B7280]">{row.poNumber || row.memo || '—'}</td>
                     <td className="px-4 py-2.5 text-right"><Money minor={row.totalMinor} currency={currency} /></td>
-                    <td className="px-4 py-2.5 text-right"><Money minor={due} currency={currency} /></td>
+                    {profile.listDue && (
+                      <td className="px-4 py-2.5 text-right">
+                        {profile.canPay ? <Money minor={due} currency={currency} /> : (row.dueDate || '—')}
+                      </td>
+                    )}
                     <td className="px-4 py-2.5"><Status value={row.status} /></td>
                     <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
                       <div className="flex flex-wrap gap-2 justify-end">
@@ -473,12 +480,12 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
                           <IconBtn action="post" onClick={() => books.postDoc(row.id, kind === 'expense' ? (payFrom || cashAccounts[0]?.id) : undefined)}>Post</IconBtn>
                         )}
                         {row.status === 'draft' && convertTo && can('create') && (
-                          <button className={btnPrimary} onClick={() => books.convertDoc(row.id, convertTo).catch((err) => setError(err.message))}>Convert to {convertTo.replace('_', ' ')}</button>
+                          <button className={btnPrimary} onClick={() => books.convertDoc(row.id, convertTo).catch((err) => setError(err.message))}>{profile.convertLabel}</button>
                         )}
                         {row.status === 'draft' && can('void') && (
                           <button className={btnGhost} onClick={() => books.voidDoc(row.id)}>Void</button>
                         )}
-                        {kind !== 'expense' && (
+                        {profile.canPrint && (
                           <button className={btnGhost} onClick={async () => {
                             const party = parties.find((p) => p.id === row.partyId) || null;
                             const companyLogo = books.tenant?.logoPath ? await booksFileUrl(books.tenant.logoPath) : undefined;
@@ -486,7 +493,7 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
                             printFinanceDocument({ tenant: books.tenant!, document: row, party, companyLogo, partyLogo });
                           }}>Print</button>
                         )}
-                        {(row.status === 'posted') && due > 0 && (kind === 'invoice' || kind === 'bill') && can('post') && (
+                        {(row.status === 'posted') && due > 0 && profile.canPay && can('post') && (
                           <button className={btnGhost} onClick={() => setPay({ id: row.id, amount: (due / 100).toFixed(2), date: todayISO(), accountId: cashAccounts[0]?.id || '' })}>Payment</button>
                         )}
                       </div>
@@ -509,7 +516,7 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
         return (
           <RecordFlyout
             title={row.number}
-            subtitle={`${row.kind.replace('_', ' ')} · ${party?.name || (kind === 'expense' ? 'Books expense' : 'No party')} · ${row.date}`}
+            subtitle={`${profile.singular} · ${party?.name || (kind === 'expense' ? (row.memo || 'Books expense') : 'No party')} · ${row.date}`}
             onClose={() => setSelectedId(null)}
             actions={canEdit && (
               <button type="button" className={btnGhost} onClick={() => { loadForm(row); setSelectedId(null); }}>
@@ -520,25 +527,26 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div><p className="text-xs text-slate-500">Status</p><Status value={row.status} /></div>
               <div><p className="text-xs text-slate-500">Total</p><p className="font-semibold"><Money minor={row.totalMinor} currency={currency} /></p></div>
-              <div><p className="text-xs text-slate-500">PO / reference</p><p>{row.poNumber || row.memo || '—'}</p></div>
-              <div><p className="text-xs text-slate-500">Place of supply</p><p>{row.placeOfSupply || '—'}</p></div>
-              <div className="col-span-2 whitespace-pre-line"><p className="text-xs text-slate-500">Bill to</p><p>{row.billTo || (party ? partyBlock(party) : '—')}</p></div>
-              <div className="col-span-2 whitespace-pre-line"><p className="text-xs text-slate-500">Ship to</p><p>{row.shipTo || '—'}</p></div>
+              <div><p className="text-xs text-slate-500">{profile.listRef}</p><p>{row.poNumber || row.memo || '—'}</p></div>
+              {profile.placeOfSupplyLabel && <div><p className="text-xs text-slate-500">{profile.placeOfSupplyLabel}</p><p>{row.placeOfSupply || '—'}</p></div>}
+              {profile.dueDateLabel && <div><p className="text-xs text-slate-500">{profile.dueDateLabel}</p><p>{row.dueDate || '—'}</p></div>}
+              {profile.billToLabel && <div className="col-span-2 whitespace-pre-line"><p className="text-xs text-slate-500">{profile.billToLabel}</p><p>{row.billTo || (party ? partyBlock(party) : '—')}</p></div>}
+              {profile.shipToLabel && <div className="col-span-2 whitespace-pre-line"><p className="text-xs text-slate-500">{profile.shipToLabel}</p><p>{row.shipTo || '—'}</p></div>}
             </div>
             <div className="rounded-2xl border border-slate-200 overflow-hidden">
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 text-left text-slate-500">
                   <tr>
                     <th className="px-3 py-2 font-medium">Description</th>
-                    <th className="px-3 py-2 font-medium text-right">Qty</th>
-                    <th className="px-3 py-2 font-medium text-right">Rate</th>
+                    {profile.showQty && <th className="px-3 py-2 font-medium text-right">{profile.qtyLabel}</th>}
+                    <th className="px-3 py-2 font-medium text-right">{profile.rateLabel}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {row.lines.map((line, i) => (
                     <tr key={i} className="border-t border-slate-100">
                       <td className="px-3 py-2">{line.description}</td>
-                      <td className="px-3 py-2 text-right">{(line.qtyMilli / 1000).toFixed(3)}</td>
+                      {profile.showQty && <td className="px-3 py-2 text-right">{(line.qtyMilli / 1000).toFixed(3)}</td>}
                       <td className="px-3 py-2 text-right">{formatMoney(line.unitPriceMinor, currency)}</td>
                     </tr>
                   ))}
@@ -568,20 +576,13 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
             </div>
             {(row.customerNotes || row.terms) && (
               <div className="grid gap-3 text-sm">
-                {row.customerNotes && <div><p className="text-xs text-slate-500">Notes</p><p className="whitespace-pre-line">{row.customerNotes}</p></div>}
-                {row.terms && <div><p className="text-xs text-slate-500">Terms</p><p className="whitespace-pre-line">{row.terms}</p></div>}
+                {row.customerNotes && profile.notesLabel && <div><p className="text-xs text-slate-500">{profile.notesLabel}</p><p className="whitespace-pre-line">{row.customerNotes}</p></div>}
+                {row.terms && profile.termsLabel && <div><p className="text-xs text-slate-500">{profile.termsLabel}</p><p className="whitespace-pre-line">{row.terms}</p></div>}
               </div>
             )}
           </RecordFlyout>
         );
       })()}
-      {kind === 'expense' && can('post') && cashAccounts.length > 0 && (
-        <Field label="Pay Books expenses from">
-          <select className={`${inputClass} max-w-sm`} value={payFrom} onChange={(e) => setPayFrom(e.target.value)}>
-            {cashAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} {a.name}</option>)}
-          </select>
-        </Field>
-      )}
       {pay && (
         <Card className="p-4">
           <form
@@ -618,12 +619,12 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
   );
 }
 
-function parseLines(lines: LineForm[]): DocumentLineInput[] {
+function parseLines(lines: LineForm[], showQty: boolean, forceTax: string | null): DocumentLineInput[] {
   return lines.map((line) => ({
     description: line.description,
-    qtyMilli: parseQty(line.qty),
+    qtyMilli: showQty ? parseQty(line.qty) : parseQty('1'),
     unitPriceMinor: parseMoney(line.price),
-    taxCode: line.taxCode,
+    taxCode: forceTax || line.taxCode,
     accountId: line.accountId,
   }));
 }

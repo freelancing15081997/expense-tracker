@@ -193,19 +193,20 @@ export default function Parties({ kind }: { kind: PartyKind }) {
       subtitle={kind === 'customer'
         ? 'Master record for receivables: identity, tax, address, logo, and linked invoices.'
         : 'Master record for payables: identity, tax, address, logo, and linked bills.'}
-      actions={can('create') && <IconBtn action="create" onClick={() => openEdit()}>New {kind}</IconBtn>}
+      actions={can('create') && <IconBtn action="create" onClick={() => openEdit()}>{kind === 'customer' ? 'New customer' : 'New vendor'}</IconBtn>}
     >
       <div className="space-y-5">
         <div className="space-y-5">
           {open && (
             <Card className="p-5 space-y-5">
               <div>
-                <p className="text-[10px] uppercase tracking-[0.16em] text-[#12B8A8] font-semibold">{editing ? 'Edit record' : 'New record'}</p>
-                <h2 className="font-display text-xl mt-1">{editing ? editing.name : `Add ${kind}`}</h2>
+                <p className="text-[10px] uppercase tracking-[0.16em] text-[#12B8A8] font-semibold">{editing ? 'Edit' : 'New'} {kind}</p>
+                <h2 className="font-display text-xl mt-1">{editing ? editing.name : kind === 'customer' ? 'Add customer' : 'Add vendor'}</h2>
+                <p className="text-sm text-slate-500 mt-1">{kind === 'customer' ? 'Receivable master: who you bill, credit limit, and invoice address.' : 'Payable master: who you buy from, payment terms, and remit-from address.'}</p>
               </div>
               <form onSubmit={submit} className="space-y-5">
                 <section className="grid md:grid-cols-2 gap-3">
-                  <Field label="Legal / display name"><input className={inputClass} value={form.name} onChange={set('name')} required /></Field>
+                  <Field label={kind === 'customer' ? 'Customer name' : 'Vendor name'}><input className={inputClass} value={form.name} onChange={set('name')} required /></Field>
                   <Field label="Primary contact"><input className={inputClass} value={form.contactName} onChange={set('contactName')} /></Field>
                   <Field label="Email"><input type="email" className={inputClass} value={form.email} onChange={set('email')} /></Field>
                   <Field label="Phone"><input className={inputClass} value={form.phone} onChange={set('phone')} /></Field>
@@ -217,18 +218,18 @@ export default function Parties({ kind }: { kind: PartyKind }) {
                       {GST_TREATMENTS.map((t) => <option key={t.id || 'none'} value={t.id}>{t.label}</option>)}
                     </select>
                   </Field>
-                  <Field label="Payment terms (days)"><input className={inputClass} value={form.terms} onChange={set('terms')} /></Field>
-                  <Field label="Credit limit"><input className={inputClass} value={form.creditLimit} onChange={set('creditLimit')} placeholder="0.00" /></Field>
+                  <Field label={kind === 'customer' ? 'Payment terms they get (days)' : 'Payment terms they give (days)'}><input className={inputClass} value={form.terms} onChange={set('terms')} /></Field>
+                  {kind === 'customer' && <Field label="Credit limit"><input className={inputClass} value={form.creditLimit} onChange={set('creditLimit')} placeholder="0.00" /></Field>}
                 </section>
                 <section className="grid md:grid-cols-2 gap-3">
-                  <Field label="Billing address"><input className={inputClass} value={form.address} onChange={set('address')} /></Field>
+                  <Field label={kind === 'customer' ? 'Billing address' : 'Vendor address'}><input className={inputClass} value={form.address} onChange={set('address')} /></Field>
                   <Field label="City"><input className={inputClass} value={form.city} onChange={set('city')} /></Field>
                   <Field label="State"><input className={inputClass} value={form.state} onChange={set('state')} /></Field>
                   <Field label="PIN"><input className={inputClass} value={form.pincode} onChange={set('pincode')} /></Field>
-                  <Field label="Shipping address"><input className={inputClass} value={form.shippingAddress} onChange={set('shippingAddress')} placeholder="Leave blank to use billing" /></Field>
-                  <Field label="Shipping city"><input className={inputClass} value={form.shippingCity} onChange={set('shippingCity')} /></Field>
-                  <Field label="Shipping state"><input className={inputClass} value={form.shippingState} onChange={set('shippingState')} /></Field>
-                  <Field label="Shipping PIN"><input className={inputClass} value={form.shippingPincode} onChange={set('shippingPincode')} /></Field>
+                  <Field label={kind === 'customer' ? 'Shipping address' : 'Remit / pickup address'}><input className={inputClass} value={form.shippingAddress} onChange={set('shippingAddress')} placeholder={kind === 'customer' ? 'Leave blank to use billing' : 'Leave blank to use vendor address'} /></Field>
+                  <Field label={kind === 'customer' ? 'Shipping city' : 'Remit city'}><input className={inputClass} value={form.shippingCity} onChange={set('shippingCity')} /></Field>
+                  <Field label={kind === 'customer' ? 'Shipping state' : 'Remit state'}><input className={inputClass} value={form.shippingState} onChange={set('shippingState')} /></Field>
+                  <Field label={kind === 'customer' ? 'Shipping PIN' : 'Remit PIN'}><input className={inputClass} value={form.shippingPincode} onChange={set('shippingPincode')} /></Field>
                   <div className="md:col-span-2">
                     <Field label="Internal notes"><textarea className={inputClass} rows={3} value={form.notes} onChange={set('notes')} /></Field>
                   </div>
@@ -259,7 +260,7 @@ export default function Parties({ kind }: { kind: PartyKind }) {
               <table className="w-full text-sm min-w-[640px]">
                 <thead className="text-left text-[#6B7280] border-b border-[#E5E7EB]">
                   <tr>
-                    <th className="px-4 py-3 font-medium">Party</th>
+                    <th className="px-4 py-3 font-medium">{kind === 'customer' ? 'Customer' : 'Vendor'}</th>
                     <th className="px-4 py-3 font-medium">Contact</th>
                     <th className="px-4 py-3 font-medium">GSTIN</th>
                     <th className="px-4 py-3 font-medium">Treatment</th>
@@ -313,7 +314,7 @@ export default function Parties({ kind }: { kind: PartyKind }) {
             <div><p className="text-xs text-slate-500">GSTIN</p><p>{selected.taxId || '—'}</p></div>
             <div><p className="text-xs text-slate-500">PAN</p><p>{selected.pan || '—'}</p></div>
             <div className="col-span-2"><p className="text-xs text-slate-500">Billing</p><p>{[selected.address, selected.city, selected.state, selected.pincode].filter(Boolean).join(', ') || '—'}</p></div>
-            <div className="col-span-2"><p className="text-xs text-slate-500">Credit limit</p><p>{selected.creditLimitMinor ? <Money minor={selected.creditLimitMinor} currency={currency} /> : 'No limit recorded'}</p></div>
+            {kind === 'customer' && <div className="col-span-2"><p className="text-xs text-slate-500">Credit limit</p><p>{selected.creditLimitMinor ? <Money minor={selected.creditLimitMinor} currency={currency} /> : 'No limit recorded'}</p></div>}
           </div>
           <div className="rounded-2xl bg-[#F0FDFA] px-4 py-3">
             <p className="text-xs uppercase tracking-[0.14em] text-[#0f766e]">Open {kind === 'customer' ? 'receivable' : 'payable'}</p>
