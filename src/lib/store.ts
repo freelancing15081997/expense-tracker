@@ -199,7 +199,7 @@ function fromCache(path: string, constraints?: Constraint[]) {
 
 export async function getDoc(ref: DocRef) {
   const cached = memory.get(ref.path);
-  if (cached && Date.now() - cached.at < DOC_TTL) {
+  if (cached && cached.data !== null && Date.now() - cached.at < DOC_TTL) {
     return wrapDoc(ref.id, cached.data, ref.path);
   }
   if (isErp(ref.path) && ref.path.includes('/idempotency/') && !cached) {
@@ -207,16 +207,23 @@ export async function getDoc(ref: DocRef) {
     return wrapDoc(ref.id, null, ref.path);
   }
   let data: Record<string, unknown> | null = cached?.data ?? null;
-  if (!isErp(ref.path)) {
-    try {
-      data = await readFirestoreDoc(ref.path);
-    } catch {
-      // Named Firestore holds existing ledgers.
-    }
+  try {
+    const fromFs = await readFirestoreDoc(ref.path);
+    if (fromFs) data = fromFs;
+  } catch {
+    // Named Firestore still holds some tenant docs; Spark writes are disabled.
   }
-  const payload = await withTimeout(call({ op: 'get', path: ref.path }), data ? 280 : 500);
+  const payload = await withTimeout(call({ op: 'get', path: ref.path }), data ? 400 : 2500);
   if (payload?.data) data = payload.data;
-  remember(ref.path, data);
+  if (payload) {
+    remember(ref.path, data);
+  } else if (data) {
+    remember(ref.path, data);
+  } else {
+    const err: any = new Error('Books storage timed out. Retry.');
+    err.code = 'unavailable';
+    throw err;
+  }
   return wrapDoc(ref.id, data, ref.path);
 }
 

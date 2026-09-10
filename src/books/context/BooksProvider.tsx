@@ -291,7 +291,20 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
         userProfile?.displayName || currentUser.displayName || 'Byjan'
       );
       setTenantId(id);
-      const workspace = await loadWorkspace(db, id);
+      let workspace;
+      try {
+        workspace = await loadWorkspace(db, id);
+      } catch (err: any) {
+        if (!String(err?.message || '').includes('Workspace not found')) throw err;
+        try { sessionStorage.removeItem(`byjan_books_ready_${currentUser.uid}`); } catch { /* private mode */ }
+        await resolveTenantId(
+          db,
+          currentUser.uid,
+          currentUser.email || userProfile?.email || '',
+          userProfile?.displayName || currentUser.displayName || 'Byjan'
+        );
+        workspace = await loadWorkspace(db, id);
+      }
       if (!isWorkspaceMember(workspace.tenant, currentUser.uid, id)) {
         throw new Error('Not a member of this Books workspace');
       }

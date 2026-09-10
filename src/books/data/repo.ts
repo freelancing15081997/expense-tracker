@@ -96,10 +96,6 @@ function provisionCacheKey(uid: string) {
 
 export async function resolveTenantId(db: Firestore, uid: string, email: string, displayName: string): Promise<string> {
   const tenantId = uid;
-  try {
-    if (sessionStorage.getItem(provisionCacheKey(uid)) === '1') return tenantId;
-  } catch { /* private mode */ }
-
   const tRef = tenantRef(db, tenantId);
   const existing = await getDoc(tRef);
   if (!existing.exists()) {
