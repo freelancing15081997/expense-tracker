@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useBooks } from '../../context/BooksProvider';
 import { todayISO } from '../../core/money';
-import { Card, Field, IconBtn, inputClass, Money, PageShell, Status } from '../../ui';
+import { Card, DateField, Field, IconBtn, inputClass, Money, PageShell, Status } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
 import type { FinanceDocument } from '../../core/types';
 
@@ -28,7 +28,7 @@ export default function PaymentRun() {
             {cash.map((a) => <option key={a.id} value={a.id}>{a.code} {a.name}</option>)}
           </select>
         </Field>
-        <Field label="Date"><input type="date" className={inputClass} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+        <Field label="Date"><DateField value={date} onChange={setDate} /></Field>
         <div className="flex items-end justify-between gap-3">
           <p className="text-sm text-[#6b6458]">Selected <Money minor={total} currency={currency} /></p>
           <IconBtn

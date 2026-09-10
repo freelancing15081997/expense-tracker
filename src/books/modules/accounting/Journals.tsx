@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useBooks } from '../../context/BooksProvider';
 import { formatMoney, parseMoney, todayISO } from '../../core/money';
 import { useAppPrefs } from '../../../context/AppPrefsContext';
-import { btnGhost, Card, Empty, Field, IconBtn, inputClass, Money, PageShell, RecordFlyout, Status } from '../../ui';
+import { btnGhost, Card, DateField, Empty, Field, IconBtn, inputClass, Money, PageShell, RecordFlyout, Status } from '../../ui';
 import { Pager, usePaging } from '../../ui/PagedList';
 import type { JournalLineInput } from '../../core/types';
 
@@ -71,7 +71,7 @@ export default function Journals() {
         <Card className="p-4 space-y-3">
           <form onSubmit={submit} className="space-y-3">
             <div className="grid md:grid-cols-2 gap-3">
-              <Field label="Date"><input type="date" className={inputClass} value={date} onChange={(e) => setDate(e.target.value)} required /></Field>
+              <Field label="Date"><DateField value={date} onChange={setDate} required /></Field>
               <Field label="Description"><input className={inputClass} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Month-end adjustment" /></Field>
             </div>
             <div className="overflow-x-auto">
@@ -103,7 +103,7 @@ export default function Journals() {
             </div>
             <div className="flex flex-wrap gap-2 items-center">
               <button type="button" className={btnGhost} onClick={() => setLines((rows) => [...rows, emptyLine()])}>Add line</button>
-              <IconBtn action="post" disabled={busy}>{busy ? 'Posting…' : 'Post journal'}</IconBtn>
+              <IconBtn action="post" type="submit" busy={busy}>{busy ? 'Posting journal' : 'Post journal'}</IconBtn>
               <button type="button" className={btnGhost} onClick={() => setOpen(false)}>Cancel</button>
               {preview && <span className="text-sm text-slate-500">Debit <Money minor={preview.reduce((s, l) => s + l.debitMinor, 0)} currency={currency} /> · Credit <Money minor={preview.reduce((s, l) => s + l.creditMinor, 0)} currency={currency} /></span>}
               {error && <p className="text-sm text-rose-600">{error}</p>}

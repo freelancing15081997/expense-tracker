@@ -10,6 +10,7 @@ import { getCurrencySymbol } from '../lib/currency';
 import { Loader2, Plus, Check, X, Users, Building2, Receipt, ArrowRight, BookOpen } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
+import AppLoader from '../components/AppLoader';
 import { BOOKS_TREE } from '../books/catalog/modules';
 
 interface BookItem {
@@ -209,8 +210,12 @@ export default function Dashboard() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
-      <div className="flex items-center justify-between gap-3 mb-4">
-        <h1 className="text-lg font-bold text-slate-900 font-display">{expensesOnly ? 'Expense Tracker' : 'Main dashboard'}</h1>
+      <div className="flex items-end justify-between gap-3 mb-2">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">{expensesOnly ? 'Shared ledgers' : 'Workspace'}</p>
+          <h1 className="text-2xl font-bold text-slate-900 font-display mt-1">{expensesOnly ? 'Expense Tracker' : 'Main dashboard'}</h1>
+          <p className="text-sm text-slate-500 mt-1">{expensesOnly ? 'Roommate and team ledgers you belong to.' : 'Ledgers, Books, and the work waiting on you.'}</p>
+        </div>
         <div className="flex flex-wrap gap-2">
           {!expensesOnly && (
             <Link to="/books" className="byjan-btn-ghost">
@@ -325,26 +330,24 @@ export default function Dashboard() {
           </div>
           {books.length > 0 && (
             <div className="grid grid-cols-3 gap-3">
-              <div className="byjan-card p-4">
+              <div className="byjan-card p-5">
                 <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Money in</h3>
-                <span className="text-lg font-bold text-emerald-600">+{globalStats.totalIn.toLocaleString()}</span>
+                <span className="text-2xl font-display font-semibold text-emerald-600">+{globalStats.totalIn.toLocaleString()}</span>
               </div>
-              <div className="byjan-card p-4">
+              <div className="byjan-card p-5">
                 <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Money out</h3>
-                <span className="text-lg font-bold text-[#0B1F3A]">-{globalStats.totalOut.toLocaleString()}</span>
+                <span className="text-2xl font-display font-semibold text-[#0B1F3A]">-{globalStats.totalOut.toLocaleString()}</span>
               </div>
-              <div className="byjan-card p-4">
-                <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Top</h3>
-                <span className="text-sm font-bold text-[#0B1F3A] truncate block">
+              <div className="byjan-card p-5">
+                <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Most active</h3>
+                <span className="text-sm font-bold text-[#0B1F3A] truncate block mt-1">
                   {Object.entries(globalStats.userActivity).sort((a,b)=> (b[1] as number) - (a[1] as number))[0]?.[0] || '—'}
                 </span>
               </div>
             </div>
           )}
           {loading ? (
-            <div className="py-12 flex justify-center">
-              <div className="w-6 h-6 border-2 border-slate-200 border-t-zinc-600 rounded-full animate-spin" />
-            </div>
+            <AppLoader title="Ledgers" message="Loading the books you can open." />
           ) : books.length === 0 ? (
             <div className="text-center py-12 byjan-card border-dashed">
               <Building2 className="w-10 h-10 text-slate-300 mx-auto mb-3" />

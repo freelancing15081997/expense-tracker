@@ -4,6 +4,8 @@ import { useBooks } from '../../context/BooksProvider';
 import { signedBalance } from '../../engine/chartOfAccounts';
 import { todayISO } from '../../core/money';
 import { Card, Kpi, Money, PageShell } from '../../ui';
+import { formatMoney } from '../../core/money';
+import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 export default function CfoDashboard() {
   const { accounts, documents, bankTxns, budgets, currency, periods } = useBooks();
@@ -45,6 +47,40 @@ export default function CfoDashboard() {
         <Kpi label="AP"><Money minor={apBal} currency={currency} /></Kpi>
         <Kpi label="Working capital"><Money minor={working} currency={currency} /></Kpi>
       </div>
+      <div className="grid lg:grid-cols-2 gap-3">
+        <Card className="p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Profit and loss</p>
+          <p className="text-xs text-slate-500 mt-1 mb-3">Revenue, expenses, and profit from posted accounts.</p>
+          <div className="h-44">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={[{ name: 'P&L', Revenue: income / 100, Expenses: spend / 100, Profit: profit / 100 }]}>
+                <XAxis dataKey="name" hide />
+                <YAxis tick={{ fontSize: 11 }} width={48} />
+                <Tooltip formatter={(value: number) => formatMoney(Math.round(Number(value) * 100), currency)} />
+                <Bar dataKey="Revenue" fill="#12B8A8" radius={6} />
+                <Bar dataKey="Expenses" fill="#0B1F3A" radius={6} />
+                <Bar dataKey="Profit" fill="#64748B" radius={6} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+        <Card className="p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Cash position</p>
+          <p className="text-xs text-slate-500 mt-1 mb-3">Cash, receivables, and payables.</p>
+          <div className="h-44">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={[{ name: 'Position', Cash: cash / 100, AR: arBal / 100, AP: apBal / 100 }]} layout="vertical">
+                <XAxis type="number" hide />
+                <YAxis type="category" dataKey="name" hide />
+                <Tooltip formatter={(value: number) => formatMoney(Math.round(Number(value) * 100), currency)} />
+                <Bar dataKey="Cash" fill="#0B1F3A" radius={6} />
+                <Bar dataKey="AR" fill="#12B8A8" radius={6} />
+                <Bar dataKey="AP" fill="#94A3B8" radius={6} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+      </div>
       {budgetTotal > 0 && (
         <Card className="p-4 text-sm">
           Budget lines total <Money minor={budgetTotal} currency={currency} /> · actual spend <Money minor={spend} currency={currency} /> · variance <Money minor={budgetTotal - spend} currency={currency} />
@@ -56,7 +92,7 @@ export default function CfoDashboard() {
           <ul className="divide-y divide-slate-100">
             {alerts.map((a) => (
               <li key={a.text} className="px-4 py-2.5 flex justify-between gap-3 text-sm">
-                <span><span className="font-semibold">{a.severity}.</span> {a.text}</span>
+                <span><span className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full ${a.severity === 'Critical' ? 'bg-rose-50 text-rose-800' : a.severity === 'High' ? 'bg-amber-50 text-amber-900' : a.severity === 'Medium' ? 'bg-sky-50 text-sky-800' : 'bg-slate-100 text-slate-600'}`}>{a.severity}</span> {a.text}</span>
                 <Link to={a.href} className="text-xs font-semibold text-teal-700">Open</Link>
               </li>
             ))}

@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useBooks } from '../../context/BooksProvider';
 import { signedBalance } from '../../engine/chartOfAccounts';
-import { Card, Field, inputClass, Money, PageShell } from '../../ui';
+import { Card, DateField, Field, inputClass, Money, PageShell } from '../../ui';
 import type { AccountType } from '../../core/types';
 import { todayISO } from '../../core/money';
 import { documentHref } from '../../../lib/search-index';
@@ -97,8 +97,8 @@ export default function Reports() {
       actions={<button type="button" className="byjan-btn-ghost" onClick={exportCurrent}>Download CSV</button>}
     >
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        <Field label="From"><input type="date" className={inputClass} value={start} onChange={(e) => setStart(e.target.value)} /></Field>
-        <Field label="To"><input type="date" className={inputClass} value={end} onChange={(e) => setEnd(e.target.value)} /></Field>
+        <Field label="From"><DateField value={start} onChange={setStart} /></Field>
+        <Field label="To"><DateField value={end} onChange={setEnd} /></Field>
       </div>
       <div className="flex flex-wrap gap-2">
         {([

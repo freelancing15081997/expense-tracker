@@ -59,7 +59,7 @@ export default function Accounts() {
               </select>
             </Field>
             <div className="md:col-span-4 flex gap-2 items-center">
-              <button className={btnPrimary} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
+              <IconBtn action="save" type="submit" busy={busy}>{busy ? 'Saving' : 'Save'}</IconBtn>
               <button type="button" className={btnGhost} onClick={() => setOpen(false)}>Cancel</button>
               {error && <p className="text-sm text-rose-600">{error}</p>}
             </div>

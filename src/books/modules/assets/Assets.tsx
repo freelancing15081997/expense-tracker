@@ -61,7 +61,7 @@ export default function Assets() {
               </select>
             </Field>
             <div className="flex items-end gap-2">
-              <button className={btnPrimary} disabled={busy}>{busy ? 'Posting…' : 'Post acquisition'}</button>
+              <IconBtn action="post" type="submit" busy={busy}>{busy ? 'Posting acquisition' : 'Post acquisition'}</IconBtn>
               <button type="button" className={btnGhost} onClick={() => setOpen(false)}>Cancel</button>
             </div>
             {error && <p className="text-sm text-rose-600 md:col-span-3">{error}</p>}

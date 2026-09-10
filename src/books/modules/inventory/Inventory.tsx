@@ -71,7 +71,7 @@ export default function Inventory() {
             <Field label={`Cost (${currency})`}><input className={inputClass} value={cost} onChange={(e) => setCost(e.target.value)} /></Field>
             <Field label="Reorder qty"><input className={inputClass} value={reorder} onChange={(e) => setReorder(e.target.value)} placeholder="0" /></Field>
             <div className="flex items-end gap-2">
-              <button className={btnPrimary} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
+              <IconBtn action="save" type="submit" busy={busy}>{busy ? 'Saving' : 'Save'}</IconBtn>
               <button type="button" className={btnGhost} onClick={() => setOpen(false)}>Cancel</button>
             </div>
             {error && <p className="text-sm text-rose-600 md:col-span-3">{error}</p>}

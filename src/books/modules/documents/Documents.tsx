@@ -5,7 +5,7 @@ import { addDays, formatMoney, lineAmount, parseMoney, parseQty, todayISO } from
 import { useAppPrefs } from '../../../context/AppPrefsContext';
 import { computeDocument } from '../../engine/tax';
 import { Plus, Trash2 } from 'lucide-react';
-import { btnGhost, btnPrimary, Card, Empty, Field, FileField, IconBtn, inputClass, Money, PageShell, RecordFlyout, AttachmentList, Status } from '../../ui';
+import { btnGhost, btnPrimary, Card, DateField, Empty, Field, FileField, IconBtn, inputClass, Money, PageShell, RecordFlyout, AttachmentList, Status } from '../../ui';
 import { MenuDropdown } from '../../ui/MenuDropdown';
 import { Pager, usePaging } from '../../ui/PagedList';
 import { printFinanceDocument } from '../../reporting/printDocument';
@@ -13,6 +13,7 @@ import { booksFileUrl } from '../../storage/adapter';
 import { formatMinorPlain } from '../../core/money';
 import type { DocumentKind, DocumentLineInput, FinanceDocument } from '../../core/types';
 import { documentProfile } from './kindProfile';
+import { PartyForm } from '../parties/PartyForm';
 
 type LineForm = { description: string; qty: string; price: string; taxCode: string; accountId: string };
 
@@ -82,9 +83,6 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
   const [projectId, setProjectId] = useState('');
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [quickOpen, setQuickOpen] = useState(false);
-  const [quickName, setQuickName] = useState('');
-  const [quickEmail, setQuickEmail] = useState('');
-  const [quickTax, setQuickTax] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [savingHint, setSavingHint] = useState('');
@@ -184,7 +182,6 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
       const queued = pendingFiles.slice();
       setOpen(false);
       resetForm();
-      setSelectedId(id);
       setBusy(false);
       if (queued.length) {
         setSavingHint('Saving supporting files…');
@@ -253,8 +250,8 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
                   />
                 </Field>
               )}
-              <Field label={profile.issueDateLabel}><input type="date" className={inputClass} value={date} onChange={(e) => setDate(e.target.value)} required /></Field>
-              {profile.dueDateLabel && <Field label={profile.dueDateLabel}><input type="date" className={inputClass} value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></Field>}
+              <Field label={profile.issueDateLabel}><DateField value={date} onChange={setDate} required /></Field>
+              {profile.dueDateLabel && <Field label={profile.dueDateLabel}><DateField value={dueDate} onChange={setDueDate} /></Field>}
               <Field label={profile.memoLabel}><input className={inputClass} value={memo} onChange={(e) => setMemo(e.target.value)} placeholder={profile.memoPlaceholder} /></Field>
               {profile.referenceLabel && <Field label={profile.referenceLabel}><input className={inputClass} value={poNumber} onChange={(e) => setPoNumber(e.target.value)} placeholder={profile.referencePlaceholder} /></Field>}
               {profile.placeOfSupplyLabel && <Field label={profile.placeOfSupplyLabel}><input className={inputClass} value={placeOfSupply} onChange={(e) => setPlaceOfSupply(e.target.value)} placeholder="State" /></Field>}
@@ -370,7 +367,7 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
             )}
             <div className="flex flex-wrap gap-3 items-start justify-between">
               <div className="flex gap-2">
-                <IconBtn action="save" disabled={busy}>{busy ? 'Saving…' : editingId ? 'Update draft' : 'Save draft'}</IconBtn>
+                <IconBtn action="save" type="submit" busy={busy}>{busy ? 'Saving draft' : editingId ? 'Update draft' : 'Save draft'}</IconBtn>
                 <button type="button" className={btnGhost} onClick={() => setOpen(false)}>Cancel</button>
               </div>
               {preview && (
@@ -393,41 +390,27 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
         </Card>
       )}
       {quickOpen && partyKind && (
-        <Card className="p-4">
-          <form
-            className="grid md:grid-cols-4 gap-3"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              try {
-                const id = await books.createParty({
-                  kind: partyKind,
-                  name: quickName,
-                  email: quickEmail,
-                  taxId: quickTax,
-                  paymentTermsDays: 30,
-                });
-                const created = { name: quickName, email: quickEmail, taxId: quickTax, address: '', city: '', state: '', pincode: '', phone: '' };
-                setPartyId(id);
-                setDueDate(addDays(date, 30));
+        <Card className="p-5 space-y-4">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.16em] text-[#12B8A8] font-semibold">New {partyKind}</p>
+            <h2 className="font-display text-xl mt-1">{partyKind === 'customer' ? 'Add customer' : 'Add vendor'}</h2>
+            <p className="text-sm text-slate-500 mt-1">Save the full {partyKind} record, then continue this {profile.singular.toLowerCase()}.</p>
+          </div>
+          <PartyForm
+            kind={partyKind}
+            onCancel={() => setQuickOpen(false)}
+            onSaved={(id, created) => {
+              setPartyId(id);
+              setDueDate(addDays(date, created?.paymentTermsDays || 30));
+              setPlaceOfSupply(created?.state || '');
+              setInterstate(Boolean(created?.state && books.tenant?.state && created.state !== books.tenant.state));
+              if (created) {
                 setBillTo(partyBlock(created));
                 setShipTo(partyBlock(created, true));
-                setQuickOpen(false);
-                setQuickName('');
-                setQuickEmail('');
-                setQuickTax('');
-              } catch (err: any) {
-                setError(err.message || 'Could not add party');
               }
+              setQuickOpen(false);
             }}
-          >
-            <Field label={`${partyKind} name`}><input className={inputClass} value={quickName} onChange={(e) => setQuickName(e.target.value)} required /></Field>
-            <Field label="Email"><input type="email" className={inputClass} value={quickEmail} onChange={(e) => setQuickEmail(e.target.value)} /></Field>
-            <Field label="GSTIN"><input className={inputClass} value={quickTax} onChange={(e) => setQuickTax(e.target.value)} /></Field>
-            <div className="flex items-end gap-2">
-              <button className={btnPrimary}>Save & select</button>
-              <button type="button" className={btnGhost} onClick={() => setQuickOpen(false)}>Cancel</button>
-            </div>
-          </form>
+          />
         </Card>
       )}
       <Card>
@@ -607,14 +590,14 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
             }}
           >
             <Field label="Amount"><input className={inputClass} value={pay.amount} onChange={(e) => setPay({ ...pay, amount: e.target.value })} /></Field>
-            <Field label="Date"><input type="date" className={inputClass} value={pay.date} onChange={(e) => setPay({ ...pay, date: e.target.value })} /></Field>
+            <Field label="Date"><DateField value={pay.date} onChange={(iso) => setPay({ ...pay, date: iso })} /></Field>
             <Field label="Deposit / pay from">
               <select className={inputClass} value={pay.accountId} onChange={(e) => setPay({ ...pay, accountId: e.target.value })}>
                 {cashAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} {a.name}</option>)}
               </select>
             </Field>
             <div className="flex items-end gap-2">
-              <button className={btnPrimary} disabled={busy}>Record</button>
+              <IconBtn action="save" type="submit" busy={busy}>{busy ? 'Recording' : 'Record'}</IconBtn>
               <button type="button" className={btnGhost} onClick={() => setPay(null)}>Cancel</button>
             </div>
           </form>

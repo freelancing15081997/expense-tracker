@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useBooks } from '../../context/BooksProvider';
 import { parseMoney, todayISO } from '../../core/money';
-import { Card, Field, IconBtn, inputClass, PageShell } from '../../ui';
+import { Card, DateField, Field, IconBtn, inputClass, PageShell } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
 import type { TaxCode } from '../../core/types';
 
@@ -60,7 +60,7 @@ export default function TaxCodes() {
           }}
         >
           <Field label="Amount"><input className={inputClass} value={amount} onChange={(e) => setAmount(e.target.value)} required /></Field>
-          <Field label="Date"><input type="date" className={inputClass} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+          <Field label="Date"><DateField value={date} onChange={setDate} /></Field>
           <Field label="Debit account">
             <select className={inputClass} value={againstAccountId} onChange={(e) => setAgainst(e.target.value)}>
               {postingAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} {a.name}</option>)}

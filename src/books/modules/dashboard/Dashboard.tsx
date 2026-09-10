@@ -2,10 +2,11 @@ import React, { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useBooks } from '../../context/BooksProvider';
 import { signedBalance } from '../../engine/chartOfAccounts';
-import { Card, FeatureIcon, GroupIcon, Kpi, Money, PageShell, Status, btnPrimary } from '../../ui';
-import { todayISO } from '../../core/money';
+import { Card, FeatureIcon, GroupIcon, Kpi, Money, PageShell, Status, btnAccent, btnGhost } from '../../ui';
+import { formatMoney, todayISO } from '../../core/money';
 import { BOOKS_QUICK_CREATE } from '../../nav';
 import { BOOKS_TREE } from '../../catalog/modules';
+import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 export default function Dashboard() {
   const { tenant, accounts, journals, documents, parties, currency, approvals, bankTxns } = useBooks();
@@ -39,8 +40,8 @@ export default function Dashboard() {
   return (
     <PageShell title={tenant?.name || 'Books'} subtitle="Live balances, drafts, and the work waiting on you.">
       <div className="flex flex-wrap gap-2">
-        {BOOKS_QUICK_CREATE.map((item) => (
-          <Link key={item.href} to={item.href} className={btnPrimary}>
+        {BOOKS_QUICK_CREATE.map((item, index) => (
+          <Link key={item.href} to={item.href} className={index === 0 ? btnAccent : btnGhost}>
             <FeatureIcon href={item.href} className="w-3.5 h-3.5" />
             {item.name}
           </Link>
@@ -57,6 +58,32 @@ export default function Dashboard() {
             </Kpi>
           </Link>
         ))}
+      </div>
+
+      <div className="grid lg:grid-cols-[1.2fr_0.8fr] gap-3">
+        <Card className="p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Income vs expenses</p>
+          <p className="text-xs text-slate-500 mt-1 mb-3">Posted account balances only.</p>
+          <div className="h-48">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={[{ name: 'Posted', Income: cards[3].value / 100, Expenses: cards[4].value / 100 }]}>
+                <XAxis dataKey="name" hide />
+                <YAxis tick={{ fontSize: 11 }} width={48} />
+                <Tooltip formatter={(value: number) => formatMoney(Math.round(Number(value) * 100), currency)} />
+                <Bar dataKey="Income" fill="#12B8A8" radius={6} />
+                <Bar dataKey="Expenses" fill="#0B1F3A" radius={6} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+        <Card className="p-4 space-y-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Work queue</p>
+          <p className="text-sm text-[#0B1F3A]">{drafts.length} draft{drafts.length === 1 ? '' : 's'}</p>
+          <p className="text-sm text-[#0B1F3A]">{overdue.length} overdue invoice{overdue.length === 1 ? '' : 's'}</p>
+          <p className="text-sm text-[#0B1F3A]">{openBills.length} unpaid bill{openBills.length === 1 ? '' : 's'}</p>
+          <p className="text-sm text-[#0B1F3A]">{pending} pending approval{pending === 1 ? '' : 's'}</p>
+          <p className="text-sm text-[#0B1F3A]">{unrec} unreconciled bank item{unrec === 1 ? '' : 's'}</p>
+        </Card>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">

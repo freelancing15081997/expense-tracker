@@ -190,14 +190,15 @@ export function FileField({
 export function IconBtn({
   action = 'create',
   variant = 'primary',
+  busy = false,
   children,
   className = '',
   ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & { action?: BooksGlyphName; variant?: 'primary' | 'ghost' }) {
-  const cls = variant === 'ghost' ? btnGhost : btnPrimary;
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & { action?: BooksGlyphName; variant?: 'primary' | 'ghost' | 'accent'; busy?: boolean }) {
+  const cls = variant === 'ghost' ? btnGhost : variant === 'accent' ? btnAccent : btnPrimary;
   return (
-    <button className={`${cls} ${className}`} {...props}>
-      <ActionIcon name={action} className="w-3.5 h-3.5 shrink-0" />
+    <button className={`${cls} ${className}`} {...props} disabled={busy || Boolean(props.disabled)}>
+      {busy ? <span className="app-loader-ring app-loader-ring-sm" /> : <ActionIcon name={action} className="w-3.5 h-3.5 shrink-0" />}
       {children}
     </button>
   );
@@ -207,6 +208,7 @@ export { FeatureIcon, ActionIcon, GroupIcon } from './icons';
 export { BooksLoader } from './BooksLoader';
 export { default as RecordFlyout } from './RecordFlyout';
 export { default as AttachmentList } from './AttachmentList';
+export { DateField } from './DateField';
 
 export function Empty({ text }: { text: string }) {
   return <div className="px-5 py-14 text-center text-sm text-slate-500">{text}</div>;

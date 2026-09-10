@@ -498,10 +498,10 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
   }, [currentUser, tenantId, role]);
 
   const value = useMemo<BooksContextValue>(() => {
-    const after = async <T,>(work: () => Promise<T>, ok?: string, gate?: 'post' | 'delete') => {
+    const after = async <T,>(work: () => Promise<T>, ok?: string | { title?: string; description?: string }, gate?: 'post' | 'delete') => {
       if (gate) {
         const allowed = await confirmAction(
-          gate === 'delete' ? (ok || 'Reverse or void this record?') : (ok ? `${ok}. Continue?` : 'Post this to the ledger?'),
+          gate === 'delete' ? (typeof ok === 'string' ? ok : ok?.title || 'Reverse or void this record?') : (typeof ok === 'string' ? `${ok}. Continue?` : (ok?.title ? `${ok.title}. Continue?` : 'Post this to the ledger?')),
           gate,
         );
         if (!allowed) {
@@ -556,10 +556,10 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
       switchWorkspace,
       createCompany,
       ctx,
-      createParty: (input) => after(() => saveParty(db, tenantId!, role!, input), 'Party saved'),
+      createParty: (input) => after(() => saveParty(db, tenantId!, role!, input), { title: `${input.kind === 'vendor' ? 'Vendor' : 'Customer'} saved`, description: input.name }),
       deactivateParty: (id) => after(() => deactivatePartyRecord(db, tenantId!, role!, id), 'Party deactivated'),
       createAccount: (input) => after(() => saveAccount(db, tenantId!, role!, input), 'Account saved'),
-      createDocument: (input) => after(() => saveDocument(ctx(), { ...input, taxCodes }), 'Draft saved'),
+      createDocument: (input) => after(() => saveDocument(ctx(), { ...input, taxCodes }), { title: 'Draft saved', description: 'The list is up to date. Open a row if you need the preview.' }),
       postDoc: async (id, payFromAccountId) => {
         const row = documents.find((d) => d.id === id);
         if ((row?.kind === 'invoice' || row?.kind === 'debit_note') && row.partyId) {

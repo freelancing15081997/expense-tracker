@@ -65,7 +65,7 @@ export default function Inbox() {
               onFiles={(files) => setPending(files[0] || null)}
             />
             <div className="md:col-span-2 flex items-center gap-2">
-              <IconBtn action="create" disabled={busy}>{busy ? 'Saving…' : 'Add to inbox'}</IconBtn>
+              <IconBtn action="create" type="submit" busy={busy}>{busy ? 'Saving' : 'Add to inbox'}</IconBtn>
               {error && <p className="text-sm text-rose-600">{error}</p>}
             </div>
           </form>

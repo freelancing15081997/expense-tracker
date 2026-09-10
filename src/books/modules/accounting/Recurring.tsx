@@ -106,7 +106,7 @@ export default function Recurring() {
             ))}
             <div className="flex gap-2 items-center">
               <button type="button" className={btnGhost} onClick={() => setLines((rows) => [...rows, emptyLine()])}>Add line</button>
-              <button className={btnPrimary} disabled={busy}>Save template</button>
+              <IconBtn action="save" type="submit" busy={busy}>{busy ? 'Saving template' : 'Save template'}</IconBtn>
               <button type="button" className={btnGhost} onClick={() => setOpen(false)}>Cancel</button>
               {error && <p className="text-sm text-rose-600">{error}</p>}
             </div>
@@ -176,7 +176,7 @@ export default function Recurring() {
               Interstate (IGST)
             </label>
             <div className="md:col-span-2 flex gap-2 items-center">
-              <button className={btnPrimary} disabled={busy}>{busy ? 'Saving…' : 'Save template'}</button>
+              <IconBtn action="save" type="submit" busy={busy}>{busy ? 'Saving template' : 'Save template'}</IconBtn>
               <button type="button" className={btnGhost} onClick={() => setOpen(false)}>Cancel</button>
               {error && <p className="text-sm text-rose-600">{error}</p>}
             </div>

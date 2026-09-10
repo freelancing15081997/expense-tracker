@@ -23,7 +23,7 @@ export function usePaging<T>(rows: T[], pageSize = 10) {
 }
 
 export function Pager({ page, pages, total, pageSize, onPage }: { page: number; pages: number; total: number; pageSize: number; onPage: (n: number) => void }) {
-  if (total <= pageSize) return null;
+  if (total === 0) return null;
   const start = (page - 1) * pageSize + 1;
   const end = Math.min(total, page * pageSize);
   return (

@@ -23,14 +23,14 @@ function returnTo() {
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentUser, loading } = useAuth();
-  if (loading) return <AppLoader message="Loading" />;
+  if (loading) return <AppLoader title="Byjan" message="Checking your session." />;
   if (!currentUser) return <Navigate to="/login" replace />;
   return <>{children}</>;
 };
 
 const GuestRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentUser, loading } = useAuth();
-  if (loading) return <AppLoader message="Loading" />;
+  if (loading) return <AppLoader title="Byjan" message="Checking your session." />;
   if (currentUser) return <Navigate to={returnTo()} replace />;
   return <>{children}</>;
 };
@@ -49,7 +49,7 @@ export default function App() {
                 <Route path="expenses" element={<Dashboard />} />
                 <Route path="book/:bookId" element={<BookView />} />
                 <Route path="settings" element={<Settings />} />
-                <Route path="books/*" element={<Suspense fallback={<AppLoader message="Loading" />}><BooksApp /></Suspense>} />
+                <Route path="books/*" element={<Suspense fallback={<AppLoader title="Books" message="Opening your company workspace." />}><BooksApp /></Suspense>} />
               </Route>
             </Routes>
           </HashRouter>

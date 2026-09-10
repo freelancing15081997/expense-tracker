@@ -17,7 +17,6 @@ import { getCurrencySymbol } from '../lib/currency';
 import { isSoftDeleted, softDeletePatch } from '../lib/records';
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import TransactionLoader from '../components/TransactionLoader';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -476,7 +475,6 @@ export default function BookView() {
 
   return (
     <>
-      {isSaving && <TransactionLoader message="Saving" />}
       <div className="max-w-6xl mx-auto space-y-5">
         {/* Compact Modern Header */}
       <div className="flex items-center justify-between gap-2 mb-3">
@@ -841,8 +839,8 @@ export default function BookView() {
                   <button type="button" className="byjan-btn-ghost">Cancel</button>
                 </Dialog.Close>
                 <button type="submit" disabled={isSaving} className="byjan-btn">
-                  {isSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  {editingExpense ? 'Save Changes' : 'Record Entry'}
+                  {isSaving && <span className="app-loader-ring app-loader-ring-sm" />}
+                  {isSaving ? (editingExpense ? 'Saving changes' : 'Recording entry') : (editingExpense ? 'Save Changes' : 'Record Entry')}
                 </button>
               </div>
             </form>

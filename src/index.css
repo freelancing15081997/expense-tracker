@@ -416,10 +416,30 @@ svg.byjan-glyph {
   animation: app-loader-spin 0.7s linear infinite;
 }
 .app-loader-ring-sm {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   border-width: 2px;
   display: inline-block;
+  vertical-align: middle;
+}
+.app-loader-mark {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  background: #0B1F3A;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+.app-loader-orbit {
+  position: absolute;
+  inset: -7px;
+  border-radius: 20px;
+  border: 2px solid #E5E7EB;
+  border-top-color: #12B8A8;
+  animation: app-loader-spin 0.85s linear infinite;
 }
 @keyframes app-loader-spin {
   to { transform: rotate(360deg); }

@@ -4,7 +4,7 @@ import { parseMoney, todayISO } from '../../core/money';
 import { signedBalance } from '../../engine/chartOfAccounts';
 import { reconWorksheet } from '../../reporting/statements';
 import { parseBankCsv } from '../../reporting/bankCsv';
-import { btnGhost, Card, Field, FileField, IconBtn, inputClass, Kpi, Money, PageShell, Status } from '../../ui';
+import { btnGhost, Card, DateField, Field, FileField, IconBtn, inputClass, Kpi, Money, PageShell, Status } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
 import type { BankTxn } from '../../core/types';
 
@@ -186,9 +186,9 @@ export default function Banking() {
                 </select>
               </Field>
               <Field label={`Amount (${currency})`}><input className={inputClass} value={amount} onChange={(e) => setAmount(e.target.value)} required /></Field>
-              <Field label="Date"><input type="date" className={inputClass} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+              <Field label="Date"><DateField value={date} onChange={setDate} /></Field>
               <Field label="Memo"><input className={inputClass} value={memo} onChange={(e) => setMemo(e.target.value)} /></Field>
-              <IconBtn action="post" disabled={busy || !can('post')}>{busy ? 'Posting…' : 'Post transfer'}</IconBtn>
+              <IconBtn action="post" type="submit" busy={busy} disabled={!can('post')}>{busy ? 'Posting transfer' : 'Post transfer'}</IconBtn>
             </form>
           </Card>
           <Card className="p-4">
@@ -255,7 +255,7 @@ export default function Banking() {
                 </select>
               </Field>
               <Field label={`Amount (${currency})`}><input className={inputClass} value={openingAmount} onChange={(e) => setOpeningAmount(e.target.value)} required /></Field>
-              <Field label="Date"><input type="date" className={inputClass} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+              <Field label="Date"><DateField value={date} onChange={setDate} /></Field>
               <div className="flex items-end"><IconBtn action="post" disabled={busy || !can('post')}>Post opening</IconBtn></div>
             </form>
           </Card>
@@ -329,7 +329,7 @@ export default function Banking() {
                 ))}
               </select>
             </Field>
-            <div className="flex items-end"><IconBtn action="create" disabled={busy || !can('create')}>{busy ? 'Saving…' : 'Save rule'}</IconBtn></div>
+            <div className="flex items-end"><IconBtn action="create" type="submit" busy={busy} disabled={!can('create')}>{busy ? 'Saving rule' : 'Save rule'}</IconBtn></div>
           </form>
           {bankRules.length === 0 ? (
             <p className="text-sm text-slate-500">No matching rules yet.</p>
