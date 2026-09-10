@@ -4,7 +4,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { db } from '../lib/firebase';
-import { doc, getDoc, collection, query, onSnapshot, addDoc, serverTimestamp, updateDoc, setDoc, deleteField } from '../lib/store';
+import { doc, getDoc, getDocs, collection, query, onSnapshot, addDoc, serverTimestamp, updateDoc, setDoc, deleteField } from '../lib/store';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send, Copy, Paperclip, Mail } from 'lucide-react';
@@ -87,6 +87,8 @@ export default function BookView() {
 
   const { addToast } = useToast();
   const [copiedInbound, setCopiedInbound] = useState(false);
+  const [inboundEvents, setInboundEvents] = useState<any[]>([]);
+  const [inboundEventsLoading, setInboundEventsLoading] = useState(false);
   const [receiptPreview, setReceiptPreview] = useState<{ url: string; title: string } | null>(null);
   const [unsentEmailChange, setUnsentEmailChange] = useState<{action: string, detail: string} | null>(null);  const navigate = useNavigate();
 
@@ -161,6 +163,27 @@ export default function BookView() {
     
     return () => unsubscribe();
   }, [bookId, currentUser]);
+
+  useEffect(() => {
+    if (!isMembersModalOpen || !bookId) return;
+    let cancelled = false;
+    setInboundEventsLoading(true);
+    getDocs(query(collection(db, `books/${bookId}/inbound_events`)), { force: true, kvMs: 5000 })
+      .then((snap) => {
+        if (cancelled) return;
+        const rows: any[] = [];
+        snap.forEach((d) => rows.push({ id: d.id, ...d.data() }));
+        rows.sort((a, b) => Date.parse(String(b.createdAt || '')) - Date.parse(String(a.createdAt || '')));
+        setInboundEvents(rows.slice(0, 30));
+      })
+      .catch(() => {
+        if (!cancelled) setInboundEvents([]);
+      })
+      .finally(() => {
+        if (!cancelled) setInboundEventsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [isMembersModalOpen, bookId]);
 
   if (loading) return <div className="p-8 flex justify-center"><div className="w-6 h-6 border-2 border-slate-200 border-t-zinc-600 rounded-full animate-spin" /></div>;
   if (!book) return <div className="p-8 text-center text-sm text-slate-500">Book not found or access denied.</div>;
@@ -289,6 +312,7 @@ export default function BookView() {
           userId: uid,
           bookId,
           bookName: book.name,
+          kind: 'entry',
           action,
           detail,
           senderName: userProfile?.displayName || currentUser?.email,
@@ -931,7 +955,7 @@ export default function BookView() {
                 <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
                   <Mail className="w-3.5 h-3.5" /> Receipt by email
                 </p>
-                <p className="text-sm text-slate-600 leading-relaxed">Forward any receipt or bill — photo, PDF, or payment mail. Byjan accepts it only if the sender is a member of this ledger, maps amount, date, merchant, and category into an entry, and emails the team a link to open it.</p>
+                <p className="text-sm text-slate-600 leading-relaxed">Any member of this ledger can forward a receipt or bill from their own email. Byjan only creates an entry if that From address is on the team below. Everyone on the ledger is notified, and the real mail log is listed here — nothing is invented.</p>
                 <div className="flex items-center gap-2">
                   <code className="flex-1 text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 truncate">{inboundAddress || inboundMailboxAddress(book.name)}</code>
                   <button type="button" className="byjan-btn-ghost !px-2.5" onClick={() => void copyInboundAddress()}>
@@ -940,6 +964,28 @@ export default function BookView() {
                   </button>
                 </div>
                 <p className="text-[11px] text-slate-500">The address uses this ledger’s name so it is easy to type. Sending from byjanbooks@easypado.com stays as it is.</p>
+                <div className="pt-2 border-t border-slate-100 space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Mail activity</p>
+                  {inboundEventsLoading ? (
+                    <p className="text-[11px] text-slate-500">Loading received mail…</p>
+                  ) : inboundEvents.length === 0 ? (
+                    <p className="text-[11px] text-slate-500">No inbound mail has been received for this ledger yet.</p>
+                  ) : (
+                    <ul className="space-y-1.5 max-h-40 overflow-y-auto">
+                      {inboundEvents.map((event) => (
+                        <li key={event.id} className="text-[11px] leading-snug rounded-lg border border-slate-100 bg-slate-50 px-2 py-1.5">
+                          <span className={event.status === 'accepted' ? 'font-semibold text-emerald-700' : 'font-semibold text-amber-800'}>
+                            {event.status === 'accepted' ? 'Added' : 'Not added'}
+                          </span>
+                          <span className="text-slate-500"> · {event.fromEmail || 'unknown sender'}</span>
+                          {event.subject ? <span className="block text-slate-600 truncate">{event.subject}</span> : null}
+                          {event.reason ? <span className="block text-slate-500">{event.reason}</span> : null}
+                          {event.amount ? <span className="block text-slate-600">{event.category} · {event.amount}</span> : null}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               </div>
               <div className="space-y-2">
                 {Object.entries(book.roles).map(([uid, data]: [string, any]) => (

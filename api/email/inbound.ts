@@ -526,9 +526,7 @@ function matchMember(mailbox: Mailbox, fromEmail: string) {
   if (!needle) return null;
   for (const [uid, row] of Object.entries(mailbox.roles || {})) {
     if (String(row?.email || '').toLowerCase() === needle) {
-      const role = String(row.role || 'contributor');
-      if (!['owner', 'admin', 'contributor'].includes(role)) return null;
-      return { uid, email: String(row.email), role };
+      return { uid, email: String(row.email), role: String(row.role || 'contributor') };
     }
   }
   return null;
@@ -607,17 +605,33 @@ async function sendMail(to: string, subject: string, html: string) {
   }
 }
 
-async function notifyMembers(mailbox: Mailbox, detail: string, bookId: string, senderName: string) {
+async function logInboundEvent(bookId: string, event: Record<string, unknown>) {
+  const id = newId();
+  await docSet(`books/${bookId}/inbound_events/${id}`, {
+    id,
+    bookId,
+    createdAt: new Date().toISOString(),
+    ...event,
+  });
+  return id;
+}
+
+async function notifyMembers(
+  mailbox: Mailbox,
+  detail: string,
+  bookId: string,
+  senderName: string,
+  action: string,
+) {
   const emails = Object.values(mailbox.roles).map((row) => String(row?.email || '').toLowerCase()).filter(Boolean);
   const unique = [...new Set(emails)];
   const link = `${APP_ORIGIN}/#/book/${bookId}`;
   const html = `
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px">
       <p style="font-weight:700;color:#0B1F3A;letter-spacing:1px">Byjan</p>
-      <h2 style="color:#111827;font-size:20px;margin:12px 0 8px">Entry added from inbound mail</h2>
-      <p style="color:#374151;font-size:15px;line-height:1.5"><strong>${senderName}</strong> sent a receipt or bill for <strong>${mailbox.name}</strong>. Byjan checked they are a member, mapped the details into an entry, and notified everyone on this ledger.</p>
+      <h2 style="color:#111827;font-size:20px;margin:12px 0 8px">Inbound mail · ${mailbox.name}</h2>
+      <p style="color:#374151;font-size:15px;line-height:1.5"><strong>${senderName}</strong> — ${action}</p>
       <p style="color:#0f172a;font-size:15px;font-weight:500">${detail}</p>
-      <p style="color:#64748b;font-size:13px">Open the ledger to review the entry and edit any field that needs a correction.</p>
       <p style="text-align:center;margin:28px 0 8px">
         <a href="${link}" style="display:inline-block;background:#0B1F3A;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:700;font-size:14px">Open ledger in Byjan</a>
       </p>
@@ -626,7 +640,7 @@ async function notifyMembers(mailbox: Mailbox, detail: string, bookId: string, s
   `;
   for (const email of unique) {
     try {
-      await sendMail(email, `Byjan added an entry in ${mailbox.name}`, html);
+      await sendMail(email, `Inbound mail in ${mailbox.name}`, html);
     } catch (err) {
       console.error('inbound notify failed', email, err);
     }
@@ -638,7 +652,8 @@ async function notifyMembers(mailbox: Mailbox, detail: string, bookId: string, s
       userId: uid,
       bookId,
       bookName: mailbox.name,
-      action: 'sent a receipt or bill. Byjan added an entry',
+      kind: 'inbound',
+      action,
       detail,
       senderName,
       link,
@@ -666,10 +681,27 @@ async function processItem(item: any) {
   if (!mailbox) return { skipped: 'unknown ledger', bookId };
 
   const fromEmail = emailsFrom(item.From)[0] || emailsFrom(item.Headers?.From)[0] || '';
-  const member = matchMember(mailbox, fromEmail);
-  if (!member) return { skipped: 'sender is not a writable member', bookId, from: fromEmail };
-
   const subject = firstString(item.Subject, item.Headers?.Subject);
+  const member = matchMember(mailbox, fromEmail);
+  if (!member) {
+    await docSet(seenKey, { bookId, at: new Date().toISOString(), status: 'rejected' });
+    await logInboundEvent(bookId, {
+      status: 'rejected',
+      reason: fromEmail ? 'Sender is not a member of this ledger' : 'No From address',
+      fromEmail: fromEmail || '(missing)',
+      subject: subject || '(no subject)',
+    });
+    await notifyMembers(
+      mailbox,
+      fromEmail
+        ? `${fromEmail} sent mail to this ledger. No entry was created because that address is not on the team.`
+        : 'Mail arrived with no From address. No entry was created.',
+      bookId,
+      fromEmail || 'Unknown sender',
+      'Inbound mail was not added',
+    );
+    return { skipped: 'sender is not a member', bookId, from: fromEmail };
+  }
   const body = clipQuoted(firstString(
     item.ExtractedMarkdownMessage,
     item.RawTextBody,
@@ -714,11 +746,21 @@ async function processItem(item: any) {
     receiptName: receipt?.name || null,
   };
   await docSet(`books/${bookId}/expenses/${id}`, expense);
-  await docSet(seenKey, { id, bookId, at: new Date().toISOString() });
+  await docSet(seenKey, { id, bookId, at: new Date().toISOString(), status: 'accepted' });
+  await logInboundEvent(bookId, {
+    status: 'accepted',
+    fromEmail: member.email,
+    subject: subject || '(no subject)',
+    expenseId: id,
+    amount: parsed.amount,
+    category: parsed.category,
+    description: parsed.description,
+    hasFile: Boolean(receipt?.path),
+  });
   const detail = parsed.amount
     ? `${mailbox.currency} ${parsed.amount.toFixed(2)} · ${parsed.category} · ${parsed.description} · from ${member.email}`
     : `Entry from ${member.email}. Amount was not found on the document — open the ledger and fill it in.`;
-  await notifyMembers(mailbox, detail, bookId, member.email);
+  await notifyMembers(mailbox, detail, bookId, member.email, 'sent inbound mail. Byjan added an entry');
   return { ok: true, bookId, expenseId: id, amount: parsed.amount, category: parsed.category, date: parsed.date };
 }
 

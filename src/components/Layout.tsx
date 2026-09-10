@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { logout, db } from '../lib/firebase';
-import { Bell, CheckCircle2, Menu, X } from 'lucide-react';
+import { Bell, CheckCircle2, Menu, X, Mail } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { collection, query, where, getDocs, updateDoc, doc } from '../lib/store';
@@ -30,13 +30,17 @@ export default function Layout() {
     setMobileMenuOpen(false);
   }, [location.pathname]);
 
-  useEffect(() => {
+  const loadNotifications = () => {
     if (!currentUser) return;
     const q = query(collection(db, 'notifications'), where('userId', '==', currentUser.uid));
-    getDocs(q).then((snap) => {
+    getDocs(q, { force: true, kvMs: 5000 }).then((snap) => {
       const notifs: any[] = [];
       snap.forEach((d) => notifs.push({ id: d.id, ...d.data() }));
       const millis = (value: any) => {
+        if (typeof value === 'string') {
+          const parsed = Date.parse(value);
+          return Number.isNaN(parsed) ? 0 : parsed;
+        }
         try {
           if (value && typeof value.toMillis === 'function') return value.toMillis();
         } catch { /* pending server timestamp */ }
@@ -47,7 +51,16 @@ export default function Layout() {
     }).catch((err) => {
       if ((err as { code?: string }).code !== 'resource-exhausted') console.error(err);
     });
+  };
+
+  useEffect(() => {
+    loadNotifications();
   }, [currentUser?.uid]);
+
+  const openNotifications = () => {
+    setNotificationsPanelOpen(true);
+    loadNotifications();
+  };
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
@@ -73,7 +86,7 @@ export default function Layout() {
           <SearchTrigger />
           <button
             type="button"
-            onClick={() => setNotificationsPanelOpen(true)}
+            onClick={openNotifications}
             className="relative w-10 h-10 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 flex items-center justify-center"
             title="Notifications"
           >
@@ -121,7 +134,7 @@ export default function Layout() {
           </div>
           <button
             type="button"
-            onClick={() => setNotificationsPanelOpen(true)}
+            onClick={openNotifications}
             className="relative w-10 h-10 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 flex items-center justify-center shadow-[0_1px_2px_rgba(11,31,58,0.06)]"
             title="Notifications"
           >
@@ -177,7 +190,10 @@ export default function Layout() {
                       )}
                     >
                     <div className="flex justify-between items-start mb-1">
-                      <span className="font-semibold text-slate-800">{notif.bookName}</span>
+                      <span className="font-semibold text-slate-800 flex items-center gap-1.5">
+                        {notif.kind === 'inbound' ? <Mail className="w-3.5 h-3.5 text-slate-400" /> : null}
+                        {notif.bookName}
+                      </span>
                       {!notif.read && (
                         <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); void handleMarkAsRead(notif.id); }} className="text-indigo-600 hover:text-indigo-700" title="Mark as read">
                           <CheckCircle2 className="w-4 h-4" />
