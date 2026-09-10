@@ -41,12 +41,14 @@ export default function Journals() {
     try {
       setBusy(true);
       setError('');
-      const parsed: JournalLineInput[] = lines.map((line) => ({
-        accountId: line.accountId,
-        debitMinor: line.debit ? parseMoney(line.debit) : 0,
-        creditMinor: line.credit ? parseMoney(line.credit) : 0,
-        memo: line.memo.trim(),
-      }));
+      const parsed: JournalLineInput[] = lines
+        .filter((line) => line.accountId && (line.debit || line.credit))
+        .map((line) => ({
+          accountId: line.accountId,
+          debitMinor: line.debit ? parseMoney(line.debit) : 0,
+          creditMinor: line.credit ? parseMoney(line.credit) : 0,
+          memo: line.memo.trim(),
+        }));
       await postJournal({ date, description, lines: parsed });
       setOpen(false);
       setDescription('');

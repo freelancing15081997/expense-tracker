@@ -1,6 +1,7 @@
-import { lineAmount } from '../core/money';
-import type { DocumentKind, DocumentLineInput, FinanceAccount, JournalLineInput, SystemAccountKey, TaxBreakdown } from '../core/types';
+import { addDays, lineAmount } from '../core/money';
+import type { DocumentKind, DocumentLineInput, FinanceAccount, FinanceDocument, JournalLineInput, SystemAccountKey, TaxBreakdown, TaxCode } from '../core/types';
 import { BooksError, invertLines } from './journal';
+import { computeDocument } from './tax';
 
 function groupExclusive(lines: DocumentLineInput[]): Map<string, number> {
   const grouped = new Map<string, number>();
@@ -82,6 +83,99 @@ export function expenseJournalLines(
   return lines;
 }
 
+export const DOCUMENT_CONVERT: Partial<Record<DocumentKind, DocumentKind>> = {
+  estimate: 'invoice',
+  quote: 'invoice',
+  sales_order: 'invoice',
+  purchase_request: 'purchase_order',
+  purchase_order: 'bill',
+  purchase_receipt: 'bill',
+};
+
+export function assertCanConvert(from: DocumentKind, to: DocumentKind) {
+  if (DOCUMENT_CONVERT[from] !== to) {
+    throw new BooksError(`A ${from.replace(/_/g, ' ')} cannot convert to a ${to.replace(/_/g, ' ')}`);
+  }
+}
+
+const UNTAXED_SOURCE: DocumentKind[] = ['purchase_request', 'purchase_receipt'];
+
+export function prepareConvertedTotals(
+  source: Pick<FinanceDocument, 'kind' | 'date' | 'dueDate' | 'lines' | 'tax' | 'totalMinor' | 'interstate' | 'partyId'>,
+  nextKind: DocumentKind,
+  taxCodes: TaxCode[],
+) {
+  assertCanConvert(source.kind, nextKind);
+  if ((nextKind === 'invoice' || nextKind === 'bill') && !source.partyId) {
+    throw new BooksError(nextKind === 'invoice' ? 'Add a customer before converting' : 'Add a vendor before converting');
+  }
+  const dueDate = nextKind === 'invoice' || nextKind === 'bill' ? addDays(source.date, 30) : source.dueDate;
+  let lines = source.lines;
+  let tax = source.tax;
+  let totalMinor = source.totalMinor;
+  const destIsTaxed = nextKind === 'invoice' || nextKind === 'bill';
+  if (UNTAXED_SOURCE.includes(source.kind) && destIsTaxed) {
+    const gst = taxCodes.find((t) => t.active !== false && t.id === 'GST18') || taxCodes.find((t) => t.active !== false && t.rateBps === 1800);
+    if (gst) {
+      const byId = new Map(taxCodes.map((t) => [t.id, t]));
+      lines = source.lines.map((line) => {
+        const code = byId.get(line.taxCode);
+        if (!code || code.rateBps === 0) return { ...line, taxCode: gst.id };
+        return line;
+      });
+      const computed = computeDocument(lines, byId, source.interstate);
+      lines = computed.lines;
+      tax = computed.tax;
+      totalMinor = computed.totalMinor;
+    }
+  }
+  return { lines, tax, totalMinor, dueDate };
+}
+
+export function creditTargetKind(kind: DocumentKind): DocumentKind | null {
+  if (kind === 'credit_note') return 'invoice';
+  if (kind === 'vendor_credit') return 'bill';
+  return null;
+}
+
+export function applyCreditAmount(
+  credit: Pick<FinanceDocument, 'kind' | 'partyId' | 'status' | 'totalMinor' | 'paidMinor'>,
+  target: Pick<FinanceDocument, 'kind' | 'partyId' | 'status' | 'totalMinor' | 'paidMinor'>,
+  requestedMinor?: number,
+) {
+  const expected = creditTargetKind(credit.kind);
+  if (!expected) throw new BooksError('Only credit notes and vendor credits can be applied');
+  if (target.kind !== expected) {
+    throw new BooksError(expected === 'invoice' ? 'Apply this credit note to an invoice' : 'Apply this vendor credit to a bill');
+  }
+  if (!credit.partyId || credit.partyId !== target.partyId) {
+    throw new BooksError('Credit and target must be for the same customer or vendor');
+  }
+  if (credit.status !== 'posted' && credit.status !== 'paid') throw new BooksError('Post the credit before applying it');
+  if (target.status !== 'posted' && target.status !== 'paid') throw new BooksError('Post the target document first');
+  const unused = credit.totalMinor - credit.paidMinor;
+  const outstanding = target.totalMinor - target.paidMinor;
+  if (unused <= 0) throw new BooksError('This credit is fully applied');
+  if (outstanding <= 0) throw new BooksError('This document has no outstanding balance');
+  const amount = requestedMinor ?? Math.min(unused, outstanding);
+  if (amount <= 0 || amount > unused || amount > outstanding) {
+    throw new BooksError('Apply amount must be within the unused credit and outstanding balance');
+  }
+  return amount;
+}
+
+export function partyReceivableExposure(documents: Pick<FinanceDocument, 'kind' | 'partyId' | 'status' | 'totalMinor' | 'paidMinor'>[], partyId: string) {
+  let exposure = 0;
+  for (const doc of documents) {
+    if (doc.partyId !== partyId) continue;
+    if (doc.status !== 'posted' && doc.status !== 'paid') continue;
+    const open = doc.totalMinor - doc.paidMinor;
+    if (doc.kind === 'invoice' || doc.kind === 'debit_note') exposure += open;
+    else if (doc.kind === 'credit_note') exposure -= open;
+  }
+  return exposure;
+}
+
 export function paymentJournalLines(
   kind: DocumentKind,
   accounts: FinanceAccount[],
@@ -89,7 +183,7 @@ export function paymentJournalLines(
   cashAccountId: string
 ): JournalLineInput[] {
   if (amountMinor <= 0) throw new BooksError('Payment must be greater than zero');
-  if (kind === 'invoice') {
+  if (kind === 'invoice' || kind === 'debit_note') {
     const ar = requireSystem(accounts, 'ar');
     return [
       { accountId: cashAccountId, debitMinor: amountMinor, creditMinor: 0, memo: 'Customer receipt' },

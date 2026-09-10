@@ -21,7 +21,14 @@ import { assertCan, type BooksAction } from '../core/permissions';
 import { normalBalanceFor, seedAccounts, TAX_SEED } from '../engine/chartOfAccounts';
 import { assertBalanced, assertPostable, invertLines, nextNumber, BooksError } from '../engine/journal';
 import { computeDocument } from '../engine/tax';
-import { docNumberPrefix, documentJournalType, documentToJournalLines, paymentJournalLines } from '../engine/posting';
+import {
+  applyCreditAmount,
+  docNumberPrefix,
+  documentJournalType,
+  documentToJournalLines,
+  paymentJournalLines,
+  prepareConvertedTotals,
+} from '../engine/posting';
 import type {
   Approval,
   AuditEvent,
@@ -601,10 +608,13 @@ export async function saveDocument(
   assertCan(ctx.role, input.id ? 'edit' : 'create');
   const computed = computeDocument(input.lines, new Map(input.taxCodes.map((t) => [t.id, t])), input.interstate);
   const ref = input.id ? doc(col(ctx.db, ctx.tenantId, 'documents'), input.id) : doc(col(ctx.db, ctx.tenantId, 'documents'));
+  let convertedFromId: string | null = null;
   if (input.id) {
     const snap = await getDoc(ref);
     if (!snap.exists()) throw new BooksError('Document not found');
-    if (snap.data().status !== 'draft') throw new BooksError('Only draft documents can be edited');
+    const existing = snap.data() as FinanceDocument;
+    if (existing.status !== 'draft') throw new BooksError('Only draft documents can be edited');
+    convertedFromId = existing.convertedFromId || null;
   }
   const base = {
     kind: input.kind,
@@ -628,7 +638,7 @@ export async function saveDocument(
     placeOfSupply: (input.placeOfSupply || '').trim(),
     billTo: (input.billTo || '').trim(),
     shipTo: (input.shipTo || '').trim(),
-    convertedFromId: null,
+    convertedFromId,
     updatedAt: nowISO(),
   };
   if (input.id) await updateDoc(ref, clean(base));
@@ -657,12 +667,9 @@ export async function convertDocument(ctx: TxCtx, documentId: string, nextKind: 
   if (!snap.exists()) throw new BooksError('Document not found');
   const source = { id: snap.id, ...snap.data() } as FinanceDocument;
   if (source.status === 'voided') throw new BooksError('Cannot convert a voided document');
-  if (source.kind === 'quote' && nextKind !== 'invoice') throw new BooksError('A quote converts to an invoice');
-  if (source.kind === 'estimate' && nextKind !== 'invoice') throw new BooksError('An estimate converts to an invoice');
-  if (source.kind === 'sales_order' && nextKind !== 'invoice') throw new BooksError('A sales order converts to an invoice');
-  if (source.kind === 'purchase_order' && nextKind !== 'bill') throw new BooksError('A purchase order converts to a bill');
-  if (source.kind === 'purchase_receipt' && nextKind !== 'bill') throw new BooksError('A goods receipt converts to a bill');
-  if (source.kind === 'purchase_request' && nextKind !== 'purchase_order') throw new BooksError('A purchase request converts to a purchase order');
+  const taxSnap = await getDocs(col(ctx.db, ctx.tenantId, 'taxCodes'));
+  const taxCodes = (taxSnap.docs || []).map((d) => ({ id: d.id, ...(d.data() as object) })) as TaxCode[];
+  const converted = prepareConvertedTotals(source, nextKind, taxCodes);
   const tenantSnap = await getDoc(tenantRef(ctx.db, ctx.tenantId));
   const tenant = tenantSnap.data() as FinanceTenant;
   const seq = (tenant.sequences[nextKind] || 0) + 1;
@@ -672,18 +679,24 @@ export async function convertDocument(ctx: TxCtx, documentId: string, nextKind: 
     number: nextNumber(docNumberPrefix(nextKind), seq),
     partyId: source.partyId,
     date: source.date,
-    dueDate: source.dueDate,
-    lines: source.lines,
-    taxCode: source.taxCode,
+    dueDate: converted.dueDate,
+    lines: converted.lines,
+    taxCode: converted.lines[0]?.taxCode || source.taxCode,
     interstate: source.interstate,
-    tax: source.tax,
-    totalMinor: source.totalMinor,
+    tax: converted.tax,
+    totalMinor: converted.totalMinor,
     paidMinor: 0,
     status: 'draft',
     journalId: null,
     paymentJournalIds: [],
     memo: source.memo,
     projectId: source.projectId || null,
+    poNumber: source.poNumber || '',
+    customerNotes: source.customerNotes || '',
+    terms: source.terms || '',
+    placeOfSupply: source.placeOfSupply || '',
+    billTo: source.billTo || '',
+    shipTo: source.shipTo || '',
     convertedFromId: source.id,
     idempotencyKey: `${nextKind}_${ref.id}`,
     createdBy: ctx.uid,
@@ -829,6 +842,34 @@ export async function recordPayment(
     });
     writeAudit(tx, ctx, 'payment', document.kind, document.id, { amountMinor, journalId: posted.journalId });
     return posted.journalId;
+  });
+}
+
+export async function applyCredit(ctx: TxCtx, creditId: string, targetId: string, amountMinor?: number) {
+  return runTransaction(ctx.db, async (tx) => {
+    await lockTenant(tx, ctx, 'post');
+    const creditRef = doc(col(ctx.db, ctx.tenantId, 'documents'), creditId);
+    const targetRef = doc(col(ctx.db, ctx.tenantId, 'documents'), targetId);
+    const creditSnap = await tx.get(creditRef);
+    const targetSnap = await tx.get(targetRef);
+    if (!creditSnap.exists() || !targetSnap.exists()) throw new BooksError('Document not found');
+    const credit = { id: creditSnap.id, ...creditSnap.data() } as FinanceDocument;
+    const target = { id: targetSnap.id, ...targetSnap.data() } as FinanceDocument;
+    const amount = applyCreditAmount(credit, target, amountMinor);
+    const creditPaid = credit.paidMinor + amount;
+    const targetPaid = target.paidMinor + amount;
+    tx.update(creditRef, {
+      paidMinor: creditPaid,
+      status: creditPaid === credit.totalMinor ? 'paid' : 'posted',
+      updatedAt: nowISO(),
+    });
+    tx.update(targetRef, {
+      paidMinor: targetPaid,
+      status: targetPaid === target.totalMinor ? 'paid' : 'posted',
+      updatedAt: nowISO(),
+    });
+    writeAudit(tx, ctx, 'payment', credit.kind, credit.id, { appliedTo: target.id, amountMinor: amount });
+    return amount;
   });
 }
 

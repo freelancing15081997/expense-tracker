@@ -35,6 +35,7 @@ import type {
 import {
   closePeriod,
   convertDocument,
+  applyCredit,
   loadLedger,
   loadWorkspace,
   postDocument,
@@ -57,6 +58,7 @@ import {
 } from '../data/repo';
 import { createChildWorkspace, listOrgDirectory, syncOrgIndexName } from '../data/orgs';
 import { BOOKS_WORKSPACE_EVENT, ownsWorkspace, readActiveWorkspace, selectWorkspace, writeActiveWorkspace, type OrgRecord } from '../core/hierarchy';
+import { partyReceivableExposure } from '../engine/posting';
 import {
   addEntity,
   adjustStock,
@@ -167,6 +169,7 @@ type BooksContextValue = {
   }) => Promise<string>;
   postDoc: (id: string, payFromAccountId?: string) => Promise<void>;
   payDoc: (id: string, amountMinor: number, date: string, cashAccountId: string) => Promise<void>;
+  applyDocCredit: (creditId: string, targetId: string, amountMinor?: number) => Promise<void>;
   voidDoc: (id: string) => Promise<void>;
   convertDoc: (id: string, nextKind: DocumentKind) => Promise<string>;
   postJournal: (input: { date: string; description: string; lines: JournalLineInput[] }) => Promise<void>;
@@ -554,12 +557,10 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
       createDocument: (input) => after(() => saveDocument(ctx(), { ...input, taxCodes }), 'Draft saved'),
       postDoc: async (id, payFromAccountId) => {
         const row = documents.find((d) => d.id === id);
-        if (row?.kind === 'invoice' && row.partyId) {
+        if ((row?.kind === 'invoice' || row?.kind === 'debit_note') && row.partyId) {
           const party = parties.find((p) => p.id === row.partyId);
           if (party?.creditLimitMinor) {
-            const used = documents
-              .filter((d) => d.partyId === row.partyId && (d.kind === 'invoice' || d.kind === 'debit_note') && (d.status === 'posted' || d.status === 'paid'))
-              .reduce((s, d) => s + (d.totalMinor - d.paidMinor), 0);
+            const used = partyReceivableExposure(documents, row.partyId);
             if (used + row.totalMinor > party.creditLimitMinor) {
               const message = `Credit limit exceeded for ${party.name}`;
               addToast(message, 'error');
@@ -570,6 +571,7 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
         return after(() => postDocument(ctx(), id, accounts, payFromAccountId), 'Posted to the ledger', 'post');
       },
       payDoc: (id, amountMinor, date, cashAccountId) => after(() => recordPayment(ctx(), id, amountMinor, date, cashAccountId, accounts), 'Payment posted', 'post'),
+      applyDocCredit: (creditId, targetId, amountMinor) => after(() => applyCredit(ctx(), creditId, targetId, amountMinor), 'Credit applied', 'post'),
       voidDoc: (id) => after(() => voidDocument(ctx(), id), 'Voided', 'delete'),
       convertDoc: (id, nextKind) => after(() => convertDocument(ctx(), id, nextKind), 'Converted'),
       postJournal: (input) => after(() => postManualJournal(ctx(), { ...input, idempotencyKey: `manual_${crypto.randomUUID()}` }), 'Journal posted', 'post'),

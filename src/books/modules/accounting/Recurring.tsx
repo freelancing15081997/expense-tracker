@@ -73,11 +73,13 @@ export default function Recurring() {
               try {
                 setBusy(true);
                 setError('');
-                const parsed: JournalLineInput[] = lines.map((line) => ({
-                  accountId: line.accountId,
-                  debitMinor: line.debit ? parseMoney(line.debit) : 0,
-                  creditMinor: line.credit ? parseMoney(line.credit) : 0,
-                }));
+                const parsed: JournalLineInput[] = lines
+                  .filter((line) => line.accountId && (line.debit || line.credit))
+                  .map((line) => ({
+                    accountId: line.accountId,
+                    debitMinor: line.debit ? parseMoney(line.debit) : 0,
+                    creditMinor: line.credit ? parseMoney(line.credit) : 0,
+                  }));
                 await createRecurring({ name, description, kind: 'journal', lines: parsed });
                 reset();
                 setOk('Journal template saved.');

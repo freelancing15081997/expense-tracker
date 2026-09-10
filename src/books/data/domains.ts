@@ -1,6 +1,6 @@
 import { doc, getDocsMany, setDoc, updateDoc, type Firestore, type QuerySnapshot } from '../../lib/store';
 import { clean } from '../core/clean';
-import { todayISO } from '../core/money';
+import { lineAmount, todayISO } from '../core/money';
 import { assertCan } from '../core/permissions';
 import type {
   Approval,
@@ -72,7 +72,7 @@ export async function receiveStock(ctx: TxCtx, product: Product, qtyMilli: numbe
   if (qtyMilli <= 0) throw new BooksError('Quantity must be greater than zero');
   const inventory = accounts.find((a) => a.systemKey === 'inventory');
   if (!inventory) throw new BooksError('Inventory account is missing');
-  const amount = Math.round((qtyMilli * product.costMinor) / 1000);
+  const amount = lineAmount(qtyMilli, product.costMinor);
   if (amount <= 0) throw new BooksError('Set a cost on the product first');
   const journalId = await postManualJournal(ctx, {
     date: todayISO(),
@@ -93,7 +93,7 @@ export async function issueStock(ctx: TxCtx, product: Product, qtyMilli: number,
   const inventory = accounts.find((a) => a.systemKey === 'inventory');
   const cogs = accounts.find((a) => a.systemKey === 'cogs');
   if (!inventory || !cogs) throw new BooksError('Inventory or COGS account is missing');
-  const amount = Math.round((qtyMilli * product.costMinor) / 1000);
+  const amount = lineAmount(qtyMilli, product.costMinor);
   if (amount <= 0) throw new BooksError('Set a cost on the product first');
   const journalId = await postManualJournal(ctx, {
     date: todayISO(),
@@ -190,10 +190,11 @@ export async function disposeAsset(ctx: TxCtx, asset: FixedAsset, proceedsMinor:
 export async function adjustStock(ctx: TxCtx, product: Product, qtyMilli: number, accounts: FinanceAccount[]) {
   if (product.kind !== 'goods') throw new BooksError('Only goods have stock');
   if (qtyMilli === 0) throw new BooksError('Adjustment cannot be zero');
+  if (product.qtyMilli + qtyMilli < 0) throw new BooksError('Not enough stock');
   const inventory = accounts.find((a) => a.systemKey === 'inventory');
   const cogs = accounts.find((a) => a.systemKey === 'cogs') || accounts.find((a) => a.systemKey === 'operating_expense');
   if (!inventory || !cogs) throw new BooksError('Inventory or COGS account is missing');
-  const amount = Math.round((Math.abs(qtyMilli) * product.costMinor) / 1000);
+  const amount = lineAmount(Math.abs(qtyMilli), product.costMinor);
   if (amount <= 0) throw new BooksError('Set a cost on the product first');
   const increase = qtyMilli > 0;
   await postManualJournal(ctx, {

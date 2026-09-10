@@ -165,6 +165,28 @@ export function gstSummary(documents: FinanceDocument[], from: string, to: strin
   };
 }
 
+export function ageOpenDocuments(
+  documents: FinanceDocument[],
+  parties: { id: string; name: string }[],
+  today: string,
+) {
+  return documents
+    .filter((d) => (d.kind === 'invoice' || d.kind === 'bill' || d.kind === 'debit_note') && (d.status === 'posted' || d.status === 'paid') && d.paidMinor < d.totalMinor)
+    .map((d) => {
+      const due = d.dueDate || d.date;
+      const days = Math.max(0, Math.floor((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${due}T00:00:00Z`)) / 86400000));
+      const bucket = days <= 0 ? 'Current' : days <= 30 ? '1-30' : days <= 60 ? '31-60' : '61+';
+      return {
+        ...d,
+        days,
+        bucket,
+        outstanding: d.totalMinor - d.paidMinor,
+        party: parties.find((p) => p.id === d.partyId)?.name || '—',
+        side: d.kind === 'bill' ? 'ap' : 'ar',
+      };
+    });
+}
+
 export function downloadCsv(filename: string, rows: Array<Array<string | number>>) {
   const body = rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
   const blob = new Blob([body], { type: 'text/csv;charset=utf-8' });

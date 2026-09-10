@@ -8,6 +8,7 @@ import { todayISO } from '../../core/money';
 import { documentHref } from '../../../lib/search-index';
 import {
   activityByAccount,
+  ageOpenDocuments,
   directCashFlow,
   downloadCsv,
   gstSummary,
@@ -38,17 +39,10 @@ export default function Reports() {
   const liabilities = sumTypes(asOfAccounts, ['liability']);
   const equity = sumTypes(asOfAccounts, ['equity']) + (sumTypes(asOfAccounts, ['revenue', 'other_income']) - sumTypes(asOfAccounts, ['expense', 'cogs', 'other_expense']));
 
-  const aging = useMemo(() => {
-    const today = todayISO();
-    return documents
-      .filter((d) => (d.kind === 'invoice' || d.kind === 'bill') && d.status === 'posted' && d.paidMinor < d.totalMinor)
-      .map((d) => {
-        const due = d.dueDate || d.date;
-        const days = Math.max(0, Math.floor((Date.parse(today) - Date.parse(due)) / 86400000));
-        const bucket = days <= 0 ? 'Current' : days <= 30 ? '1-30' : days <= 60 ? '31-60' : '61+';
-        return { ...d, days, bucket, outstanding: d.totalMinor - d.paidMinor, party: parties.find((p) => p.id === d.partyId)?.name || '—' };
-      });
-  }, [documents, parties]);
+  const aging = useMemo(
+    () => ageOpenDocuments(documents, parties, todayISO()),
+    [documents, parties],
+  );
 
   const gst = useMemo(() => gstSummary(documents, start, end), [documents, start, end]);
   const cash = useMemo(() => directCashFlow(journals, accounts, start, end), [journals, accounts, start, end]);
@@ -76,6 +70,23 @@ export default function Reports() {
     }
     if (report === 'cf') {
       downloadCsv('cash-flow.csv', [['Date', 'Journal', 'Bucket', 'Amount'], ...cash.rows.map((r) => [r.date, r.number, r.bucket, r.amount / 100])]);
+      return;
+    }
+    if (report === 'bs') {
+      downloadCsv('balance-sheet.csv', [
+        ['Account', 'Amount'],
+        ...listTypes(groupedAsOf, ['asset', 'liability', 'equity']).map((r) => [r.name, r.amount / 100]),
+        ['Assets', assets / 100],
+        ['Liabilities', liabilities / 100],
+        ['Equity', equity / 100],
+      ]);
+      return;
+    }
+    if (report === 'aging') {
+      downloadCsv('aging.csv', [
+        ['Document', 'Kind', 'Party', 'Side', 'Due', 'Bucket', 'Outstanding'],
+        ...aging.map((r) => [r.number, r.kind, r.party, r.side, r.dueDate || r.date, r.bucket, r.outstanding / 100]),
+      ]);
     }
   };
 
@@ -229,17 +240,19 @@ export default function Reports() {
               <tr>
                 <th className="px-4 py-3 font-medium">Doc</th>
                 <th className="px-4 py-3 font-medium">Party</th>
+                <th className="px-4 py-3 font-medium">Side</th>
                 <th className="px-4 py-3 font-medium">Bucket</th>
                 <th className="px-4 py-3 font-medium text-right">Outstanding</th>
               </tr>
             </thead>
             <tbody>
               {aging.length === 0 ? (
-                <tr><td colSpan={4} className="px-4 py-8 text-center text-slate-500">No open invoices or bills.</td></tr>
+                <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-500">No open invoices, debit notes, or bills.</td></tr>
               ) : aging.map((row) => (
                 <tr key={row.id} className="border-b border-slate-100">
                   <td className="px-4 py-2.5"><Link to={documentHref(row.kind, row.id)} className="font-medium text-teal-800 hover:underline">{row.number}</Link></td>
                   <td className="px-4 py-2.5">{row.party}</td>
+                  <td className="px-4 py-2.5 uppercase text-xs">{row.side}</td>
                   <td className="px-4 py-2.5">{row.bucket}</td>
                   <td className="px-4 py-2.5 text-right"><Money minor={row.outstanding} currency={currency} /></td>
                 </tr>

@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
+    "test:books": "tsx scripts/books-flow-test.ts",
     "start": "node --dns-result-order=ipv4first dist/server.cjs",
     "migrate:firestore": "node scripts/migrate-firestore-to-postgres.mjs",
     "validate:migration": "node scripts/validate-migration.mjs",

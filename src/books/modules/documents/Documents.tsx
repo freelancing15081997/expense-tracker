@@ -78,6 +78,7 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [pay, setPay] = useState<{ id: string; amount: string; date: string; accountId: string } | null>(null);
+  const [apply, setApply] = useState<{ creditId: string; targetId: string; amount: string } | null>(null);
   const [projectId, setProjectId] = useState('');
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [quickOpen, setQuickOpen] = useState(false);
@@ -467,7 +468,9 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
                     <td className="px-4 py-2.5 text-right"><Money minor={row.totalMinor} currency={currency} /></td>
                     {profile.listDue && (
                       <td className="px-4 py-2.5 text-right">
-                        {profile.canPay ? <Money minor={due} currency={currency} /> : (row.dueDate || '—')}
+                        {profile.canPay || kind === 'credit_note' || kind === 'vendor_credit'
+                          ? <Money minor={due} currency={currency} />
+                          : (row.dueDate || '—')}
                       </td>
                     )}
                     <td className="px-4 py-2.5"><Status value={row.status} /></td>
@@ -495,6 +498,9 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
                         )}
                         {(row.status === 'posted') && due > 0 && profile.canPay && can('post') && (
                           <button className={btnGhost} onClick={() => setPay({ id: row.id, amount: (due / 100).toFixed(2), date: todayISO(), accountId: cashAccounts[0]?.id || '' })}>Payment</button>
+                        )}
+                        {(kind === 'credit_note' || kind === 'vendor_credit') && (row.status === 'posted' || row.status === 'paid') && due > 0 && can('post') && (
+                          <button className={btnGhost} onClick={() => setApply({ creditId: row.id, targetId: '', amount: (due / 100).toFixed(2) })}>Apply</button>
                         )}
                       </div>
                     </td>
@@ -615,6 +621,52 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
           {error && <p className="text-sm text-rose-600 mt-2">{error}</p>}
         </Card>
       )}
+      {apply && (() => {
+        const credit = documents.find((d) => d.id === apply.creditId);
+        const targetKind = kind === 'credit_note' ? 'invoice' : 'bill';
+        const targets = documents.filter((d) => d.kind === targetKind && d.partyId && d.partyId === credit?.partyId && (d.status === 'posted' || d.status === 'paid') && d.paidMinor < d.totalMinor);
+        return (
+          <Card className="p-4">
+            <form
+              className="grid md:grid-cols-3 gap-3"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                try {
+                  setBusy(true);
+                  setError('');
+                  if (!apply.targetId) throw new Error(targetKind === 'invoice' ? 'Select an invoice' : 'Select a bill');
+                  await books.applyDocCredit(apply.creditId, apply.targetId, parseMoney(apply.amount));
+                  setApply(null);
+                } catch (err: any) {
+                  setError(err.message || 'Could not apply credit');
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              <Field label={targetKind === 'invoice' ? 'Apply to invoice' : 'Apply to bill'}>
+                <select className={inputClass} value={apply.targetId} onChange={(e) => {
+                  const target = targets.find((d) => d.id === e.target.value);
+                  const unused = credit ? credit.totalMinor - credit.paidMinor : 0;
+                  const outstanding = target ? target.totalMinor - target.paidMinor : unused;
+                  setApply({ ...apply, targetId: e.target.value, amount: (Math.min(unused, outstanding) / 100).toFixed(2) });
+                }}>
+                  <option value="">{targets.length ? 'Select' : 'No open documents for this party'}</option>
+                  {targets.map((d) => (
+                    <option key={d.id} value={d.id}>{d.number} · {formatMinorPlain(d.totalMinor - d.paidMinor)} open</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Amount"><input className={inputClass} value={apply.amount} onChange={(e) => setApply({ ...apply, amount: e.target.value })} /></Field>
+              <div className="flex items-end gap-2">
+                <button className={btnPrimary} disabled={busy || !apply.targetId}>Apply</button>
+                <button type="button" className={btnGhost} onClick={() => setApply(null)}>Cancel</button>
+              </div>
+            </form>
+            {error && <p className="text-sm text-rose-600 mt-2">{error}</p>}
+          </Card>
+        );
+      })()}
     </PageShell>
   );
 }
