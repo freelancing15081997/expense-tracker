@@ -5,13 +5,20 @@ import { readSession } from '../_lib/helpers';
 const SYSTEM_EMAIL = "byjanbooks@gmail.com";
 
 const createTransporter = () => {
+  const smtpUser = process.env.SMTP_USER;
+  const smtpPass = process.env.SMTP_PASS;
+  
+  if (!smtpUser || !smtpPass) {
+    throw new Error('Email notifications are not configured. Please set SMTP_USER and SMTP_PASS environment variables. For Gmail, you need an App Password (not your regular password). See: https://myaccount.google.com/apppasswords');
+  }
+  
   return nodemailer.createTransport({
     host: process.env.SMTP_HOST || "smtp.gmail.com",
     port: parseInt(process.env.SMTP_PORT || "587"),
     secure: false, 
     auth: {
-      user: process.env.SMTP_USER, 
-      pass: process.env.SMTP_PASS, 
+      user: smtpUser, 
+      pass: smtpPass, 
     },
   });
 };
@@ -109,6 +116,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.json({ success: true, messageId: info.messageId });
   } catch (error: any) {
     console.error("Error sending report:", error);
-    res.status(500).json({ error: "Failed to send report", details: error.message });
+    
+    // Provide helpful error messages
+    let errorMessage = "Failed to send report";
+    if (error.message?.includes('not configured')) {
+      errorMessage = error.message;
+    } else if (error.code === 'EAUTH' || error.responseCode === 535) {
+      errorMessage = "Email authentication failed. Please check your SMTP_USER and SMTP_PASS. For Gmail, you need an App Password.";
+    } else if (error.code === 'ECONNECTION' || error.code === 'ETIMEDOUT') {
+      errorMessage = "Cannot connect to email server. Please check your SMTP_HOST and SMTP_PORT settings.";
+    }
+    
+    res.status(500).json({ 
+      error: errorMessage, 
+      details: error.message,
+      hint: "Set up email in your .env file. See .env.example for instructions."
+    });
   }
 }
