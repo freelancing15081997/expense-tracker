@@ -176,7 +176,8 @@ export default function Dashboard() {
             });
             
             if (!res.ok) {
-              addToast('Email sending failed on the server. Check Render server logs.', 'error');
+              const payload = await res.json().catch(() => ({}));
+              addToast(payload.error || 'Email sending failed on the server.', 'error');
             }
           }
         }

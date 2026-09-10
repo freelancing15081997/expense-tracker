@@ -4,7 +4,9 @@
   "outputDirectory": "dist",
   "functions": {
     "api/kv.ts": { "maxDuration": 30 },
-    "api/migrate.ts": { "maxDuration": 60 }
+    "api/migrate.ts": { "maxDuration": 60 },
+    "api/email/send.ts": { "maxDuration": 30 },
+    "api/email/send-report.ts": { "maxDuration": 60 }
   },
   "headers": [
     {

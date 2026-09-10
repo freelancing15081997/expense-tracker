@@ -215,10 +215,13 @@ export default function BookView() {
           filename: 'Expense_Report.pdf'
         })
       });
-      if (!res.ok) throw new Error('Failed to send email');
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        throw new Error(payload.error || 'Failed to send email');
+      }
       addToast(`PDF report sent to ${currentUser.email}`, 'success');
     } catch (err) {
-      addToast('Failed to send report email', 'error');
+      addToast(err instanceof Error ? err.message : 'Failed to send report email', 'error');
     } finally {
       setSendingReport(false);
     }
@@ -381,8 +384,9 @@ export default function BookView() {
         body: JSON.stringify({ to: toEmail, subject, message })
       });
       if (!res.ok) {
-         console.error('Email API Error:', res.statusText);
-         addToast('Email sending failed on the server. Check Render server logs.', 'error');
+         const payload = await res.json().catch(() => ({}));
+         console.error('Email API Error:', payload.error || res.statusText);
+         addToast(payload.error || 'Email sending failed on the server.', 'error');
       }
       return res.ok;
     } catch (err: any) {
