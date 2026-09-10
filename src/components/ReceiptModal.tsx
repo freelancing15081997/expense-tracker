@@ -5,9 +5,10 @@ interface Props {
   imageUrl: string | null;
   expenseTitle?: string;
   onClose: () => void;
+  verified?: boolean;
 }
 
-export const ReceiptModal: React.FC<Props> = ({ imageUrl, expenseTitle, onClose }) => {
+export const ReceiptModal: React.FC<Props> = ({ imageUrl, expenseTitle, onClose, verified = true }) => {
   if (!imageUrl) return null;
 
   const handleDownload = () => {
@@ -83,9 +84,9 @@ export const ReceiptModal: React.FC<Props> = ({ imageUrl, expenseTitle, onClose 
 
         {/* Footer info */}
         <div className="px-5 py-3 bg-white border-t border-slate-200 flex items-center justify-between text-xs text-slate-600">
-          <div className="flex items-center gap-1.5 text-emerald-600 font-medium">
-            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-            <span>Cryptographically Verified Proof</span>
+          <div className={`flex items-center gap-1.5 font-medium ${verified ? 'text-emerald-600' : 'text-slate-500'}`}>
+            {verified && <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
+            <span>{verified ? 'Cryptographically Verified Proof' : 'Stored from inbound mail. Not OCR.'}</span>
           </div>
           <button
             onClick={onClose}

@@ -47,17 +47,39 @@ async function r2Fetch(method: string, key: string) {
 }
 
 function r2FileKey(target: string) {
-  const raw = String(target || '').trim();
-  if (raw.startsWith('erp_workspaces/')) return raw.replace(/^\/+/, '');
+  const raw = String(target || '').trim().replace(/^\/+/, '');
+  if (raw.startsWith('erp_workspaces/')) return raw;
+  if (/^books\/[a-zA-Z0-9_-]+\/files\/[a-zA-Z0-9_.-]+$/.test(raw)) return raw;
   try {
     const url = new URL(raw);
     const path = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
     const idx = path.indexOf('erp_workspaces/');
     if (idx >= 0) return path.slice(idx);
+    const books = path.match(/books\/[a-zA-Z0-9_-]+\/files\/[a-zA-Z0-9_.-]+/);
+    if (books) return books[0];
   } catch {
     // Not a URL.
   }
   throw new Error('Invalid file');
+}
+
+async function mailboxAllows(uid: string, fileKey: string) {
+  if (!fileKey.startsWith('books/')) return fileKey.split('/').filter(Boolean)[1] === uid || fileKey.split('/').filter(Boolean)[1]?.startsWith(`${uid}_`);
+  const bookId = fileKey.split('/')[1] || '';
+  if (!bookId) return false;
+  const keys = [`documents/inbound_mailboxes/${bookId}.json`, `documents/books/${bookId}.json`];
+  for (const key of keys) {
+    try {
+      const res = await r2Fetch('GET', key);
+      if (!res.ok) continue;
+      const data = JSON.parse(Buffer.from(await res.arrayBuffer()).toString('utf8'));
+      const roles = data?.roles && typeof data.roles === 'object' ? data.roles : {};
+      if (roles[uid]) return true;
+    } catch {
+      // try next
+    }
+  }
+  return false;
 }
 
 async function r2GetBytes(key: string) {
@@ -123,9 +145,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       json(res, 400, { error: 'Invalid file' });
       return;
     }
-    const workspaceId = key.split('/').filter(Boolean)[1] || '';
-    if (workspaceId !== uid && !workspaceId.startsWith(`${uid}_`)) {
-      json(res, 403, { error: 'Not allowed to read this Books file' });
+    const allowed = await mailboxAllows(uid, key);
+    if (!allowed) {
+      json(res, 403, { error: 'Not allowed to read this file' });
       return;
     }
     const file = await r2GetBytes(key);

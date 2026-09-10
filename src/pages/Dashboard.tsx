@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { db } from '../lib/firebase';
-import { collection, query, where, getDocs, getDoc, addDoc, serverTimestamp, doc, updateDoc, deleteDoc, limit } from '../lib/store';
+import { collection, query, where, getDocs, getDoc, addDoc, serverTimestamp, doc, updateDoc, deleteDoc, setDoc, limit } from '../lib/store';
 import { Link, useLocation } from 'react-router-dom';
 import { isSoftDeleted } from '../lib/records';
 import { useBooksTenantMeta } from '../lib/tenant';
@@ -12,6 +12,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 import AppLoader from '../components/AppLoader';
 import { BOOKS_TREE } from '../books/catalog/modules';
+import { inboundMailboxRecord } from '../lib/inbound-mail';
 
 interface BookItem {
   id: string;
@@ -130,6 +131,13 @@ export default function Dashboard() {
       const bookSnap = await getDoc(doc(db, 'books', invite.bookId));
       if (bookSnap.exists()) {
         const bookData = bookSnap.data();
+        void setDoc(doc(db, 'inbound_mailboxes', invite.bookId), inboundMailboxRecord({
+          id: invite.bookId,
+          name: String(bookData.name || invite.bookName),
+          currency: String(bookData.currency || 'INR'),
+          ownerId: String(bookData.ownerId || ''),
+          roles: (bookData.roles || {}) as Record<string, { role?: string; email?: string }>,
+        })).catch(() => undefined);
         const emails = Object.values(bookData.roles)
           .map((r: any) => r.email)
           .filter((email: string) => email !== userProfile.email);

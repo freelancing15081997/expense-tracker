@@ -7,7 +7,7 @@ import { db } from '../lib/firebase';
 import { doc, getDoc, collection, query, onSnapshot, addDoc, serverTimestamp, updateDoc, setDoc, deleteField } from '../lib/store';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send } from 'lucide-react';
+import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send, Copy, Paperclip, Mail } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Tabs from '@radix-ui/react-tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
@@ -15,6 +15,9 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 import { format } from 'date-fns';
 import { getCurrencySymbol } from '../lib/currency';
 import { isSoftDeleted, softDeletePatch } from '../lib/records';
+import { inboundMailboxAddress, inboundMailboxRecord } from '../lib/inbound-mail';
+import { authHeaders } from '../lib/auth-client';
+import { ReceiptModal } from '../components/ReceiptModal';
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -82,6 +85,8 @@ export default function BookView() {
   const [sendingReport, setSendingReport] = useState(false);
 
   const { addToast } = useToast();
+  const [copiedInbound, setCopiedInbound] = useState(false);
+  const [receiptPreview, setReceiptPreview] = useState<{ url: string; title: string } | null>(null);
   const [unsentEmailChange, setUnsentEmailChange] = useState<{action: string, detail: string} | null>(null);  const navigate = useNavigate();
 
   const handleRemoveMember = async (uidToRemove: string, isSelf: boolean) => {
@@ -102,6 +107,11 @@ export default function BookView() {
         await updateDoc(bookRef, {
           [`roles.${uidToRemove}`]: deleteField()
         });
+        const nextRoles = { ...book.roles };
+        delete nextRoles[uidToRemove];
+        const nextBook = { ...book, roles: nextRoles };
+        setBook(nextBook);
+        void setDoc(doc(db, 'inbound_mailboxes', book.id), inboundMailboxRecord(nextBook)).catch(() => undefined);
         
         addToast(isSelf ? 'You have left the ledger.' : 'Member removed.', 'success');
         
@@ -122,7 +132,11 @@ export default function BookView() {
     if (!bookId || !currentUser) return;
     const fetchBook = async () => {
       const docSnap = await getDoc(doc(db, 'books', bookId));
-      if (docSnap.exists()) setBook({ id: docSnap.id, ...docSnap.data() });
+      if (docSnap.exists()) {
+        const next = { id: docSnap.id, ...docSnap.data() };
+        setBook(next);
+        void setDoc(doc(db, 'inbound_mailboxes', next.id), inboundMailboxRecord(next)).catch(() => undefined);
+      }
     };
     fetchBook();
 
@@ -166,7 +180,30 @@ export default function BookView() {
     setIsExpenseModalOpen(true);
   };
 
-  
+  const copyInboundAddress = async () => {
+    if (!book?.id) return;
+    try {
+      await navigator.clipboard.writeText(inboundMailboxAddress(book.id));
+      setCopiedInbound(true);
+      window.setTimeout(() => setCopiedInbound(false), 1600);
+    } catch {
+      addToast('Could not copy the address', 'error');
+    }
+  };
+
+  const openReceipt = async (exp: any) => {
+    if (!exp?.receiptPath) return;
+    try {
+      const res = await fetch(`/api/blob/file?path=${encodeURIComponent(exp.receiptPath)}`, { headers: await authHeaders() });
+      if (!res.ok) throw new Error('Could not open receipt');
+      const blob = await res.blob();
+      if (receiptPreview?.url) URL.revokeObjectURL(receiptPreview.url);
+      setReceiptPreview({ url: URL.createObjectURL(blob), title: exp.receiptName || exp.description });
+    } catch (err: any) {
+      addToast(err?.message || 'Could not open receipt', 'error');
+    }
+  };
+
   const generatePDF = (returnBase64 = false) => {
     const doc = new jsPDF();
     doc.setFontSize(18);
@@ -609,7 +646,19 @@ export default function BookView() {
                   ) : (
                     paginatedExpenses.map((exp) => (
                       <tr key={exp.id} className="hover:bg-slate-50/50 transition-colors group">
-                        <td className="px-5 py-3 font-medium text-slate-900 text-sm max-w-xs truncate" title={exp.description}>{exp.description}</td>
+                        <td className="px-5 py-3 font-medium text-slate-900 text-sm max-w-xs truncate" title={exp.description}>
+                          <span className="inline-flex items-center gap-1.5">
+                            {exp.receiptPath && (
+                              <button type="button" onClick={() => openReceipt(exp)} className="text-teal-700 hover:text-teal-900" title="Open receipt">
+                                <Paperclip className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            {exp.description}
+                            {(exp.status === 'draft' || exp.source === 'email') && (
+                              <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">Draft</span>
+                            )}
+                          </span>
+                        </td>
                         {visibleColumns.date && <td className="px-5 py-3 text-slate-500 text-sm">{expenseDateLabel(exp)}</td>}
                         {visibleColumns.category && (
                           <td className="px-5 py-3">
@@ -659,7 +708,12 @@ export default function BookView() {
                 paginatedExpenses.map((exp) => (
                   <div key={exp.id} className="p-3.5 byjan-card flex flex-col gap-2">
                     <div className="flex justify-between items-start gap-2">
-                      <div className="font-semibold text-slate-900 text-[14px] leading-tight flex-1">{exp.description}</div>
+                      <div className="font-semibold text-slate-900 text-[14px] leading-tight flex-1">
+                        {exp.description}
+                        {(exp.status === 'draft' || exp.source === 'email') && (
+                          <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">Draft</span>
+                        )}
+                      </div>
                       <div className={cn("font-bold text-[14px] whitespace-nowrap", exp.entryType === 'in' ? "text-emerald-600" : exp.entryType === 'transfer' ? "text-blue-600" : "text-slate-900")}>{exp.entryType === 'in' ? '+' : exp.entryType === 'transfer' ? '' : '-'}{getCurrencySymbol(book.currency)} {exp.amount.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
                     </div>
                     <div className="flex justify-between items-end mt-1">
@@ -670,6 +724,11 @@ export default function BookView() {
                       <div className="flex items-center gap-2">
                         {canWrite && (
                           <>
+                            {exp.receiptPath && (
+                              <button type="button" onClick={() => openReceipt(exp)} className="p-1.5 bg-slate-50 text-slate-500 hover:text-teal-700 rounded-md border border-slate-200" title="Open receipt">
+                                <Paperclip className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                             <button onClick={() => openEditExpense(exp)} className="p-1.5 bg-slate-50 text-slate-500 hover:text-zinc-600 rounded-md border border-slate-200">
                               <PenSquare className="w-3.5 h-3.5" />
                             </button>
@@ -863,6 +922,20 @@ export default function BookView() {
             </div>
             
             <div className="p-4 overflow-y-auto flex-1">
+              <div className="mb-4 rounded-xl border border-slate-200 bg-white p-3 space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                  <Mail className="w-3.5 h-3.5" /> Receipt by email
+                </p>
+                <p className="text-sm text-slate-600 leading-relaxed">Forward a PhonePe mail to this ledger. We store the receipt and a draft. Category starts as Uncategorized until someone edits it.</p>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 truncate">{inboundMailboxAddress(book.id)}</code>
+                  <button type="button" className="byjan-btn-ghost !px-2.5" onClick={() => void copyInboundAddress()}>
+                    <Copy className="w-3.5 h-3.5" />
+                    {copiedInbound ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500">Mail is received on inbound.easypado.com. Sending from byjanbooks@easypado.com stays as it is.</p>
+              </div>
               <div className="space-y-2">
                 {Object.entries(book.roles).map(([uid, data]: [string, any]) => (
                   <div key={uid} className="flex items-center justify-between p-3 border border-slate-200 rounded-md bg-white hover:bg-slate-50 transition-colors">
@@ -938,6 +1011,18 @@ export default function BookView() {
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
+
+      {receiptPreview && (
+        <ReceiptModal
+          imageUrl={receiptPreview.url}
+          expenseTitle={receiptPreview.title}
+          verified={false}
+          onClose={() => {
+            URL.revokeObjectURL(receiptPreview.url);
+            setReceiptPreview(null);
+          }}
+        />
+      )}
 
       {/* Toast Notification */}
 
