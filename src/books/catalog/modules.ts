@@ -106,6 +106,7 @@ export const BOOKS_TREE: BooksBranch[] = [
       { name: 'Tax & TDS', href: '/books/tax' },
       { name: 'Reports', href: '/books/reports' },
       { name: 'Entities', href: '/books/entities' },
+      { name: 'Companies', href: '/books/companies' },
       { name: 'CA Workbench', href: '/books/workbench' },
       { name: 'Inbox', href: '/books/inbox' },
       { name: 'Approvals', href: '/books/approvals' },

@@ -29,7 +29,7 @@ export function orderBy(field: string, dir?: string): Constraint {
   return { type: 'orderBy', field, dir };
 }
 
-function autoId() {
+export function newDocId() {
   const bytes = new Uint8Array(12);
   if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
     crypto.getRandomValues(bytes);
@@ -93,11 +93,11 @@ export function collection(_db: Firestore, ...segments: string[]): ColRef {
 
 export function doc(first: Firestore | ColRef | { kind: 'col'; path: string }, ...segments: string[]): DocRef {
   if (first && typeof first === 'object' && 'kind' in first && first.kind === 'col') {
-    const id = segments[0] || autoId();
+    const id = segments[0] || newDocId();
     return { kind: 'doc', path: `${first.path}/${id}`, id };
   }
   const path = segments.join('/');
-  return { kind: 'doc', path, id: segments[segments.length - 1] || autoId() };
+  return { kind: 'doc', path, id: segments[segments.length - 1] || newDocId() };
 }
 
 export function query(col: { path: string }, ...constraints: Constraint[]) {
@@ -241,7 +241,7 @@ export async function updateDoc(ref: DocRef, data: Record<string, unknown>) {
 }
 
 export async function addDoc(col: { path: string }, data: Record<string, unknown>) {
-  const id = autoId();
+  const id = newDocId();
   const next = { ...data, id };
   remember(`${col.path}/${id}`, next);
   try {

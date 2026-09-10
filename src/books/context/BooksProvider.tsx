@@ -55,6 +55,8 @@ import {
   deactivateParty as deactivatePartyRecord,
   type TxCtx,
 } from '../data/repo';
+import { createChildWorkspace, listOrgDirectory, syncOrgIndexName } from '../data/orgs';
+import { BOOKS_WORKSPACE_EVENT, ownsWorkspace, readActiveWorkspace, selectWorkspace, writeActiveWorkspace, type OrgRecord } from '../core/hierarchy';
 import {
   addEntity,
   adjustStock,
@@ -90,6 +92,8 @@ type BooksContextValue = {
   loading: boolean;
   error: string | null;
   tenant: FinanceTenant | null;
+  tenantId: string | null;
+  orgs: OrgRecord[];
   currency: string;
   role: TxCtx['role'] | null;
   accounts: FinanceAccount[];
@@ -115,6 +119,8 @@ type BooksContextValue = {
   postingAccounts: FinanceAccount[];
   can: (action: BooksAction) => boolean;
   refresh: () => Promise<void>;
+  switchWorkspace: (id: string) => Promise<void>;
+  createCompany: (name: string, parentId?: string) => Promise<string>;
   ctx: () => TxCtx;
   createParty: (input: {
     id?: string;
@@ -251,6 +257,7 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
   const [error, setError] = useState<string | null>(null);
   const [tenantId, setTenantId] = useState<string | null>(null);
   const [tenant, setTenant] = useState<FinanceTenant | null>(null);
+  const [orgs, setOrgs] = useState<OrgRecord[]>([]);
   const [accounts, setAccounts] = useState<FinanceAccount[]>([]);
   const [parties, setParties] = useState<FinanceParty[]>([]);
   const [journals, setJournals] = useState<FinanceJournal[]>([]);
@@ -284,25 +291,35 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
     if (firstOpen) setLoading(true);
     setError(null);
     try {
-      const id = knownTenantId || tenantId || await resolveTenantId(
+      const rootId = await resolveTenantId(
         db,
         currentUser.uid,
         currentUser.email || userProfile?.email || '',
         userProfile?.displayName || currentUser.displayName || 'Byjan'
       );
+      let id = knownTenantId || readActiveWorkspace(currentUser.uid);
+      if (!ownsWorkspace(currentUser.uid, id)) id = rootId;
+      if (id !== tenantId) setLoading(true);
       setTenantId(id);
+      writeActiveWorkspace(currentUser.uid, id);
       let workspace;
       try {
         workspace = await loadWorkspace(db, id);
       } catch (err: any) {
         if (!String(err?.message || '').includes('Workspace not found')) throw err;
-        try { sessionStorage.removeItem(`byjan_books_ready_${currentUser.uid}`); } catch { /* private mode */ }
-        await resolveTenantId(
-          db,
-          currentUser.uid,
-          currentUser.email || userProfile?.email || '',
-          userProfile?.displayName || currentUser.displayName || 'Byjan'
-        );
+        if (id !== rootId) {
+          id = rootId;
+          setTenantId(id);
+          writeActiveWorkspace(currentUser.uid, id);
+        } else {
+          try { sessionStorage.removeItem(`byjan_books_ready_${currentUser.uid}`); } catch { /* private mode */ }
+          await resolveTenantId(
+            db,
+            currentUser.uid,
+            currentUser.email || userProfile?.email || '',
+            userProfile?.displayName || currentUser.displayName || 'Byjan'
+          );
+        }
         workspace = await loadWorkspace(db, id);
       }
       if (!isWorkspaceMember(workspace.tenant, currentUser.uid, id)) {
@@ -331,6 +348,18 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
       setApprovals(workspace.approvals);
       setFiles(workspace.files);
       setTemplates(workspace.templates);
+      try {
+        setOrgs(await listOrgDirectory(db, currentUser.uid, workspace.tenant.name));
+      } catch {
+        setOrgs([{
+          id,
+          name: workspace.tenant.name,
+          parentId: workspace.tenant.parentId || null,
+          depth: Number(workspace.tenant.depth || 0),
+          kind: workspace.tenant.kind || 'root',
+          role: 'owner',
+        }]);
+      }
     } catch (err: any) {
       setError(isFirestoreQuota(err) ? FIRESTORE_QUOTA_MESSAGE : (err?.message || 'Failed to open Books'));
     } finally {
@@ -377,6 +406,40 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
     }
     void refresh();
   }, [currentUser?.uid]);
+
+  useEffect(() => {
+    const onSwitch = (event: Event) => {
+      const id = String((event as CustomEvent).detail?.id || '');
+      if (!currentUser || !ownsWorkspace(currentUser.uid, id) || id === tenantId) return;
+      void refresh(id);
+    };
+    window.addEventListener(BOOKS_WORKSPACE_EVENT, onSwitch);
+    return () => window.removeEventListener(BOOKS_WORKSPACE_EVENT, onSwitch);
+  }, [currentUser, refresh, tenantId]);
+
+  const switchWorkspace = useCallback(async (id: string) => {
+    if (!currentUser) return;
+    if (!ownsWorkspace(currentUser.uid, id)) throw new Error('Not allowed to open this company');
+    writeActiveWorkspace(currentUser.uid, id);
+    await refresh(id);
+    selectWorkspace(currentUser.uid, id);
+  }, [currentUser, refresh]);
+
+  const createCompany = useCallback(async (name: string, parentId?: string) => {
+    if (!currentUser || !role) throw new Error('Books workspace is not ready');
+    const id = await createChildWorkspace(db, {
+      uid: currentUser.uid,
+      email: currentUser.email || userProfile?.email || '',
+      displayName: userProfile?.displayName || currentUser.displayName || 'Byjan',
+      parentId: parentId || tenantId || currentUser.uid,
+      name,
+      role,
+    });
+    writeActiveWorkspace(currentUser.uid, id);
+    await refresh(id);
+    selectWorkspace(currentUser.uid, id);
+    return id;
+  }, [currentUser, refresh, role, tenantId, userProfile?.displayName, userProfile?.email]);
 
   useEffect(() => {
     if (!tenant) {
@@ -453,6 +516,8 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
       loading,
       error,
       tenant,
+      tenantId,
+      orgs,
       currency: tenant?.baseCurrency || 'INR',
       role,
       accounts,
@@ -480,6 +545,8 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
       postingAccounts: accounts.filter((a) => a.active && a.allowPosting),
       can: (action) => can(role, action),
       refresh,
+      switchWorkspace,
+      createCompany,
       ctx,
       createParty: (input) => after(() => saveParty(db, tenantId!, role!, input), 'Party saved'),
       deactivateParty: (id) => after(() => deactivatePartyRecord(db, tenantId!, role!, id), 'Party deactivated'),
@@ -509,7 +576,10 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
       reverse: (journalId) => after(() => reverseJournal(ctx(), journalId), 'Journal reversed', 'delete'),
       close: (periodId) => after(() => closePeriod(ctx(), periodId), 'Period closed', 'post'),
       reopen: (periodId) => after(() => reopenPeriod(ctx(), periodId), 'Period reopened'),
-      rename: (name, logoPath, profile) => after(() => updateTenantName(db, tenantId!, role!, name, logoPath, profile), 'Settings saved'),
+      rename: async (name, logoPath, profile) => after(async () => {
+        await updateTenantName(db, tenantId!, role!, name, logoPath, profile);
+        if (currentUser) await syncOrgIndexName(db, currentUser.uid, tenantId!, name.trim());
+      }, 'Settings saved'),
       ledger: (accountId) => loadLedger(db, tenantId!, accountId),
       transfer: (input) => after(() => transferFunds(ctx(), input), 'Transfer posted', 'post'),
       createRecurring: (input) => after(() => saveRecurring(ctx(), input), 'Template saved'),
@@ -610,7 +680,7 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
       createTemplate: (input) => after(() => saveTemplate(ctx(), input), 'Template saved'),
       archiveTemplate: (id) => after(() => removeTemplate(ctx(), id), 'Template archived'),
     };
-  }, [accounts, addToast, approvals, assets, audit, bankRules, bankTxns, budgets, confirmAction, contracts, ctx, currentUser, documents, entities, error, files, inbox, journals, leases, loading, parties, periods, prefs.autoRefreshBooks, products, projects, recurring, refresh, refreshFiles, role, scheduleRefresh, taxCodes, templates, tenant, tenantId, workpapers]);
+  }, [accounts, addToast, approvals, assets, audit, bankRules, bankTxns, budgets, confirmAction, contracts, createCompany, ctx, currentUser, documents, entities, error, files, inbox, journals, leases, loading, orgs, parties, periods, prefs.autoRefreshBooks, products, projects, recurring, refresh, refreshFiles, role, scheduleRefresh, switchWorkspace, taxCodes, templates, tenant, tenantId, workpapers]);
 
   return <BooksContext.Provider value={value}><div className="h-full min-h-0">{children}</div></BooksContext.Provider>;
 }

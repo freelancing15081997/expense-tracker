@@ -36,10 +36,16 @@ export type SystemAccountKey =
   | 'deferred_revenue'
   | 'tds_payable';
 
+export type WorkspaceKind = 'root' | 'company' | 'subsidiary';
+
 export interface FinanceTenant {
   id: string;
   name: string;
   ownerId: string;
+  rootOwnerId: string;
+  parentId: string | null;
+  depth: number;
+  kind: WorkspaceKind;
   baseCurrency: string;
   fiscalYearStartMonth: number;
   memberIds: string[];

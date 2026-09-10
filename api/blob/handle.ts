@@ -58,7 +58,8 @@ function assertPath(pathname: string, uid: string, clientPayload: string | null)
   const tenant = safeId(match[1]);
   const fileId = safeId(match[2]);
   const ext = match[3].toLowerCase();
-  if (tenant !== safeId(uid)) throw new Error('Upload is not allowed for this workspace');
+  const owner = safeId(uid);
+  if (tenant !== owner && !tenant.startsWith(`${owner}_`)) throw new Error('Upload is not allowed for this workspace');
   if (tenant.length < 4 || fileId.length < 4 || !ALLOWED_EXT.has(ext)) throw new Error('Invalid upload path');
   if (clientPayload) {
     try {

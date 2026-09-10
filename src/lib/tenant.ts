@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { doc, getDoc } from './store';
 import { db } from './firebase';
 import { useAuth } from '../context/AuthContext';
+import { BOOKS_WORKSPACE_EVENT, ownsWorkspace, readActiveWorkspace } from '../books/core/hierarchy';
 
 export type BooksTenantMeta = {
   id: string;
@@ -10,10 +11,17 @@ export type BooksTenantMeta = {
   memberCount: number;
 };
 
-/** Books tenant id is the signed-in user id (SET model — not a second tenancy system). */
+/** Books root tenant is the signed-in user. Nested companies stay under that account. */
 export function useBooksTenantMeta() {
   const { currentUser } = useAuth();
   const [tenant, setTenant] = useState<BooksTenantMeta | null>(null);
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    const onSwitch = () => setTick((value) => value + 1);
+    window.addEventListener(BOOKS_WORKSPACE_EVENT, onSwitch);
+    return () => window.removeEventListener(BOOKS_WORKSPACE_EVENT, onSwitch);
+  }, []);
 
   useEffect(() => {
     if (!currentUser) {
@@ -21,25 +29,27 @@ export function useBooksTenantMeta() {
       return;
     }
     const uid = currentUser.uid;
-    getDoc(doc(db, 'erp_workspaces', uid, 'meta', 'tenant'))
+    const workspaceId = readActiveWorkspace(uid);
+    const id = ownsWorkspace(uid, workspaceId) ? workspaceId : uid;
+    getDoc(doc(db, 'erp_workspaces', id, 'meta', 'tenant'))
       .then((snap) => {
         if (!snap.exists()) {
-          setTenant({ id: uid, name: 'Books workspace', ownerId: uid, memberCount: 1 });
+          setTenant({ id, name: 'Books workspace', ownerId: uid, memberCount: 1 });
           return;
         }
         const data = snap.data();
         const memberIds = Array.isArray(data.memberIds) ? data.memberIds : [uid];
         setTenant({
-          id: uid,
+          id,
           name: String(data.name || 'Books workspace'),
           ownerId: String(data.ownerId || uid),
           memberCount: memberIds.length,
         });
       })
       .catch(() => {
-        setTenant({ id: uid, name: 'Books workspace', ownerId: uid, memberCount: 1 });
+        setTenant({ id, name: 'Books workspace', ownerId: uid, memberCount: 1 });
       });
-  }, [currentUser?.uid]);
+  }, [currentUser?.uid, tick]);
 
   return tenant;
 }

@@ -331,6 +331,20 @@ function isErpPath(path: string) {
   return path.startsWith('erp_workspaces/');
 }
 
+function ownsWorkspace(uid: string, workspaceId: string) {
+  return Boolean(uid && workspaceId && (workspaceId === uid || workspaceId.startsWith(`${uid}_`)));
+}
+
+function assertErpAccess(uid: string, path: string) {
+  if (!path || !isErpPath(path)) return;
+  const workspaceId = path.split('/').filter(Boolean)[1] || '';
+  if (!ownsWorkspace(uid, workspaceId)) {
+    const err: Error & { status?: number } = new Error('Not allowed to access this Books workspace');
+    err.status = 403;
+    throw err;
+  }
+}
+
 async function readDoc(path: string, token: string) {
   try {
     const local = await localGet(path);
@@ -383,10 +397,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       json(res, 401, { error: 'Sign in required' });
       return;
     }
-    await jwtVerify(token, createRemoteJWKSet(new URL('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com')), {
+    const { payload } = await jwtVerify(token, createRemoteJWKSet(new URL('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com')), {
       issuer: `https://securetoken.google.com/${FIREBASE_PROJECT}`,
       audience: FIREBASE_PROJECT,
     });
+    const uid = String(payload.user_id || payload.sub || '');
+    if (!uid) {
+      json(res, 401, { error: 'Sign in required' });
+      return;
+    }
 
     const rawBody = req.body;
     const body = typeof rawBody === 'string'
@@ -398,6 +417,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       json(res, 400, { error: 'Missing path' });
       return;
     }
+    if (path) assertErpAccess(uid, path);
 
     if (op === 'get') {
       const data = await readDoc(path, token);
@@ -478,6 +498,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const writeOp = String(write.op || '');
         const writePath = String(write.path || '').replace(/^\/+|\/+$/g, '');
         if (!writePath) return;
+        assertErpAccess(uid, writePath);
         if (writeOp === 'set') {
           const incoming = (write.data || {}) as Record<string, unknown>;
           const next = write.merge
@@ -516,6 +537,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const results = await Promise.all(queries.map(async (item: any) => {
         const qPath = String(item.path || '').replace(/^\/+|\/+$/g, '');
         if (!qPath) return { path: qPath, docs: [] };
+        assertErpAccess(uid, qPath);
         const constraints = Array.isArray(item.constraints) ? item.constraints : [];
         let docs = await readList(qPath, token, constraints);
         for (const c of constraints) {
@@ -539,6 +561,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     json(res, 400, { error: 'Unknown op' });
   } catch (err: any) {
-    json(res, 500, { error: err?.message || 'Data request failed' });
+    json(res, err?.status === 403 ? 403 : 500, { error: err?.message || 'Data request failed' });
   }
 }

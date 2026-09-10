@@ -59,6 +59,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       json(res, 400, { error: 'Invalid blob url' });
       return;
     }
+    if (url.startsWith('erp_workspaces/')) {
+      const workspaceId = url.split('/').filter(Boolean)[1] || '';
+      if (workspaceId !== uid && !workspaceId.startsWith(`${uid}_`)) {
+        json(res, 403, { error: 'Not allowed to delete this Books file' });
+        return;
+      }
+    }
     const { del } = await import('@vercel/blob');
     const token = process.env.BLOB_READ_WRITE_TOKEN;
     await del(url, token ? { token } : {});

@@ -90,8 +90,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const fileId = header(req, 'x-file-id').trim().replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128);
     const ext = header(req, 'x-file-ext').trim().toLowerCase();
     const contentType = (header(req, 'content-type') || header(req, 'x-content-type')).split(';')[0].trim().toLowerCase();
-    if (tenantId.length < 4 || fileId.length < 4 || uid.replace(/[^a-zA-Z0-9_-]/g, '_') !== tenantId) {
+    if (tenantId.length < 4 || fileId.length < 4) {
       json(res, 400, { error: 'Invalid upload path' });
+      return;
+    }
+    const uidSafe = uid.replace(/[^a-zA-Z0-9_-]/g, '_');
+    if (tenantId !== uidSafe && !tenantId.startsWith(`${uidSafe}_`)) {
+      json(res, 403, { error: 'Not allowed to upload into this Books workspace' });
       return;
     }
     if (!ALLOWED_EXT.has(ext)) {

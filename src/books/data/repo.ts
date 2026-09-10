@@ -94,23 +94,91 @@ function provisionCacheKey(uid: string) {
   return `byjan_books_ready_${uid}`;
 }
 
+export async function writeTenantMeta(
+  db: Firestore,
+  input: {
+    tenantId: string;
+    uid: string;
+    email: string;
+    name: string;
+    parentId: string | null;
+    depth: number;
+    kind: FinanceTenant['kind'];
+  },
+) {
+  await setDoc(tenantRef(db, input.tenantId), clean({
+    name: input.name,
+    ownerId: input.uid,
+    rootOwnerId: input.uid,
+    parentId: input.parentId,
+    depth: input.depth,
+    kind: input.kind,
+    baseCurrency: 'INR',
+    fiscalYearStartMonth: 4,
+    memberIds: [input.uid],
+    members: { [input.uid]: { role: 'owner', email: input.email || '' } },
+    sequences: { journal: 0, invoice: 0, bill: 0, expense: 0 },
+    postedCount: 0,
+    version: 1,
+    createdAt: serverTimestamp(),
+  }));
+}
+
+export async function seedWorkspace(db: Firestore, tenantId: string, uid: string, entityName: string) {
+  const sentinel = doc(col(db, tenantId, 'entities'), 'default');
+  const alreadySeeded = await getDoc(sentinel);
+  if (alreadySeeded.exists()) {
+    await ensureExtendedWorkspace(db, tenantId);
+    return;
+  }
+  await runTransaction(db, async (tx) => {
+    const already = await tx.get(sentinel);
+    if (already.exists()) return;
+    const accounts = seedAccounts();
+    const periodId = periodIdFromDate(todayISO());
+    const [year, month] = periodId.split('-').map(Number);
+    const codeToId = new Map<string, string>();
+    tx.set(sentinel, clean({ name: entityName || 'Default entity', country: 'IN', isDefault: true }));
+    for (const account of accounts) {
+      const ref = doc(col(db, tenantId, 'accounts'));
+      codeToId.set(account.code, ref.id);
+      tx.set(ref, clean({ ...account, parentId: null, systemKey: account.systemKey || null }));
+    }
+    for (const account of accounts) {
+      if (!account.parentId) continue;
+      const id = codeToId.get(account.code);
+      const parentId = codeToId.get(account.parentId);
+      if (id && parentId) tx.update(doc(col(db, tenantId, 'accounts'), id), { parentId });
+    }
+    for (const tax of TAX_SEED) {
+      tx.set(doc(col(db, tenantId, 'taxCodes'), tax.id), clean({ name: tax.name, rateBps: tax.rateBps, active: true }));
+    }
+    tx.set(doc(col(db, tenantId, 'periods'), periodId), clean({ year, month, status: 'open' }));
+    tx.set(doc(col(db, tenantId, 'audit')), clean({
+      actorId: uid,
+      action: 'provision',
+      resource: 'tenant',
+      resourceId: tenantId,
+      at: nowISO(),
+    }));
+  });
+  await ensureExtendedWorkspace(db, tenantId);
+}
+
 export async function resolveTenantId(db: Firestore, uid: string, email: string, displayName: string): Promise<string> {
   const tenantId = uid;
   const tRef = tenantRef(db, tenantId);
   const existing = await getDoc(tRef);
   if (!existing.exists()) {
-    await setDoc(tRef, clean({
+    await writeTenantMeta(db, {
+      tenantId,
+      uid,
+      email,
       name: `${displayName || 'My'} Books`,
-      ownerId: uid,
-      baseCurrency: 'INR',
-      fiscalYearStartMonth: 4,
-      memberIds: [uid],
-      members: { [uid]: { role: 'owner', email: email || '' } },
-      sequences: { journal: 0, invoice: 0, bill: 0, expense: 0 },
-      postedCount: 0,
-      version: 1,
-      createdAt: serverTimestamp(),
-    }));
+      parentId: null,
+      depth: 0,
+      kind: 'root',
+    });
   } else {
     const data = existing.data() || {};
     const rawIds = data.memberIds;
@@ -118,50 +186,22 @@ export async function resolveTenantId(db: Firestore, uid: string, email: string,
       ? rawIds.map(String)
       : (rawIds && typeof rawIds === 'object' ? Object.keys(rawIds as object) : []);
     const members = (data.members && typeof data.members === 'object' ? data.members : {}) as Record<string, unknown>;
-    if (!memberIds.includes(uid) || data.ownerId !== uid || !members[uid]) {
-      await updateDoc(tRef, clean({
-        ownerId: uid,
-        memberIds: [...new Set([...memberIds, uid])],
-        members: { ...members, [uid]: { role: 'owner', email: email || '' } },
-      }));
-    }
-  }
-  const sentinel = doc(col(db, tenantId, 'entities'), 'default');
-  const alreadySeeded = await getDoc(sentinel);
-  if (!alreadySeeded.exists()) {
-    await runTransaction(db, async (tx) => {
-      const already = await tx.get(sentinel);
-      if (already.exists()) return;
-      const accounts = seedAccounts();
-      const periodId = periodIdFromDate(todayISO());
-      const [year, month] = periodId.split('-').map(Number);
-      const codeToId = new Map<string, string>();
-      tx.set(sentinel, clean({ name: displayName || 'Default entity', country: 'IN', isDefault: true }));
-      for (const account of accounts) {
-        const ref = doc(col(db, tenantId, 'accounts'));
-        codeToId.set(account.code, ref.id);
-        tx.set(ref, clean({ ...account, parentId: null, systemKey: account.systemKey || null }));
-      }
-      for (const account of accounts) {
-        if (!account.parentId) continue;
-        const id = codeToId.get(account.code);
-        const parentId = codeToId.get(account.parentId);
-        if (id && parentId) tx.update(doc(col(db, tenantId, 'accounts'), id), { parentId });
-      }
-      for (const tax of TAX_SEED) {
-        tx.set(doc(col(db, tenantId, 'taxCodes'), tax.id), clean({ name: tax.name, rateBps: tax.rateBps, active: true }));
-      }
-      tx.set(doc(col(db, tenantId, 'periods'), periodId), clean({ year, month, status: 'open' }));
-      tx.set(doc(col(db, tenantId, 'audit')), clean({
-        actorId: uid,
-        action: 'provision',
-        resource: 'tenant',
-        resourceId: tenantId,
-        at: nowISO(),
-      }));
+    const patch = clean({
+      rootOwnerId: data.rootOwnerId || uid,
+      parentId: data.parentId ?? null,
+      depth: Number(data.depth || 0),
+      kind: data.kind || 'root',
+      ...(memberIds.includes(uid) && data.ownerId === uid && members[uid]
+        ? {}
+        : {
+          ownerId: uid,
+          memberIds: [...new Set([...memberIds, uid])],
+          members: { ...members, [uid]: { role: 'owner', email: email || '' } },
+        }),
     });
-    await ensureExtendedWorkspace(db, tenantId);
+    if (Object.keys(patch).length) await updateDoc(tRef, patch);
   }
+  await seedWorkspace(db, tenantId, uid, displayName || 'Default entity');
   try {
     sessionStorage.setItem(provisionCacheKey(uid), '1');
   } catch { /* private mode */ }
@@ -216,7 +256,14 @@ export async function loadWorkspace(db: Firestore, tenantId: string) {
   ]);
   if (!tenantSnap.exists()) throw new BooksError('Workspace not found');
   const raw = tenantSnap.data() as Record<string, unknown>;
-  const tenant = { ...raw, id: tenantId } as FinanceTenant;
+  const tenant = {
+    parentId: null,
+    depth: 0,
+    kind: tenantId === raw.ownerId ? 'root' : 'company',
+    rootOwnerId: raw.rootOwnerId || raw.ownerId || tenantId,
+    ...raw,
+    id: tenantId,
+  } as FinanceTenant;
   const [
     entities, accounts, parties, journals, documents, periods, taxCodes, recurring, audit,
     products, assets, projects, budgets, contracts, leases, bankTxns, inbox, workpapers, approvals,

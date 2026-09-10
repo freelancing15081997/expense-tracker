@@ -63,6 +63,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       json(res, 400, { error: 'Invalid file' });
       return;
     }
+    if (target.startsWith('erp_workspaces/')) {
+      const workspaceId = target.split('/').filter(Boolean)[1] || '';
+      if (workspaceId !== uid && !workspaceId.startsWith(`${uid}_`)) {
+        json(res, 403, { error: 'Not allowed to read this Books file' });
+        return;
+      }
+    }
     const { get } = await import('@vercel/blob');
     const result = await get(target, { access: 'private', useCache: true, ...blobAuth() });
     if (!result || result.statusCode !== 200 || !result.stream) {

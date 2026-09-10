@@ -83,8 +83,13 @@ export async function handleBlobUploadRequest(
     const ext = header(req.headers, 'x-file-ext').trim().toLowerCase();
     const contentType = (header(req.headers, 'content-type') || header(req.headers, 'x-content-type')).split(';')[0].trim().toLowerCase();
 
-    if (tenantId.length < 4 || fileId.length < 4 || uid.replace(/[^a-zA-Z0-9_-]/g, '_') !== tenantId) {
+    if (tenantId.length < 4 || fileId.length < 4) {
       sendJson(res, 400, { error: 'Invalid upload path' });
+      return;
+    }
+    const uidSafe = uid.replace(/[^a-zA-Z0-9_-]/g, '_');
+    if (tenantId !== uidSafe && !tenantId.startsWith(`${uidSafe}_`)) {
+      sendJson(res, 403, { error: 'Not allowed to upload into this Books workspace' });
       return;
     }
     if (!ALLOWED_EXT.has(ext)) {

@@ -312,7 +312,7 @@ export default function Dashboard() {
           <div className="byjan-card p-4">
             <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Books tenant</p>
             <p className="text-sm font-semibold text-slate-900 mt-1">{tenant?.name || 'Your Books workspace'}</p>
-            <p className="text-xs text-slate-500 mt-1">Accounting data is stored at <code className="text-[11px]">erp_workspaces/{tenant?.id || 'your-uid'}</code>. Queries never accept a tenant id from the browser — it is always the signed-in user.</p>
+            <p className="text-xs text-slate-500 mt-1">Your account owns <code className="text-[11px]">erp_workspaces/{'{your uid}'}</code>. Nested companies get their own isolated books under that account. Create and switch them from Books → Companies or the Workspace menu.</p>
           </div>
         </div>
       )}

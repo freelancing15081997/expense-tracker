@@ -28,6 +28,7 @@ import Forecast from '../modules/budgets/Forecast';
 import Revenue from '../modules/revenue/Revenue';
 import Leases from '../modules/leases/Leases';
 import Entities from '../modules/entities/Entities';
+import Companies from '../modules/companies/Companies';
 import Workbench from '../modules/workbench/Workbench';
 import Inbox from '../modules/inbox/Inbox';
 import Statements from '../modules/statements/Statements';
@@ -101,6 +102,7 @@ export default function BooksApp() {
           <Route path="revenue" element={<Revenue />} />
           <Route path="leases" element={<Leases />} />
           <Route path="entities" element={<Entities />} />
+          <Route path="companies" element={<Companies />} />
           <Route path="workbench" element={<Workbench />} />
           <Route path="inbox" element={<Inbox />} />
           <Route path="approvals" element={<Approvals />} />

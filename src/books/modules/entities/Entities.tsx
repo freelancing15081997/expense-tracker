@@ -10,7 +10,7 @@ export default function Entities() {
   const [error, setError] = useState('');
 
   return (
-    <PageShell title="Legal Entities" subtitle="Register additional entities. Consolidation and intercompany elimination are adapters — they do not invent group balances.">
+    <PageShell title="Legal Entities" subtitle="Register legal entities inside the open company. A subsidiary with its own books is created under Companies, not here. Consolidation does not invent group balances.">
       {can('manage_settings') && (
         <Card className="p-4">
           <form

@@ -65,6 +65,7 @@ export const BOOKS_CATALOG: { domain: string; items: { name: string; href?: stri
       { name: 'Revenue recognition', href: '/books/revenue', status: 'live' },
       { name: 'Leases', href: '/books/leases', status: 'live' },
       { name: 'Multi-entity register', href: '/books/entities', status: 'live' },
+      { name: 'Companies / nested subsidiaries', href: '/books/companies', status: 'live' },
       { name: 'Consolidation / FX revaluation', status: 'adapter' },
     ],
   },
