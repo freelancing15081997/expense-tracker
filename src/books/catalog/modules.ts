@@ -34,7 +34,7 @@ export const BOOKS_TREE: BooksBranch[] = [
     items: [
       { name: 'Chart of Accounts', href: '/books/chart-of-accounts' },
       { name: 'Journal Entries', href: '/books/journals' },
-      { name: 'Recurring Journals', href: '/books/recurring' },
+      { name: 'Recurring', href: '/books/recurring' },
       { name: 'General Ledger', href: '/books/ledger' },
       { name: 'Accounting Periods', href: '/books/periods' },
       { name: 'Month-End Close', href: '/books/close' },

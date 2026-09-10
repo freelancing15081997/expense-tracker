@@ -15,7 +15,7 @@ import {
   type Transaction,
 } from '../../lib/store';
 import { clean } from '../core/clean';
-import { periodIdFromDate, todayISO } from '../core/money';
+import { periodIdFromDate, todayISO, addDays } from '../core/money';
 import { assertCan, type BooksAction } from '../core/permissions';
 import { normalBalanceFor, seedAccounts, TAX_SEED } from '../engine/chartOfAccounts';
 import { assertBalanced, assertPostable, invertLines, nextNumber, BooksError } from '../engine/journal';
@@ -843,15 +843,38 @@ export async function transferFunds(
 
 export async function saveRecurring(
   ctx: TxCtx,
-  input: { name: string; description: string; lines: JournalLineInput[] }
+  input: {
+    name: string;
+    description: string;
+    lines?: JournalLineInput[];
+    kind?: RecurringTemplate['kind'];
+    partyId?: string | null;
+    documentLines?: DocumentLineInput[];
+    interstate?: boolean;
+    dueDays?: number;
+    autoPost?: boolean;
+  }
 ) {
   assertCan(ctx.role, 'create');
-  assertBalanced(input.lines);
+  const kind = input.kind || 'journal';
+  if (kind === 'journal') {
+    if (!input.lines?.length) throw new BooksError('Add balanced journal lines');
+    assertBalanced(input.lines);
+  } else {
+    if (!input.partyId) throw new BooksError('Select a customer or vendor');
+    if (!input.documentLines?.length) throw new BooksError('Add at least one document line');
+  }
   const ref = doc(col(ctx.db, ctx.tenantId, 'recurring'));
   await setDoc(ref, clean({
     name: input.name.trim(),
     description: input.description.trim(),
-    lines: persistLines(input.lines),
+    lines: persistLines(input.lines || []),
+    kind,
+    partyId: input.partyId || null,
+    documentLines: input.documentLines || [],
+    interstate: Boolean(input.interstate),
+    dueDays: Number(input.dueDays || 30),
+    autoPost: Boolean(input.autoPost),
     active: true,
     lastRunAt: null,
   }));
@@ -859,12 +882,39 @@ export async function saveRecurring(
 }
 
 export async function runRecurring(ctx: TxCtx, template: RecurringTemplate, date: string) {
+  if (template.kind === 'invoice' || template.kind === 'bill') {
+    throw new BooksError('This template creates a document, not a journal');
+  }
   const id = await postManualJournal(ctx, {
     date,
     description: template.description || template.name,
     lines: template.lines,
     idempotencyKey: `recur_${template.id}_${date}_${crypto.randomUUID()}`,
   });
+  await updateDoc(doc(col(ctx.db, ctx.tenantId, 'recurring'), template.id), { lastRunAt: nowISO() });
+  return id;
+}
+
+export async function runRecurringDocument(
+  ctx: TxCtx,
+  template: RecurringTemplate,
+  date: string,
+  taxCodes: TaxCode[],
+  accounts: FinanceAccount[],
+) {
+  if (template.kind !== 'invoice' && template.kind !== 'bill') throw new BooksError('Not a document template');
+  const dueDays = template.dueDays || 30;
+  const id = await saveDocument(ctx, {
+    kind: template.kind,
+    partyId: template.partyId || null,
+    date,
+    dueDate: addDays(date, dueDays),
+    lines: template.documentLines || [],
+    interstate: Boolean(template.interstate),
+    memo: template.description || template.name,
+    taxCodes,
+  });
+  if (template.autoPost) await postDocument(ctx, id, accounts);
   await updateDoc(doc(col(ctx.db, ctx.tenantId, 'recurring'), template.id), { lastRunAt: nowISO() });
   return id;
 }

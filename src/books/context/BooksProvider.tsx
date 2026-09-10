@@ -43,6 +43,7 @@ import {
   resolveTenantId,
   reverseJournal,
   runRecurring,
+  runRecurringDocument,
   saveAccount,
   saveDocument,
   saveParty,
@@ -173,7 +174,17 @@ type BooksContextValue = {
   }) => Promise<void>;
   ledger: (accountId: string) => ReturnType<typeof loadLedger>;
   transfer: (input: { fromAccountId: string; toAccountId: string; amountMinor: number; date: string; memo: string }) => Promise<void>;
-  createRecurring: (input: { name: string; description: string; lines: JournalLineInput[] }) => Promise<string>;
+  createRecurring: (input: {
+    name: string;
+    description: string;
+    lines?: JournalLineInput[];
+    kind?: RecurringTemplate['kind'];
+    partyId?: string | null;
+    documentLines?: DocumentLineInput[];
+    interstate?: boolean;
+    dueDays?: number;
+    autoPost?: boolean;
+  }) => Promise<string>;
   runRecurringTemplate: (template: RecurringTemplate, date: string) => Promise<void>;
   createProduct: (input: Omit<Product, 'id'>) => Promise<string>;
   stockIn: (product: Product, qtyMilli: number, payAccountId: string) => Promise<void>;
@@ -187,6 +198,7 @@ type BooksContextValue = {
   createLease: (input: Omit<LeaseContract, 'id' | 'paidMonths' | 'status'>) => Promise<string>;
   payLeaseMonth: (lease: LeaseContract, payAccountId: string) => Promise<void>;
   createBankTxn: (input: { accountId: string; date: string; amountMinor: number; memo: string }) => Promise<string>;
+  importBankTxns: (rows: Array<{ accountId: string; date: string; amountMinor: number; memo: string }>) => Promise<number>;
   reconcileTxn: (txn: BankTxn) => Promise<void>;
   createEntity: (name: string) => Promise<string>;
   createInbox: (input: { title: string; kind: InboxItem['kind']; notes: string; filePath?: string | null }) => Promise<string>;
@@ -446,7 +458,11 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
       ledger: (accountId) => loadLedger(db, tenantId!, accountId),
       transfer: (input) => after(() => transferFunds(ctx(), input)),
       createRecurring: (input) => after(() => saveRecurring(ctx(), input)),
-      runRecurringTemplate: (template, date) => after(() => runRecurring(ctx(), template, date)),
+      runRecurringTemplate: (template, date) => after(() => (
+        template.kind === 'invoice' || template.kind === 'bill'
+          ? runRecurringDocument(ctx(), template, date, taxCodes, accounts)
+          : runRecurring(ctx(), template, date)
+      )),
       createProduct: (input) => after(() => saveProduct(ctx(), input)),
       stockIn: (product, qtyMilli, payAccountId) => after(() => receiveStock(ctx(), product, qtyMilli, payAccountId, accounts)),
       stockOut: (product, qtyMilli) => after(() => issueStock(ctx(), product, qtyMilli, accounts)),
@@ -458,8 +474,27 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
       recognize: (contract) => after(() => recognizeRevenue(ctx(), contract, accounts)),
       createLease: (input) => after(() => saveLease(ctx(), input)),
       payLeaseMonth: (lease, payAccountId) => after(() => payLease(ctx(), lease, payAccountId, accounts)),
-      createBankTxn: (input) => after(() => saveBankTxn(ctx(), input, accounts)),
-      reconcileTxn: (txn) => after(() => toggleReconcile(ctx(), txn)),
+      createBankTxn: async (input) => {
+        const id = await saveBankTxn(ctx(), input, accounts);
+        setBankTxns((prev) => [{ id, journalId: null, reconciled: false, ...input }, ...prev]);
+        scheduleRefresh();
+        return id;
+      },
+      importBankTxns: async (rows) => {
+        const created: BankTxn[] = [];
+        for (const row of rows) {
+          const id = await saveBankTxn(ctx(), row, accounts);
+          created.push({ id, journalId: null, reconciled: false, ...row });
+        }
+        if (created.length) setBankTxns((prev) => [...created, ...prev]);
+        scheduleRefresh();
+        return created.length;
+      },
+      reconcileTxn: async (txn) => {
+        setBankTxns((prev) => prev.map((row) => row.id === txn.id ? { ...row, reconciled: !row.reconciled } : row));
+        await toggleReconcile(ctx(), txn);
+        scheduleRefresh();
+      },
       createEntity: (name) => after(() => addEntity(ctx(), name)),
       createInbox: (input) => after(() => saveInboxItem(ctx(), input)),
       markInboxLinked: (id) => after(() => linkInboxItem(ctx(), id)),

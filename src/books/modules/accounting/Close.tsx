@@ -21,7 +21,7 @@ export default function MonthEndClose() {
   const posted = journals.filter((j) => j.status === 'posted').length;
 
   const steps = useMemo(() => [
-    { id: 'bank', label: 'Bank reconciliation', ok: unrec.length === 0, href: '/books/banking', detail: unrec.length === 0 ? 'All bank journals marked reconciled' : `${unrec.length} unreconciled` },
+    { id: 'bank', label: 'Bank reconciliation', ok: unrec.length === 0, href: '/books/banking', detail: unrec.length === 0 ? 'All bank journals marked reconciled' : `${unrec.length} unreconciled — open Banking and clear the statement difference` },
     { id: 'ar', label: 'AR review', ok: overdue.length === 0, href: '/books/collections', detail: overdue.length === 0 ? 'No overdue posted invoices' : `${overdue.length} overdue` },
     { id: 'ap', label: 'AP review', ok: unpaidBills.length === 0, href: '/books/payment-run', detail: unpaidBills.length === 0 ? 'No open posted bills' : `${unpaidBills.length} unpaid` },
     { id: 'drafts', label: 'Draft documents', ok: drafts.length === 0, href: '/books/invoices', detail: drafts.length === 0 ? 'No drafts' : `${drafts.length} still draft` },

@@ -218,6 +218,12 @@ export interface RecurringTemplate {
   lines: JournalLineInput[];
   active: boolean;
   lastRunAt: string | null;
+  kind?: 'journal' | 'invoice' | 'bill';
+  partyId?: string | null;
+  documentLines?: DocumentLineInput[];
+  interstate?: boolean;
+  dueDays?: number;
+  autoPost?: boolean;
 }
 
 export interface AuditEvent {
