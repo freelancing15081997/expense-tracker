@@ -6,7 +6,7 @@ import { Card, FeatureIcon, GroupIcon, Kpi, Money, PageShell, Status, btnAccent,
 import { formatMoney, todayISO } from '../../core/money';
 import { BOOKS_QUICK_CREATE } from '../../nav';
 import { BOOKS_TREE } from '../../catalog/modules';
-import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 export default function Dashboard() {
   const { tenant, accounts, journals, documents, parties, currency, approvals, bankTxns } = useBooks();
@@ -66,23 +66,34 @@ export default function Dashboard() {
           <p className="text-xs text-slate-500 mt-1 mb-3">Posted account balances only.</p>
           <div className="h-48">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={[{ name: 'Posted', Income: cards[3].value / 100, Expenses: cards[4].value / 100 }]}>
-                <XAxis dataKey="name" hide />
+              <BarChart data={[
+                { name: 'Income', amount: cards[3].value / 100, fill: '#12B8A8' },
+                { name: 'Expenses', amount: cards[4].value / 100, fill: '#0B1F3A' },
+              ]}>
+                <XAxis dataKey="name" tick={{ fontSize: 12 }} />
                 <YAxis tick={{ fontSize: 11 }} width={48} />
                 <Tooltip formatter={(value: number) => formatMoney(Math.round(Number(value) * 100), currency)} />
-                <Bar dataKey="Income" fill="#12B8A8" radius={6} />
-                <Bar dataKey="Expenses" fill="#0B1F3A" radius={6} />
+                <Bar dataKey="amount" radius={6}>
+                  <Cell fill="#12B8A8" />
+                  <Cell fill="#0B1F3A" />
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
         </Card>
-        <Card className="p-4 space-y-3">
+        <Card className="p-4 space-y-2">
           <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Work queue</p>
-          <p className="text-sm text-[#0B1F3A]">{drafts.length} draft{drafts.length === 1 ? '' : 's'}</p>
-          <p className="text-sm text-[#0B1F3A]">{overdue.length} overdue invoice{overdue.length === 1 ? '' : 's'}</p>
-          <p className="text-sm text-[#0B1F3A]">{openBills.length} unpaid bill{openBills.length === 1 ? '' : 's'}</p>
-          <p className="text-sm text-[#0B1F3A]">{pending} pending approval{pending === 1 ? '' : 's'}</p>
-          <p className="text-sm text-[#0B1F3A]">{unrec} unreconciled bank item{unrec === 1 ? '' : 's'}</p>
+          {[
+            { href: '/books/invoices', label: `${drafts.length} draft${drafts.length === 1 ? '' : 's'}` },
+            { href: '/books/collections', label: `${overdue.length} overdue invoice${overdue.length === 1 ? '' : 's'}` },
+            { href: '/books/payment-run', label: `${openBills.length} unpaid bill${openBills.length === 1 ? '' : 's'}` },
+            { href: '/books/approvals', label: `${pending} pending approval${pending === 1 ? '' : 's'}` },
+            { href: '/books/banking', label: `${unrec} unreconciled bank item${unrec === 1 ? '' : 's'}` },
+          ].map((item) => (
+            <Link key={item.href} to={item.href} className="block text-sm text-[#0B1F3A] hover:text-teal-800 hover:underline">
+              {item.label}
+            </Link>
+          ))}
         </Card>
       </div>
 

@@ -559,7 +559,13 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
       createParty: (input) => after(() => saveParty(db, tenantId!, role!, input), { title: `${input.kind === 'vendor' ? 'Vendor' : 'Customer'} saved`, description: input.name }),
       deactivateParty: (id) => after(() => deactivatePartyRecord(db, tenantId!, role!, id), 'Party deactivated'),
       createAccount: (input) => after(() => saveAccount(db, tenantId!, role!, input), 'Account saved'),
-      createDocument: (input) => after(() => saveDocument(ctx(), { ...input, taxCodes }), { title: 'Draft saved', description: 'The list is up to date. Open a row if you need the preview.' }),
+      createDocument: (input) => after(
+        () => saveDocument(ctx(), { ...input, taxCodes }),
+        {
+          title: `${input.kind.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())} saved`,
+          description: input.memo?.trim() || 'The list is up to date. Open a row if you need the preview.',
+        },
+      ),
       postDoc: async (id, payFromAccountId) => {
         const row = documents.find((d) => d.id === id);
         if ((row?.kind === 'invoice' || row?.kind === 'debit_note') && row.partyId) {
@@ -579,7 +585,11 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
       applyDocCredit: (creditId, targetId, amountMinor) => after(() => applyCredit(ctx(), creditId, targetId, amountMinor), 'Credit applied', 'post'),
       voidDoc: (id) => after(() => voidDocument(ctx(), id), 'Voided', 'delete'),
       convertDoc: (id, nextKind) => after(() => convertDocument(ctx(), id, nextKind, taxCodes), 'Converted'),
-      postJournal: (input) => after(() => postManualJournal(ctx(), { ...input, idempotencyKey: `manual_${crypto.randomUUID()}` }), 'Journal posted', 'post'),
+      postJournal: (input) => after(
+        () => postManualJournal(ctx(), { ...input, idempotencyKey: `manual_${crypto.randomUUID()}` }),
+        { title: 'Journal posted', description: input.description || 'The entry is on the list.' },
+        'post',
+      ),
       reverse: (journalId) => after(() => reverseJournal(ctx(), journalId), 'Journal reversed', 'delete'),
       close: (periodId) => after(() => closePeriod(ctx(), periodId), 'Period closed', 'post'),
       reopen: (periodId) => after(() => reopenPeriod(ctx(), periodId), 'Period reopened'),

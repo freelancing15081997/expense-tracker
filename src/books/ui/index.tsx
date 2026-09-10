@@ -204,6 +204,8 @@ export function IconBtn({
   );
 }
 
+export const BusyButton = IconBtn;
+
 export { FeatureIcon, ActionIcon, GroupIcon } from './icons';
 export { BooksLoader } from './BooksLoader';
 export { default as RecordFlyout } from './RecordFlyout';

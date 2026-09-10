@@ -214,7 +214,7 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
       )}
     >
       {savingHint && <p className="text-xs text-slate-500">{savingHint}</p>}
-      {open && (
+      {open && !quickOpen && (
         <Card className="p-5 space-y-6">
           <form onSubmit={submit} className="space-y-6">
             <section>

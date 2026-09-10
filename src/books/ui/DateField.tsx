@@ -89,6 +89,18 @@ export function DateField({
               );
             })}
           </div>
+          <div className="flex justify-end mt-2">
+            <button
+              type="button"
+              className="text-xs font-semibold text-teal-700 hover:underline"
+              onClick={() => {
+                onChange(format(new Date(), 'yyyy-MM-dd'));
+                setOpen(false);
+              }}
+            >
+              Today
+            </button>
+          </div>
         </div>
       )}
     </div>

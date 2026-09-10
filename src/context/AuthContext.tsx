@@ -91,7 +91,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   return (
     <AuthContext.Provider value={{ currentUser, userProfile, loading }}>
-      {loading ? <AppLoader title="Byjan" message="Loading your books." /> : children}
+      {loading ? <AppLoader title="Byjan" message="Checking your session." /> : children}
     </AuthContext.Provider>
   );
 };

@@ -7,7 +7,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { isSoftDeleted } from '../lib/records';
 import { useBooksTenantMeta } from '../lib/tenant';
 import { getCurrencySymbol } from '../lib/currency';
-import { Loader2, Plus, Check, X, Users, Building2, Receipt, ArrowRight, BookOpen } from 'lucide-react';
+import { Plus, Check, X, Users, Building2, Receipt, ArrowRight, BookOpen } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 import AppLoader from '../components/AppLoader';
@@ -271,7 +271,7 @@ export default function Dashboard() {
                   <button type="button" className="byjan-btn-ghost">Cancel</button>
                 </Dialog.Close>
                 <button type="submit" disabled={creating || !newBookName.trim()} className="byjan-btn">
-                  {creating && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {creating && <span className="app-loader-ring app-loader-ring-sm" />}
                   Create Expense Tracker
                 </button>
               </div>
@@ -295,7 +295,7 @@ export default function Dashboard() {
                 </div>
                 <div className="flex items-center gap-2 mt-auto pt-1">
                   <button onClick={() => handleAcceptInvite(invite)} disabled={acceptingId === invite.id} className="byjan-btn flex-1 text-xs">
-                    {acceptingId === invite.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Accept
+                    {acceptingId === invite.id ? <span className="app-loader-ring app-loader-ring-sm" /> : <Check className="w-3.5 h-3.5" />} Accept
                   </button>
                   <button onClick={() => handleDeclineInvite(invite.id)} className="byjan-btn-ghost flex-1 text-xs">
                     <X className="w-3.5 h-3.5" /> Decline
@@ -332,11 +332,11 @@ export default function Dashboard() {
             <div className="grid grid-cols-3 gap-3">
               <div className="byjan-card p-5">
                 <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Money in</h3>
-                <span className="text-2xl font-display font-semibold text-emerald-600">+{globalStats.totalIn.toLocaleString()}</span>
+                <span className="text-2xl font-display font-semibold text-emerald-600">+{getCurrencySymbol(books[0]?.currency || userProfile?.defaultCurrency || 'INR')}{globalStats.totalIn.toLocaleString()}</span>
               </div>
               <div className="byjan-card p-5">
                 <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Money out</h3>
-                <span className="text-2xl font-display font-semibold text-[#0B1F3A]">-{globalStats.totalOut.toLocaleString()}</span>
+                <span className="text-2xl font-display font-semibold text-[#0B1F3A]">-{getCurrencySymbol(books[0]?.currency || userProfile?.defaultCurrency || 'INR')}{globalStats.totalOut.toLocaleString()}</span>
               </div>
               <div className="byjan-card p-5">
                 <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Most active</h3>

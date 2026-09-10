@@ -103,7 +103,8 @@ export default function Register() {
           </div>
         </div>
         <button type="submit" disabled={loading} className="byjan-btn w-full h-10">
-          {loading ? 'Creating account…' : 'Create account'}
+          {loading && <span className="app-loader-ring app-loader-ring-sm" />}
+          {loading ? 'Creating account' : 'Create account'}
         </button>
       </form>
     </AuthScene>

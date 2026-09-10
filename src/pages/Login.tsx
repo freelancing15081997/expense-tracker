@@ -102,7 +102,8 @@ export default function Login() {
           </div>
         </div>
         <button type="submit" disabled={loading} className="byjan-btn w-full h-10">
-          {loading ? 'Signing in…' : 'Sign in'}
+          {loading && <span className="app-loader-ring app-loader-ring-sm" />}
+          {loading ? 'Signing in' : 'Sign in'}
         </button>
       </form>
     </AuthScene>

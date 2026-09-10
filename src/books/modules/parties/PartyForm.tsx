@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useBooks } from '../../context/BooksProvider';
 import { formatMinorPlain, parseMoney } from '../../core/money';
 import { btnGhost, Field, FileField, IconBtn, inputClass } from '../../ui';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../components/ui/Select';
 import type { FinanceParty, PartyKind } from '../../core/types';
 
 const GST_TREATMENTS = [
@@ -160,9 +161,16 @@ export function PartyForm({
         <Field label="GSTIN / Tax ID"><input className={inputClass} value={form.taxId} onChange={set('taxId')} /></Field>
         <Field label="PAN"><input className={inputClass} value={form.pan} onChange={set('pan')} /></Field>
         <Field label="GST treatment">
-          <select className={inputClass} value={form.gstTreatment} onChange={set('gstTreatment')}>
-            {GST_TREATMENTS.map((t) => <option key={t.id || 'none'} value={t.id}>{t.label}</option>)}
-          </select>
+          <Select value={form.gstTreatment || 'none'} onValueChange={(value) => setForm((f) => ({ ...f, gstTreatment: value === 'none' ? '' : value }))}>
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {GST_TREATMENTS.map((t) => (
+                <SelectItem key={t.id || 'none'} value={t.id || 'none'}>{t.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </Field>
         <Field label={kind === 'customer' ? 'Payment terms they get (days)' : 'Payment terms they give (days)'}><input className={inputClass} value={form.terms} onChange={set('terms')} /></Field>
         {kind === 'customer' && <Field label="Credit limit"><input className={inputClass} value={form.creditLimit} onChange={set('creditLimit')} placeholder="0.00" /></Field>}
