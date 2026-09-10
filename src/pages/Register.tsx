@@ -30,10 +30,8 @@ export default function Register() {
       setError('');
       setLoading(true);
       await signInWithGoogle();
-      navigate('/');
     } catch (err: any) {
       setError(err.message || 'Failed to sign in with Google');
-    } finally {
       setLoading(false);
     }
   };

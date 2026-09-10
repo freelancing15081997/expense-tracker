@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, onAuthStateChanged } from 'firebase/auth';
-import { auth } from '../lib/firebase';
+import { auth, googleRedirectReady } from '../lib/firebase';
 import { db } from '../lib/store';
 import { doc, getDoc, setDoc, serverTimestamp } from '../lib/store';
 import { authHeaders } from '../lib/auth-client';
@@ -41,45 +41,53 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
-      setCurrentUser(user);
-      if (!user) {
-        setUserProfile(null);
-        setLoading(false);
-        return;
-      }
-      setLoading(true);
-      const base: UserProfile = {
-        uid: user.uid,
-        email: user.email || '',
-        displayName: user.displayName || user.email?.split('@')[0] || 'User',
-        defaultCurrency: 'INR',
-      };
-      try {
-        await copyLegacyBooks();
-        const userRef = doc(db, 'users', user.uid);
-        const snap = await getDoc(userRef);
-        if (!snap.exists()) {
-          await setDoc(userRef, { ...base, customCategories: [], createdAt: serverTimestamp() });
-          setUserProfile(base);
-        } else {
-          const data = snap.data() || {};
-          setUserProfile({
-            ...base,
-            displayName: String(data.displayName || base.displayName),
-            defaultCurrency: String(data.defaultCurrency || 'INR'),
-            customCategories: Array.isArray(data.customCategories) ? data.customCategories : [],
-            createdAt: data.createdAt,
-            photoURL: data.photoURL,
-          });
+    let cancelled = false;
+    let unsubscribeAuth = () => {};
+    void googleRedirectReady.finally(() => {
+      if (cancelled) return;
+      unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+        setCurrentUser(user);
+        if (!user) {
+          setUserProfile(null);
+          setLoading(false);
+          return;
         }
-      } catch {
-        setUserProfile(base);
-      } finally {
-        setLoading(false);
-      }
+        setLoading(true);
+        const base: UserProfile = {
+          uid: user.uid,
+          email: user.email || '',
+          displayName: user.displayName || user.email?.split('@')[0] || 'User',
+          defaultCurrency: 'INR',
+        };
+        try {
+          await copyLegacyBooks();
+          const userRef = doc(db, 'users', user.uid);
+          const snap = await getDoc(userRef);
+          if (!snap.exists()) {
+            await setDoc(userRef, { ...base, customCategories: [], createdAt: serverTimestamp() });
+            setUserProfile(base);
+          } else {
+            const data = snap.data() || {};
+            setUserProfile({
+              ...base,
+              displayName: String(data.displayName || base.displayName),
+              defaultCurrency: String(data.defaultCurrency || 'INR'),
+              customCategories: Array.isArray(data.customCategories) ? data.customCategories : [],
+              createdAt: data.createdAt,
+              photoURL: data.photoURL,
+            });
+          }
+        } catch {
+          setUserProfile(base);
+        } finally {
+          setLoading(false);
+        }
+      });
     });
-    return () => unsubscribeAuth();
+    return () => {
+      cancelled = true;
+      unsubscribeAuth();
+    };
   }, []);
 
   return (

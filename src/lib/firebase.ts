@@ -2,7 +2,8 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 import {
   getAuth,
   GoogleAuthProvider,
-  signInWithPopup,
+  getRedirectResult,
+  signInWithRedirect,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut,
@@ -26,22 +27,12 @@ export const auth = getAuth(app);
 export const db = { vendor: 'neon' as const };
 
 const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+export const googleRedirectReady = getRedirectResult(auth).catch(() => null);
 
 export async function signInWithGoogle() {
-  try {
-    return await signInWithPopup(auth, googleProvider);
-  } catch (error: any) {
-    if (error.code === 'auth/popup-blocked') {
-      throw new Error('Popup was blocked. Please allow popups for this site.');
-    }
-    if (error.code === 'auth/popup-closed-by-user') {
-      throw new Error('Sign-in popup was closed before completing.');
-    }
-    if (error.code === 'auth/unauthorized-domain') {
-      throw new Error('This domain is not authorized for Google Sign-In.');
-    }
-    throw error;
-  }
+  await signInWithRedirect(auth, googleProvider);
 }
 
 export async function logout() {
