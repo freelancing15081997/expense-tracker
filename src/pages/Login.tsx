@@ -44,7 +44,7 @@ export default function Login() {
         <div className="flex justify-center">
           <BrandLogo size="lg" />
         </div>
-        <h2 className="mt-6 text-center text-3xl font-extrabold text-slate-900">Sign in to Byjan</h2>
+        <h2 className="mt-4 text-center text-3xl font-extrabold text-slate-900">Sign in to Byjan</h2>
         <p className="mt-1 text-center text-xs font-semibold tracking-[0.18em] text-slate-500">Trace Financials Easily</p>
         <p className="mt-2 text-center text-sm text-slate-600">
           Or{' '}

@@ -50,6 +50,15 @@ export async function storeBooksFile(tenantId: string, fileId: string, file: Fil
 export async function booksFileUrl(path: string) {
   if (!path) throw new Error('Missing file path');
   if (path.startsWith('https://') || path.startsWith('http://') || path.startsWith('data:')) return path;
+  if (path.startsWith('erp_workspaces/')) {
+    const { authHeaders } = await import('../../lib/auth-client');
+    const res = await fetch(`/api/blob/file?path=${encodeURIComponent(path)}`, {
+      headers: await authHeaders(),
+    });
+    if (!res.ok) throw new Error('File URL is unavailable. Re-upload the file.');
+    const blob = await res.blob();
+    return URL.createObjectURL(blob);
+  }
   throw new Error('File URL is unavailable. Re-upload the file to Vercel Blob.');
 }
 

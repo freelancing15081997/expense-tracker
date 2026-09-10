@@ -65,26 +65,36 @@ svg.byjan-glyph {
 }
 
 .brand-logo {
-  isolation: isolate;
+  background: #fff;
+  border-radius: 12px;
+}
+.brand-logo[data-size="sm"],
+.brand-logo[data-size="md"] {
+  box-shadow: inset 0 0 0 1px rgba(11, 31, 58, 0.08);
+}
+.brand-logo[data-size="lg"] {
+  background: transparent;
+  border-radius: 0;
 }
 .brand-logo .brand-logo-img {
   width: 100%;
   height: 100%;
+  display: block;
   object-fit: cover;
-  object-position: 50% 40%;
-  transform: scale(4.15);
+  object-position: 50% 38%;
+  transform: scale(3.15);
   transform-origin: center;
-  filter: contrast(1.35) saturate(1.55) brightness(1.18);
+  filter: contrast(1.12) saturate(1.2) brightness(1.04);
 }
 .brand-logo[data-size="md"] .brand-logo-img {
-  object-position: 50% 44%;
-  transform: scale(2.55);
-  filter: contrast(1.3) saturate(1.5) brightness(1.16);
+  object-position: 50% 42%;
+  transform: scale(2.35);
 }
 .brand-logo[data-size="lg"] .brand-logo-img {
-  object-position: 50% 46%;
-  transform: scale(2.2);
-  filter: contrast(1.28) saturate(1.5) brightness(1.2);
+  object-fit: contain;
+  object-position: center;
+  transform: scale(1.55);
+  filter: contrast(1.08) saturate(1.15) brightness(1.06);
 }
 
 .font-display {

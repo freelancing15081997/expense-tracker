@@ -104,7 +104,7 @@ export async function handleBlobUploadRequest(
 
     const pathname = `erp_workspaces/${tenantId}/files/${fileId}.${ext}`;
     const blob = await put(pathname, body, {
-      access: 'public',
+      access: 'private',
       token: token(),
       ...(process.env.BLOB_STORE_ID ? { storeId: process.env.BLOB_STORE_ID } : {}),
       contentType: contentType || ALLOWED_MIME[ext][0],
@@ -113,7 +113,7 @@ export async function handleBlobUploadRequest(
       cacheControlMaxAge: 60 * 60 * 24 * 365,
     });
 
-    sendJson(res, 200, { url: blob.url, pathname: blob.pathname });
+    sendJson(res, 200, { url: (blob as { downloadUrl?: string }).downloadUrl || blob.url, pathname: blob.pathname });
   } catch (err: any) {
     sendJson(res, blobErrorStatus(err), { error: blobErrorMessage(err, 'Upload failed') });
   }

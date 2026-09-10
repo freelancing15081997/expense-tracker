@@ -39,6 +39,52 @@ function autoId() {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+const FIRESTORE_DB = 'ai-studio-sharedsheetexpen-15aa5fbb-9604-4c59-b4a3-aa994442cb50';
+let namedDb: any = null;
+
+function pathParts(path: string) {
+  return path.split('/').filter(Boolean);
+}
+
+async function firestoreDb() {
+  if (namedDb) return namedDb;
+  const { getFirestore } = await import('firebase/firestore');
+  const { app } = await import('./firebase');
+  namedDb = getFirestore(app, FIRESTORE_DB);
+  return namedDb;
+}
+
+async function readFirestoreDoc(path: string) {
+  const { doc, getDoc } = await import('firebase/firestore');
+  const snap = await getDoc(doc(await firestoreDb(), ...pathParts(path)));
+  return snap.exists() ? (snap.data() as Record<string, unknown>) : null;
+}
+
+async function readFirestoreDocs(path: string, constraints: Constraint[] = []) {
+  const { collection, getDocs, query, where, limit, orderBy } = await import('firebase/firestore');
+  const col = collection(await firestoreDb(), ...pathParts(path));
+  const parsed = constraints.map((c) => {
+    if (c.type === 'where') return where(c.field, c.op as any, c.value);
+    if (c.type === 'limit') return limit(c.n);
+    return orderBy(c.field, (c.dir as 'asc' | 'desc') || 'asc');
+  });
+  const snap = parsed.length ? await getDocs(query(col, ...parsed)) : await getDocs(col);
+  return snap.docs.map((row) => ({ id: row.id, data: row.data() as Record<string, unknown> }));
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), ms);
+    promise.then((value) => {
+      clearTimeout(timer);
+      resolve(value);
+    }).catch(() => {
+      clearTimeout(timer);
+      resolve(null);
+    });
+  });
+}
+
 export function collection(_db: Firestore, ...segments: string[]): ColRef {
   return { kind: 'col', path: segments.join('/') };
 }
@@ -83,8 +129,16 @@ function wrapDoc(id: string, data: any, path: string) {
 }
 
 export async function getDoc(ref: DocRef) {
-  const payload = await call({ op: 'get', path: ref.path });
-  return wrapDoc(ref.id, payload.data || null, ref.path);
+  const kv = withTimeout(call({ op: 'get', path: ref.path }), 2500);
+  let data: Record<string, unknown> | null = null;
+  try {
+    data = await readFirestoreDoc(ref.path);
+  } catch {
+    // Named Firestore holds existing ledgers.
+  }
+  const payload = await kv;
+  if (payload?.data) data = payload.data;
+  return wrapDoc(ref.id, data, ref.path);
 }
 
 export async function setDoc(ref: DocRef, data: Record<string, unknown>, opts?: { merge?: boolean }) {
@@ -111,11 +165,23 @@ export type QuerySnapshot = {
 };
 
 export async function getDocs(source: { path: string; constraints?: Constraint[] }): Promise<QuerySnapshot> {
-  const payload = await call({ op: 'query', path: source.path, constraints: source.constraints || [] });
-  const docs = (payload.docs || []).map((row: any) => ({
-    id: row?.id || '',
-    data: () => row.data || {},
-    exists: () => Boolean(row?.data),
+  const byId = new Map<string, Record<string, unknown>>();
+  const kv = withTimeout(call({ op: 'query', path: source.path, constraints: source.constraints || [] }), 2500);
+  try {
+    for (const row of await readFirestoreDocs(source.path, source.constraints || [])) {
+      byId.set(row.id, row.data);
+    }
+  } catch {
+    // Rules require a roles.{uid} query on books; Firestore client sends it.
+  }
+  const payload = await kv;
+  for (const row of payload?.docs || []) {
+    if (row?.id && row.data) byId.set(row.id, row.data);
+  }
+  const docs = [...byId.entries()].map(([id, data]) => ({
+    id,
+    data: () => data,
+    exists: () => Boolean(data),
   }));
   return {
     docs,
@@ -131,6 +197,7 @@ export function onSnapshot(
 ) {
   let stopped = false;
   const tick = () => {
+    if (typeof document !== 'undefined' && document.hidden) return;
     if (source.kind === 'doc') {
       getDoc(source as DocRef).then((snap) => {
         if (!stopped) next(snap);
@@ -146,7 +213,7 @@ export function onSnapshot(
     });
   };
   tick();
-  const timer = setInterval(tick, 8000);
+  const timer = setInterval(tick, 25000);
   return () => {
     stopped = true;
     clearInterval(timer);

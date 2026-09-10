@@ -289,7 +289,7 @@ async function localDel(path: string) {
 
 async function localList(prefix: string) {
   if (postgresUrl()) return pgList(prefix);
-  return blobList(prefix);
+  return [];
 }
 
 async function readDoc(path: string, token: string) {

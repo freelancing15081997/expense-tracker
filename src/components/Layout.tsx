@@ -2,14 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { logout, db } from '../lib/firebase';
-import { LogOut, Settings, Menu, X, Bell, CheckCircle2, ArrowRightLeft, ChevronDown, ChevronRight } from 'lucide-react';
+import { LogOut, Settings, Menu, X, Bell, CheckCircle2, ArrowRightLeft, ChevronDown, ChevronRight, BookOpen } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { collection, query, where, getDocs, updateDoc, doc } from '../lib/store';
 import BrandLogo from './BrandLogo';
 import GlobalSearch, { SearchTrigger } from './GlobalSearch';
 import { BOOKS_NAV } from '../books/nav';
-import { FeatureIcon, GroupIcon, BooksGlyph } from '../books/ui/icons';
+import { FeatureIcon, GroupIcon } from '../books/ui/icons';
 import { useBooksTenantMeta } from '../lib/tenant';
 
 function cn(...inputs: ClassValue[]) {
@@ -114,7 +114,7 @@ export default function Layout() {
                 onBooks ? 'text-[#0B1F3A]' : 'text-slate-700 hover:bg-slate-50 rounded-xl'
               )}
             >
-              <BooksGlyph name="book" className="w-6 h-6 shrink-0" />
+              <BookOpen className="w-6 h-6 shrink-0" />
               {showText && <span className="whitespace-nowrap">Books</span>}
             </Link>
             {showText && (

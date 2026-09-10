@@ -110,14 +110,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const { put } = await import('@vercel/blob');
     const blob = await put(`erp_workspaces/${tenantId}/files/${fileId}.${ext}`, body, {
-      access: 'public',
+      access: 'private',
       addRandomSuffix: false,
       allowOverwrite: true,
       contentType: contentType || ALLOWED_MIME[ext][0],
       cacheControlMaxAge: 60 * 60 * 24 * 365,
       ...blobAuth(),
     });
-    json(res, 200, { url: blob.url, pathname: blob.pathname });
+    const url = (blob as { downloadUrl?: string }).downloadUrl || blob.url;
+    json(res, 200, { url, pathname: blob.pathname });
   } catch (err: any) {
     json(res, 500, { error: err?.message || 'Upload failed' });
   }
