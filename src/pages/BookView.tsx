@@ -328,11 +328,21 @@ export default function BookView() {
           lastEditedByUid: currentUser?.uid || '',
           lastEditedAt: serverTimestamp()
         });
+        setExpenses((prev) => prev.map((row) => row.id === editingExpense.id ? {
+          ...row,
+          amount: Number(amount),
+          description,
+          category: finalCategory,
+          entryType,
+          lastEditedBy: userProfile?.displayName || currentUser?.email,
+          lastEditedByUid: currentUser?.uid || '',
+          lastEditedAt: new Date().toISOString(),
+        } : row));
         addToast('Entry updated successfully!', 'success');
         setIsExpenseModalOpen(false);
         notifyTeamMembers('Edited an entry', `Updated ${entryType === 'in' ? 'money in' : 'money out'} for "${description}" to ${getCurrencySymbol(book.currency)} ${amount} in category "${finalCategory}"`, `${userProfile?.displayName || currentUser?.email} updated "${description}" to ${getCurrencySymbol(book.currency)}${amount} in ${book.name}`).catch(console.error);
       } else {
-        await addDoc(collection(db, `books/${bookId}/expenses`), {
+        const created = await addDoc(collection(db, `books/${bookId}/expenses`), {
           amount: Number(amount),
           description,
           category: finalCategory,
@@ -344,6 +354,19 @@ export default function BookView() {
           enteredByEmail: currentUser?.email || '',
           createdAt: serverTimestamp()
         });
+        setExpenses((prev) => [{
+          id: created.id,
+          amount: Number(amount),
+          description,
+          category: finalCategory,
+          entryType,
+          date: new Date().toISOString().split('T')[0],
+          paidByName: userProfile?.displayName || currentUser?.email,
+          enteredBy: userProfile?.displayName || currentUser?.email,
+          enteredByUid: currentUser?.uid || '',
+          enteredByEmail: currentUser?.email || '',
+          createdAt: new Date().toISOString(),
+        }, ...prev]);
         addToast('Entry recorded successfully!', 'success');
         setCurrentPage(1);
         setIsExpenseModalOpen(false);

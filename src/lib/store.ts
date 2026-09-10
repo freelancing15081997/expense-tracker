@@ -166,7 +166,7 @@ export type QuerySnapshot = {
 
 export async function getDocs(source: { path: string; constraints?: Constraint[] }): Promise<QuerySnapshot> {
   const byId = new Map<string, Record<string, unknown>>();
-  const kv = withTimeout(call({ op: 'query', path: source.path, constraints: source.constraints || [] }), 2500);
+  const kv = withTimeout(call({ op: 'query', path: source.path, constraints: source.constraints || [] }), 8000);
   try {
     for (const row of await readFirestoreDocs(source.path, source.constraints || [])) {
       byId.set(row.id, row.data);

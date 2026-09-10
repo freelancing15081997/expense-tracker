@@ -256,7 +256,7 @@ async function blobDel(path: string) {
 async function blobList(prefix: string) {
   const { list } = await import('@vercel/blob');
   const base = `${DOC_PREFIX}${cleanPath(prefix)}/`;
-  const out: { id: string; data: Record<string, unknown> }[] = [];
+  const ids: string[] = [];
   let cursor: string | undefined;
   do {
     const page = await list({ prefix: base, cursor, limit: 1000, ...blobAuth() });
@@ -264,11 +264,21 @@ async function blobList(prefix: string) {
       if (!item.pathname.endsWith('.json')) continue;
       const rest = item.pathname.slice(base.length, -5);
       if (!rest || rest.includes('/')) continue;
-      const data = await blobGet(`${cleanPath(prefix)}/${rest}`);
-      if (data) out.push({ id: rest, data });
+      ids.push(rest);
     }
     cursor = page.hasMore ? page.cursor : undefined;
   } while (cursor);
+
+  const out: { id: string; data: Record<string, unknown> }[] = [];
+  const chunk = 12;
+  for (let i = 0; i < ids.length; i += chunk) {
+    const slice = ids.slice(i, i + chunk);
+    const rows = await Promise.all(slice.map(async (id) => {
+      const data = await blobGet(`${cleanPath(prefix)}/${id}`);
+      return data ? { id, data } : null;
+    }));
+    for (const row of rows) if (row) out.push(row);
+  }
   return out;
 }
 
@@ -289,7 +299,7 @@ async function localDel(path: string) {
 
 async function localList(prefix: string) {
   if (postgresUrl()) return pgList(prefix);
-  return [];
+  return blobList(prefix);
 }
 
 async function readDoc(path: string, token: string) {
