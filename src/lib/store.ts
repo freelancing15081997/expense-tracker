@@ -128,33 +128,70 @@ function wrapDoc(id: string, data: any, path: string) {
   };
 }
 
+const memory = new Map<string, { data: Record<string, unknown> | null; at: number }>();
+
+function remember(path: string, data: Record<string, unknown> | null) {
+  memory.set(path, { data, at: Date.now() });
+}
+
+function overlayCollection(colPath: string, byId: Map<string, Record<string, unknown>>) {
+  const prefix = `${colPath}/`;
+  for (const [path, entry] of memory) {
+    if (!path.startsWith(prefix)) continue;
+    const id = path.slice(prefix.length);
+    if (!id || id.includes('/')) continue;
+    if (entry.data === null) byId.delete(id);
+    else byId.set(id, entry.data);
+  }
+}
+
 export async function getDoc(ref: DocRef) {
-  const kv = withTimeout(call({ op: 'get', path: ref.path }), 2500);
-  let data: Record<string, unknown> | null = null;
+  const cached = memory.get(ref.path);
+  if (cached && Date.now() - cached.at < 8000) {
+    return wrapDoc(ref.id, cached.data, ref.path);
+  }
+  let data: Record<string, unknown> | null = cached?.data ?? null;
   try {
     data = await readFirestoreDoc(ref.path);
   } catch {
     // Named Firestore holds existing ledgers.
   }
-  const payload = await kv;
+  const payload = await withTimeout(call({ op: 'get', path: ref.path }), data ? 450 : 900);
   if (payload?.data) data = payload.data;
   return wrapDoc(ref.id, data, ref.path);
 }
 
 export async function setDoc(ref: DocRef, data: Record<string, unknown>, opts?: { merge?: boolean }) {
+  const next = opts?.merge ? { ...(memory.get(ref.path)?.data || {}), ...data } : data;
+  remember(ref.path, next);
   await call({ op: 'set', path: ref.path, data, merge: Boolean(opts?.merge) });
 }
 
 export async function updateDoc(ref: DocRef, data: Record<string, unknown>) {
+  remember(ref.path, { ...(memory.get(ref.path)?.data || {}), ...data });
   await call({ op: 'update', path: ref.path, data });
 }
 
 export async function addDoc(col: { path: string }, data: Record<string, unknown>) {
-  const payload = await call({ op: 'add', path: col.path, data });
-  return { id: payload.id as string };
+  const id = autoId();
+  const next = { ...data, id };
+  remember(`${col.path}/${id}`, next);
+  try {
+    const payload = await call({ op: 'add', path: col.path, data: next, id });
+    const realId = String(payload.id || id);
+    if (realId !== id) {
+      memory.delete(`${col.path}/${id}`);
+      remember(`${col.path}/${realId}`, { ...data, id: realId });
+    }
+    return { id: realId };
+  } catch (err) {
+    memory.delete(`${col.path}/${id}`);
+    throw err;
+  }
 }
 
 export async function deleteDoc(ref: DocRef) {
+  remember(ref.path, null);
   await call({ op: 'delete', path: ref.path });
 }
 
@@ -166,7 +203,7 @@ export type QuerySnapshot = {
 
 export async function getDocs(source: { path: string; constraints?: Constraint[] }): Promise<QuerySnapshot> {
   const byId = new Map<string, Record<string, unknown>>();
-  const kv = withTimeout(call({ op: 'query', path: source.path, constraints: source.constraints || [] }), 8000);
+  const kv = withTimeout(call({ op: 'query', path: source.path, constraints: source.constraints || [] }), 850);
   try {
     for (const row of await readFirestoreDocs(source.path, source.constraints || [])) {
       byId.set(row.id, row.data);
@@ -174,10 +211,12 @@ export async function getDocs(source: { path: string; constraints?: Constraint[]
   } catch {
     // Rules require a roles.{uid} query on books; Firestore client sends it.
   }
+  overlayCollection(source.path, byId);
   const payload = await kv;
   for (const row of payload?.docs || []) {
     if (row?.id && row.data) byId.set(row.id, row.data);
   }
+  overlayCollection(source.path, byId);
   const docs = [...byId.entries()].map(([id, data]) => ({
     id,
     data: () => data,

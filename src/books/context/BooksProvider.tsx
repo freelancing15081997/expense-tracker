@@ -306,14 +306,19 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
   }, [tenantId]);
 
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refreshBusy = useRef(false);
   const scheduleRefresh = useCallback(() => {
     if (refreshTimer.current) clearTimeout(refreshTimer.current);
     refreshTimer.current = setTimeout(() => {
       refreshTimer.current = null;
+      if (refreshBusy.current) return;
+      refreshBusy.current = true;
       void refresh().catch((err) => {
         if (isFirestoreQuota(err)) return;
+      }).finally(() => {
+        refreshBusy.current = false;
       });
-    }, 1400);
+    }, 900);
   }, [refresh]);
 
   useEffect(() => () => {

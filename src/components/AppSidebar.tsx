@@ -1,10 +1,9 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ArrowRightLeft, BookOpen, ChevronRight, LayoutDashboard, LogOut, Search, Settings } from 'lucide-react';
+import { ArrowRightLeft, BookOpen, ChevronRight, LayoutDashboard, LogOut, Settings } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import BrandLogo from './BrandLogo';
-import { SearchTrigger } from './GlobalSearch';
 import { BOOKS_NAV, BOOKS_QUICK_CREATE } from '../books/nav';
 import { FeatureIcon, GroupIcon } from '../books/ui/icons';
 import type { BooksTenantMeta } from '../lib/tenant';
@@ -23,10 +22,10 @@ type AppSidebarProps = {
 
 function iconWell(active: boolean) {
   return cn(
-    'w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border transition-all duration-150',
+    'w-10 h-10 rounded-[14px] flex items-center justify-center shrink-0 border transition-colors duration-150',
     active
-      ? 'bg-[#0B1F3A] text-white border-[#0B1F3A] shadow-[0_8px_16px_-10px_rgba(11,31,58,0.7)]'
-      : 'bg-white text-slate-600 border-slate-200/90 shadow-[0_1px_0_rgba(255,255,255,0.8)_inset,0_1px_2px_rgba(11,31,58,0.06)] group-hover:border-slate-300 group-hover:text-[#0B1F3A] group-hover:bg-slate-50'
+      ? 'bg-[#0B1F3A] text-white border-[#0B1F3A] shadow-[0_10px_18px_-10px_rgba(11,31,58,0.75)]'
+      : 'bg-white text-slate-500 border-slate-200 group-hover:border-slate-300 group-hover:text-[#0B1F3A] group-hover:bg-[#F8FAFC]'
   );
 }
 
@@ -102,40 +101,24 @@ export default function AppSidebar({ expanded, tenant, userProfile, onLogout }: 
     <>
       <Link
         to="/"
-        title="Main dashboard"
+        title="Byjan home"
         className={cn(
-          'group mx-2 mt-2 mb-1 flex items-center rounded-2xl border transition-all',
-          showText ? 'gap-3 px-2 py-2' : 'justify-center p-1.5',
-          onHome ? 'bg-[#F4F7FB] border-slate-200' : 'border-transparent hover:bg-white hover:border-slate-200'
+          'group mx-2.5 mt-3 mb-3 flex items-center rounded-2xl bg-white border border-slate-200/80',
+          showText ? 'gap-3 px-2 py-2' : 'justify-center p-1.5'
         )}
       >
         <BrandLogo size="sm" />
         {showText && (
           <div className="min-w-0">
-            <p className="font-display font-semibold text-[16px] text-[#0B1F3A] tracking-tight leading-none">Byjan</p>
-            <p className="text-[11px] text-slate-500 mt-1 truncate">Workspace</p>
+            <p className="font-display font-semibold text-[17px] text-[#0B1F3A] tracking-[-0.03em] leading-none">Byjan</p>
+            <p className="text-[11px] font-medium text-slate-500 mt-1.5 truncate tracking-wide">Trace Financials Easily</p>
           </div>
         )}
       </Link>
 
-      <div className={cn('px-2 mb-2', showText ? '' : 'flex justify-center')}>
-        {showText ? <SearchTrigger variant="sidebar" /> : (
-          <button
-            type="button"
-            className="group p-0.5 rounded-2xl"
-            onClick={() => window.dispatchEvent(new Event('byjan-open-search'))}
-            title="Search (⌘K)"
-          >
-            <span className={iconWell(false)}>
-              <Search className="w-5 h-5" strokeWidth={2.2} />
-            </span>
-          </button>
-        )}
-      </div>
-
-      <nav className="flex-1 overflow-y-auto overflow-x-visible px-2 pb-3 space-y-1">
+      <nav className="flex-1 overflow-y-auto overflow-x-visible px-2.5 pb-3 space-y-0.5">
         {showText && (
-          <p className="px-2 pt-1 pb-1 text-[10px] font-bold tracking-[0.16em] text-slate-400 uppercase">Navigate</p>
+          <p className="px-2.5 pt-1 pb-2 text-[10px] font-semibold tracking-[0.18em] text-slate-400 uppercase">Menu</p>
         )}
 
         <Link
@@ -146,7 +129,7 @@ export default function AppSidebar({ expanded, tenant, userProfile, onLogout }: 
           <span className={iconWell(onHome)}>
             <LayoutDashboard className="w-5 h-5" strokeWidth={2.2} />
           </span>
-          {showText && <span className={cn('text-sm font-semibold', onHome ? 'text-[#0B1F3A]' : 'text-slate-700')}>Dashboard</span>}
+          {showText && <span className={cn('text-[13.5px] font-semibold tracking-[-0.01em]', onHome ? 'text-[#0B1F3A]' : 'text-slate-600')}>Dashboard</span>}
         </Link>
 
         <Link
@@ -157,7 +140,7 @@ export default function AppSidebar({ expanded, tenant, userProfile, onLogout }: 
           <span className={iconWell(onExpenses)}>
             <ArrowRightLeft className="w-5 h-5" strokeWidth={2.2} />
           </span>
-          {showText && <span className={cn('text-sm font-semibold', onExpenses ? 'text-[#0B1F3A]' : 'text-slate-700')}>Expense Tracker</span>}
+          {showText && <span className={cn('text-[13.5px] font-semibold tracking-[-0.01em]', onExpenses ? 'text-[#0B1F3A]' : 'text-slate-600')}>Expense Tracker</span>}
         </Link>
 
         <div
@@ -175,7 +158,7 @@ export default function AppSidebar({ expanded, tenant, userProfile, onLogout }: 
               <span className={iconWell(onBooks)}>
                 <BookOpen className="w-5 h-5" strokeWidth={2.2} />
               </span>
-              {showText && <span className={cn('text-sm font-semibold truncate', onBooks ? 'text-[#0B1F3A]' : 'text-slate-700')}>Books</span>}
+              {showText && <span className={cn('text-[13.5px] font-semibold truncate tracking-[-0.01em]', onBooks ? 'text-[#0B1F3A]' : 'text-slate-600')}>Books</span>}
             </Link>
             {showText && (
               <button
@@ -227,7 +210,7 @@ export default function AppSidebar({ expanded, tenant, userProfile, onLogout }: 
           <span className={iconWell(onSettings)}>
             <Settings className="w-5 h-5" strokeWidth={2.2} />
           </span>
-          {showText && <span className={cn('text-sm font-semibold', onSettings ? 'text-[#0B1F3A]' : 'text-slate-700')}>Settings</span>}
+          {showText && <span className={cn('text-[13.5px] font-semibold tracking-[-0.01em]', onSettings ? 'text-[#0B1F3A]' : 'text-slate-600')}>Settings</span>}
         </Link>
       </nav>
 
@@ -287,16 +270,16 @@ export default function AppSidebar({ expanded, tenant, userProfile, onLogout }: 
           onMouseEnter={openBooksFlyout}
           onMouseLeave={scheduleCloseBooks}
         >
-          <div className="flex items-start justify-between gap-3 mb-3">
+          <div className="flex items-start justify-between gap-3 mb-4 pb-3 border-b border-slate-100">
             <div>
-              <p className="font-display text-[15px] font-semibold text-[#0B1F3A]">Books</p>
-              <p className="text-xs text-slate-500">{tenant?.name || 'Workspace'} · accounting, sales, and control</p>
+              <p className="font-display text-[17px] font-semibold tracking-[-0.02em] text-[#0B1F3A]">Books</p>
+              <p className="text-[12px] text-slate-500 mt-0.5">{tenant?.name || 'Workspace'} · accounting, sales, and control</p>
             </div>
             <Link to="/books" className="h-9 px-3 rounded-xl bg-[#0B1F3A] text-white text-xs font-semibold inline-flex items-center">
               Open home
             </Link>
           </div>
-          <div className="flex flex-wrap gap-2 mb-4 pb-3 border-b border-slate-100">
+          <div className="flex flex-wrap gap-2 mb-4">
             {BOOKS_QUICK_CREATE.map((item) => (
               <Link
                 key={item.href}

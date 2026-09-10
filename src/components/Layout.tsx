@@ -96,7 +96,7 @@ export default function Layout() {
         onMouseEnter={() => setIsSidebarHovered(true)}
         onMouseLeave={() => setIsSidebarHovered(false)}
         className={cn(
-          'byjan-rail fixed inset-y-0 left-0 z-50 flex flex-col md:relative md:translate-x-0 md:z-auto transition-[width,transform] duration-300 overflow-visible bg-white border-r border-slate-200',
+          'byjan-rail fixed inset-y-0 left-0 z-50 flex flex-col md:relative md:translate-x-0 md:z-auto transition-[width,transform] duration-200 overflow-visible bg-[#FBFCFD] border-r border-slate-200',
           mobileMenuOpen ? 'translate-x-0 w-[280px]' : '-translate-x-full md:translate-x-0',
           !mobileMenuOpen && (isSidebarHovered ? 'md:w-[280px] shadow-2xl md:shadow-none' : 'md:w-[76px]')
         )}
@@ -110,9 +110,9 @@ export default function Layout() {
       </aside>
 
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-        <div className="hidden md:flex shrink-0 items-center gap-3 px-5 h-14 bg-white border-b border-slate-200">
+        <div className="hidden md:flex relative z-20 shrink-0 items-center gap-3 px-5 h-14 bg-white border-b border-slate-200">
           <div className="flex-1 flex justify-center min-w-0">
-            <div className="w-full max-w-2xl">
+            <div className="w-full max-w-2xl" data-open-search>
               <SearchTrigger variant="bar" />
             </div>
           </div>

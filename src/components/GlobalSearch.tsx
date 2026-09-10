@@ -65,31 +65,25 @@ async function loadBooksFast(uid: string): Promise<CachedBook[]> {
   return books;
 }
 
+function fireOpen(event?: React.SyntheticEvent) {
+  event?.preventDefault();
+  event?.stopPropagation();
+  openGlobalSearch();
+}
+
 export function SearchTrigger({
   variant = 'button',
 }: {
-  variant?: 'button' | 'sidebar' | 'bar' | 'icon';
+  variant?: 'button' | 'bar' | 'icon';
 }) {
-  const open = () => openGlobalSearch();
-  if (variant === 'sidebar') {
-    return (
-      <button
-        type="button"
-        onClick={open}
-        className="w-full flex items-center gap-2 px-3 py-2 rounded-xl bg-[#F8FAFC] border border-slate-200 text-left text-sm text-slate-600 hover:bg-white byjan-lift"
-      >
-        <Search className="w-6 h-6 text-slate-500 shrink-0" />
-        <span className="flex-1">Search…</span>
-        <kbd className="hidden lg:inline px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 bg-white border border-slate-200 rounded">⌘K</kbd>
-      </button>
-    );
-  }
   if (variant === 'bar') {
     return (
       <button
         type="button"
-        onClick={open}
-        className="flex items-center gap-2.5 w-full px-4 h-11 text-sm text-slate-800 bg-[#F8FAFC] hover:bg-white rounded-2xl border border-slate-200 shadow-[0_1px_1px_rgba(11,31,58,0.04),0_8px_18px_-12px_rgba(11,31,58,0.18)] transition-colors"
+        data-open-search
+        onPointerDown={fireOpen}
+        onClick={fireOpen}
+        className="relative z-20 flex items-center gap-2.5 w-full px-4 h-11 text-sm text-slate-800 bg-[#F8FAFC] hover:bg-white rounded-2xl border border-slate-200 shadow-[0_1px_1px_rgba(11,31,58,0.04),0_8px_18px_-12px_rgba(11,31,58,0.18)] transition-colors"
       >
         <Search className="w-5 h-5 text-slate-500" />
         <span className="flex-1 text-left text-slate-500">Search invoices, people, ledgers, features…</span>
@@ -101,8 +95,10 @@ export function SearchTrigger({
     return (
       <button
         type="button"
-        onClick={open}
-        className="w-10 h-10 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 flex items-center justify-center shadow-[0_1px_2px_rgba(11,31,58,0.06)]"
+        data-open-search
+        onPointerDown={fireOpen}
+        onClick={fireOpen}
+        className="relative z-20 w-10 h-10 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 flex items-center justify-center shadow-[0_1px_2px_rgba(11,31,58,0.06)]"
         title="Search (⌘K)"
       >
         <Search className="w-5 h-5" />
@@ -112,8 +108,10 @@ export function SearchTrigger({
   return (
     <button
       type="button"
-      onClick={open}
-      className="flex items-center gap-2 px-3 py-1.5 text-sm text-slate-700 bg-slate-100 hover:bg-slate-50 rounded-lg border border-slate-200 transition-colors"
+      data-open-search
+      onPointerDown={fireOpen}
+      onClick={fireOpen}
+      className="relative z-20 flex items-center gap-2 px-3 py-1.5 text-sm text-slate-700 bg-slate-100 hover:bg-slate-50 rounded-lg border border-slate-200 transition-colors"
     >
       <Search className="w-6 h-6" />
       <span className="hidden sm:inline">Search</span>
@@ -141,7 +139,9 @@ export default function GlobalSearch() {
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (Date.now() - ignoreClose.current < 250) return;
+      if (Date.now() - ignoreClose.current < 400) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('[data-open-search]')) return;
       if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
         setIsOpen(false);
       }
@@ -198,56 +198,9 @@ export default function GlobalSearch() {
     const deduped = instant.filter((item, i, arr) => arr.findIndex((x) => x.id === item.id && x.href === item.href) === i);
     setResults(deduped.slice(0, 18));
     setLoading(false);
-
-    if (!currentUser || term.length < 2) return;
-    let cancelled = false;
-    loadBooksFast(currentUser.uid).then(async (books) => {
-      if (cancelled) return;
-      const extra = books
-        .filter((b) => b.name.toLowerCase().includes(needle))
-        .map((b) => ({
-          id: b.id,
-          type: 'book' as const,
-          href: `/book/${b.id}`,
-          bookName: b.name,
-          description: b.name,
-          currency: b.currency,
-          hint: 'Expense Tracker',
-        }));
-      const expenseHits: SearchResult[] = [];
-      for (const book of books.slice(0, 6)) {
-        try {
-          const snap = await getDocs(query(collection(db, 'books', book.id, 'expenses'), limit(20)));
-          snap.forEach((d) => {
-            const data = d.data();
-            if (isSoftDeleted(data)) return;
-            const hay = `${data.description || ''} ${data.category || ''} ${data.enteredBy || ''}`.toLowerCase();
-            if (!hay.includes(needle) && String(data.amount || '') !== term) return;
-            expenseHits.push({
-              id: `${book.id}-${d.id}`,
-              type: 'expense',
-              href: `/book/${book.id}`,
-              bookName: book.name,
-              description: String(data.description || 'Expense'),
-              amount: Number(data.amount || 0),
-              currency: book.currency,
-              date: data.date,
-              category: data.category,
-              enteredBy: data.enteredBy,
-              hint: 'Expense',
-            });
-          });
-        } catch {
-          // keep search responsive if a ledger list is slow
-        }
-        if (cancelled || expenseHits.length >= 8) break;
-      }
-      if (cancelled) return;
-      setResults([...featureResults(term), ...extra, ...booksHits.filter((hit) =>
-        hit.description.toLowerCase().includes(needle) || hit.hint.toLowerCase().includes(needle)
-      ), ...expenseHits].filter((item, i, arr) => arr.findIndex((x) => x.id === item.id) === i).slice(0, 18));
-    }).catch(() => {});
-    return () => { cancelled = true; };
+    if (currentUser && (bookCache.uid !== currentUser.uid || Date.now() - bookCache.at > 45_000)) {
+      void loadBooksFast(currentUser.uid).catch(() => {});
+    }
   }, [searchQuery, currentUser, booksHits]);
 
   const handleResultClick = (result: SearchResult) => {
@@ -261,10 +214,15 @@ export default function GlobalSearch() {
     return symbols[currency] || currency;
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[80] flex items-start justify-center pt-[12vh]">
+    <div
+      className={isOpen
+        ? 'fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[200] flex items-start justify-center pt-[12vh]'
+        : 'hidden'}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) setIsOpen(false);
+      }}
+    >
       <div ref={searchRef} className="w-full max-w-2xl mx-4 byjan-panel overflow-hidden">
         <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-200">
           <Search className="w-6 h-6 text-slate-500" />

@@ -230,6 +230,25 @@ async function pgList(prefix: string) {
     .filter(Boolean) as { id: string; data: Record<string, unknown> }[];
 }
 
+const blobListCache = new Map<string, { at: number; rows: { id: string; data: Record<string, unknown> }[] }>();
+
+function listPrefix(path: string) {
+  const clean = cleanPath(path);
+  const idx = clean.lastIndexOf('/');
+  return idx === -1 ? '' : clean.slice(0, idx);
+}
+
+function touchBlobList(path: string, data: Record<string, unknown> | null) {
+  const prefix = listPrefix(path);
+  if (!prefix) return;
+  const id = cleanPath(path).split('/').pop() || '';
+  const hit = blobListCache.get(prefix);
+  if (!hit) return;
+  const rows = hit.rows.filter((row) => row.id !== id);
+  if (data) rows.unshift({ id, data });
+  blobListCache.set(prefix, { at: Date.now(), rows });
+}
+
 async function blobGet(path: string) {
   const { get } = await import('@vercel/blob');
   const result = await get(blobKey(path), { access: 'private', useCache: false, ...blobAuth() });
@@ -246,16 +265,23 @@ async function blobSet(path: string, data: unknown) {
     contentType: 'application/json',
     ...blobAuth(),
   });
+  const obj = asObject(data) || {};
+  touchBlobList(path, obj);
 }
 
 async function blobDel(path: string) {
   const { del } = await import('@vercel/blob');
   await del(blobKey(path), blobAuth());
+  touchBlobList(path, null);
 }
 
 async function blobList(prefix: string) {
+  const key = cleanPath(prefix);
+  const cached = blobListCache.get(key);
+  if (cached && Date.now() - cached.at < 12_000) return cached.rows;
+
   const { list } = await import('@vercel/blob');
-  const base = `${DOC_PREFIX}${cleanPath(prefix)}/`;
+  const base = `${DOC_PREFIX}${key}/`;
   const ids: string[] = [];
   let cursor: string | undefined;
   do {
@@ -270,15 +296,16 @@ async function blobList(prefix: string) {
   } while (cursor);
 
   const out: { id: string; data: Record<string, unknown> }[] = [];
-  const chunk = 12;
+  const chunk = 32;
   for (let i = 0; i < ids.length; i += chunk) {
     const slice = ids.slice(i, i + chunk);
     const rows = await Promise.all(slice.map(async (id) => {
-      const data = await blobGet(`${cleanPath(prefix)}/${id}`);
+      const data = await blobGet(`${key}/${id}`);
       return data ? { id, data } : null;
     }));
     for (const row of rows) if (row) out.push(row);
   }
+  blobListCache.set(key, { at: Date.now(), rows: out });
   return out;
 }
 
@@ -314,18 +341,11 @@ async function readDoc(path: string, token: string) {
 
 async function readList(path: string, token: string, constraints: any[] = []) {
   const byId = new Map<string, { id: string; data: Record<string, unknown> }>();
-  try {
-    for (const row of await localList(path)) byId.set(row.id, row);
-  } catch {
-    // Fall through to Firestore.
-  }
-  try {
-    for (const row of await firestoreQuery(token, path, constraints)) {
-      if (!byId.has(row.id)) byId.set(row.id, row);
-    }
-  } catch {
-    // Ignore Firestore list failures.
-  }
+  const localP = localList(path).catch(() => [] as { id: string; data: Record<string, unknown> }[]);
+  const fsP = firestoreQuery(token, path, constraints).catch(() => [] as { id: string; data: Record<string, unknown> }[]);
+  const [localRows, fsRows] = await Promise.all([localP, fsP]);
+  for (const row of fsRows) byId.set(row.id, row);
+  for (const row of localRows) byId.set(row.id, row);
   return [...byId.values()];
 }
 
@@ -380,15 +400,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (op === 'set') {
-      const current = (await readDoc(path, token)) || {};
-      const next = { ...((body.merge && typeof current === 'object') ? current : {}), ...(body.data || {}) };
+      const incoming = (body.data || {}) as Record<string, unknown>;
+      const next = body.merge
+        ? { ...((await localGet(path).catch(() => null)) || {}), ...incoming }
+        : incoming;
       await localSet(path, next);
       json(res, 200, { ok: true, id: path.split('/').pop(), data: next });
       return;
     }
 
     if (op === 'update') {
-      const current = (await readDoc(path, token)) || {};
+      const current = (await localGet(path).catch(() => null)) || {};
       const next: Record<string, unknown> = { ...current };
       const patch = (body.data || {}) as Record<string, unknown>;
       for (const [key, value] of Object.entries(patch)) {
@@ -416,7 +438,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (op === 'add') {
-      const id = Array.from({ length: 24 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+      const requested = String(body.id || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48);
+      const id = requested || Array.from({ length: 24 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
       const data = { ...(body.data || {}), id };
       await localSet(`${path}/${id}`, data);
       json(res, 200, { id, data });
