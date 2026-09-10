@@ -44,6 +44,14 @@ body {
   color: var(--byjan-ink);
 }
 
+html,
+body,
+#root {
+  height: 100%;
+  height: 100dvh;
+  overflow: hidden;
+}
+
 svg.lucide {
   display: inline-block;
   flex-shrink: 0;

@@ -13,8 +13,8 @@ export default function BooksShell({ children }: { children: React.ReactNode }) 
   const siblings = (BOOKS_TREE.find((branch) => branch.id === current.id)?.items || []).filter((item) => item.href !== module.href);
 
   return (
-    <div className="books-root h-full min-h-0 flex flex-col text-[#0B1F3A] bg-[#F5F7FA]">
-      <header className="shrink-0 z-20 border-b border-[#E5E7EB] bg-white/95 backdrop-blur-sm px-4 min-h-14 py-2 flex items-center gap-3">
+    <div className="books-root h-full min-h-0 flex flex-col overflow-hidden text-[#0B1F3A] bg-[#F5F7FA]">
+      <header className="shrink-0 z-30 border-b border-[#E5E7EB] bg-white px-4 min-h-14 py-2 flex items-center gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <span className="w-10 h-10 rounded-xl bg-[#0B1F3A] text-white flex items-center justify-center shadow-[0_8px_16px_-10px_rgba(11,31,58,0.7)] shrink-0">
             <FeatureIcon href={module.href} className="w-5 h-5" />
@@ -40,7 +40,7 @@ export default function BooksShell({ children }: { children: React.ReactNode }) 
           ))}
         </div>
       </header>
-      <div className="flex-1 min-h-0 overflow-y-auto px-4 md:px-6 py-4">
+      <div className="flex-1 min-h-0 overflow-hidden">
         <BooksPageMode embedded>{children}</BooksPageMode>
       </div>
       <CommandPalette />

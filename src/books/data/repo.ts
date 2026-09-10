@@ -3,6 +3,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  getDocsMany,
   limit,
   query,
   runTransaction,
@@ -22,7 +23,14 @@ import { assertBalanced, assertPostable, invertLines, nextNumber, BooksError } f
 import { computeDocument } from '../engine/tax';
 import { docNumberPrefix, documentJournalType, documentToJournalLines, paymentJournalLines } from '../engine/posting';
 import type {
+  Approval,
+  AuditEvent,
+  BankRule,
+  BankTxn,
+  BooksFile,
   BooksRole,
+  BooksTemplate,
+  BudgetLine,
   DocumentKind,
   DocumentLineInput,
   FinanceAccount,
@@ -32,12 +40,18 @@ import type {
   FinanceParty,
   FinancePeriod,
   FinanceTenant,
+  FixedAsset,
+  InboxItem,
   JournalLineInput,
   JournalType,
+  LeaseContract,
   PartyKind,
-  TaxCode,
+  Product,
+  Project,
   RecurringTemplate,
-  AuditEvent,
+  RevenueContract,
+  TaxCode,
+  Workpaper,
 } from '../core/types';
 
 const WORKSPACE = 'erp_workspaces';
@@ -173,21 +187,41 @@ async function ensureExtendedWorkspace(db: Firestore, tenantId: string) {
 }
 
 export async function loadWorkspace(db: Firestore, tenantId: string) {
-  const [tenantSnap, entities, accounts, parties, journals, documents, periods, taxCodes, recurring, audit] = await Promise.all([
+  const [tenantSnap, packs] = await Promise.all([
     getDoc(tenantRef(db, tenantId)),
-    getDocs(col(db, tenantId, 'entities')),
-    getDocs(col(db, tenantId, 'accounts')),
-    getDocs(col(db, tenantId, 'parties')),
-    getDocs(query(col(db, tenantId, 'journals'), limit(200))),
-    getDocs(query(col(db, tenantId, 'documents'), limit(200))),
-    getDocs(col(db, tenantId, 'periods')),
-    getDocs(col(db, tenantId, 'taxCodes')),
-    getDocs(col(db, tenantId, 'recurring')),
-    getDocs(query(col(db, tenantId, 'audit'), limit(100))),
+    getDocsMany([
+      col(db, tenantId, 'entities'),
+      col(db, tenantId, 'accounts'),
+      col(db, tenantId, 'parties'),
+      query(col(db, tenantId, 'journals'), limit(200)),
+      query(col(db, tenantId, 'documents'), limit(200)),
+      col(db, tenantId, 'periods'),
+      col(db, tenantId, 'taxCodes'),
+      col(db, tenantId, 'recurring'),
+      query(col(db, tenantId, 'audit'), limit(100)),
+      col(db, tenantId, 'products'),
+      col(db, tenantId, 'assets'),
+      col(db, tenantId, 'projects'),
+      col(db, tenantId, 'budgets'),
+      col(db, tenantId, 'contracts'),
+      col(db, tenantId, 'leases'),
+      col(db, tenantId, 'bankTxns'),
+      col(db, tenantId, 'inbox'),
+      col(db, tenantId, 'workpapers'),
+      col(db, tenantId, 'approvals'),
+      col(db, tenantId, 'files'),
+      col(db, tenantId, 'templates'),
+      col(db, tenantId, 'bankRules'),
+    ]),
   ]);
   if (!tenantSnap.exists()) throw new BooksError('Workspace not found');
   const raw = tenantSnap.data() as Record<string, unknown>;
   const tenant = { ...raw, id: tenantId } as FinanceTenant;
+  const [
+    entities, accounts, parties, journals, documents, periods, taxCodes, recurring, audit,
+    products, assets, projects, budgets, contracts, leases, bankTxns, inbox, workpapers, approvals,
+    files, templates, bankRules,
+  ] = packs;
   return {
     tenant,
     entities: mapDocs<FinanceEntity>(entities),
@@ -199,6 +233,19 @@ export async function loadWorkspace(db: Firestore, tenantId: string) {
     taxCodes: mapDocs<TaxCode>(taxCodes),
     recurring: mapDocs<RecurringTemplate>(recurring),
     audit: mapDocs<AuditEvent>(audit).sort((a, b) => b.at.localeCompare(a.at)),
+    products: mapDocs<Product>(products),
+    assets: mapDocs<FixedAsset>(assets),
+    projects: mapDocs<Project>(projects),
+    budgets: mapDocs<BudgetLine>(budgets),
+    contracts: mapDocs<RevenueContract>(contracts),
+    leases: mapDocs<LeaseContract>(leases),
+    bankTxns: mapDocs<BankTxn>(bankTxns).sort((a, b) => b.date.localeCompare(a.date)),
+    inbox: mapDocs<InboxItem>(inbox).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    workpapers: mapDocs<Workpaper>(workpapers).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    approvals: mapDocs<Approval>(approvals).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    files: mapDocs<BooksFile>(files).filter((f) => f.status !== 'archived').sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    templates: mapDocs<BooksTemplate>(templates).filter((t) => t.status !== 'archived').sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    bankRules: mapDocs<BankRule>(bankRules),
   };
 }
 
@@ -221,7 +268,11 @@ async function lockTenant(tx: Transaction, ctx: TxCtx, action: BooksAction) {
   const snap = await tx.get(tenantRef(ctx.db, ctx.tenantId));
   if (!snap.exists()) throw new BooksError('Workspace not found');
   const tenant = { id: snap.id, ...snap.data() } as FinanceTenant;
-  if (!tenant.memberIds?.includes(ctx.uid)) throw new BooksError('Not a workspace member');
+  const allowed = ctx.tenantId === ctx.uid
+    || tenant.ownerId === ctx.uid
+    || (Array.isArray(tenant.memberIds) && tenant.memberIds.includes(ctx.uid))
+    || Boolean(tenant.members?.[ctx.uid]);
+  if (!allowed) throw new BooksError('Not a workspace member');
   return { ref: snap.ref, tenant };
 }
 
@@ -564,6 +615,7 @@ export async function convertDocument(ctx: TxCtx, documentId: string, nextKind: 
   if (source.kind === 'sales_order' && nextKind !== 'invoice') throw new BooksError('A sales order converts to an invoice');
   if (source.kind === 'purchase_order' && nextKind !== 'bill') throw new BooksError('A purchase order converts to a bill');
   if (source.kind === 'purchase_receipt' && nextKind !== 'bill') throw new BooksError('A goods receipt converts to a bill');
+  if (source.kind === 'purchase_request' && nextKind !== 'purchase_order') throw new BooksError('A purchase request converts to a purchase order');
   const tenantSnap = await getDoc(tenantRef(ctx.db, ctx.tenantId));
   const tenant = tenantSnap.data() as FinanceTenant;
   const seq = (tenant.sequences[nextKind] || 0) + 1;

@@ -25,7 +25,7 @@ export function PageShell({
   const embedded = useBooksEmbedded();
   const location = useLocation();
   return (
-    <div className="space-y-5">
+    <div className={embedded ? 'h-full min-h-0 flex flex-col overflow-hidden' : 'space-y-4'}>
       {!embedded && (
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
@@ -40,8 +40,15 @@ export function PageShell({
           {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
         </div>
       )}
-      {embedded && actions && <div className="flex flex-wrap justify-end gap-2">{actions}</div>}
-      {children}
+      {embedded && (subtitle || actions) && (
+        <div className="shrink-0 px-4 md:px-6 py-3 border-b border-slate-200/80 bg-[#F5F7FA] flex flex-col sm:flex-row sm:items-center gap-2">
+          {subtitle && <p className="text-sm text-slate-500 flex-1 min-w-0">{subtitle}</p>}
+          {actions && <div className="flex flex-wrap gap-2 shrink-0">{actions}</div>}
+        </div>
+      )}
+      <div className={embedded ? 'flex-1 min-h-0 overflow-y-auto px-4 md:px-6 py-4 space-y-4' : undefined}>
+        {children}
+      </div>
     </div>
   );
 }

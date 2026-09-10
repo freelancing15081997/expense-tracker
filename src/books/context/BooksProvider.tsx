@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { can, type BooksAction } from '../core/permissions';
 import type {
   Approval,
+  BankRule,
   BankTxn,
   BudgetLine,
   DocumentKind,
@@ -56,17 +57,19 @@ import {
 } from '../data/repo';
 import {
   addEntity,
+  adjustStock,
   decideApproval,
   depreciateAsset,
+  disposeAsset,
   issueStock,
   linkInboxItem,
-  loadDomainCollections,
   payLease,
   receiveStock,
   recognizeRevenue,
   reviewWorkpaper,
   saveApproval,
   saveAsset,
+  saveBankRule,
   saveBankTxn,
   saveBudget,
   saveContract,
@@ -80,6 +83,7 @@ import {
 } from '../data/domains';
 import { archiveTemplate as removeTemplate, archiveWorkspaceFile, loadFilesAndTemplates, saveTemplate, uploadWorkspaceFile } from '../data/files';
 import { documentHref, setBooksSearchHits } from '../../lib/search-index';
+import { useToast } from '../../context/ToastContext';
 
 type BooksContextValue = {
   loading: boolean;
@@ -103,6 +107,7 @@ type BooksContextValue = {
   contracts: RevenueContract[];
   leases: LeaseContract[];
   bankTxns: BankTxn[];
+  bankRules: BankRule[];
   inbox: InboxItem[];
   workpapers: Workpaper[];
   approvals: Approval[];
@@ -189,17 +194,20 @@ type BooksContextValue = {
   createProduct: (input: Omit<Product, 'id'>) => Promise<string>;
   stockIn: (product: Product, qtyMilli: number, payAccountId: string) => Promise<void>;
   stockOut: (product: Product, qtyMilli: number) => Promise<void>;
+  adjustProduct: (product: Product, qtyMilli: number) => Promise<void>;
   createAsset: (input: { name: string; costMinor: number; lifeMonths: number; residualMinor: number; payAccountId: string }) => Promise<string>;
   runDepreciation: (asset: FixedAsset) => Promise<void>;
+  disposeFixedAsset: (asset: FixedAsset, proceedsMinor: number, cashAccountId: string) => Promise<void>;
   createProject: (input: Omit<Project, 'id'>) => Promise<string>;
   createBudget: (input: Omit<BudgetLine, 'id'>) => Promise<string>;
   createContract: (input: { name: string; customerId: string | null; totalMinor: number; months: number; cashAccountId: string }) => Promise<string>;
   recognize: (contract: RevenueContract) => Promise<void>;
   createLease: (input: Omit<LeaseContract, 'id' | 'paidMonths' | 'status'>) => Promise<string>;
   payLeaseMonth: (lease: LeaseContract, payAccountId: string) => Promise<void>;
-  createBankTxn: (input: { accountId: string; date: string; amountMinor: number; memo: string }) => Promise<string>;
+  createBankTxn: (input: { accountId: string; date: string; amountMinor: number; memo: string; clearingAccountId?: string }) => Promise<string>;
   importBankTxns: (rows: Array<{ accountId: string; date: string; amountMinor: number; memo: string }>) => Promise<number>;
   reconcileTxn: (txn: BankTxn) => Promise<void>;
+  createBankRule: (input: { contains: string; clearingAccountId: string }) => Promise<string>;
   createEntity: (name: string) => Promise<string>;
   createInbox: (input: { title: string; kind: InboxItem['kind']; notes: string; filePath?: string | null }) => Promise<string>;
   markInboxLinked: (id: string) => Promise<void>;
@@ -236,6 +244,7 @@ function isWorkspaceMember(tenant: FinanceTenant, uid: string, tenantId: string)
 
 export default function BooksProvider({ children }: { children: React.ReactNode }) {
   const { currentUser, userProfile } = useAuth();
+  const { addToast } = useToast();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tenantId, setTenantId] = useState<string | null>(null);
@@ -256,6 +265,7 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
   const [contracts, setContracts] = useState<RevenueContract[]>([]);
   const [leases, setLeases] = useState<LeaseContract[]>([]);
   const [bankTxns, setBankTxns] = useState<BankTxn[]>([]);
+  const [bankRules, setBankRules] = useState<BankRule[]>([]);
   const [inbox, setInbox] = useState<InboxItem[]>([]);
   const [workpapers, setWorkpapers] = useState<Workpaper[]>([]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
@@ -293,23 +303,19 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
       setRecurring(workspace.recurring);
       setAudit(workspace.audit);
       setEntities(workspace.entities);
-      setLoading(false);
-      const [domains, extras] = await Promise.all([
-        loadDomainCollections(db, id),
-        loadFilesAndTemplates(db, id),
-      ]);
-      setProducts(domains.products);
-      setAssets(domains.assets);
-      setProjects(domains.projects);
-      setBudgets(domains.budgets);
-      setContracts(domains.contracts);
-      setLeases(domains.leases);
-      setBankTxns(domains.bankTxns);
-      setInbox(domains.inbox);
-      setWorkpapers(domains.workpapers);
-      setApprovals(domains.approvals);
-      setFiles(extras.files);
-      setTemplates(extras.templates);
+      setProducts(workspace.products);
+      setAssets(workspace.assets);
+      setProjects(workspace.projects);
+      setBudgets(workspace.budgets);
+      setContracts(workspace.contracts);
+      setLeases(workspace.leases);
+      setBankTxns(workspace.bankTxns);
+      setBankRules(workspace.bankRules);
+      setInbox(workspace.inbox);
+      setWorkpapers(workspace.workpapers);
+      setApprovals(workspace.approvals);
+      setFiles(workspace.files);
+      setTemplates(workspace.templates);
     } catch (err: any) {
       setError(isFirestoreQuota(err) ? FIRESTORE_QUOTA_MESSAGE : (err?.message || 'Failed to open Books'));
     } finally {
@@ -342,7 +348,7 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
       }).finally(() => {
         refreshBusy.current = false;
       });
-    }, 900);
+    }, 250);
   }, [refresh]);
 
   useEffect(() => () => {
@@ -406,10 +412,16 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
   }, [currentUser, tenantId, role]);
 
   const value = useMemo<BooksContextValue>(() => {
-    const after = async <T,>(work: () => Promise<T>) => {
-      const result = await work();
-      scheduleRefresh();
-      return result;
+    const after = async <T,>(work: () => Promise<T>, ok?: string) => {
+      try {
+        const result = await work();
+        if (ok) addToast(ok, 'success');
+        scheduleRefresh();
+        return result;
+      } catch (err: any) {
+        addToast(err?.message || 'Could not save', 'error');
+        throw err;
+      }
     };
     return {
       loading,
@@ -433,6 +445,7 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
       contracts,
       leases,
       bankTxns,
+      bankRules,
       inbox,
       workpapers,
       approvals,
@@ -442,67 +455,104 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
       can: (action) => can(role, action),
       refresh,
       ctx,
-      createParty: (input) => after(() => saveParty(db, tenantId!, role!, input)),
-      deactivateParty: (id) => after(() => deactivatePartyRecord(db, tenantId!, role!, id)),
-      createAccount: (input) => after(() => saveAccount(db, tenantId!, role!, input)),
-      createDocument: (input) => after(() => saveDocument(ctx(), { ...input, taxCodes })),
-      postDoc: (id, payFromAccountId) => after(() => postDocument(ctx(), id, accounts, payFromAccountId)),
-      payDoc: (id, amountMinor, date, cashAccountId) => after(() => recordPayment(ctx(), id, amountMinor, date, cashAccountId, accounts)),
-      voidDoc: (id) => after(() => voidDocument(ctx(), id)),
-      convertDoc: (id, nextKind) => after(() => convertDocument(ctx(), id, nextKind)),
-      postJournal: (input) => after(() => postManualJournal(ctx(), { ...input, idempotencyKey: `manual_${crypto.randomUUID()}` })),
-      reverse: (journalId) => after(() => reverseJournal(ctx(), journalId)),
-      close: (periodId) => after(() => closePeriod(ctx(), periodId)),
-      reopen: (periodId) => after(() => reopenPeriod(ctx(), periodId)),
-      rename: (name, logoPath, profile) => after(() => updateTenantName(db, tenantId!, role!, name, logoPath, profile)),
+      createParty: (input) => after(() => saveParty(db, tenantId!, role!, input), 'Party saved'),
+      deactivateParty: (id) => after(() => deactivatePartyRecord(db, tenantId!, role!, id), 'Party deactivated'),
+      createAccount: (input) => after(() => saveAccount(db, tenantId!, role!, input), 'Account saved'),
+      createDocument: (input) => after(() => saveDocument(ctx(), { ...input, taxCodes }), 'Draft saved'),
+      postDoc: async (id, payFromAccountId) => {
+        const row = documents.find((d) => d.id === id);
+        if (row?.kind === 'invoice' && row.partyId) {
+          const party = parties.find((p) => p.id === row.partyId);
+          if (party?.creditLimitMinor) {
+            const used = documents
+              .filter((d) => d.partyId === row.partyId && (d.kind === 'invoice' || d.kind === 'debit_note') && (d.status === 'posted' || d.status === 'paid'))
+              .reduce((s, d) => s + (d.totalMinor - d.paidMinor), 0);
+            if (used + row.totalMinor > party.creditLimitMinor) {
+              const message = `Credit limit exceeded for ${party.name}`;
+              addToast(message, 'error');
+              throw new Error(message);
+            }
+          }
+        }
+        return after(() => postDocument(ctx(), id, accounts, payFromAccountId), 'Posted to the ledger');
+      },
+      payDoc: (id, amountMinor, date, cashAccountId) => after(() => recordPayment(ctx(), id, amountMinor, date, cashAccountId, accounts), 'Payment posted'),
+      voidDoc: (id) => after(() => voidDocument(ctx(), id), 'Voided'),
+      convertDoc: (id, nextKind) => after(() => convertDocument(ctx(), id, nextKind), 'Converted'),
+      postJournal: (input) => after(() => postManualJournal(ctx(), { ...input, idempotencyKey: `manual_${crypto.randomUUID()}` }), 'Journal posted'),
+      reverse: (journalId) => after(() => reverseJournal(ctx(), journalId), 'Journal reversed'),
+      close: (periodId) => after(() => closePeriod(ctx(), periodId), 'Period closed'),
+      reopen: (periodId) => after(() => reopenPeriod(ctx(), periodId), 'Period reopened'),
+      rename: (name, logoPath, profile) => after(() => updateTenantName(db, tenantId!, role!, name, logoPath, profile), 'Settings saved'),
       ledger: (accountId) => loadLedger(db, tenantId!, accountId),
-      transfer: (input) => after(() => transferFunds(ctx(), input)),
-      createRecurring: (input) => after(() => saveRecurring(ctx(), input)),
+      transfer: (input) => after(() => transferFunds(ctx(), input), 'Transfer posted'),
+      createRecurring: (input) => after(() => saveRecurring(ctx(), input), 'Template saved'),
       runRecurringTemplate: (template, date) => after(() => (
         template.kind === 'invoice' || template.kind === 'bill'
           ? runRecurringDocument(ctx(), template, date, taxCodes, accounts)
           : runRecurring(ctx(), template, date)
-      )),
-      createProduct: (input) => after(() => saveProduct(ctx(), input)),
-      stockIn: (product, qtyMilli, payAccountId) => after(() => receiveStock(ctx(), product, qtyMilli, payAccountId, accounts)),
-      stockOut: (product, qtyMilli) => after(() => issueStock(ctx(), product, qtyMilli, accounts)),
-      createAsset: (input) => after(() => saveAsset(ctx(), input, accounts)),
-      runDepreciation: (asset) => after(() => depreciateAsset(ctx(), asset, accounts)),
-      createProject: (input) => after(() => saveProject(ctx(), input)),
-      createBudget: (input) => after(() => saveBudget(ctx(), input)),
-      createContract: (input) => after(() => saveContract(ctx(), input, accounts, input.cashAccountId)),
-      recognize: (contract) => after(() => recognizeRevenue(ctx(), contract, accounts)),
-      createLease: (input) => after(() => saveLease(ctx(), input)),
-      payLeaseMonth: (lease, payAccountId) => after(() => payLease(ctx(), lease, payAccountId, accounts)),
+      ), template.autoPost || !template.kind || template.kind === 'journal' ? 'Posted' : 'Document created'),
+      createProduct: (input) => after(() => saveProduct(ctx(), input), 'Saved'),
+      stockIn: (product, qtyMilli, payAccountId) => after(() => receiveStock(ctx(), product, qtyMilli, payAccountId, accounts), 'Stock received'),
+      stockOut: (product, qtyMilli) => after(() => issueStock(ctx(), product, qtyMilli, accounts), 'Stock issued'),
+      adjustProduct: (product, qtyMilli) => after(() => adjustStock(ctx(), product, qtyMilli, accounts), 'Stock adjusted'),
+      createAsset: (input) => after(() => saveAsset(ctx(), input, accounts), 'Asset acquired'),
+      runDepreciation: (asset) => after(() => depreciateAsset(ctx(), asset, accounts), 'Depreciation posted'),
+      disposeFixedAsset: (asset, proceedsMinor, cashAccountId) => after(() => disposeAsset(ctx(), asset, proceedsMinor, cashAccountId, accounts), 'Asset disposed'),
+      createProject: (input) => after(() => saveProject(ctx(), input), 'Project saved'),
+      createBudget: (input) => after(() => saveBudget(ctx(), input), 'Budget saved'),
+      createContract: (input) => after(() => saveContract(ctx(), input, accounts, input.cashAccountId), 'Contract saved'),
+      recognize: (contract) => after(() => recognizeRevenue(ctx(), contract, accounts), 'Revenue recognized'),
+      createLease: (input) => after(() => saveLease(ctx(), input), 'Lease saved'),
+      payLeaseMonth: (lease, payAccountId) => after(() => payLease(ctx(), lease, payAccountId, accounts), 'Lease payment posted'),
       createBankTxn: async (input) => {
-        const id = await saveBankTxn(ctx(), input, accounts);
-        setBankTxns((prev) => [{ id, journalId: null, reconciled: false, ...input }, ...prev]);
-        scheduleRefresh();
-        return id;
+        try {
+          const hay = input.memo.toLowerCase();
+          const rule = input.clearingAccountId
+            ? null
+            : bankRules.find((r) => r.active !== false && hay.includes(r.contains.toLowerCase()));
+          const id = await saveBankTxn(ctx(), { ...input, clearingAccountId: input.clearingAccountId || rule?.clearingAccountId }, accounts);
+          setBankTxns((prev) => [{ id, journalId: null, reconciled: false, ...input }, ...prev]);
+          addToast(rule ? `Bank journal posted · matched “${rule.contains}”` : 'Bank journal posted', 'success');
+          scheduleRefresh();
+          return id;
+        } catch (err: any) {
+          addToast(err?.message || 'Bank journal failed', 'error');
+          throw err;
+        }
       },
       importBankTxns: async (rows) => {
-        const created: BankTxn[] = [];
-        for (const row of rows) {
-          const id = await saveBankTxn(ctx(), row, accounts);
-          created.push({ id, journalId: null, reconciled: false, ...row });
+        try {
+          const created: BankTxn[] = [];
+          for (const row of rows) {
+            const hay = row.memo.toLowerCase();
+            const rule = bankRules.find((r) => r.active !== false && hay.includes(r.contains.toLowerCase()));
+            const id = await saveBankTxn(ctx(), { ...row, clearingAccountId: rule?.clearingAccountId }, accounts);
+            created.push({ id, journalId: null, reconciled: false, ...row });
+          }
+          if (created.length) setBankTxns((prev) => [...created, ...prev]);
+          addToast(`Posted ${created.length} statement row${created.length === 1 ? '' : 's'}`, 'success');
+          scheduleRefresh();
+          return created.length;
+        } catch (err: any) {
+          addToast(err?.message || 'CSV import failed', 'error');
+          throw err;
         }
-        if (created.length) setBankTxns((prev) => [...created, ...prev]);
-        scheduleRefresh();
-        return created.length;
       },
       reconcileTxn: async (txn) => {
         setBankTxns((prev) => prev.map((row) => row.id === txn.id ? { ...row, reconciled: !row.reconciled } : row));
         await toggleReconcile(ctx(), txn);
         scheduleRefresh();
       },
-      createEntity: (name) => after(() => addEntity(ctx(), name)),
-      createInbox: (input) => after(() => saveInboxItem(ctx(), input)),
-      markInboxLinked: (id) => after(() => linkInboxItem(ctx(), id)),
-      createWorkpaper: (input) => after(() => saveWorkpaper(ctx(), input)),
-      markWorkpaperReviewed: (id) => after(() => reviewWorkpaper(ctx(), id)),
-      createApproval: (input) => after(() => saveApproval(ctx(), input)),
-      decide: (id, status) => after(() => decideApproval(ctx(), id, status)),
-      postTds: (input) => after(() => withholdTds(ctx(), input, accounts)),
+      createBankRule: (input) => after(() => saveBankRule(ctx(), input), 'Matching rule saved'),
+      createEntity: (name) => after(() => addEntity(ctx(), name), 'Entity saved'),
+      createInbox: (input) => after(() => saveInboxItem(ctx(), input), 'Inbox item saved'),
+      markInboxLinked: (id) => after(() => linkInboxItem(ctx(), id), 'Marked linked'),
+      createWorkpaper: (input) => after(() => saveWorkpaper(ctx(), input), 'Workpaper saved'),
+      markWorkpaperReviewed: (id) => after(() => reviewWorkpaper(ctx(), id), 'Reviewed'),
+      createApproval: (input) => after(() => saveApproval(ctx(), input), 'Approval sent'),
+      decide: (id, status) => after(() => decideApproval(ctx(), id, status), status === 'approved' ? 'Approved' : 'Rejected'),
+      postTds: (input) => after(() => withholdTds(ctx(), input, accounts), 'TDS posted'),
       uploadFile: async (input) => {
         const result = await uploadWorkspaceFile(ctx(), input);
         setFiles((prev) => {
@@ -531,10 +581,10 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
         await archiveWorkspaceFile(ctx(), file);
         await refreshFiles();
       },
-      createTemplate: (input) => after(() => saveTemplate(ctx(), input)),
-      archiveTemplate: (id) => after(() => removeTemplate(ctx(), id)),
+      createTemplate: (input) => after(() => saveTemplate(ctx(), input), 'Template saved'),
+      archiveTemplate: (id) => after(() => removeTemplate(ctx(), id), 'Template archived'),
     };
-  }, [accounts, approvals, assets, audit, bankTxns, budgets, contracts, ctx, currentUser, documents, entities, error, files, inbox, journals, leases, loading, parties, periods, products, projects, recurring, refresh, refreshFiles, role, scheduleRefresh, taxCodes, templates, tenant, tenantId, workpapers]);
+  }, [accounts, addToast, approvals, assets, audit, bankRules, bankTxns, budgets, contracts, ctx, currentUser, documents, entities, error, files, inbox, journals, leases, loading, parties, periods, products, projects, recurring, refresh, refreshFiles, role, scheduleRefresh, taxCodes, templates, tenant, tenantId, workpapers]);
 
-  return <BooksContext.Provider value={value}>{children}</BooksContext.Provider>;
+  return <BooksContext.Provider value={value}><div className="h-full min-h-0">{children}</div></BooksContext.Provider>;
 }

@@ -13,7 +13,7 @@ export type AccountType =
 export type NormalBalance = 'debit' | 'credit';
 export type JournalStatus = 'draft' | 'posted' | 'reversed';
 export type JournalType = 'manual' | 'invoice' | 'bill' | 'payment' | 'expense' | 'reversal' | 'transfer' | 'depreciation' | 'recognition' | 'inventory' | 'lease';
-export type DocumentKind = 'invoice' | 'bill' | 'expense' | 'quote' | 'estimate' | 'sales_order' | 'credit_note' | 'debit_note' | 'purchase_order' | 'purchase_receipt' | 'vendor_credit';
+export type DocumentKind = 'invoice' | 'bill' | 'expense' | 'quote' | 'estimate' | 'sales_order' | 'credit_note' | 'debit_note' | 'purchase_request' | 'purchase_order' | 'purchase_receipt' | 'vendor_credit';
 export type DocumentStatus = 'draft' | 'posted' | 'paid' | 'voided';
 export type PartyKind = 'customer' | 'vendor';
 export type PeriodStatus = 'open' | 'closed';
@@ -244,6 +244,14 @@ export interface Product {
   salePriceMinor: number;
   costMinor: number;
   qtyMilli: number;
+  reorderMilli?: number;
+  active: boolean;
+}
+
+export interface BankRule {
+  id: string;
+  contains: string;
+  clearingAccountId: string;
   active: boolean;
 }
 

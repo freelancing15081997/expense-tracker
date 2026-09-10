@@ -64,6 +64,7 @@ export const BOOKS_TREE: BooksBranch[] = [
     blurb: 'Vendors, purchase orders, bills, credits, and payment runs.',
     items: [
       { name: 'Vendors', href: '/books/vendors' },
+      { name: 'Purchase Requests', href: '/books/purchase-requests' },
       { name: 'Purchase Orders', href: '/books/purchase-orders' },
       { name: 'Purchase Receipts', href: '/books/purchase-receipts' },
       { name: 'Bills', href: '/books/bills' },

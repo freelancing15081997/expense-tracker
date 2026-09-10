@@ -156,6 +156,7 @@ const HREF_GLYPH: Record<string, BooksGlyphName> = {
   '/books/statements': 'statement',
   '/books/collections': 'collection',
   '/books/vendors': 'vendor',
+  '/books/purchase-requests': 'po',
   '/books/purchase-orders': 'po',
   '/books/purchase-receipts': 'po',
   '/books/bills': 'bill',

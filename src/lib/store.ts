@@ -62,13 +62,15 @@ async function readFirestoreDoc(path: string) {
 
 async function readFirestoreDocs(path: string, constraints: Constraint[] = []) {
   const { collection, getDocs, query, where, limit, orderBy } = await import('firebase/firestore');
-  const col = collection(await firestoreDb(), ...pathParts(path));
+  const dbFs = await firestoreDb();
+  const parts = pathParts(path);
+  const col = (collection as any)(dbFs, ...parts);
   const parsed = constraints.map((c) => {
     if (c.type === 'where') return where(c.field, c.op as any, c.value);
     if (c.type === 'limit') return limit(c.n);
     return orderBy(c.field, (c.dir as 'asc' | 'desc') || 'asc');
   });
-  const snap = parsed.length ? await getDocs(query(col, ...parsed)) : await getDocs(col);
+  const snap = parsed.length ? await getDocs((query as any)(col, ...parsed)) : await getDocs(col);
   return snap.docs.map((row) => ({ id: row.id, data: row.data() as Record<string, unknown> }));
 }
 
@@ -102,21 +104,34 @@ export function query(col: { path: string }, ...constraints: Constraint[]) {
   return { path: col.path, constraints };
 }
 
+const pendingCalls = new Map<string, Promise<any>>();
+
 async function call(body: Record<string, unknown>) {
-  const { authHeaders } = await import('./auth-client');
-  const res = await fetch('/api/kv', {
-    method: 'POST',
-    credentials: 'include',
-    headers: await authHeaders({ 'content-type': 'application/json' }),
-    body: JSON.stringify(body),
-  });
-  const payload = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const err: any = new Error(payload.error || `Data request failed (${res.status})`);
-    err.code = res.status === 429 ? 'resource-exhausted' : 'failed';
-    throw err;
+  const op = String(body.op || '');
+  const dedupe = op === 'get' || op === 'query' || op === 'queryMany';
+  const key = dedupe ? JSON.stringify(body) : '';
+  if (key && pendingCalls.has(key)) return pendingCalls.get(key);
+  const run = (async () => {
+    const { authHeaders } = await import('./auth-client');
+    const res = await fetch('/api/kv', {
+      method: 'POST',
+      credentials: 'include',
+      headers: await authHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify(body),
+    });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const err: any = new Error(payload.error || `Data request failed (${res.status})`);
+      err.code = res.status === 429 ? 'resource-exhausted' : 'failed';
+      throw err;
+    }
+    return payload;
+  })();
+  if (key) {
+    pendingCalls.set(key, run);
+    run.finally(() => pendingCalls.delete(key));
   }
-  return payload;
+  return run;
 }
 
 function wrapDoc(id: string, data: any, path: string) {
@@ -128,7 +143,18 @@ function wrapDoc(id: string, data: any, path: string) {
   };
 }
 
+const DOC_TTL = 20_000;
+const COL_TTL = 20_000;
 const memory = new Map<string, { data: Record<string, unknown> | null; at: number }>();
+const colCache = new Map<string, { at: number; rows: Array<[string, Record<string, unknown>]> }>();
+
+function isErp(path: string) {
+  return path.startsWith('erp_workspaces/');
+}
+
+function colKey(path: string, constraints?: Constraint[]) {
+  return `${path}::${JSON.stringify(constraints || [])}`;
+}
 
 function remember(path: string, data: Record<string, unknown> | null) {
   memory.set(path, { data, at: Date.now() });
@@ -145,19 +171,52 @@ function overlayCollection(colPath: string, byId: Map<string, Record<string, unk
   }
 }
 
+function asSnap(byId: Map<string, Record<string, unknown>>): QuerySnapshot {
+  const docs = [...byId.entries()].map(([id, data]) => ({
+    id,
+    data: () => data,
+    exists: () => Boolean(data),
+  }));
+  return {
+    docs,
+    empty: docs.length === 0,
+    forEach: (fn) => docs.forEach(fn),
+  };
+}
+
+function storeCollection(path: string, constraints: Constraint[] | undefined, byId: Map<string, Record<string, unknown>>) {
+  for (const [id, data] of byId) remember(`${path}/${id}`, data);
+  colCache.set(colKey(path, constraints), { at: Date.now(), rows: [...byId.entries()] });
+}
+
+function fromCache(path: string, constraints?: Constraint[]) {
+  const hit = colCache.get(colKey(path, constraints));
+  if (!hit || Date.now() - hit.at >= COL_TTL) return null;
+  const byId = new Map(hit.rows);
+  overlayCollection(path, byId);
+  return asSnap(byId);
+}
+
 export async function getDoc(ref: DocRef) {
   const cached = memory.get(ref.path);
-  if (cached && Date.now() - cached.at < 8000) {
+  if (cached && Date.now() - cached.at < DOC_TTL) {
     return wrapDoc(ref.id, cached.data, ref.path);
   }
+  if (isErp(ref.path) && ref.path.includes('/idempotency/') && !cached) {
+    remember(ref.path, null);
+    return wrapDoc(ref.id, null, ref.path);
+  }
   let data: Record<string, unknown> | null = cached?.data ?? null;
-  try {
-    data = await readFirestoreDoc(ref.path);
-  } catch {
-    // Named Firestore holds existing ledgers.
+  if (!isErp(ref.path)) {
+    try {
+      data = await readFirestoreDoc(ref.path);
+    } catch {
+      // Named Firestore holds existing ledgers.
+    }
   }
   const payload = await withTimeout(call({ op: 'get', path: ref.path }), data ? 280 : 500);
   if (payload?.data) data = payload.data;
+  remember(ref.path, data);
   return wrapDoc(ref.id, data, ref.path);
 }
 
@@ -201,32 +260,53 @@ export type QuerySnapshot = {
   forEach: (fn: (doc: { id: string; data: () => any; exists: () => boolean }) => void) => void;
 };
 
-export async function getDocs(source: { path: string; constraints?: Constraint[] }, opts?: { kvMs?: number }): Promise<QuerySnapshot> {
+export async function getDocs(source: { path: string; constraints?: Constraint[] }, opts?: { kvMs?: number; force?: boolean }): Promise<QuerySnapshot> {
+  if (!opts?.force) {
+    const cached = fromCache(source.path, source.constraints);
+    if (cached) return cached;
+  }
   const byId = new Map<string, Record<string, unknown>>();
-  const kv = withTimeout(call({ op: 'query', path: source.path, constraints: source.constraints || [] }), opts?.kvMs ?? 400);
-  try {
-    for (const row of await readFirestoreDocs(source.path, source.constraints || [])) {
-      byId.set(row.id, row.data);
+  if (!isErp(source.path)) {
+    try {
+      for (const row of await readFirestoreDocs(source.path, source.constraints || [])) {
+        byId.set(row.id, row.data);
+      }
+    } catch {
+      // Rules require a roles.{uid} query on books; Firestore client sends it.
     }
-  } catch {
-    // Rules require a roles.{uid} query on books; Firestore client sends it.
   }
   overlayCollection(source.path, byId);
-  const payload = await kv;
+  const payload = await withTimeout(call({ op: 'query', path: source.path, constraints: source.constraints || [] }), opts?.kvMs ?? 800);
   for (const row of payload?.docs || []) {
     if (row?.id && row.data) byId.set(row.id, row.data);
   }
   overlayCollection(source.path, byId);
-  const docs = [...byId.entries()].map(([id, data]) => ({
-    id,
-    data: () => data,
-    exists: () => Boolean(data),
-  }));
-  return {
-    docs,
-    empty: docs.length === 0,
-    forEach: (fn) => docs.forEach(fn),
-  };
+  storeCollection(source.path, source.constraints, byId);
+  return asSnap(byId);
+}
+
+export async function getDocsMany(sources: Array<{ path: string; constraints?: Constraint[] }>): Promise<QuerySnapshot[]> {
+  const cached = sources.map((source) => fromCache(source.path, source.constraints));
+  if (cached.every(Boolean)) return cached as QuerySnapshot[];
+  const missing = sources
+    .map((source, index) => ({ source, index, hit: cached[index] }))
+    .filter((row) => !row.hit);
+  const payload = await call({
+    op: 'queryMany',
+    queries: missing.map((row) => ({ path: row.source.path, constraints: row.source.constraints || [] })),
+  });
+  const results = Array.isArray(payload?.results) ? payload.results : [];
+  const byMissing = new Map<number, QuerySnapshot>();
+  missing.forEach((row, i) => {
+    const byId = new Map<string, Record<string, unknown>>();
+    for (const docRow of results[i]?.docs || []) {
+      if (docRow?.id && docRow.data) byId.set(docRow.id, docRow.data);
+    }
+    overlayCollection(row.source.path, byId);
+    storeCollection(row.source.path, row.source.constraints, byId);
+    byMissing.set(row.index, asSnap(byId));
+  });
+  return sources.map((_, index) => cached[index] || byMissing.get(index)!);
 }
 
 export function onSnapshot(
@@ -288,7 +368,12 @@ export async function runTransaction<T>(_db: Firestore, fn: (tx: Transaction) =>
   };
   const result = await fn(tx);
   for (const write of writes) {
-    await call(write);
+    remember(write.path, overlay.get(write.path) || write.data);
+  }
+  if (writes.length === 1) {
+    await call(writes[0]);
+  } else if (writes.length > 1) {
+    await call({ op: 'batch', writes });
   }
   return result;
 }

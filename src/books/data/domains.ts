@@ -1,9 +1,10 @@
-import { doc, getDocs, setDoc, updateDoc, type Firestore, type QuerySnapshot } from '../../lib/store';
+import { doc, getDocsMany, setDoc, updateDoc, type Firestore, type QuerySnapshot } from '../../lib/store';
 import { clean } from '../core/clean';
 import { todayISO } from '../core/money';
 import { assertCan } from '../core/permissions';
 import type {
   Approval,
+  BankRule,
   BankTxn,
   BudgetLine,
   FinanceAccount,
@@ -27,17 +28,19 @@ function mapDocs<T>(snap: QuerySnapshot): T[] {
 }
 
 export async function loadDomainCollections(db: Firestore, tenantId: string) {
-  const [products, assets, projects, budgets, contracts, leases, bankTxns, inbox, workpapers, approvals] = await Promise.all([
-    getDocs(col(db, tenantId, 'products')),
-    getDocs(col(db, tenantId, 'assets')),
-    getDocs(col(db, tenantId, 'projects')),
-    getDocs(col(db, tenantId, 'budgets')),
-    getDocs(col(db, tenantId, 'contracts')),
-    getDocs(col(db, tenantId, 'leases')),
-    getDocs(col(db, tenantId, 'bankTxns')),
-    getDocs(col(db, tenantId, 'inbox')),
-    getDocs(col(db, tenantId, 'workpapers')),
-    getDocs(col(db, tenantId, 'approvals')),
+  const [
+    products, assets, projects, budgets, contracts, leases, bankTxns, inbox, workpapers, approvals,
+  ] = await getDocsMany([
+    col(db, tenantId, 'products'),
+    col(db, tenantId, 'assets'),
+    col(db, tenantId, 'projects'),
+    col(db, tenantId, 'budgets'),
+    col(db, tenantId, 'contracts'),
+    col(db, tenantId, 'leases'),
+    col(db, tenantId, 'bankTxns'),
+    col(db, tenantId, 'inbox'),
+    col(db, tenantId, 'workpapers'),
+    col(db, tenantId, 'approvals'),
   ]);
   return {
     products: mapDocs<Product>(products),
@@ -148,6 +151,73 @@ export async function depreciateAsset(ctx: TxCtx, asset: FixedAsset, accounts: F
   await updateDoc(doc(col(ctx.db, ctx.tenantId, 'assets'), asset.id), { accumDepMinor: asset.accumDepMinor + amount });
 }
 
+export async function disposeAsset(ctx: TxCtx, asset: FixedAsset, proceedsMinor: number, cashAccountId: string, accounts: FinanceAccount[]) {
+  if (asset.status !== 'active') throw new BooksError('Asset is not active');
+  if (proceedsMinor < 0) throw new BooksError('Proceeds cannot be negative');
+  const fa = accounts.find((a) => a.systemKey === 'fixed_asset');
+  const accum = accounts.find((a) => a.systemKey === 'accum_dep');
+  const cash = accounts.find((a) => a.id === cashAccountId);
+  const gain = accounts.find((a) => a.systemKey === 'sales') || accounts.find((a) => a.type === 'other_income');
+  const loss = accounts.find((a) => a.systemKey === 'operating_expense');
+  if (!fa || !accum || !cash) throw new BooksError('Asset or cash account is missing');
+  if (asset.costMinor <= 0) throw new BooksError('Asset cost is missing');
+  const nbv = asset.costMinor - asset.accumDepMinor;
+  const delta = proceedsMinor - nbv;
+  const lines: { accountId: string; debitMinor: number; creditMinor: number; memo: string }[] = [];
+  if (proceedsMinor > 0) lines.push({ accountId: cash.id, debitMinor: proceedsMinor, creditMinor: 0, memo: 'Sale proceeds' });
+  if (asset.accumDepMinor > 0) lines.push({ accountId: accum.id, debitMinor: asset.accumDepMinor, creditMinor: 0, memo: 'Clear accum. dep.' });
+  lines.push({ accountId: fa.id, debitMinor: 0, creditMinor: asset.costMinor, memo: asset.name });
+  if (delta > 0) {
+    if (!gain) throw new BooksError('A gain/income account is missing');
+    lines.push({ accountId: gain.id, debitMinor: 0, creditMinor: delta, memo: 'Disposal gain' });
+  } else if (delta < 0) {
+    if (!loss) throw new BooksError('A loss/expense account is missing');
+    lines.push({ accountId: loss.id, debitMinor: -delta, creditMinor: 0, memo: 'Disposal loss' });
+  }
+  await postManualJournal(ctx, {
+    date: todayISO(),
+    description: `Dispose ${asset.name}`,
+    lines,
+    idempotencyKey: `dispose_${asset.id}_${crypto.randomUUID()}`,
+  });
+  await updateDoc(doc(col(ctx.db, ctx.tenantId, 'assets'), asset.id), { status: 'disposed' });
+}
+
+export async function adjustStock(ctx: TxCtx, product: Product, qtyMilli: number, accounts: FinanceAccount[]) {
+  if (product.kind !== 'goods') throw new BooksError('Only goods have stock');
+  if (qtyMilli === 0) throw new BooksError('Adjustment cannot be zero');
+  const inventory = accounts.find((a) => a.systemKey === 'inventory');
+  const cogs = accounts.find((a) => a.systemKey === 'cogs') || accounts.find((a) => a.systemKey === 'operating_expense');
+  if (!inventory || !cogs) throw new BooksError('Inventory or COGS account is missing');
+  const amount = Math.round((Math.abs(qtyMilli) * product.costMinor) / 1000);
+  if (amount <= 0) throw new BooksError('Set a cost on the product first');
+  const increase = qtyMilli > 0;
+  await postManualJournal(ctx, {
+    date: todayISO(),
+    description: `Stock adjust ${product.sku}`,
+    lines: increase
+      ? [
+          { accountId: inventory.id, debitMinor: amount, creditMinor: 0, memo: product.name },
+          { accountId: cogs.id, debitMinor: 0, creditMinor: amount, memo: 'Count gain' },
+        ]
+      : [
+          { accountId: cogs.id, debitMinor: amount, creditMinor: 0, memo: 'Shrinkage' },
+          { accountId: inventory.id, debitMinor: 0, creditMinor: amount, memo: product.name },
+        ],
+    idempotencyKey: `stockadj_${product.id}_${crypto.randomUUID()}`,
+  });
+  await updateDoc(doc(col(ctx.db, ctx.tenantId, 'products'), product.id), { qtyMilli: product.qtyMilli + qtyMilli });
+}
+
+export async function saveBankRule(ctx: TxCtx, input: { contains: string; clearingAccountId: string }) {
+  assertCan(ctx.role, 'create');
+  const contains = input.contains.trim();
+  if (contains.length < 2) throw new BooksError('Rule needs a memo phrase');
+  const ref = doc(col(ctx.db, ctx.tenantId, 'bankRules'));
+  await setDoc(ref, clean({ contains, clearingAccountId: input.clearingAccountId, active: true }));
+  return ref.id;
+}
+
 export async function saveProject(ctx: TxCtx, input: Omit<Project, 'id'>) {
   assertCan(ctx.role, 'create');
   const ref = doc(col(ctx.db, ctx.tenantId, 'projects'));
@@ -241,9 +311,11 @@ export async function payLease(ctx: TxCtx, lease: LeaseContract, payAccountId: s
   });
 }
 
-export async function saveBankTxn(ctx: TxCtx, input: { accountId: string; date: string; amountMinor: number; memo: string }, accounts: FinanceAccount[]) {
+export async function saveBankTxn(ctx: TxCtx, input: { accountId: string; date: string; amountMinor: number; memo: string; clearingAccountId?: string }, accounts: FinanceAccount[]) {
   if (input.amountMinor === 0) throw new BooksError('Amount cannot be zero');
-  const clearing = accounts.find((a) => a.systemKey === 'operating_expense') || accounts.find((a) => a.systemKey === 'sales');
+  const clearing = (input.clearingAccountId && accounts.find((a) => a.id === input.clearingAccountId))
+    || accounts.find((a) => a.systemKey === 'operating_expense')
+    || accounts.find((a) => a.systemKey === 'sales');
   if (!clearing) throw new BooksError('A clearing account is required');
   const deposit = input.amountMinor > 0;
   const amount = Math.abs(input.amountMinor);

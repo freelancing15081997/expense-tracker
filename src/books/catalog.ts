@@ -30,6 +30,7 @@ export const BOOKS_CATALOG: { domain: string; items: { name: string; href?: stri
       { name: 'Debit Notes', href: '/books/debit-notes', status: 'live' },
       { name: 'Statements / Collections', href: '/books/statements', status: 'live' },
       { name: 'Vendors', href: '/books/vendors', status: 'live' },
+      { name: 'Purchase Requests → PO', href: '/books/purchase-requests', status: 'live' },
       { name: 'Purchase Orders → Bill', href: '/books/purchase-orders', status: 'live' },
       { name: 'Purchase Receipts → Bill', href: '/books/purchase-receipts', status: 'live' },
       { name: 'Bills + Payments', href: '/books/bills', status: 'live' },
@@ -42,8 +43,10 @@ export const BOOKS_CATALOG: { domain: string; items: { name: string; href?: stri
     items: [
       { name: 'Transfers + bank journals', href: '/books/banking', status: 'live' },
       { name: 'Bank recon worksheet', href: '/books/banking', status: 'live' },
+      { name: 'Opening balances', href: '/books/banking', status: 'live' },
       { name: 'Manual reconciliation', href: '/books/banking', status: 'live' },
       { name: 'CSV statement import', href: '/books/banking', status: 'live' },
+      { name: 'Bank matching rules', href: '/books/banking', status: 'live' },
       { name: 'Books Expenses', href: '/books/expenses', status: 'live' },
       { name: 'GST tax codes + TDS withhold', href: '/books/tax', status: 'live' },
       { name: 'GST summary (books)', href: '/books/reports', status: 'live' },
@@ -54,7 +57,8 @@ export const BOOKS_CATALOG: { domain: string; items: { name: string; href?: stri
     domain: 'Operations',
     items: [
       { name: 'Inventory / COGS', href: '/books/inventory', status: 'live' },
-      { name: 'Fixed assets / depreciation', href: '/books/assets', status: 'live' },
+      { name: 'Stock adjustments', href: '/books/inventory', status: 'live' },
+      { name: 'Fixed assets / depreciation / disposal', href: '/books/assets', status: 'live' },
       { name: 'Projects / WIP', href: '/books/projects', status: 'live' },
       { name: 'Budgets / variance', href: '/books/budgets', status: 'live' },
       { name: 'Cash forecast (AR/AP projection)', href: '/books/forecast', status: 'live' },

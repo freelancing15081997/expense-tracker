@@ -17,11 +17,12 @@ export default function Assets() {
   const [payAccountId, setPay] = useState(payAccounts[0]?.id || '');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [proceeds, setProceeds] = useState('');
 
   return (
     <PageShell
       title="Fixed Assets"
-      subtitle="Acquisition posts Asset Dr / pay-from Cr. Depreciation posts Expense Dr / Accumulated Depreciation Cr. Journals are immutable."
+      subtitle="Acquisition posts Asset Dr / pay-from Cr. Depreciation posts Expense Dr / Accumulated Depreciation Cr. Dispose posts proceeds, clears NBV, and records gain or loss."
       actions={can('create') && <IconBtn action="create" onClick={() => setOpen(true)}>Acquire asset</IconBtn>}
     >
       {open && (
@@ -92,7 +93,19 @@ export default function Assets() {
                   <td className="px-4 py-2.5"><Status value={row.status} /></td>
                   <td className="px-4 py-2.5 text-right">
                     {row.status === 'active' && can('post') && (
-                      <button className={btnPrimary} onClick={() => books.runDepreciation(row).catch((err) => setError(err.message))}>Depreciate</button>
+                      <div className="flex flex-wrap gap-2 justify-end">
+                        <button className={btnPrimary} onClick={() => books.runDepreciation(row).catch((err) => setError(err.message))}>Depreciate</button>
+                        <input className={`${inputClass} w-24`} placeholder="Proceeds" value={proceeds} onChange={(e) => setProceeds(e.target.value)} />
+                        <button className={btnGhost} onClick={async () => {
+                          try {
+                            setError('');
+                            await books.disposeFixedAsset(row, proceeds ? parseMoney(proceeds) : 0, payAccountId);
+                            setProceeds('');
+                          } catch (err: any) {
+                            setError(err.message);
+                          }
+                        }}>Dispose</button>
+                      </div>
                     )}
                   </td>
                 </tr>

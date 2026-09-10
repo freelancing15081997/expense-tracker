@@ -39,6 +39,7 @@ export function documentHref(kind: string, id?: string) {
     sales_order: '/books/sales-orders',
     credit_note: '/books/credit-notes',
     debit_note: '/books/debit-notes',
+    purchase_request: '/books/purchase-requests',
     purchase_order: '/books/purchase-orders',
     purchase_receipt: '/books/purchase-receipts',
     vendor_credit: '/books/vendor-credits',

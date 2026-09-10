@@ -21,6 +21,12 @@ export function parseQty(input: string): number {
   return milli;
 }
 
+export function parseQtyDelta(input: string): number {
+  const raw = input.trim();
+  if (raw.startsWith('-')) return -parseQty(raw.slice(1) || '0');
+  return parseQty(raw);
+}
+
 export function mulDiv(a: number, b: number, divisor: number): number {
   if (!Number.isInteger(a) || !Number.isInteger(b) || !Number.isInteger(divisor) || divisor <= 0) {
     throw new Error('Invalid integer math');

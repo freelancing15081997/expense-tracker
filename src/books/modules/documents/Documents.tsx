@@ -54,6 +54,7 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
     sales_order: 'Sales Orders',
     credit_note: 'Credit Notes',
     debit_note: 'Debit Notes',
+    purchase_request: 'Purchase Requests',
     purchase_order: 'Purchase Orders',
     purchase_receipt: 'Purchase Receipts',
     vendor_credit: 'Vendor Credits',
@@ -61,10 +62,12 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
   const title = titles[kind];
   const convertTo = kind === 'quote' || kind === 'estimate' || kind === 'sales_order'
     ? 'invoice'
+    : kind === 'purchase_request'
+      ? 'purchase_order'
     : kind === 'purchase_order' || kind === 'purchase_receipt'
       ? 'bill'
       : null;
-  const canPost = !['quote', 'estimate', 'sales_order', 'purchase_order', 'purchase_receipt'].includes(kind);
+  const canPost = !['quote', 'estimate', 'sales_order', 'purchase_request', 'purchase_order', 'purchase_receipt'].includes(kind);
 
   const [open, setOpen] = useState(false);
   const [partyId, setPartyId] = useState('');
@@ -263,7 +266,7 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
               <Field label="Issue date"><input type="date" className={inputClass} value={date} onChange={(e) => setDate(e.target.value)} required /></Field>
               {kind !== 'expense' && <Field label="Due date"><input type="date" className={inputClass} value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></Field>}
               <Field label="Reference / memo"><input className={inputClass} value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="Internal memo" /></Field>
-              {kind !== 'expense' && <Field label={kind === 'bill' || kind === 'purchase_order' ? 'Vendor invoice / PO' : 'PO / reference'}><input className={inputClass} value={poNumber} onChange={(e) => setPoNumber(e.target.value)} placeholder="PO-1024" /></Field>}
+              {kind !== 'expense' && <Field label={kind === 'bill' || kind === 'purchase_order' || kind === 'purchase_request' ? 'Vendor invoice / PO' : 'PO / reference'}><input className={inputClass} value={poNumber} onChange={(e) => setPoNumber(e.target.value)} placeholder="PO-1024" /></Field>}
               {kind !== 'expense' && <Field label="Place of supply"><input className={inputClass} value={placeOfSupply} onChange={(e) => setPlaceOfSupply(e.target.value)} placeholder="State" /></Field>}
               {projects.length > 0 && (
                 <Field label="Project">
@@ -349,7 +352,7 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
               </div>
             </section>
             <section className="grid md:grid-cols-2 gap-3">
-              <Field label={kind === 'bill' || kind === 'purchase_order' || kind === 'vendor_credit' ? 'Notes to vendor' : 'Notes to customer'}>
+              <Field label={kind === 'bill' || kind === 'purchase_order' || kind === 'purchase_request' || kind === 'vendor_credit' ? 'Notes to vendor' : 'Notes to customer'}>
                 <textarea className={inputClass} rows={3} value={customerNotes} onChange={(e) => setCustomerNotes(e.target.value)} placeholder="Shown on the printed document" />
               </Field>
               <Field label="Terms & conditions">

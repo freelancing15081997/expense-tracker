@@ -55,11 +55,12 @@ function BooksReady({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
-  return <>{children}</>;
+  return <div className="h-full min-h-0">{children}</div>;
 }
 
 export default function BooksApp() {
   return (
+    <div className="h-full min-h-0">
     <BooksProvider>
       <BooksReady>
         <BooksShell>
@@ -85,6 +86,7 @@ export default function BooksApp() {
           <Route path="statements" element={<Statements />} />
           <Route path="collections" element={<Collections />} />
           <Route path="payment-run" element={<PaymentRun />} />
+          <Route path="purchase-requests" element={<Documents kind="purchase_request" />} />
           <Route path="purchase-orders" element={<Documents kind="purchase_order" />} />
           <Route path="purchase-receipts" element={<Documents kind="purchase_receipt" />} />
           <Route path="bills" element={<Documents kind="bill" />} />
@@ -116,5 +118,6 @@ export default function BooksApp() {
         </BooksShell>
       </BooksReady>
     </BooksProvider>
+    </div>
   );
 }

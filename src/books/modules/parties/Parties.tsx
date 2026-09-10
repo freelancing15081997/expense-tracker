@@ -95,7 +95,7 @@ export default function Parties({ kind }: { kind: PartyKind }) {
 
   const related = useMemo(() => {
     if (!selected) return [];
-    const kinds = kind === 'customer' ? ['invoice', 'quote', 'credit_note'] : ['bill', 'purchase_order', 'vendor_credit'];
+    const kinds = kind === 'customer' ? ['invoice', 'quote', 'credit_note'] : ['bill', 'purchase_request', 'purchase_order', 'vendor_credit'];
     return documents.filter((d) => d.partyId === selected.id && kinds.includes(d.kind) && d.status !== 'voided');
   }, [documents, kind, selected]);
 

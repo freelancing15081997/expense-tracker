@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useBooks } from '../../context/BooksProvider';
-import { parseMoney, parseQty } from '../../core/money';
+import { parseMoney, parseQty, parseQtyDelta } from '../../core/money';
 import { btnGhost, btnPrimary, Card, Field, IconBtn, inputClass, Money, PageShell, Status } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
 import type { Product } from '../../core/types';
@@ -16,6 +16,7 @@ export default function Inventory() {
   const [sale, setSale] = useState('');
   const [cost, setCost] = useState('');
   const [qty, setQty] = useState('');
+  const [reorder, setReorder] = useState('');
   const [payAccountId, setPay] = useState(payAccounts[0]?.id || '');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -23,7 +24,7 @@ export default function Inventory() {
   return (
     <PageShell
       title="Inventory"
-      subtitle="Stock in debits Inventory and credits the pay-from account. Stock out posts COGS. Services have no stock."
+      subtitle="Stock in debits Inventory and credits the pay-from account. Stock out posts COGS. Adjust posts shrinkage or count gain. Services have no stock."
       actions={can('create') && <IconBtn action="create" onClick={() => setOpen(true)}>New product</IconBtn>}
     >
       {open && (
@@ -42,6 +43,7 @@ export default function Inventory() {
                   salePriceMinor: parseMoney(sale),
                   costMinor: cost ? parseMoney(cost) : 0,
                   qtyMilli: 0,
+                  reorderMilli: reorder ? parseQty(reorder) : 0,
                   active: true,
                 });
                 setOpen(false);
@@ -49,6 +51,7 @@ export default function Inventory() {
                 setName('');
                 setSale('');
                 setCost('');
+                setReorder('');
               } catch (err: any) {
                 setError(err.message || 'Could not save product');
               } finally {
@@ -66,6 +69,7 @@ export default function Inventory() {
             </Field>
             <Field label={`Sale price (${currency})`}><input className={inputClass} value={sale} onChange={(e) => setSale(e.target.value)} required /></Field>
             <Field label={`Cost (${currency})`}><input className={inputClass} value={cost} onChange={(e) => setCost(e.target.value)} /></Field>
+            <Field label="Reorder qty"><input className={inputClass} value={reorder} onChange={(e) => setReorder(e.target.value)} placeholder="0" /></Field>
             <div className="flex items-end gap-2">
               <button className={btnPrimary} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
               <button type="button" className={btnGhost} onClick={() => setOpen(false)}>Cancel</button>
@@ -85,6 +89,7 @@ export default function Inventory() {
                 <th className="px-4 py-3 font-medium text-right">Sale</th>
                 <th className="px-4 py-3 font-medium text-right">Cost</th>
                 <th className="px-4 py-3 font-medium text-right">Qty</th>
+                <th className="px-4 py-3 font-medium text-right">Reorder</th>
                 <th className="px-4 py-3 font-medium"></th>
               </tr>
             </thead>
@@ -96,7 +101,8 @@ export default function Inventory() {
                   <td className="px-4 py-2.5"><Status value={row.kind} /></td>
                   <td className="px-4 py-2.5 text-right"><Money minor={row.salePriceMinor} currency={currency} /></td>
                   <td className="px-4 py-2.5 text-right"><Money minor={row.costMinor} currency={currency} /></td>
-                  <td className="px-4 py-2.5 text-right">{(row.qtyMilli / 1000).toFixed(3)}</td>
+                  <td className={`px-4 py-2.5 text-right ${row.kind === 'goods' && (row.reorderMilli || 0) > 0 && row.qtyMilli < (row.reorderMilli || 0) ? 'text-rose-700 font-semibold' : ''}`}>{(row.qtyMilli / 1000).toFixed(3)}</td>
+                  <td className="px-4 py-2.5 text-right">{row.kind === 'goods' ? ((row.reorderMilli || 0) / 1000).toFixed(3) : '—'}</td>
                   <td className="px-4 py-2.5">
                     {row.kind === 'goods' && can('post') && (
                       <div className="flex flex-wrap gap-2 justify-end">
@@ -122,6 +128,15 @@ export default function Inventory() {
                             setError(err.message);
                           }
                         }}>Issue / COGS</button>
+                        <button className={btnGhost} onClick={async () => {
+                          try {
+                            setError('');
+                            await books.adjustProduct(row, parseQtyDelta(qty || '0'));
+                            setQty('');
+                          } catch (err: any) {
+                            setError(err.message);
+                          }
+                        }}>Adjust</button>
                       </div>
                     )}
                   </td>
@@ -132,7 +147,7 @@ export default function Inventory() {
         )}
       </PagedTable>
       {error && <p className="text-sm text-rose-600">{error}</p>}
-      <p className="text-xs text-slate-500">Valuation uses the product cost already stored (integer paise × qty milli). Warehouse transfers are not a second ledger — move stock with receive/issue only.</p>
+      <p className="text-xs text-slate-500">Valuation uses the product cost already stored (integer paise × qty milli). Adjust uses a signed qty (negative = shrinkage). Warehouse transfers are not a second ledger.</p>
     </PageShell>
   );
 }

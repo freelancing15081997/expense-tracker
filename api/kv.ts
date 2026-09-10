@@ -173,27 +173,31 @@ async function firestoreQuery(token: string, colPath: string, constraints: any[]
   return [];
 }
 
-async function pgGet(path: string) {
+let pgReady = false;
+
+async function ensurePg() {
   const { neon } = await import('@neondatabase/serverless');
   const sql = neon(postgresUrl());
-  await sql`CREATE TABLE IF NOT EXISTS documents (
-    path TEXT PRIMARY KEY,
-    data JSONB NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )`;
+  if (!pgReady) {
+    await sql`CREATE TABLE IF NOT EXISTS documents (
+      path TEXT PRIMARY KEY,
+      data JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`;
+    pgReady = true;
+  }
+  return sql;
+}
+
+async function pgGet(path: string) {
+  const sql = await ensurePg();
   const p = cleanPath(path);
   const rows = await sql`SELECT data FROM documents WHERE path = ${p} LIMIT 1`;
   return rows[0] ? asObject(rows[0].data) : null;
 }
 
 async function pgSet(path: string, data: unknown) {
-  const { neon } = await import('@neondatabase/serverless');
-  const sql = neon(postgresUrl());
-  await sql`CREATE TABLE IF NOT EXISTS documents (
-    path TEXT PRIMARY KEY,
-    data JSONB NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )`;
+  const sql = await ensurePg();
   const p = cleanPath(path);
   const payload = JSON.stringify(data ?? {});
   await sql`
@@ -211,13 +215,7 @@ async function pgDel(path: string) {
 }
 
 async function pgList(prefix: string) {
-  const { neon } = await import('@neondatabase/serverless');
-  const sql = neon(postgresUrl());
-  await sql`CREATE TABLE IF NOT EXISTS documents (
-    path TEXT PRIMARY KEY,
-    data JSONB NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )`;
+  const sql = await ensurePg();
   const base = `${cleanPath(prefix)}/`;
   const rows = (await sql`SELECT path, data FROM documents WHERE path LIKE ${base + '%'}`) as { path: string; data: unknown }[];
   return rows
@@ -278,7 +276,7 @@ async function blobDel(path: string) {
 async function blobList(prefix: string) {
   const key = cleanPath(prefix);
   const cached = blobListCache.get(key);
-  if (cached && Date.now() - cached.at < 12_000) return cached.rows;
+  if (cached && Date.now() - cached.at < 20_000) return cached.rows;
 
   const { list } = await import('@vercel/blob');
   const base = `${DOC_PREFIX}${key}/`;
@@ -329,6 +327,10 @@ async function localList(prefix: string) {
   return blobList(prefix);
 }
 
+function isErpPath(path: string) {
+  return path.startsWith('erp_workspaces/');
+}
+
 async function readDoc(path: string, token: string) {
   try {
     const local = await localGet(path);
@@ -336,10 +338,14 @@ async function readDoc(path: string, token: string) {
   } catch {
     // Production often has no DATABASE_URL; Blob may also be missing.
   }
+  if (isErpPath(path)) return null;
   return firestoreGet(token, path);
 }
 
 async function readList(path: string, token: string, constraints: any[] = []) {
+  if (isErpPath(path)) {
+    return localList(path).catch(() => [] as { id: string; data: Record<string, unknown> }[]);
+  }
   const byId = new Map<string, { id: string; data: Record<string, unknown> }>();
   const localP = localList(path).catch(() => [] as { id: string; data: Record<string, unknown> }[]);
   const fsP = firestoreQuery(token, path, constraints).catch(() => [] as { id: string; data: Record<string, unknown> }[]);
@@ -388,7 +394,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       : (rawBody && typeof rawBody === 'object' ? rawBody : {});
     const op = String(body.op || '');
     const path = String(body.path || '').replace(/^\/+|\/+$/g, '');
-    if (!path && op !== 'list' && op !== 'query') {
+    if (!path && op !== 'list' && op !== 'query' && op !== 'queryMany' && op !== 'batch') {
       json(res, 400, { error: 'Missing path' });
       return;
     }
@@ -463,6 +469,71 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
       }
       json(res, 200, { docs });
+      return;
+    }
+
+    if (op === 'batch') {
+      const writes = Array.isArray(body.writes) ? body.writes.slice(0, 80) : [];
+      const apply = async (write: any) => {
+        const writeOp = String(write.op || '');
+        const writePath = String(write.path || '').replace(/^\/+|\/+$/g, '');
+        if (!writePath) return;
+        if (writeOp === 'set') {
+          const incoming = (write.data || {}) as Record<string, unknown>;
+          const next = write.merge
+            ? { ...((await localGet(writePath).catch(() => null)) || {}), ...incoming }
+            : incoming;
+          await localSet(writePath, next);
+        } else if (writeOp === 'update') {
+          const current = (await localGet(writePath).catch(() => null)) || {};
+          const next: Record<string, unknown> = { ...current };
+          const patch = (write.data || {}) as Record<string, unknown>;
+          for (const [key, value] of Object.entries(patch)) {
+            if (key.includes('.')) {
+              const parts = key.split('.');
+              let cur: any = next;
+              for (let i = 0; i < parts.length - 1; i++) {
+                if (typeof cur[parts[i]] !== 'object' || !cur[parts[i]]) cur[parts[i]] = {};
+                cur = cur[parts[i]];
+              }
+              cur[parts[parts.length - 1]] = value;
+            } else {
+              next[key] = value;
+            }
+          }
+          await localSet(writePath, next);
+        }
+      };
+      for (let i = 0; i < writes.length; i += 8) {
+        await Promise.all(writes.slice(i, i + 8).map(apply));
+      }
+      json(res, 200, { ok: true, count: writes.length });
+      return;
+    }
+
+    if (op === 'queryMany') {
+      const queries = Array.isArray(body.queries) ? body.queries.slice(0, 24) : [];
+      const results = await Promise.all(queries.map(async (item: any) => {
+        const qPath = String(item.path || '').replace(/^\/+|\/+$/g, '');
+        if (!qPath) return { path: qPath, docs: [] };
+        const constraints = Array.isArray(item.constraints) ? item.constraints : [];
+        let docs = await readList(qPath, token, constraints);
+        for (const c of constraints) {
+          if (c.type === 'where' && c.op === '==') {
+            docs = docs.filter((row) => getAt({ id: row.id, ...row.data }, c.field) === c.value);
+          } else if (c.type === 'where' && c.op === 'in') {
+            const allowed = Array.isArray(c.value) ? c.value : [];
+            docs = docs.filter((row) => allowed.includes(getAt({ id: row.id, ...row.data }, c.field)));
+          } else if (c.type === 'orderBy') {
+            const dir = c.dir === 'desc' ? -1 : 1;
+            docs.sort((a, b) => String(getAt(a.data, c.field) || '').localeCompare(String(getAt(b.data, c.field) || '')) * dir);
+          } else if (c.type === 'limit') {
+            docs = docs.slice(0, Number(c.n) || docs.length);
+          }
+        }
+        return { path: qPath, docs };
+      }));
+      json(res, 200, { results });
       return;
     }
 

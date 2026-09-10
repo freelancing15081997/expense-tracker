@@ -119,7 +119,7 @@ export function documentToJournalLines(
   docLines: DocumentLineInput[],
   payFromAccountId?: string
 ): JournalLineInput[] {
-  if (kind === 'quote' || kind === 'estimate' || kind === 'sales_order' || kind === 'purchase_order' || kind === 'purchase_receipt') {
+  if (kind === 'quote' || kind === 'estimate' || kind === 'sales_order' || kind === 'purchase_request' || kind === 'purchase_order' || kind === 'purchase_receipt') {
     throw new BooksError('Convert this document before posting');
   }
   if (kind === 'invoice' || kind === 'debit_note') return invoiceJournalLines(accounts, tax, docLines);
@@ -140,6 +140,7 @@ export function docNumberPrefix(kind: DocumentKind) {
     sales_order: 'SO',
     credit_note: 'CN',
     debit_note: 'DN',
+    purchase_request: 'PR',
     purchase_order: 'PO',
     purchase_receipt: 'GRN',
     vendor_credit: 'VC',
