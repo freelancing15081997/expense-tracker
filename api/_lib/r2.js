@@ -23,19 +23,19 @@ function cfg() {
   return { accessKeyId, secretAccessKey, endpoint, bucket, host: new URL(endpoint).host };
 }
 
-function sha256Hex(data: Buffer | string) {
+function sha256Hex(data) {
   return createHash('sha256').update(data).digest('hex');
 }
 
-function hmac(key: Buffer | string, data: string) {
+function hmac(key, data) {
   return createHmac('sha256', key).update(data, 'utf8').digest();
 }
 
-function awsEncode(value: string) {
+function awsEncode(value) {
   return encodeURIComponent(value).replace(/[!'()*]/g, (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`);
 }
 
-function encodePath(key: string) {
+function encodePath(key) {
   return key.split('/').filter(Boolean).map(awsEncode).join('/');
 }
 
@@ -43,14 +43,14 @@ function amzNow() {
   return new Date().toISOString().replace(/[:-]|\.\d{3}/g, '');
 }
 
-function signingKey(secret: string, dateStamp: string) {
+function signingKey(secret, dateStamp) {
   const kDate = hmac(`AWS4${secret}`, dateStamp);
   const kRegion = hmac(kDate, REGION);
   const kService = hmac(kRegion, SERVICE);
   return hmac(kService, 'aws4_request');
 }
 
-function xmlText(value: string) {
+function xmlText(value) {
   return value
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
@@ -59,13 +59,9 @@ function xmlText(value: string) {
     .replace(/&apos;/g, "'");
 }
 
-async function r2Fetch(
-  method: string,
-  key: string,
-  opts?: { body?: Buffer | null; contentType?: string; query?: Record<string, string> },
-) {
+async function r2Fetch(method, key, opts) {
   const { accessKeyId, secretAccessKey, endpoint, bucket, host } = cfg();
-  const queryPairs = Object.entries(opts?.query || {})
+  const queryPairs = Object.entries((opts && opts.query) || {})
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([name, value]) => `${awsEncode(name)}=${awsEncode(value)}`);
   const canonicalQuery = queryPairs.join('&');
@@ -73,14 +69,14 @@ async function r2Fetch(
   const href = `${endpoint}${objectPath}${canonicalQuery ? `?${canonicalQuery}` : ''}`;
   const amzDate = amzNow();
   const dateStamp = amzDate.slice(0, 8);
-  const payload = opts?.body && opts.body.length ? opts.body : Buffer.alloc(0);
+  const payload = opts && opts.body && opts.body.length ? opts.body : Buffer.alloc(0);
   const payloadHash = sha256Hex(payload);
-  const headers: Record<string, string> = {
+  const headers = {
     host,
     'x-amz-content-sha256': payloadHash,
     'x-amz-date': amzDate,
   };
-  if (opts?.contentType) headers['content-type'] = opts.contentType;
+  if (opts && opts.contentType) headers['content-type'] = opts.contentType;
   const signed = Object.keys(headers).sort();
   const canonicalHeaders = signed.map((name) => `${name}:${headers[name]}\n`).join('');
   const signedHeaders = signed.join(';');
@@ -96,7 +92,7 @@ async function r2Fetch(
   });
 }
 
-export function r2FileKey(target: string) {
+export function r2FileKey(target) {
   const raw = String(target || '').trim();
   if (!raw) throw new Error('Invalid file');
   if (raw.startsWith('erp_workspaces/')) return raw.replace(/^\/+/, '');
@@ -111,7 +107,7 @@ export function r2FileKey(target: string) {
   throw new Error('Invalid file');
 }
 
-export async function r2GetBytes(key: string): Promise<{ body: Buffer; contentType: string } | null> {
+export async function r2GetBytes(key) {
   const res = await r2Fetch('GET', key);
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`R2 read failed (${res.status})`);
@@ -121,7 +117,7 @@ export async function r2GetBytes(key: string): Promise<{ body: Buffer; contentTy
   };
 }
 
-export async function r2GetJson(key: string): Promise<Record<string, unknown> | null> {
+export async function r2GetJson(key) {
   const file = await r2GetBytes(key);
   if (!file) return null;
   try {
@@ -132,25 +128,25 @@ export async function r2GetJson(key: string): Promise<Record<string, unknown> | 
   }
 }
 
-export async function r2PutBytes(key: string, body: Buffer, contentType: string) {
+export async function r2PutBytes(key, body, contentType) {
   const res = await r2Fetch('PUT', key, { body, contentType });
   if (!res.ok) throw new Error(`R2 write failed (${res.status})`);
 }
 
-export async function r2PutJson(key: string, data: unknown) {
+export async function r2PutJson(key, data) {
   await r2PutBytes(key, Buffer.from(JSON.stringify(data ?? {}), 'utf8'), 'application/json');
 }
 
-export async function r2Del(key: string) {
+export async function r2Del(key) {
   const res = await r2Fetch('DELETE', key);
   if (!res.ok && res.status !== 404) throw new Error(`R2 delete failed (${res.status})`);
 }
 
-export async function r2ListKeys(prefix: string): Promise<string[]> {
-  const keys: string[] = [];
+export async function r2ListKeys(prefix) {
+  const keys = [];
   let token = '';
   do {
-    const query: Record<string, string> = {
+    const query = {
       'list-type': '2',
       'max-keys': '1000',
       prefix,

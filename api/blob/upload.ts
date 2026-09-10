@@ -1,5 +1,61 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { r2PutBytes } from '../_lib/r2';
+import { createHash, createHmac } from 'node:crypto';
+
+const R2_REGION = 'auto';
+const R2_SERVICE = 's3';
+
+function r2Cfg() {
+  const accessKeyId = process.env.R2_ACCESS_KEY_ID || '';
+  const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY || '';
+  const endpoint = (process.env.R2_ENDPOINT || '').replace(/\/+$/, '');
+  const bucket = process.env.R2_BUCKET_NAME || '';
+  if (!accessKeyId || !secretAccessKey || !endpoint || !bucket) {
+    throw new Error('Cloudflare R2 is not configured. Set R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ENDPOINT, and R2_BUCKET_NAME.');
+  }
+  return { accessKeyId, secretAccessKey, endpoint, bucket, host: new URL(endpoint).host };
+}
+
+function r2Sha256(data: Buffer | string) {
+  return createHash('sha256').update(data).digest('hex');
+}
+
+function r2Hmac(key: Buffer | string, data: string) {
+  return createHmac('sha256', key).update(data, 'utf8').digest();
+}
+
+function r2Encode(value: string) {
+  return encodeURIComponent(value).replace(/[!'()*]/g, (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+async function r2Fetch(method: string, key: string, opts?: { body?: Buffer | null; contentType?: string }) {
+  const { accessKeyId, secretAccessKey, endpoint, bucket, host } = r2Cfg();
+  const objectPath = key ? `/${bucket}/${key.split('/').filter(Boolean).map(r2Encode).join('/')}` : `/${bucket}`;
+  const href = `${endpoint}${objectPath}`;
+  const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '');
+  const dateStamp = amzDate.slice(0, 8);
+  const payload = opts?.body && opts.body.length ? opts.body : Buffer.alloc(0);
+  const payloadHash = r2Sha256(payload);
+  const headers: Record<string, string> = { host, 'x-amz-content-sha256': payloadHash, 'x-amz-date': amzDate };
+  if (opts?.contentType) headers['content-type'] = opts.contentType;
+  const signed = Object.keys(headers).sort();
+  const canonicalHeaders = signed.map((name) => `${name}:${headers[name]}\n`).join('');
+  const signedHeaders = signed.join(';');
+  const canonicalRequest = [method, objectPath, '', canonicalHeaders, signedHeaders, payloadHash].join('\n');
+  const scope = `${dateStamp}/${R2_REGION}/${R2_SERVICE}/aws4_request`;
+  const kSigning = r2Hmac(r2Hmac(r2Hmac(r2Hmac(`AWS4${secretAccessKey}`, dateStamp), R2_REGION), R2_SERVICE), 'aws4_request');
+  const signature = createHmac('sha256', kSigning).update(['AWS4-HMAC-SHA256', amzDate, scope, r2Sha256(canonicalRequest)].join('\n'), 'utf8').digest('hex');
+  headers.authorization = `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+  return fetch(href, {
+    method,
+    headers,
+    body: method === 'GET' || method === 'HEAD' || method === 'DELETE' ? undefined : payload,
+  });
+}
+
+async function r2PutBytes(key: string, body: Buffer, contentType: string) {
+  const res = await r2Fetch('PUT', key, { body, contentType });
+  if (!res.ok) throw new Error(`R2 write failed (${res.status})`);
+}
 
 const FIREBASE_PROJECT = 'gen-lang-client-0616065043';
 const MAX_BYTES = 8 * 1024 * 1024;

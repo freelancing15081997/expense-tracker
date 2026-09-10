@@ -1,5 +1,111 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { r2Del, r2GetJson, r2ListKeys, r2PutJson } from './_lib/r2';
+import { createHash, createHmac } from 'node:crypto';
+
+const R2_REGION = 'auto';
+const R2_SERVICE = 's3';
+
+function r2Cfg() {
+  const accessKeyId = process.env.R2_ACCESS_KEY_ID || '';
+  const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY || '';
+  const endpoint = (process.env.R2_ENDPOINT || '').replace(/\/+$/, '');
+  const bucket = process.env.R2_BUCKET_NAME || '';
+  if (!accessKeyId || !secretAccessKey || !endpoint || !bucket) {
+    throw new Error('Cloudflare R2 is not configured. Set R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ENDPOINT, and R2_BUCKET_NAME.');
+  }
+  return { accessKeyId, secretAccessKey, endpoint, bucket, host: new URL(endpoint).host };
+}
+
+function r2Sha256(data: Buffer | string) {
+  return createHash('sha256').update(data).digest('hex');
+}
+
+function r2Hmac(key: Buffer | string, data: string) {
+  return createHmac('sha256', key).update(data, 'utf8').digest();
+}
+
+function r2Encode(value: string) {
+  return encodeURIComponent(value).replace(/[!'()*]/g, (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+function r2Path(key: string) {
+  return key.split('/').filter(Boolean).map(r2Encode).join('/');
+}
+
+async function r2Fetch(method: string, key: string, opts?: { body?: Buffer | null; contentType?: string; query?: Record<string, string> }) {
+  const { accessKeyId, secretAccessKey, endpoint, bucket, host } = r2Cfg();
+  const queryPairs = Object.entries(opts?.query || {})
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, value]) => `${r2Encode(name)}=${r2Encode(value)}`);
+  const canonicalQuery = queryPairs.join('&');
+  const objectPath = key ? `/${bucket}/${r2Path(key)}` : `/${bucket}`;
+  const href = `${endpoint}${objectPath}${canonicalQuery ? `?${canonicalQuery}` : ''}`;
+  const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '');
+  const dateStamp = amzDate.slice(0, 8);
+  const payload = opts?.body && opts.body.length ? opts.body : Buffer.alloc(0);
+  const payloadHash = r2Sha256(payload);
+  const headers: Record<string, string> = {
+    host,
+    'x-amz-content-sha256': payloadHash,
+    'x-amz-date': amzDate,
+  };
+  if (opts?.contentType) headers['content-type'] = opts.contentType;
+  const signed = Object.keys(headers).sort();
+  const canonicalHeaders = signed.map((name) => `${name}:${headers[name]}\n`).join('');
+  const signedHeaders = signed.join(';');
+  const canonicalRequest = [method, objectPath, canonicalQuery, canonicalHeaders, signedHeaders, payloadHash].join('\n');
+  const scope = `${dateStamp}/${R2_REGION}/${R2_SERVICE}/aws4_request`;
+  const kDate = r2Hmac(`AWS4${secretAccessKey}`, dateStamp);
+  const kSigning = r2Hmac(r2Hmac(r2Hmac(kDate, R2_REGION), R2_SERVICE), 'aws4_request');
+  const signature = createHmac('sha256', kSigning).update(['AWS4-HMAC-SHA256', amzDate, scope, r2Sha256(canonicalRequest)].join('\n'), 'utf8').digest('hex');
+  headers.authorization = `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+  return fetch(href, {
+    method,
+    headers,
+    body: method === 'GET' || method === 'HEAD' || method === 'DELETE' ? undefined : payload,
+  });
+}
+
+async function r2GetJson(key: string): Promise<Record<string, unknown> | null> {
+  const res = await r2Fetch('GET', key);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`R2 read failed (${res.status})`);
+  try {
+    const parsed = JSON.parse(Buffer.from(await res.arrayBuffer()).toString('utf8'));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+async function r2PutJson(key: string, data: unknown) {
+  const res = await r2Fetch('PUT', key, {
+    body: Buffer.from(JSON.stringify(data ?? {}), 'utf8'),
+    contentType: 'application/json',
+  });
+  if (!res.ok) throw new Error(`R2 write failed (${res.status})`);
+}
+
+async function r2Del(key: string) {
+  const res = await r2Fetch('DELETE', key);
+  if (!res.ok && res.status !== 404) throw new Error(`R2 delete failed (${res.status})`);
+}
+
+async function r2ListKeys(prefix: string): Promise<string[]> {
+  const keys: string[] = [];
+  let token = '';
+  do {
+    const query: Record<string, string> = { 'list-type': '2', 'max-keys': '1000', prefix };
+    if (token) query['continuation-token'] = token;
+    const res = await r2Fetch('GET', '', { query });
+    if (!res.ok) throw new Error(`R2 list failed (${res.status})`);
+    const xml = await res.text();
+    const decode = (value: string) => value.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+    for (const match of xml.matchAll(/<Key>([^<]+)<\/Key>/g)) keys.push(decode(match[1]));
+    const next = xml.match(/<NextContinuationToken>([^<]+)<\/NextContinuationToken>/);
+    token = /<IsTruncated>true<\/IsTruncated>/i.test(xml) && next ? decode(next[1]) : '';
+  } while (token);
+  return keys;
+}
 
 const FIREBASE_PROJECT = 'gen-lang-client-0616065043';
 const FIRESTORE_DB = 'ai-studio-sharedsheetexpen-15aa5fbb-9604-4c59-b4a3-aa994442cb50';

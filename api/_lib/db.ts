@@ -1,5 +1,5 @@
 import { neon } from '@neondatabase/serverless';
-import { r2Del, r2GetJson, r2ListKeys, r2PutJson } from './r2';
+import { r2Del, r2GetJson, r2ListKeys, r2PutJson } from './r2.js';
 
 const DOC_PREFIX = 'documents/';
 
