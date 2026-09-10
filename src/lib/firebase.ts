@@ -8,6 +8,8 @@ import {
   signOut,
 } from 'firebase/auth';
 
+// Firebase is now ONLY used for Authentication
+// All data storage is handled by Neon Postgres
 const firebaseConfig = {
   apiKey: 'AIzaSyDQUXdMTTUOONPbua5cWm75Jn-7-SkRwjE',
   authDomain: 'gen-lang-client-0616065043.firebaseapp.com',
@@ -19,7 +21,9 @@ const firebaseConfig = {
 
 export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = { vendor: 'vercel' as const };
+
+// Neon Postgres is used for all data storage
+export const db = { vendor: 'neon' as const };
 
 const googleProvider = new GoogleAuthProvider();
 

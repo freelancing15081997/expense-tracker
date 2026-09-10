@@ -217,12 +217,32 @@ async function listAuthUsers(admin) {
 }
 
 async function main() {
-  const sql = neon(postgresUrl());
+  console.log('🚀 Starting Firebase to Neon migration...\n');
+  
+  // Test database connection
+  let sql;
+  try {
+    sql = neon(postgresUrl());
+    await sql`SELECT 1`;
+    console.log('✓ Neon database connection successful');
+  } catch (err) {
+    console.error('❌ Failed to connect to Neon database:', err.message);
+    console.error('\nPlease check:');
+    console.error('  - DATABASE_URL or POSTGRES_URL is set in .env');
+    console.error('  - The connection string is valid');
+    console.error('  - Your Neon project is active');
+    process.exit(1);
+  }
+
+  // Create schema
   await sql`CREATE TABLE IF NOT EXISTS documents (
     path TEXT PRIMARY KEY,
     data JSONB NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`;
+  await sql`CREATE INDEX IF NOT EXISTS documents_path_idx ON documents (path)`;
+  await sql`CREATE INDEX IF NOT EXISTS documents_updated_at_idx ON documents (updated_at)`;
+  console.log('✓ Database schema ready');
 
   let adminMod;
   try {
@@ -234,8 +254,9 @@ async function main() {
   let db;
   try {
     db = loadAdmin();
+    console.log('✓ Firebase Admin initialized');
   } catch (err) {
-    console.error(err.message);
+    console.error('\n❌ Failed to initialize Firebase Admin:', err.message);
     console.error('\nThe app still remaps Firebase uids → Neon uids on first login by email once rows exist in Postgres.');
     process.exitCode = 1;
     return;
@@ -243,16 +264,43 @@ async function main() {
 
   const rows = [];
   const rootCols = await db.listCollections();
+  console.log('\n📚 Exporting Firestore collections...');
   console.log('Root collections:', rootCols.map((c) => c.id).join(', ') || '(none)');
+  
   for (const col of rootCols) {
     const docs = await col.listDocuments();
-    console.log(`  ${col.id}: ${docs.length} docs`);
+    console.log(`  📁 ${col.id}: ${docs.length} documents`);
+    let exported = 0;
     for (const docRef of docs) {
       await exportTree(docRef, `${col.id}/${docRef.id}`, rows);
+      exported++;
+      if (exported % 50 === 0) {
+        console.log(`     Exported ${exported}/${docs.length} documents from ${col.id}...`);
+      }
     }
+    console.log(`  ✓ Completed ${col.id}: ${exported} documents exported`);
+  }
+  console.log(`\n✓ Total documents exported: ${rows.length}`);
+
+  if (rows.length === 0) {
+    console.warn('\n⚠️  Warning: No documents found in Firestore.');
+    console.warn('   This could mean:');
+    console.warn('   - Firebase database is empty');
+    console.warn('   - Service account lacks read permissions');
+    console.warn('   - Wrong project ID or database ID');
+    console.log('\nContinuing anyway to set up the schema...');
   }
 
+  console.log('\n📦 Copying Firebase Storage files to Vercel Blob...');
   const fileStats = await copyFirebaseFiles(rows);
+  if (fileStats.copied > 0) {
+    console.log(`✓ Copied ${fileStats.copied} files to Vercel Blob`);
+  }
+  if (fileStats.left > 0) {
+    console.log(`⚠️  ${fileStats.left} files left on Firebase Storage`);
+  }
+  
+  console.log('\n👥 Mapping user emails...');
   const emailMap = collectEmailMap(rows);
   if (adminMod) {
     for (const user of await listAuthUsers(adminMod)) {
@@ -277,28 +325,44 @@ async function main() {
     },
   });
 
+  console.log('\n💾 Writing to Neon Postgres...');
   let upserts = 0;
-  for (const row of rows) {
-    const path = String(row.path || '').replace(/^\/+|\/+$/g, '');
-    if (!path) continue;
-    const payload = JSON.stringify(row.data ?? {});
-    await sql`
-      INSERT INTO documents (path, data, updated_at)
-      VALUES (${path}, ${payload}::jsonb, NOW())
-      ON CONFLICT (path) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
-    `;
-    upserts += 1;
+  const batchSize = 100;
+  
+  for (let i = 0; i < rows.length; i += batchSize) {
+    const batch = rows.slice(i, i + batchSize);
+    for (const row of batch) {
+      const path = String(row.path || '').replace(/^\/+|\/+$/g, '');
+      if (!path) continue;
+      const payload = JSON.stringify(row.data ?? {});
+      await sql`
+        INSERT INTO documents (path, data, updated_at)
+        VALUES (${path}, ${payload}::jsonb, NOW())
+        ON CONFLICT (path) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
+      `;
+      upserts += 1;
+    }
+    console.log(`  Wrote ${Math.min(i + batchSize, rows.length)}/${rows.length} documents...`);
   }
 
   const count = await sql`SELECT count(*)::int AS n FROM documents`;
+  
+  console.log('\n✅ Migration completed successfully!\n');
+  console.log('📊 Summary:');
   console.log(JSON.stringify({
     copiedFromFirestore: rows.length - 2,
     upserts,
-    postgresDocuments: count[0].n,
+    totalPostgresDocuments: count[0].n,
     emailsMapped: Object.keys(emailMap).length,
     filesCopiedToBlob: fileStats.copied,
     firebaseFileUrlsLeft: fileStats.left,
   }, null, 2));
+  
+  console.log('\n🎯 Next steps:');
+  console.log('  1. Run: npm run validate:migration');
+  console.log('  2. Test your application locally');
+  console.log('  3. Update production environment variables');
+  console.log('  4. Deploy to production\n');
 }
 
 main().catch((err) => {
