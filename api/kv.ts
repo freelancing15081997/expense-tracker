@@ -338,19 +338,20 @@ async function readDoc(path: string, token: string) {
   } catch {
     // Production often has no DATABASE_URL; Blob may also be missing.
   }
+  if (isErpPath(path)) return null;
   return firestoreGet(token, path);
 }
 
 async function readList(path: string, token: string, constraints: any[] = []) {
-  const byId = new Map<string, { id: string; data: Record<string, unknown> }>();
-  const localRows = await localList(path).catch(() => [] as { id: string; data: Record<string, unknown> }[]);
-  for (const row of localRows) byId.set(row.id, row);
-  if (!isErpPath(path) || localRows.length === 0) {
-    const fsRows = await firestoreQuery(token, path, constraints).catch(() => [] as { id: string; data: Record<string, unknown> }[]);
-    for (const row of fsRows) {
-      if (!byId.has(row.id)) byId.set(row.id, row);
-    }
+  if (isErpPath(path)) {
+    return localList(path).catch(() => [] as { id: string; data: Record<string, unknown> }[]);
   }
+  const byId = new Map<string, { id: string; data: Record<string, unknown> }>();
+  const localP = localList(path).catch(() => [] as { id: string; data: Record<string, unknown> }[]);
+  const fsP = firestoreQuery(token, path, constraints).catch(() => [] as { id: string; data: Record<string, unknown> }[]);
+  const [localRows, fsRows] = await Promise.all([localP, fsP]);
+  for (const row of fsRows) byId.set(row.id, row);
+  for (const row of localRows) byId.set(row.id, row);
   return [...byId.values()];
 }
 

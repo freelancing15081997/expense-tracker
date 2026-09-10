@@ -207,11 +207,13 @@ export async function getDoc(ref: DocRef) {
     return wrapDoc(ref.id, null, ref.path);
   }
   let data: Record<string, unknown> | null = cached?.data ?? null;
-  try {
-    const fromFs = await readFirestoreDoc(ref.path);
-    if (fromFs) data = fromFs;
-  } catch {
-    // Named Firestore still holds some tenant docs; Spark writes are disabled.
+  if (!isErp(ref.path)) {
+    try {
+      const fromFs = await readFirestoreDoc(ref.path);
+      if (fromFs) data = fromFs;
+    } catch {
+      // Expense Tracker ledgers still live in the named Firestore database.
+    }
   }
   const payload = await withTimeout(call({ op: 'get', path: ref.path }), data ? 400 : 2500);
   if (payload?.data) data = payload.data;
