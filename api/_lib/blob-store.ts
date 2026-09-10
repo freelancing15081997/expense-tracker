@@ -54,7 +54,9 @@ function blobErrorStatus(err: any) {
 }
 
 function blobErrorMessage(err: any, fallback: string) {
-  if (err?.message === 'Blob storage is not configured') return err.message;
+  if (err?.message === 'Blob storage is not configured') {
+    return 'File upload is not configured. Please set BLOB_READ_WRITE_TOKEN in environment variables.';
+  }
   if (blobErrorStatus(err) === 429) return 'Blob storage rate limit reached. Wait a minute and try again.';
   return fallback;
 }

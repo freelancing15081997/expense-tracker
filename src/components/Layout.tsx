@@ -101,7 +101,7 @@ export default function Layout() {
         {showText && <p className="text-[10px] font-bold tracking-widest text-slate-400 uppercase px-3 mb-1 whitespace-nowrap">Workspace</p>}
 
         <Link to="/expenses" className={navBtn(onExpenses)}>
-          <ArrowRightLeft className="w-5 h-5 shrink-0" />
+          <ArrowRightLeft className="w-6 h-6 shrink-0" />
           {showText && <span className="whitespace-nowrap">Expense Tracker</span>}
         </Link>
 
@@ -114,10 +114,10 @@ export default function Layout() {
                 onBooks ? 'text-[#0B1F3A]' : 'text-slate-700 hover:bg-slate-50 rounded-xl'
               )}
             >
-              <BooksGlyph name="book" className="w-5 h-5 shrink-0" />
+              <BooksGlyph name="book" className="w-6 h-6 shrink-0" />
               {showText && <span className="whitespace-nowrap">Books</span>}
             </Link>
-            {showText && (
+            {(showText || mobileMenuOpen) && (
               <button
                 type="button"
                 aria-label={booksOpen ? 'Collapse Books menu' : 'Expand Books menu'}
@@ -129,7 +129,7 @@ export default function Layout() {
             )}
           </div>
 
-          {(booksOpen && showText) && (
+          {(booksOpen && (showText || mobileMenuOpen)) && (
             <div className="mt-1 ml-2 pl-3 border-l border-slate-200 space-y-0.5">
               {BOOKS_NAV.map((group) => {
                 const groupOpen = openGroup === group.title;
@@ -145,7 +145,7 @@ export default function Layout() {
                       className="w-full flex items-center justify-between px-2 py-1.5 rounded-xl text-[13px] font-semibold text-slate-600 hover:bg-slate-50 hover:text-[#0B1F3A] whitespace-nowrap"
                     >
                       <span className="flex items-center gap-2 min-w-0">
-                        <GroupIcon title={group.title} className="w-4 h-4 shrink-0" />
+                        <GroupIcon title={group.title} className="w-5 h-5 shrink-0" />
                         <span className="truncate">{group.title}</span>
                       </span>
                       <ChevronRight className={cn('w-3.5 h-3.5 text-slate-400 transition-transform shrink-0', groupOpen && 'rotate-90')} />
@@ -161,7 +161,7 @@ export default function Layout() {
                               location.pathname === sub.href ? 'byjan-subnav-active' : ''
                             )}
                           >
-                            <FeatureIcon href={sub.href} className="w-4 h-4 shrink-0" />
+                            <FeatureIcon href={sub.href} className="w-5 h-5 shrink-0" />
                             {sub.name}
                           </Link>
                         ))}
@@ -175,7 +175,7 @@ export default function Layout() {
         </div>
 
         <Link to="/settings" className={navBtn(location.pathname === '/settings')}>
-          <Settings className="w-5 h-5 shrink-0" />
+          <Settings className="w-6 h-6 shrink-0" />
           {showText && <span className="whitespace-nowrap">Settings</span>}
         </Link>
       </nav>

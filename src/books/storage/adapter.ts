@@ -26,6 +26,13 @@ export function inspectFile(file: File) {
 
 export async function storeBooksFile(tenantId: string, fileId: string, file: File) {
   const meta = inspectFile(file);
+  
+  // Check if Blob storage is configured
+  const blobToken = process.env.BLOB_READ_WRITE_TOKEN;
+  if (!blobToken) {
+    throw new Error('File upload is not configured. Please set BLOB_READ_WRITE_TOKEN environment variable in your deployment settings.');
+  }
+  
   const { authHeaders } = await import('../../lib/auth-client');
   const res = await fetch('/api/blob/upload', {
     method: 'POST',
@@ -40,6 +47,7 @@ export async function storeBooksFile(tenantId: string, fileId: string, file: Fil
   });
   const payload = await res.json().catch(() => ({ error: 'Upload failed' }));
   if (res.status === 429) throw new Error(payload.error || 'Blob storage rate limit reached. Wait a minute and try again.');
+  if (res.status === 503) throw new Error(payload.error || 'File upload service is not configured. Contact administrator to set up Vercel Blob storage.');
   if (!res.ok) throw new Error(payload.error || 'Upload failed');
   const url = String(payload.url || '');
   const pathname = String(payload.pathname || `erp_workspaces/${tenantId}/files/${fileId}.${meta.ext}`);
