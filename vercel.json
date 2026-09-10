@@ -13,7 +13,7 @@
       "source": "/api/(.*)",
       "headers": [
         { "key": "Access-Control-Allow-Methods", "value": "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS" },
-        { "key": "Access-Control-Allow-Headers", "value": "Authorization,Content-Type,X-CSRF-Token,X-Requested-With,Accept,X-Tenant-Id,X-File-Id,X-File-Ext,X-File-Name,X-Content-Type" },
+        { "key": "Access-Control-Allow-Headers", "value": "Authorization,Content-Type,X-CSRF-Token,X-Requested-With,Accept,X-Tenant-Id,X-File-Id,X-File-Ext,X-File-Name,X-Content-Type,vercel-blob-api-version" },
         { "key": "Access-Control-Allow-Credentials", "value": "true" }
       ]
     }

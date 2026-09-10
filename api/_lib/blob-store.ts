@@ -78,12 +78,12 @@ export async function handleBlobUploadRequest(
   if (!uid) return;
 
   try {
-    const tenantId = header(req.headers, 'x-tenant-id').trim();
-    const fileId = header(req.headers, 'x-file-id').trim();
+    const tenantId = header(req.headers, 'x-tenant-id').trim().replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128);
+    const fileId = header(req.headers, 'x-file-id').trim().replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128);
     const ext = header(req.headers, 'x-file-ext').trim().toLowerCase();
     const contentType = (header(req.headers, 'content-type') || header(req.headers, 'x-content-type')).split(';')[0].trim().toLowerCase();
 
-    if (!/^[a-zA-Z0-9_-]{6,128}$/.test(tenantId) || !/^[a-zA-Z0-9_-]{6,128}$/.test(fileId)) {
+    if (tenantId.length < 4 || fileId.length < 4 || uid.replace(/[^a-zA-Z0-9_-]/g, '_') !== tenantId) {
       sendJson(res, 400, { error: 'Invalid upload path' });
       return;
     }
@@ -110,10 +110,9 @@ export async function handleBlobUploadRequest(
       contentType: contentType || ALLOWED_MIME[ext][0],
       addRandomSuffix: false,
       allowOverwrite: true,
-      cacheControlMaxAge: 60 * 60 * 24 * 365,
     });
 
-    sendJson(res, 200, { url: (blob as { downloadUrl?: string }).downloadUrl || blob.url, pathname: blob.pathname });
+    sendJson(res, 200, { url: (blob as { downloadUrl?: string }).downloadUrl || blob.url || pathname, pathname: blob.pathname || pathname });
   } catch (err: any) {
     sendJson(res, blobErrorStatus(err), { error: blobErrorMessage(err, 'Upload failed') });
   }

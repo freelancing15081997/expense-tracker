@@ -109,7 +109,11 @@ export default function BooksSettings() {
               if (!file) return;
               try {
                 const stored = await uploadFile({ domain: 'workspace-logo', file });
-                setLogoUrl(stored.url || stored.path);
+                try {
+                  setLogoUrl(await booksFileUrl(stored.path));
+                } catch {
+                  setLogoUrl('');
+                }
                 if (stored.quotaBlocked) {
                   setMessage(stored.message || 'Logo is on Vercel Blob. Wait a minute, then click Save company profile.');
                   return;

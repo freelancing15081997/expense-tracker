@@ -46,13 +46,9 @@ body {
 
 svg.lucide {
   display: inline-block;
-  width: 1.5rem;
-  height: 1.5rem;
-  min-width: 1.5rem;
-  min-height: 1.5rem;
-  stroke-width: 2.4;
   flex-shrink: 0;
   overflow: visible;
+  stroke-width: 2.2;
   color: inherit;
 }
 
@@ -67,34 +63,21 @@ svg.byjan-glyph {
 .brand-logo {
   background: #fff;
   border-radius: 12px;
-}
-.brand-logo[data-size="sm"],
-.brand-logo[data-size="md"] {
+  padding: 5px;
   box-shadow: inset 0 0 0 1px rgba(11, 31, 58, 0.08);
 }
 .brand-logo[data-size="lg"] {
   background: transparent;
   border-radius: 0;
+  padding: 0;
+  box-shadow: none;
 }
 .brand-logo .brand-logo-img {
   width: 100%;
   height: 100%;
   display: block;
-  object-fit: cover;
-  object-position: 50% 38%;
-  transform: scale(3.15);
-  transform-origin: center;
-  filter: contrast(1.12) saturate(1.2) brightness(1.04);
-}
-.brand-logo[data-size="md"] .brand-logo-img {
-  object-position: 50% 42%;
-  transform: scale(2.35);
-}
-.brand-logo[data-size="lg"] .brand-logo-img {
   object-fit: contain;
   object-position: center;
-  transform: scale(1.55);
-  filter: contrast(1.08) saturate(1.15) brightness(1.06);
 }
 
 .font-display {
@@ -243,6 +226,16 @@ svg.byjan-glyph {
   color: #115E59;
   font-weight: 600;
   box-shadow: inset 0 1px 2px rgba(11, 31, 58, 0.08), inset 2px 0 0 var(--byjan-teal);
+}
+
+.byjan-flyout {
+  background: #fff;
+  border: 1px solid rgba(11, 31, 58, 0.08);
+  border-radius: 18px;
+  box-shadow:
+    0 1px 1px rgba(11, 31, 58, 0.04),
+    0 24px 48px -20px rgba(11, 31, 58, 0.38),
+    0 0 0 1px rgba(11, 31, 58, 0.04);
 }
 
 .byjan-table {

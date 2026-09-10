@@ -33,8 +33,16 @@ app.use("/neondb/auth", (req, res, next) => {
 app.post("/api/blob/upload", express.raw({ type: "*/*", limit: "9mb" }), (req, res) => {
   void handleBlobUploadRequest(req, res);
 });
+app.post("/api/blob/handle", express.json({ limit: "1mb" }), async (req, res) => {
+  const { default: handle } = await import("./api/blob/handle");
+  await handle(req as any, res as any);
+});
 app.post("/api/blob/delete", express.json({ limit: "1mb" }), (req, res) => {
   void handleBlobDeleteRequest(req, res);
+});
+app.get("/api/blob/file", async (req, res) => {
+  const { default: file } = await import("./api/blob/file");
+  await file(req as any, res as any);
 });
 
 app.use(express.json({ limit: "50mb" }));

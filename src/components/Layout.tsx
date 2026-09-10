@@ -2,14 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { logout, db } from '../lib/firebase';
-import { LogOut, Settings, Menu, X, Bell, CheckCircle2, ArrowRightLeft, ChevronDown, ChevronRight, BookOpen } from 'lucide-react';
+import { Bell, CheckCircle2, Menu, X } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { collection, query, where, getDocs, updateDoc, doc } from '../lib/store';
 import BrandLogo from './BrandLogo';
 import GlobalSearch, { SearchTrigger } from './GlobalSearch';
-import { BOOKS_NAV } from '../books/nav';
-import { FeatureIcon, GroupIcon } from '../books/ui/icons';
+import AppSidebar from './AppSidebar';
 import { useBooksTenantMeta } from '../lib/tenant';
 
 function cn(...inputs: ClassValue[]) {
@@ -23,22 +22,8 @@ export default function Layout() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isSidebarHovered, setIsSidebarHovered] = useState(false);
   const isExpanded = mobileMenuOpen || isSidebarHovered;
-  const [booksOpen, setBooksOpen] = useState(location.pathname.startsWith('/books'));
-  const [openGroup, setOpenGroup] = useState<string | null>(null);
   const [notificationsPanelOpen, setNotificationsPanelOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
-
-  const onBooks = location.pathname === '/books' || location.pathname.startsWith('/books/');
-  const onExpenses = location.pathname === '/expenses' || location.pathname.startsWith('/book/');
-  const onHome = location.pathname === '/';
-
-  useEffect(() => {
-    if (onBooks) setBooksOpen(true);
-    const match = BOOKS_NAV.find((group) =>
-      group.items.some((item) => location.pathname === item.href || location.pathname.startsWith(`${item.href}/`))
-    );
-    if (match) setOpenGroup(match.title);
-  }, [onBooks, location.pathname]);
 
   useEffect(() => {
     setMobileMenuOpen(false);
@@ -73,147 +58,6 @@ export default function Layout() {
     }
   };
 
-  const navBtn = (active: boolean) => cn('byjan-nav', active && 'byjan-nav-active');
-
-  const showText = isExpanded;
-  const sidebar = (
-    <>
-      <Link
-        to="/"
-        className={cn(
-          'mx-3 mt-3 mb-2 flex items-center gap-3 rounded-[14px] px-3 py-3 byjan-lift border',
-          onHome ? 'bg-[#EEF2F6] border-slate-200 shadow-[inset_0_1px_2px_rgba(11,31,58,0.08)]' : 'border-transparent hover:border-slate-200 hover:bg-white'
-        )}
-        title="Open main dashboard"
-      >
-        <BrandLogo size="sm" />
-        {showText && (<div className="min-w-0 whitespace-nowrap">
-          <p className="font-bold text-[17px] text-[#0B1F3A] tracking-tight leading-none">Byjan</p>
-          <p className="text-[11px] text-slate-500 mt-1">Main dashboard</p>
-        </div>)}
-      </Link>
-
-      <div className="px-3 mb-3 flex justify-center">
-        {showText ? <SearchTrigger variant="sidebar" /> : <SearchTrigger variant="icon" />}
-      </div>
-
-      <nav className="flex-1 overflow-y-auto px-3 pb-4 space-y-1">
-        {showText && <p className="text-[10px] font-bold tracking-widest text-slate-400 uppercase px-3 mb-1 whitespace-nowrap">Workspace</p>}
-
-        <Link to="/expenses" className={navBtn(onExpenses)}>
-          <ArrowRightLeft className="w-6 h-6 shrink-0" />
-          {showText && <span className="whitespace-nowrap">Expense Tracker</span>}
-        </Link>
-
-        <div>
-          <div className={cn('flex items-stretch rounded-xl', onBooks && 'bg-[#EEF2F6] shadow-[inset_0_1px_2px_rgba(11,31,58,0.08)]')}>
-            <Link
-              to="/books"
-              className={cn(
-                'flex-1 flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-l-xl',
-                onBooks ? 'text-[#0B1F3A]' : 'text-slate-700 hover:bg-slate-50 rounded-xl'
-              )}
-            >
-              <BookOpen className="w-6 h-6 shrink-0" />
-              {showText && <span className="whitespace-nowrap">Books</span>}
-            </Link>
-            {showText && (
-              <button
-                type="button"
-                aria-label={booksOpen ? 'Collapse Books menu' : 'Expand Books menu'}
-                onClick={() => setBooksOpen((open) => !open)}
-                className="px-2 rounded-r-xl text-slate-500 hover:text-[#0B1F3A]"
-              >
-                {booksOpen ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
-              </button>
-            )}
-          </div>
-
-          {(booksOpen && showText) && (
-            <div className="mt-1 ml-2 pl-3 border-l border-slate-200 space-y-0.5">
-              {BOOKS_NAV.map((group) => {
-                const groupOpen = openGroup === group.title;
-                return (
-                  <div 
-                    key={group.title}
-                    onMouseEnter={() => setOpenGroup(group.title)}
-                    onMouseLeave={() => { if (!group.items.some(i => location.pathname === i.href || location.pathname.startsWith(i.href+'/'))) setOpenGroup(null); }}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setOpenGroup((current) => current === group.title ? null : group.title)}
-                      className="w-full flex items-center justify-between px-2 py-1.5 rounded-xl text-[13px] font-semibold text-slate-600 hover:bg-slate-50 hover:text-[#0B1F3A] whitespace-nowrap"
-                    >
-                      <span className="flex items-center gap-2 min-w-0">
-                        <GroupIcon title={group.title} className="w-5 h-5 shrink-0" />
-                        <span className="truncate">{group.title}</span>
-                      </span>
-                      <ChevronRight className={cn('w-3.5 h-3.5 text-slate-400 transition-transform shrink-0', groupOpen && 'rotate-90')} />
-                    </button>
-                    {groupOpen && (
-                      <div className="mb-1 space-y-0.5">
-                        {group.items.map((sub) => (
-                          <Link
-                            key={sub.href}
-                            to={sub.href}
-                            className={cn(
-                              'byjan-subnav',
-                              location.pathname === sub.href ? 'byjan-subnav-active' : ''
-                            )}
-                          >
-                            <FeatureIcon href={sub.href} className="w-5 h-5 shrink-0" />
-                            {sub.name}
-                          </Link>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        <Link to="/settings" className={navBtn(location.pathname === '/settings')}>
-          <Settings className="w-6 h-6 shrink-0" />
-          {showText && <span className="whitespace-nowrap">Settings</span>}
-        </Link>
-      </nav>
-
-      <div className="p-3 border-t border-slate-200 space-y-2">
-        {tenant && showText && (
-          <div
-            className="mx-1 px-2 py-0.5 rounded-full bg-[#EEF2F6] border border-slate-200 text-[10px] font-semibold text-[#0B1F3A] truncate"
-            title={`${tenant.name} · erp_workspaces/${tenant.id}`}
-          >
-            {tenant.name}
-          </div>
-        )}
-        <div className="flex items-center gap-1 p-2">
-            <div className="w-8 h-8 rounded-full bg-[#0B1F3A] text-white flex items-center justify-center font-bold text-sm shrink-0 overflow-hidden">
-              {userProfile?.photoURL ? (
-                <img src={userProfile.photoURL} alt="" className="w-full h-full object-cover" />
-              ) : (
-                userProfile?.displayName?.charAt(0).toUpperCase() || userProfile?.email?.charAt(0).toUpperCase()
-              )}
-            </div>
-            {showText && (
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-[#0B1F3A] truncate">{userProfile?.displayName || 'User'}</p>
-              </div>
-            )}
-            <button
-              onClick={logout}
-              title="Sign out"
-              className="p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-700 rounded-lg"
-            >
-              <LogOut className="w-6 h-6" />
-            </button>
-          </div>
-      </div>
-    </>
-  );
-
   return (
     <div className="h-screen w-full bg-[#F5F7FA] flex flex-col md:flex-row font-sans text-[#0F172A] overflow-hidden">
       <GlobalSearch />
@@ -225,12 +69,21 @@ export default function Layout() {
         </Link>
         <div className="flex items-center gap-1">
           <SearchTrigger />
-          <button onClick={() => setNotificationsPanelOpen(true)} className="relative p-2 text-slate-600 hover:bg-slate-100 rounded-lg">
-            <Bell className="w-6 h-6" />
+          <button
+            type="button"
+            onClick={() => setNotificationsPanelOpen(true)}
+            className="relative w-10 h-10 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 flex items-center justify-center"
+            title="Notifications"
+          >
+            <Bell className="w-5 h-5" />
             {unreadCount > 0 && <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full" />}
           </button>
-          <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg">
-            {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="w-10 h-10 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 flex items-center justify-center"
+          >
+            {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
         </div>
       </div>
@@ -243,20 +96,26 @@ export default function Layout() {
         onMouseEnter={() => setIsSidebarHovered(true)}
         onMouseLeave={() => setIsSidebarHovered(false)}
         className={cn(
-          'byjan-rail fixed inset-y-0 left-0 z-50 flex flex-col md:relative md:translate-x-0 md:z-auto transition-all duration-300 overflow-hidden bg-white border-r border-slate-200',
-          mobileMenuOpen ? 'translate-x-0 w-72' : '-translate-x-full md:translate-x-0',
-          !mobileMenuOpen && (isSidebarHovered ? 'md:w-72 shadow-2xl md:shadow-none' : 'md:w-[72px]')
+          'byjan-rail fixed inset-y-0 left-0 z-50 flex flex-col md:relative md:translate-x-0 md:z-auto transition-[width,transform] duration-300 overflow-visible bg-white border-r border-slate-200',
+          mobileMenuOpen ? 'translate-x-0 w-[280px]' : '-translate-x-full md:translate-x-0',
+          !mobileMenuOpen && (isSidebarHovered ? 'md:w-[280px] shadow-2xl md:shadow-none' : 'md:w-[76px]')
         )}
       >
-        {sidebar}
+        <AppSidebar
+          expanded={isExpanded}
+          tenant={tenant}
+          userProfile={userProfile}
+          onLogout={logout}
+        />
       </aside>
 
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-        <div className="hidden md:flex shrink-0 items-center gap-3 px-4 h-11 bg-white border-b border-slate-200">
+        <div className="hidden md:flex shrink-0 items-center gap-3 px-4 h-12 bg-white border-b border-slate-200">
           <SearchTrigger variant="bar" />
           <button
+            type="button"
             onClick={() => setNotificationsPanelOpen(true)}
-            className="relative ml-auto p-2 text-slate-600 hover:bg-slate-100 rounded-lg"
+            className="relative ml-auto w-10 h-10 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 flex items-center justify-center shadow-[0_1px_2px_rgba(11,31,58,0.06)]"
             title="Notifications"
           >
             <Bell className="w-5 h-5" />
@@ -282,11 +141,15 @@ export default function Layout() {
           <div className="fixed inset-y-0 right-0 w-full max-w-sm bg-white z-50 flex flex-col shadow-[-12px_0_40px_-16px_rgba(11,31,58,0.28)]">
             <div className="p-4 border-b flex items-center justify-between bg-slate-50">
               <h2 className="font-semibold flex items-center gap-2 text-slate-800">
-                <Bell className="w-6 h-6 text-slate-500" />
+                <Bell className="w-5 h-5 text-slate-500" />
                 Notifications
               </h2>
-              <button onClick={() => setNotificationsPanelOpen(false)} className="p-1 text-slate-400 hover:text-slate-600 rounded">
-                <X className="w-5 h-5" />
+              <button
+                type="button"
+                onClick={() => setNotificationsPanelOpen(false)}
+                className="w-9 h-9 rounded-xl border border-slate-200 bg-white text-slate-500 hover:text-slate-700 flex items-center justify-center"
+              >
+                <X className="w-4 h-4" />
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50/50">
@@ -297,7 +160,7 @@ export default function Layout() {
                   <div
                     key={notif.id}
                     className={cn(
-                      'p-3 rounded-lg border text-sm',
+                      'p-3 rounded-xl border text-sm',
                       notif.read ? 'bg-white border-slate-200' : 'bg-indigo-50/50 border-indigo-200'
                     )}
                   >

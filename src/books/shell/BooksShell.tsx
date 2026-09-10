@@ -13,19 +13,33 @@ export default function BooksShell({ children }: { children: React.ReactNode }) 
 
   return (
     <div className="books-root h-full min-h-0 flex flex-col text-[#0B1F3A] bg-[#F5F7FA]">
-      <header className="shrink-0 z-20 border-b border-[#E5E7EB] bg-white px-4 h-11 flex items-center gap-3">
-        <FeatureIcon href={module.href} className="w-6 h-6 shrink-0" />
-        <h1 className="font-display text-[15px] font-semibold tracking-tight truncate">{module.name}</h1>
-        <span className="hidden sm:inline text-[11px] text-slate-400 truncate">{tenant?.name}</span>
-        <div className="ml-auto flex items-center gap-1 overflow-x-auto">
+      <header className="shrink-0 z-20 border-b border-[#E5E7EB] bg-white/95 backdrop-blur-sm px-4 min-h-14 py-2 flex items-center gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <span className="w-10 h-10 rounded-xl bg-[#0B1F3A] text-white flex items-center justify-center shadow-[0_8px_16px_-10px_rgba(11,31,58,0.7)] shrink-0">
+            <FeatureIcon href={module.href} className="w-5 h-5" />
+          </span>
+          <div className="min-w-0">
+            <h1 className="font-display text-[16px] font-semibold tracking-tight truncate">{module.name}</h1>
+            <p className="text-[11px] text-slate-500 truncate">{tenant?.name || 'Books'} · {current.name}</p>
+          </div>
+        </div>
+        <div className="ml-auto flex items-center gap-2 overflow-x-auto py-0.5">
           {siblings.slice(0, 6).map((rel) => (
-            <Link key={rel.href} to={rel.href} title={rel.name} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-[#0B1F3A]">
-              <FeatureIcon href={rel.href} className="w-6 h-6" />
+            <Link
+              key={rel.href}
+              to={rel.href}
+              title={rel.name}
+              className="group inline-flex items-center gap-2 h-10 pl-1.5 pr-2.5 rounded-xl border border-slate-200 bg-white text-slate-600 shadow-[0_1px_2px_rgba(11,31,58,0.06)] hover:border-slate-300 hover:bg-slate-50 hover:text-[#0B1F3A] shrink-0"
+            >
+              <span className="w-7 h-7 rounded-lg bg-[#F4F7FB] text-[#0B1F3A] border border-slate-200/80 flex items-center justify-center group-hover:bg-white">
+                <FeatureIcon href={rel.href} className="w-4 h-4" />
+              </span>
+              <span className="hidden lg:inline text-[12px] font-semibold max-w-[9rem] truncate">{rel.name}</span>
             </Link>
           ))}
         </div>
       </header>
-      <div className="flex-1 min-h-0 overflow-y-auto px-4 md:px-6 py-3">
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 md:px-6 py-4">
         <BooksPageMode embedded>{children}</BooksPageMode>
       </div>
     </div>

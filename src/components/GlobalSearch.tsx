@@ -98,8 +98,13 @@ export function SearchTrigger({
   }
   if (variant === 'icon') {
     return (
-      <button type="button" onClick={open} className="p-2 rounded-lg text-slate-600 hover:bg-slate-100" title="Search (⌘K)">
-        <Search className="w-6 h-6" />
+      <button
+        type="button"
+        onClick={open}
+        className="w-10 h-10 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 flex items-center justify-center shadow-[0_1px_2px_rgba(11,31,58,0.06)]"
+        title="Search (⌘K)"
+      >
+        <Search className="w-5 h-5" />
       </button>
     );
   }

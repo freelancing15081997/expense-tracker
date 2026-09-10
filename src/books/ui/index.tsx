@@ -29,8 +29,10 @@ export function PageShell({
       {!embedded && (
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h1 className="font-display text-[28px] font-semibold tracking-tight text-[#0B1F3A] flex items-center gap-2.5">
-              <FeatureIcon href={location.pathname} className="w-6 h-6 shrink-0" />
+            <h1 className="font-display text-[28px] font-semibold tracking-tight text-[#0B1F3A] flex items-center gap-3">
+              <span className="w-11 h-11 rounded-xl bg-[#0B1F3A] text-white flex items-center justify-center shadow-[0_8px_16px_-10px_rgba(11,31,58,0.7)]">
+                <FeatureIcon href={location.pathname} className="w-5 h-5" />
+              </span>
               {title}
             </h1>
             {subtitle && <p className="text-sm text-slate-500 mt-1 leading-relaxed">{subtitle}</p>}
@@ -125,12 +127,22 @@ export function FileField({
 
   return (
     <Field label={label}>
-      <div className="flex items-center gap-2 flex-wrap">
+      <label className="relative flex flex-col sm:flex-row sm:items-center gap-3 min-h-[104px] rounded-2xl border border-dashed border-slate-300 bg-[#F8FAFC] hover:border-[#12B8A8] hover:bg-white px-4 py-3 cursor-pointer transition-colors">
+        <span className="w-11 h-11 rounded-xl bg-white border border-slate-200 text-[#0B1F3A] flex items-center justify-center shadow-[0_1px_2px_rgba(11,31,58,0.06)] shrink-0">
+          <ActionIcon name="file" className="w-5 h-5" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-semibold text-[#0B1F3A]">Choose a file or drop it here</span>
+          <span className="block text-xs text-slate-500 mt-0.5">{hint || 'PDF, PNG, JPG, WEBP, CSV, TXT, or XLSX · 8 MB max'}</span>
+        </span>
+        <span className="inline-flex items-center justify-center h-9 px-3 rounded-xl bg-[#0B1F3A] text-white text-xs font-semibold shrink-0">
+          Browse
+        </span>
         <input
           type="file"
           accept={accept}
           multiple={multiple}
-          className="block min-w-0 flex-1 text-sm file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-[#0B1F3A] file:text-white file:text-xs"
+          className="absolute inset-0 opacity-0 cursor-pointer"
           onChange={(e) => {
             const next: File[] = e.target.files ? Array.from(e.target.files) : [];
             if (files === undefined) setInternal(next);
@@ -138,21 +150,27 @@ export function FileField({
             e.target.value = '';
           }}
         />
-        {previews.map((item, index) => (
-          <span
-            key={`${item.file.name}-${index}`}
-            className="w-12 h-12 rounded-lg border border-slate-200 bg-white overflow-hidden shrink-0 flex items-center justify-center shadow-[0_1px_2px_rgba(11,31,58,0.08)]"
-            title={item.file.name}
-          >
-            {item.url ? (
-              <img src={item.url} alt="" className="w-full h-full object-cover" />
-            ) : (
-              <ActionIcon name={fileGlyph(item.file)} className="w-6 h-6" />
-            )}
-          </span>
-        ))}
-      </div>
-      {hint && <p className="text-xs text-[#6B7280] mt-1">{hint}</p>}
+      </label>
+      {shown.length > 0 && (
+        <div className="mt-2 flex items-center gap-2 flex-wrap">
+          {previews.map((item, index) => (
+            <span
+              key={`${item.file.name}-${index}`}
+              className="inline-flex items-center gap-2 pl-1 pr-2.5 h-10 rounded-xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(11,31,58,0.06)]"
+              title={item.file.name}
+            >
+              <span className="w-8 h-8 rounded-lg overflow-hidden bg-slate-50 flex items-center justify-center">
+                {item.url ? (
+                  <img src={item.url} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <ActionIcon name={fileGlyph(item.file)} className="w-4 h-4" />
+                )}
+              </span>
+              <span className="text-xs font-medium text-slate-700 max-w-[12rem] truncate">{item.file.name}</span>
+            </span>
+          ))}
+        </div>
+      )}
     </Field>
   );
 }
