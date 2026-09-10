@@ -4,7 +4,6 @@ import { ArrowRightLeft, BookOpen, ChevronRight, LayoutDashboard, LogOut, Settin
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import BrandLogo from './BrandLogo';
-import WorkspaceSwitcher from './WorkspaceSwitcher';
 import { BOOKS_NAV, BOOKS_QUICK_CREATE } from '../books/nav';
 import { FeatureIcon, GroupIcon } from '../books/ui/icons';
 import type { BooksTenantMeta } from '../lib/tenant';
@@ -216,7 +215,6 @@ export default function AppSidebar({ expanded, tenant, userProfile, onLogout }: 
       </nav>
 
       <div className="p-2 border-t border-slate-200/80">
-        {showText ? <WorkspaceSwitcher expanded /> : <WorkspaceSwitcher expanded={false} />}
         <div ref={userWrapRef} className="relative">
           <button
             type="button"

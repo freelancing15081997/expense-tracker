@@ -1,4 +1,5 @@
 import { formatMoney, lineAmount } from '../core/money';
+import { formatDisplayDate, getRuntimePrefs } from '../../lib/app-prefs';
 import type { FinanceDocument, FinanceParty, FinanceTenant } from '../core/types';
 
 function nl(value?: string | null) {
@@ -10,10 +11,11 @@ function byjanMark() {
 }
 
 function companyBlock(tenant: FinanceTenant) {
+  const prefs = getRuntimePrefs();
   return [
     nl(tenant.address),
     escapeHtml([tenant.city, tenant.state, tenant.pincode].filter(Boolean).join(', ')),
-    tenant.gstin ? escapeHtml(`GSTIN ${tenant.gstin}`) : '',
+    prefs.printShowGstin && tenant.gstin ? escapeHtml(`GSTIN ${tenant.gstin}`) : '',
     escapeHtml([tenant.phone, tenant.email].filter(Boolean).join(' · ')),
   ].filter(Boolean).join('<br/>');
 }
@@ -62,7 +64,7 @@ export function printFinanceDocument(input: {
     <div class="top">
       <div>
         ${byjanMark()}
-        ${companyLogo ? `<img class="logo" src="${companyLogo}" alt="Company" />` : ''}
+        ${getRuntimePrefs().printShowLogo && companyLogo ? `<img class="logo" src="${companyLogo}" alt="Company" />` : ''}
         <h1>${escapeHtml(tenant.name)}</h1>
         <p class="muted">Byjan · Trace Financials Easily</p>
         <p class="muted">${companyBlock(tenant)}</p>
@@ -71,7 +73,7 @@ export function printFinanceDocument(input: {
         ${partyLogo ? `<img class="logo" src="${partyLogo}" alt="Party" />` : ''}
         <p><strong>${escapeHtml(document.kind.replace('_', ' '))}</strong></p>
         <p>${escapeHtml(document.number)}</p>
-        <p class="muted">Date ${escapeHtml(document.date)}${document.dueDate ? ` · Due ${escapeHtml(document.dueDate)}` : ''}</p>
+        <p class="muted">Date ${escapeHtml(formatDisplayDate(document.date))}${document.dueDate ? ` · Due ${escapeHtml(formatDisplayDate(document.dueDate))}` : ''}</p>
         ${document.poNumber ? `<p class="muted">Ref ${escapeHtml(document.poNumber)}</p>` : ''}
         ${document.placeOfSupply ? `<p class="muted">Place of supply ${escapeHtml(document.placeOfSupply)}</p>` : ''}
       </div>
@@ -139,7 +141,7 @@ export function printCustomerStatement(input: {
     <div class="top">
       <div>
         ${byjanMark()}
-        ${companyLogo ? `<img class="logo" src="${companyLogo}" alt="Company" />` : ''}
+        ${getRuntimePrefs().printShowLogo && companyLogo ? `<img class="logo" src="${companyLogo}" alt="Company" />` : ''}
         <h1>${escapeHtml(tenant.name)}</h1>
         <p class="muted">Byjan · Trace Financials Easily</p>
         <p class="muted">${companyBlock(tenant)}</p>

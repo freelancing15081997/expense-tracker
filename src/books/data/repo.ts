@@ -82,8 +82,12 @@ function persistLines(lines: JournalLineInput[]) {
   }));
 }
 
-function mapDocs<T>(snap: QuerySnapshot): T[] {
-  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Record<string, unknown>) } as T));
+function mapDocs<T>(snap?: QuerySnapshot | null): T[] {
+  return (snap?.docs || []).map((d) => ({ id: d.id, ...(d.data() as Record<string, unknown>) } as T));
+}
+
+function byText(a?: string | number | null, b?: string | number | null) {
+  return String(a ?? '').localeCompare(String(b ?? ''), undefined, { numeric: true });
 }
 
 function provisionCacheKey(uid: string) {
@@ -225,26 +229,26 @@ export async function loadWorkspace(db: Firestore, tenantId: string) {
   return {
     tenant,
     entities: mapDocs<FinanceEntity>(entities),
-    accounts: mapDocs<FinanceAccount>(accounts).sort((a, b) => a.code.localeCompare(b.code)),
+    accounts: mapDocs<FinanceAccount>(accounts).sort((a, b) => byText(a.code, b.code)),
     parties: mapDocs<FinanceParty>(parties),
-    journals: mapDocs<FinanceJournal>(journals).sort((a, b) => b.date.localeCompare(a.date) || b.number.localeCompare(a.number)),
-    documents: mapDocs<FinanceDocument>(documents).sort((a, b) => b.date.localeCompare(a.date) || b.number.localeCompare(a.number)),
+    journals: mapDocs<FinanceJournal>(journals).sort((a, b) => byText(b.date, a.date) || byText(b.number, a.number)),
+    documents: mapDocs<FinanceDocument>(documents).sort((a, b) => byText(b.date, a.date) || byText(b.number, a.number)),
     periods: mapDocs<FinancePeriod>(periods),
     taxCodes: mapDocs<TaxCode>(taxCodes),
     recurring: mapDocs<RecurringTemplate>(recurring),
-    audit: mapDocs<AuditEvent>(audit).sort((a, b) => b.at.localeCompare(a.at)),
+    audit: mapDocs<AuditEvent>(audit).sort((a, b) => byText(b.at, a.at)),
     products: mapDocs<Product>(products),
     assets: mapDocs<FixedAsset>(assets),
     projects: mapDocs<Project>(projects),
     budgets: mapDocs<BudgetLine>(budgets),
     contracts: mapDocs<RevenueContract>(contracts),
     leases: mapDocs<LeaseContract>(leases),
-    bankTxns: mapDocs<BankTxn>(bankTxns).sort((a, b) => b.date.localeCompare(a.date)),
-    inbox: mapDocs<InboxItem>(inbox).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-    workpapers: mapDocs<Workpaper>(workpapers).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-    approvals: mapDocs<Approval>(approvals).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-    files: mapDocs<BooksFile>(files).filter((f) => f.status !== 'archived').sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-    templates: mapDocs<BooksTemplate>(templates).filter((t) => t.status !== 'archived').sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    bankTxns: mapDocs<BankTxn>(bankTxns).sort((a, b) => byText(b.date, a.date)),
+    inbox: mapDocs<InboxItem>(inbox).sort((a, b) => byText(b.createdAt, a.createdAt)),
+    workpapers: mapDocs<Workpaper>(workpapers).sort((a, b) => byText(b.createdAt, a.createdAt)),
+    approvals: mapDocs<Approval>(approvals).sort((a, b) => byText(b.createdAt, a.createdAt)),
+    files: mapDocs<BooksFile>(files).filter((f) => f.status !== 'archived').sort((a, b) => byText(b.createdAt, a.createdAt)),
+    templates: mapDocs<BooksTemplate>(templates).filter((t) => t.status !== 'archived').sort((a, b) => byText(b.createdAt, a.createdAt)),
     bankRules: mapDocs<BankRule>(bankRules),
   };
 }

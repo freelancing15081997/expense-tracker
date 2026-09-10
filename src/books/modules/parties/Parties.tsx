@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useBooks } from '../../context/BooksProvider';
+import { useAppPrefs } from '../../../context/AppPrefsContext';
 import { booksFileUrl } from '../../storage/adapter';
 import { formatMinorPlain, parseMoney } from '../../core/money';
 import { btnGhost, btnPrimary, Card, Empty, Field, FileField, IconBtn, inputClass, Money, PageShell, RecordFlyout, Status } from '../../ui';
@@ -73,6 +74,7 @@ function fromParty(p: FinanceParty): Form {
 
 export default function Parties({ kind }: { kind: PartyKind }) {
   const books = useBooks();
+  const { prefs } = useAppPrefs();
   const { parties, documents, currency, can, createParty, uploadFile, deactivateParty } = books;
   const [search, setSearch] = useState('');
   const allRows = parties.filter((p) => p.kind === kind && p.active !== false);
@@ -81,7 +83,7 @@ export default function Parties({ kind }: { kind: PartyKind }) {
     if (!q) return allRows;
     return allRows.filter((p) => [p.name, p.email, p.taxId, p.pan, p.city].some((v) => (v || '').toLowerCase().includes(q)));
   }, [allRows, search]);
-  const paging = usePaging(rows, 10);
+  const paging = usePaging(rows, prefs.listPageSize);
   const title = kind === 'customer' ? 'Customers' : 'Vendors';
   const [form, setForm] = useState<Form>(emptyForm());
   const [editing, setEditing] = useState<FinanceParty | null>(null);

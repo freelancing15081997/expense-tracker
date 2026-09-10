@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { formatMoney } from '../core/money';
+import { formatDisplayDate } from '../../lib/app-prefs';
 import { ActionIcon, FeatureIcon, fileGlyph, type BooksGlyphName } from './icons';
 
 const ShellCtx = createContext(false);
@@ -59,6 +60,10 @@ export const Card: React.FC<{ children?: React.ReactNode; className?: string; li
 
 export function Money({ minor, currency }: { minor: number; currency: string }) {
   return <span className="tabular-nums font-medium tracking-tight">{formatMoney(minor, currency)}</span>;
+}
+
+export function DateText({ value }: { value?: string | null }) {
+  return <span>{formatDisplayDate(value)}</span>;
 }
 
 export function Status({ value }: { value: string }) {

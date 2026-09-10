@@ -23,8 +23,12 @@ function nowISO() {
   return new Date().toISOString();
 }
 
-function mapDocs<T>(snap: QuerySnapshot): T[] {
-  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Record<string, unknown>) } as T));
+function mapDocs<T>(snap?: QuerySnapshot | null): T[] {
+  return (snap?.docs || []).map((d) => ({ id: d.id, ...(d.data() as Record<string, unknown>) } as T));
+}
+
+function byText(a?: string | number | null, b?: string | number | null) {
+  return String(a ?? '').localeCompare(String(b ?? ''), undefined, { numeric: true });
 }
 
 export async function loadDomainCollections(db: Firestore, tenantId: string) {
@@ -49,10 +53,10 @@ export async function loadDomainCollections(db: Firestore, tenantId: string) {
     budgets: mapDocs<BudgetLine>(budgets),
     contracts: mapDocs<RevenueContract>(contracts),
     leases: mapDocs<LeaseContract>(leases),
-    bankTxns: mapDocs<BankTxn>(bankTxns).sort((a, b) => b.date.localeCompare(a.date)),
-    inbox: mapDocs<InboxItem>(inbox).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-    workpapers: mapDocs<Workpaper>(workpapers).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-    approvals: mapDocs<Approval>(approvals).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    bankTxns: mapDocs<BankTxn>(bankTxns).sort((a, b) => byText(b.date, a.date)),
+    inbox: mapDocs<InboxItem>(inbox).sort((a, b) => byText(b.createdAt, a.createdAt)),
+    workpapers: mapDocs<Workpaper>(workpapers).sort((a, b) => byText(b.createdAt, a.createdAt)),
+    approvals: mapDocs<Approval>(approvals).sort((a, b) => byText(b.createdAt, a.createdAt)),
   };
 }
 

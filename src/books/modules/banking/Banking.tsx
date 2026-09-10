@@ -120,7 +120,7 @@ export default function Banking() {
   const account = cashOrAsset.find((a) => a.id === accountId) || cashOrAsset[0];
   const bookBalance = account ? signedBalance(account) : 0;
   const accountTxns = useMemo(
-    () => bankTxns.filter((t) => !account || t.accountId === account.id).sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id)),
+    () => bankTxns.filter((t) => !account || t.accountId === account.id).sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || String(b.id || '').localeCompare(String(a.id || ''))),
     [account, bankTxns],
   );
   const visibleTxns = filter === 'open' ? accountTxns.filter((t) => !t.reconciled) : accountTxns;

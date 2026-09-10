@@ -4,6 +4,7 @@ import { useBooks } from '../context/BooksProvider';
 import { BOOKS_FLAT_LINKS, BOOKS_QUICK_CREATE } from '../nav';
 import { FeatureIcon } from './icons';
 import { documentHref } from '../../lib/search-index';
+import { getRuntimePrefs } from '../../lib/app-prefs';
 
 export default function CommandPalette() {
   const navigate = useNavigate();
@@ -14,6 +15,7 @@ export default function CommandPalette() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'k') {
+        if (!getRuntimePrefs().keyboardShortcuts) return;
         e.preventDefault();
         setOpen((v) => !v);
       }

@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { BOOKS_FLAT_LINKS, BOOKS_QUICK_CREATE } from '../books/nav';
 import { isSoftDeleted } from '../lib/records';
 import { getBooksSearchHits, subscribeBooksSearch, type SearchHit } from '../lib/search-index';
+import { getRuntimePrefs } from '../lib/app-prefs';
 
 export function openGlobalSearch() {
   window.dispatchEvent(new Event('byjan-open-search'));
@@ -148,6 +149,7 @@ export default function GlobalSearch() {
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        if (!getRuntimePrefs().keyboardShortcuts) return;
         event.preventDefault();
         open();
       }

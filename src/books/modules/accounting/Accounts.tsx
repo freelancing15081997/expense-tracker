@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useBooks } from '../../context/BooksProvider';
+import { useAppPrefs } from '../../../context/AppPrefsContext';
 import { signedBalance } from '../../engine/chartOfAccounts';
 import { btnGhost, btnPrimary, Card, Field, IconBtn, inputClass, Money, PageShell } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
@@ -10,6 +11,7 @@ const TYPES: AccountType[] = ['asset', 'liability', 'equity', 'revenue', 'cogs',
 
 export default function Accounts() {
   const { accounts, currency, can, createAccount } = useBooks();
+  const { prefs } = useAppPrefs();
   const [open, setOpen] = useState(false);
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
@@ -64,7 +66,7 @@ export default function Accounts() {
           </form>
         </Card>
       )}
-      <PagedTable<FinanceAccount> rows={accounts} empty="No accounts yet.">
+      <PagedTable<FinanceAccount> rows={prefs.showZeroBalances ? accounts : accounts.filter((a) => signedBalance(a) !== 0 || !a.allowPosting)} empty="No accounts yet.">
         {(slice) => (
             <table className="w-full text-sm">
               <thead className="text-left text-slate-500 border-b border-slate-200">
@@ -78,7 +80,7 @@ export default function Accounts() {
               <tbody>
                 {slice.map((account) => (
                   <tr key={account.id} className="border-b border-slate-100 last:border-0">
-                    <td className="px-4 py-2.5 tabular-nums text-slate-500">{account.code}</td>
+                    <td className="px-4 py-2.5 tabular-nums text-slate-500">{prefs.showAccountCodes ? account.code : ''}</td>
                     <td className="px-4 py-2.5">
                       {account.allowPosting ? (
                         <Link to={`/books/ledger/${account.id}`} className="text-slate-900 hover:underline">{account.name}</Link>

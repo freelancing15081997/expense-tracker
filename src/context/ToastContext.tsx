@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { CheckCircle2, AlertCircle, X, Info } from 'lucide-react';
+import { getRuntimePrefs } from '../lib/app-prefs';
 
 type ToastType = 'success' | 'error' | 'info';
 
@@ -22,6 +23,7 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const addToast = useCallback((message: string | { title?: string; description?: string }, type: ToastType = 'info') => {
+    if (type !== 'error' && !getRuntimePrefs().showToasts) return;
     const text = typeof message === 'string'
       ? message
       : [message?.title, message?.description].filter(Boolean).join(' — ') || 'Done';

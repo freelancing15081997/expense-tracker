@@ -29,7 +29,8 @@ export default function Login() {
     try {
       setError('');
       setLoading(true);
-      await signInWithGoogle();
+      const result = await signInWithGoogle();
+      if (result) navigate('/');
     } catch (err: any) {
       setError(err.message || 'Failed to sign in with Google');
       setLoading(false);

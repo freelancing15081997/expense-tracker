@@ -3,6 +3,7 @@ import {
   getAuth,
   GoogleAuthProvider,
   getRedirectResult,
+  signInWithPopup,
   signInWithRedirect,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -32,7 +33,17 @@ googleProvider.setCustomParameters({ prompt: 'select_account' });
 export const googleRedirectReady = getRedirectResult(auth).catch(() => null);
 
 export async function signInWithGoogle() {
-  await signInWithRedirect(auth, googleProvider);
+  try {
+    sessionStorage.setItem('byjan.returnTo', '/');
+  } catch { /* private mode */ }
+  try {
+    return await signInWithPopup(auth, googleProvider);
+  } catch (err: any) {
+    const code = String(err?.code || '');
+    if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') throw err;
+    await signInWithRedirect(auth, googleProvider);
+    return null;
+  }
 }
 
 export async function logout() {

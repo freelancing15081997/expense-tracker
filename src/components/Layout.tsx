@@ -9,6 +9,7 @@ import { collection, query, where, getDocs, updateDoc, doc } from '../lib/store'
 import BrandLogo from './BrandLogo';
 import GlobalSearch, { SearchTrigger } from './GlobalSearch';
 import AppSidebar from './AppSidebar';
+import WorkspaceSwitcher from './WorkspaceSwitcher';
 import { useBooksTenantMeta } from '../lib/tenant';
 
 function cn(...inputs: ClassValue[]) {
@@ -68,6 +69,7 @@ export default function Layout() {
           <span className="font-bold text-slate-900">Byjan</span>
         </Link>
         <div className="flex items-center gap-1">
+          <WorkspaceSwitcher variant="header" />
           <SearchTrigger />
           <button
             type="button"
@@ -111,6 +113,7 @@ export default function Layout() {
 
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
         <div className="hidden md:flex relative z-30 shrink-0 items-center gap-3 px-5 h-14 bg-white border-b border-slate-200">
+          <WorkspaceSwitcher variant="header" />
           <div className="flex-1 flex justify-center min-w-0">
             <div className="w-full max-w-2xl" data-open-search>
               <SearchTrigger variant="bar" />

@@ -1,3 +1,5 @@
+import { moneyLocale } from '../../lib/app-prefs';
+
 /** Integer minor units (paise/cents). Never use floats for money. */
 
 export function parseMoney(input: string): number {
@@ -47,7 +49,7 @@ export function lineAmount(qtyMilli: number, unitPriceMinor: number): number {
 
 export function formatMoney(minor: number, currency = 'INR'): string {
   try {
-    return new Intl.NumberFormat('en-IN', { style: 'currency', currency, minimumFractionDigits: 2 }).format(minor / 100);
+    return new Intl.NumberFormat(moneyLocale(), { style: 'currency', currency, minimumFractionDigits: 2 }).format(minor / 100);
   } catch {
     return `${currency} ${formatMinorPlain(minor)}`;
   }

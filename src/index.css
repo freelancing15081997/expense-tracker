@@ -571,3 +571,18 @@ svg.byjan-glyph {
   0%, 100% { transform: translate3d(0, 0, 0); }
   50% { transform: translate3d(18px, -22px, 0); }
 }
+
+html[data-density="compact"] .byjan-card table th,
+html[data-density="compact"] .byjan-card table td {
+  padding-top: 0.4rem;
+  padding-bottom: 0.4rem;
+}
+html[data-density="compact"] .byjan-input,
+html[data-density="compact"] .byjan-btn,
+html[data-density="compact"] .byjan-btn-ghost {
+  height: 2rem;
+  min-height: 2rem;
+}
+html[data-density="compact"] h1 {
+  letter-spacing: -0.02em;
+}

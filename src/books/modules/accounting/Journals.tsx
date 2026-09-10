@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useBooks } from '../../context/BooksProvider';
-import { parseMoney, todayISO } from '../../core/money';
+import { formatMoney, parseMoney, todayISO } from '../../core/money';
+import { useAppPrefs } from '../../../context/AppPrefsContext';
 import { btnGhost, Card, Empty, Field, IconBtn, inputClass, Money, PageShell, RecordFlyout, Status } from '../../ui';
 import { Pager, usePaging } from '../../ui/PagedList';
 import type { JournalLineInput } from '../../core/types';
@@ -10,6 +11,7 @@ const emptyLine = (): { accountId: string; debit: string; credit: string; memo: 
 
 export default function Journals() {
   const { journals, postingAccounts, currency, can, postJournal, reverse, accounts } = useBooks();
+  const { prefs } = useAppPrefs();
   const [searchParams] = useSearchParams();
   const [selectedId, setSelectedId] = useState<string | null>(searchParams.get('open'));
   const [open, setOpen] = useState(false);
@@ -19,7 +21,7 @@ export default function Journals() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const accountName = (id: string) => accounts.find((a) => a.id === id)?.name || id;
-  const paging = usePaging(journals, 10);
+  const paging = usePaging(journals, prefs.listPageSize);
 
   const preview = useMemo(() => {
     try {
@@ -50,6 +52,7 @@ export default function Journals() {
       setDescription('');
       setLines([emptyLine(), emptyLine()]);
     } catch (err: any) {
+      if (err?.name === 'CancelledError') return;
       setError(err.message || 'Could not post journal');
     } finally {
       setBusy(false);
@@ -160,5 +163,5 @@ export default function Journals() {
 }
 
 function format(minor: number, currency: string) {
-  return new Intl.NumberFormat('en-IN', { style: 'currency', currency, minimumFractionDigits: 2 }).format(minor / 100);
+  return formatMoney(minor, currency);
 }

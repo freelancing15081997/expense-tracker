@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useBooks } from '../../context/BooksProvider';
 import { addDays, formatMoney, lineAmount, parseMoney, parseQty, todayISO } from '../../core/money';
+import { useAppPrefs } from '../../../context/AppPrefsContext';
 import { computeDocument } from '../../engine/tax';
 import { Plus, Trash2 } from 'lucide-react';
 import { btnGhost, btnPrimary, Card, Empty, Field, FileField, IconBtn, inputClass, Money, PageShell, RecordFlyout, AttachmentList, Status } from '../../ui';
@@ -39,6 +40,7 @@ function linePreviewMinor(line: LineForm): number | null {
 
 export default function Documents({ kind }: { kind: DocumentKind }) {
   const books = useBooks();
+  const { prefs } = useAppPrefs();
   const { documents, parties, postingAccounts, taxCodes, currency, can, projects, files, uploadFile } = books;
   const allRows = documents.filter((d) => d.kind === kind && d.status !== 'voided');
   const salesKinds = ['invoice', 'quote', 'estimate', 'sales_order', 'credit_note', 'debit_note'];
@@ -72,7 +74,7 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
   const [open, setOpen] = useState(false);
   const [partyId, setPartyId] = useState('');
   const [date, setDate] = useState(todayISO());
-  const [dueDate, setDueDate] = useState(addDays(todayISO(), 30));
+  const [dueDate, setDueDate] = useState(addDays(todayISO(), prefs.defaultPaymentTermsDays));
   const [searchParams] = useSearchParams();
   const [memo, setMemo] = useState('');
   useEffect(() => {
@@ -84,8 +86,10 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
     const openId = searchParams.get('open');
     if (openId) setSelectedId(openId);
   }, [searchParams]);
-  const [interstate, setInterstate] = useState(false);
-  const [payFrom, setPayFrom] = useState(cashAccounts[0]?.id || '');
+  const [interstate, setInterstate] = useState(prefs.interstateDefault);
+  const [payFrom, setPayFrom] = useState(
+    cashAccounts.find((a) => a.systemKey === prefs.defaultCashAccount)?.id || cashAccounts[0]?.id || '',
+  );
   const [lines, setLines] = useState<LineForm[]>([emptyLine(defaultAccount, taxCodes[0]?.id || 'GST18')]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -116,7 +120,7 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
       return [d.number, d.memo, d.poNumber, party?.name].some((v) => (v || '').toLowerCase().includes(q));
     });
   }, [allRows, parties, search, statusFilter]);
-  const paging = usePaging(rows, 10);
+  const paging = usePaging(rows, prefs.listPageSize);
 
   const preview = useMemo(() => {
     try {
@@ -204,6 +208,7 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
           .finally(() => setSavingHint(''));
       }
     } catch (err: any) {
+      if (err?.name === 'CancelledError') return;
       setError(err.message || 'Could not save');
       setBusy(false);
     }

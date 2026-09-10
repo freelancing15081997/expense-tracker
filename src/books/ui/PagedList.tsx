@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { getRuntimePrefs } from '../../lib/app-prefs';
 
 const btnGhost = 'byjan-btn-ghost disabled:opacity-50';
 
@@ -45,7 +46,7 @@ type PagedTableProps<T> = {
 };
 
 export function PagedTable<T>(props: PagedTableProps<T>) {
-  const { rows, empty, pageSize = 10, minWidth = 'min-w-[720px]', children } = props;
+  const { rows, empty, pageSize = getRuntimePrefs().listPageSize, minWidth = 'min-w-[720px]', children } = props;
   const paging = usePaging(rows, pageSize);
   if (rows.length === 0) return <Card><Empty text={empty} /></Card>;
   return (

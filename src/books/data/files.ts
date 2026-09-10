@@ -10,8 +10,8 @@ function nowISO() {
   return new Date().toISOString();
 }
 
-function mapDocs<T>(snap: QuerySnapshot): T[] {
-  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Record<string, unknown>) } as T));
+function mapDocs<T>(snap?: QuerySnapshot | null): T[] {
+  return (snap?.docs || []).map((d) => ({ id: d.id, ...(d.data() as Record<string, unknown>) } as T));
 }
 
 export async function loadFilesAndTemplates(db: Firestore, tenantId: string) {
@@ -20,8 +20,8 @@ export async function loadFilesAndTemplates(db: Firestore, tenantId: string) {
     getDocs(col(db, tenantId, 'templates')),
   ]);
   return {
-    files: mapDocs<BooksFile>(files).filter((f) => f.status !== 'archived').sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-    templates: mapDocs<BooksTemplate>(templates).filter((t) => t.status !== 'archived').sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    files: mapDocs<BooksFile>(files).filter((f) => f.status !== 'archived').sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))),
+    templates: mapDocs<BooksTemplate>(templates).filter((t) => t.status !== 'archived').sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))),
   };
 }
 

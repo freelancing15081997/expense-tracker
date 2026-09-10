@@ -84,6 +84,7 @@ import {
 import { archiveTemplate as removeTemplate, archiveWorkspaceFile, loadFilesAndTemplates, saveTemplate, uploadWorkspaceFile } from '../data/files';
 import { documentHref, setBooksSearchHits } from '../../lib/search-index';
 import { useToast } from '../../context/ToastContext';
+import { useAppPrefs } from '../../context/AppPrefsContext';
 
 type BooksContextValue = {
   loading: boolean;
@@ -245,6 +246,7 @@ function isWorkspaceMember(tenant: FinanceTenant, uid: string, tenantId: string)
 export default function BooksProvider({ children }: { children: React.ReactNode }) {
   const { currentUser, userProfile } = useAuth();
   const { addToast } = useToast();
+  const { prefs, confirmAction } = useAppPrefs();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tenantId, setTenantId] = useState<string | null>(null);
@@ -412,14 +414,25 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
   }, [currentUser, tenantId, role]);
 
   const value = useMemo<BooksContextValue>(() => {
-    const after = async <T,>(work: () => Promise<T>, ok?: string) => {
+    const after = async <T,>(work: () => Promise<T>, ok?: string, gate?: 'post' | 'delete') => {
+      if (gate) {
+        const allowed = await confirmAction(
+          gate === 'delete' ? (ok || 'Reverse or void this record?') : (ok ? `${ok}. Continue?` : 'Post this to the ledger?'),
+          gate,
+        );
+        if (!allowed) {
+          const err: Error & { name: string } = new Error('Cancelled');
+          err.name = 'CancelledError';
+          throw err;
+        }
+      }
       try {
         const result = await work();
         if (ok) addToast(ok, 'success');
-        scheduleRefresh();
+        if (prefs.autoRefreshBooks) scheduleRefresh();
         return result;
       } catch (err: any) {
-        addToast(err?.message || 'Could not save', 'error');
+        if (err?.name !== 'CancelledError') addToast(err?.message || 'Could not save', 'error');
         throw err;
       }
     };
@@ -474,24 +487,24 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
             }
           }
         }
-        return after(() => postDocument(ctx(), id, accounts, payFromAccountId), 'Posted to the ledger');
+        return after(() => postDocument(ctx(), id, accounts, payFromAccountId), 'Posted to the ledger', 'post');
       },
-      payDoc: (id, amountMinor, date, cashAccountId) => after(() => recordPayment(ctx(), id, amountMinor, date, cashAccountId, accounts), 'Payment posted'),
-      voidDoc: (id) => after(() => voidDocument(ctx(), id), 'Voided'),
+      payDoc: (id, amountMinor, date, cashAccountId) => after(() => recordPayment(ctx(), id, amountMinor, date, cashAccountId, accounts), 'Payment posted', 'post'),
+      voidDoc: (id) => after(() => voidDocument(ctx(), id), 'Voided', 'delete'),
       convertDoc: (id, nextKind) => after(() => convertDocument(ctx(), id, nextKind), 'Converted'),
-      postJournal: (input) => after(() => postManualJournal(ctx(), { ...input, idempotencyKey: `manual_${crypto.randomUUID()}` }), 'Journal posted'),
-      reverse: (journalId) => after(() => reverseJournal(ctx(), journalId), 'Journal reversed'),
-      close: (periodId) => after(() => closePeriod(ctx(), periodId), 'Period closed'),
+      postJournal: (input) => after(() => postManualJournal(ctx(), { ...input, idempotencyKey: `manual_${crypto.randomUUID()}` }), 'Journal posted', 'post'),
+      reverse: (journalId) => after(() => reverseJournal(ctx(), journalId), 'Journal reversed', 'delete'),
+      close: (periodId) => after(() => closePeriod(ctx(), periodId), 'Period closed', 'post'),
       reopen: (periodId) => after(() => reopenPeriod(ctx(), periodId), 'Period reopened'),
       rename: (name, logoPath, profile) => after(() => updateTenantName(db, tenantId!, role!, name, logoPath, profile), 'Settings saved'),
       ledger: (accountId) => loadLedger(db, tenantId!, accountId),
-      transfer: (input) => after(() => transferFunds(ctx(), input), 'Transfer posted'),
+      transfer: (input) => after(() => transferFunds(ctx(), input), 'Transfer posted', 'post'),
       createRecurring: (input) => after(() => saveRecurring(ctx(), input), 'Template saved'),
       runRecurringTemplate: (template, date) => after(() => (
         template.kind === 'invoice' || template.kind === 'bill'
           ? runRecurringDocument(ctx(), template, date, taxCodes, accounts)
           : runRecurring(ctx(), template, date)
-      ), template.autoPost || !template.kind || template.kind === 'journal' ? 'Posted' : 'Document created'),
+      ), template.autoPost || !template.kind || template.kind === 'journal' ? 'Posted' : 'Document created', 'post'),
       createProduct: (input) => after(() => saveProduct(ctx(), input), 'Saved'),
       stockIn: (product, qtyMilli, payAccountId) => after(() => receiveStock(ctx(), product, qtyMilli, payAccountId, accounts), 'Stock received'),
       stockOut: (product, qtyMilli) => after(() => issueStock(ctx(), product, qtyMilli, accounts), 'Stock issued'),
@@ -584,7 +597,7 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
       createTemplate: (input) => after(() => saveTemplate(ctx(), input), 'Template saved'),
       archiveTemplate: (id) => after(() => removeTemplate(ctx(), id), 'Template archived'),
     };
-  }, [accounts, addToast, approvals, assets, audit, bankRules, bankTxns, budgets, contracts, ctx, currentUser, documents, entities, error, files, inbox, journals, leases, loading, parties, periods, products, projects, recurring, refresh, refreshFiles, role, scheduleRefresh, taxCodes, templates, tenant, tenantId, workpapers]);
+  }, [accounts, addToast, approvals, assets, audit, bankRules, bankTxns, budgets, confirmAction, contracts, ctx, currentUser, documents, entities, error, files, inbox, journals, leases, loading, parties, periods, prefs.autoRefreshBooks, products, projects, recurring, refresh, refreshFiles, role, scheduleRefresh, taxCodes, templates, tenant, tenantId, workpapers]);
 
   return <BooksContext.Provider value={value}><div className="h-full min-h-0">{children}</div></BooksContext.Provider>;
 }

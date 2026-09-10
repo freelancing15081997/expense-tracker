@@ -52,7 +52,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setLoading(false);
           return;
         }
-        setLoading(true);
         const base: UserProfile = {
           uid: user.uid,
           email: user.email || '',
