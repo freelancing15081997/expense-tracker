@@ -86,7 +86,7 @@ export const ReceiptModal: React.FC<Props> = ({ imageUrl, expenseTitle, onClose,
         <div className="px-5 py-3 bg-white border-t border-slate-200 flex items-center justify-between text-xs text-slate-600">
           <div className={`flex items-center gap-1.5 font-medium ${verified ? 'text-emerald-600' : 'text-slate-500'}`}>
             {verified && <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
-            <span>{verified ? 'Cryptographically Verified Proof' : 'Stored from inbound mail. Not OCR.'}</span>
+            <span>{verified ? 'Cryptographically Verified Proof' : 'Stored from inbound mail'}</span>
           </div>
           <button
             onClick={onClose}

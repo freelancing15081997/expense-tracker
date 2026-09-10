@@ -262,26 +262,212 @@ function parseBookIdLocal(local: string) {
   return match ? match[1] : '';
 }
 
-export function parseAmount(text: string) {
-  const raw = String(text || '').replace(/,/g, '');
+type ParsedReceipt = {
+  amount: number;
+  date: string;
+  merchant: string;
+  description: string;
+  category: string;
+  entryType: 'in' | 'out';
+  documentType: 'receipt' | 'bill' | 'invoice';
+  parseSource: 'text' | 'image' | 'mixed';
+};
+
+const CATEGORY_RULES: Array<{ category: string; pattern: RegExp }> = [
+  { category: 'Fuel', pattern: /\b(petrol|diesel|fuel|cng|hpcl|iocl|bpcl|nayara|indian oil|bharat petroleum|hindustan petroleum|shell|indianOil|pump)\b/i },
+  { category: 'Groceries', pattern: /\b(grocery|groceries|supermarket|dmart|d-mart|big bazaar|reliance fresh|more supermarket|foodgrain)\b/i },
+  { category: 'Meals', pattern: /\b(restaurant|cafe|swiggy|zomato|dining|meal|food|lunch|dinner|breakfast)\b/i },
+  { category: 'Travel', pattern: /\b(uber|ola|rapido|irctc|flight|airline|hotel|metro|taxi|cab|toll|parking)\b/i },
+  { category: 'Utilities', pattern: /\b(electricity|water bill|gas bill|broadband|wifi|internet|rent|maintenance)\b/i },
+  { category: 'Health', pattern: /\b(hospital|pharmacy|medicine|clinic|apollo|diagnostic)\b/i },
+  { category: 'Shopping', pattern: /\b(amazon|flipkart|myntra|ajio|store|mall)\b/i },
+  { category: 'Software Subscriptions', pattern: /\b(subscription|saas|aws|github|google workspace|microsoft 365)\b/i },
+];
+
+function toNumber(raw: string) {
+  const amount = Number(String(raw || '').replace(/,/g, ''));
+  return Number.isFinite(amount) && amount > 0 && amount < 100_000_000 ? amount : 0;
+}
+
+function parseIsoDate(value: string) {
+  const raw = String(value || '').trim();
+  const iso = raw.match(/\b(20\d{2})-(\d{2})-(\d{2})\b/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  const dmy = raw.match(/\b(\d{1,2})[/-](\d{1,2})[/-](20\d{2})\b/);
+  if (dmy) {
+    const day = dmy[1].padStart(2, '0');
+    const month = dmy[2].padStart(2, '0');
+    if (Number(month) <= 12) return `${dmy[3]}-${month}-${day}`;
+  }
+  const named = raw.match(/\b(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?,?\s+(20\d{2})\b/i);
+  if (named) {
+    const months: Record<string, string> = { jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06', jul: '07', aug: '08', sep: '09', sept: '09', oct: '10', nov: '11', dec: '12' };
+    const month = months[named[2].toLowerCase().slice(0, 4)] || months[named[2].toLowerCase().slice(0, 3)];
+    if (month) return `${named[3]}-${month}-${named[1].padStart(2, '0')}`;
+  }
+  return '';
+}
+
+function clipQuoted(text: string) {
+  const cut = String(text || '')
+    .replace(/\r/g, '')
+    .split(/\nOn .+wrote:|\nFrom: .+(\nSent:)?|\n-{2,}\s*Original Message\s*-{2,}|\n-- \n/i)[0];
+  return cut.replace(/\s+/g, ' ').trim().slice(0, 8000);
+}
+
+function stripHtml(value: string) {
+  return String(value || '').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&');
+}
+
+function cleanSubject(subject: string) {
+  return String(subject || '').replace(/^(fwd:|fw:|re:)\s*/ig, '').replace(/\.(jpg|jpeg|png|webp|pdf)$/i, '').trim();
+}
+
+function parseAmount(text: string) {
+  const hay = String(text || '');
+  const labeled = hay.match(/(?:grand\s*total|net\s*(?:payable|amount|total)|amount\s*(?:paid|due)|total\s*amount|total|paid)\s*[:\-–]?\s*(?:₹|rs\.?|inr|usd|eur|gbp|\$)?\s*([0-9]{1,3}(?:,[0-9]{2,3})+(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)/i);
+  if (labeled) {
+    const amount = toNumber(labeled[1]);
+    if (amount) return amount;
+  }
+  const currency = hay.match(/(?:₹|rs\.?\s*|inr\s*)([0-9]{1,3}(?:,[0-9]{2,3})+(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)/i)
+    || hay.match(/\$\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)/);
+  if (currency) {
+    const amount = toNumber(currency[1]);
+    if (amount) return amount;
+  }
+  return 0;
+}
+
+export { parseAmount };
+
+function categoryFromText(text: string) {
+  const hay = String(text || '');
+  for (const rule of CATEGORY_RULES) {
+    if (rule.pattern.test(hay)) return rule.category;
+  }
+  return 'Uncategorized';
+}
+
+function merchantFrom(text: string) {
+  const hay = String(text || '');
   const match =
-    raw.match(/(?:₹|rs\.?|inr)\s*([0-9]+(?:\.[0-9]{1,2})?)/i) ||
-    raw.match(/([0-9]+(?:\.[0-9]{1,2})?)\s*(?:₹|rs\.?|inr)/i);
-  if (!match) return 0;
-  const amount = Number(match[1]);
-  return Number.isFinite(amount) ? amount : 0;
+    hay.match(/paid to\s+([^\n,]+)/i) ||
+    hay.match(/merchant(?:\s*name)?\s*[:\-]\s*([^\n]+)/i) ||
+    hay.match(/billed by\s*[:\-]?\s*([^\n]+)/i) ||
+    hay.match(/vendor\s*[:\-]\s*([^\n]+)/i) ||
+    hay.match(/sold by\s*[:\-]\s*([^\n]+)/i);
+  const labeled = String(match?.[1] || '').replace(/\s+/g, ' ').trim();
+  if (labeled) return labeled.slice(0, 80);
+  const first = hay
+    .split(/\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length >= 3 && line.length <= 80 && !/^(date|amount|total|volume|qty|invoice|receipt|bill|fwd:|fw:|re:)/i.test(line));
+  return String(first || '').slice(0, 80);
 }
 
 function entryTypeFrom(text: string) {
-  if (/\b(received|credited|money in|refund)\b/i.test(text)) return 'in';
-  return 'out';
+  if (/\b(received|credited|money in|refund|incoming)\b/i.test(text)) return 'in' as const;
+  return 'out' as const;
 }
 
-function categoryFrom(subject: string, body: string) {
-  const hay = `${subject}\n${body}`.toLowerCase();
-  if (/\bphonepe\b/.test(hay) || /\bpaid to\b/.test(hay)) return 'Uncategorized';
-  const trimmed = subject.replace(/^(fwd:|fw:|re:)\s*/i, '').trim();
-  return trimmed ? trimmed.slice(0, 48) : 'Uncategorized';
+function documentTypeFrom(text: string) {
+  if (/\binvoice\b/i.test(text)) return 'invoice' as const;
+  if (/\bbill\b/i.test(text)) return 'bill' as const;
+  return 'receipt' as const;
+}
+
+export function parseReceiptFields(text: string, extras?: { subject?: string; fileName?: string }): ParsedReceipt {
+  const subject = cleanSubject(extras?.subject || '');
+  const fileName = String(extras?.fileName || '').replace(/[_-]+/g, ' ');
+  const hay = `${subject}\n${fileName}\n${text}`;
+  const merchant = merchantFrom(text) || merchantFrom(fileName);
+  const category = categoryFromText(hay);
+  const amount = parseAmount(hay);
+  const date = parseIsoDate(hay) || new Date().toISOString().split('T')[0];
+  const fallback = subject || merchant || cleanSubject(fileName) || 'Inbound document';
+  const description = [merchant, subject && subject.toLowerCase() !== merchant.toLowerCase() ? subject : '']
+    .filter(Boolean)
+    .join(' · ')
+    .slice(0, 120) || fallback.slice(0, 120);
+  return {
+    amount,
+    date,
+    merchant,
+    description,
+    category,
+    entryType: entryTypeFrom(hay),
+    documentType: documentTypeFrom(hay),
+    parseSource: 'text',
+  };
+}
+
+function geminiKey() {
+  return String(process.env.GEMINI_API_KEY || process.env.GOOGLE_GENAI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
+}
+
+function mimeForGemini(contentType: string, fileName = '') {
+  const type = String(contentType || '').toLowerCase();
+  const ext = String(fileName || '').split('.').pop()?.toLowerCase() || '';
+  if (type.startsWith('image/')) return type === 'image/jpg' ? 'image/jpeg' : type;
+  if (type === 'application/pdf' || ext === 'pdf') return 'application/pdf';
+  if (['png', 'jpg', 'jpeg', 'webp'].includes(ext)) return ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+  return '';
+}
+
+function asParsed(value: any, fallback: ParsedReceipt): ParsedReceipt {
+  if (!value || typeof value !== 'object') return fallback;
+  const amount = toNumber(value.amount);
+  const date = parseIsoDate(String(value.date || '')) || fallback.date;
+  const merchant = String(value.merchant || fallback.merchant || '').slice(0, 80);
+  const description = String(value.description || merchant || fallback.description).slice(0, 120);
+  const category = String(value.category || '').trim() || fallback.category;
+  const entryType = value.entryType === 'in' ? 'in' : 'out';
+  const documentType = value.documentType === 'invoice' || value.documentType === 'bill' ? value.documentType : 'receipt';
+  return {
+    amount: amount || fallback.amount,
+    date,
+    merchant: merchant || fallback.merchant,
+    description: description || fallback.description,
+    category: category === 'Uncategorized' ? fallback.category : category,
+    entryType: fallback.entryType === 'in' ? 'in' : entryType,
+    documentType,
+    parseSource: fallback.amount && amount ? 'mixed' : amount ? 'image' : fallback.parseSource,
+  };
+}
+
+async function parseDocumentWithGemini(bytes: Buffer, contentType: string, fileName: string, fallback: ParsedReceipt) {
+  const key = geminiKey();
+  const mime = mimeForGemini(contentType, fileName);
+  if (!key || !mime || !bytes.length) return fallback;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 18_000);
+  try {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(key)}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            {
+              text: 'Read this receipt, bill, or invoice. Return JSON only with keys amount (number), date (YYYY-MM-DD), merchant, description, category (Fuel, Groceries, Meals, Travel, Utilities, Health, Shopping, Software Subscriptions, or Uncategorized), entryType (out unless it is money received), documentType (receipt, bill, or invoice). Use 0 if amount is missing. Do not invent amounts.',
+            },
+            { inline_data: { mime_type: mime, data: bytes.toString('base64') } },
+          ],
+        }],
+        generationConfig: { temperature: 0, responseMimeType: 'application/json' },
+      }),
+    });
+    if (!res.ok) return fallback;
+    const payload = await res.json();
+    const raw = String(payload?.candidates?.[0]?.content?.parts?.[0]?.text || '').replace(/^```json\s*|\s*```$/g, '');
+    return asParsed(JSON.parse(raw), fallback);
+  } catch {
+    return fallback;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 type RoleRow = { role?: string; email?: string };
@@ -337,9 +523,12 @@ async function resolveBookId(item: any) {
 
 function matchMember(mailbox: Mailbox, fromEmail: string) {
   const needle = fromEmail.toLowerCase();
+  if (!needle) return null;
   for (const [uid, row] of Object.entries(mailbox.roles || {})) {
     if (String(row?.email || '').toLowerCase() === needle) {
-      return { uid, email: String(row.email), role: String(row.role || 'contributor') };
+      const role = String(row.role || 'contributor');
+      if (!['owner', 'admin', 'contributor'].includes(role)) return null;
+      return { uid, email: String(row.email), role };
     }
   }
   return null;
@@ -375,7 +564,12 @@ async function storeReceipt(bookId: string, attachment: { Name?: string; Content
   const id = newId();
   const path = `books/${bookId}/files/${id}.${ext}`;
   await r2PutBytes(path, downloaded.bytes, downloaded.contentType || attachment.ContentType || 'application/octet-stream');
-  return { path, name: String(attachment.Name || `receipt.${ext}`), contentType: downloaded.contentType };
+  return {
+    path,
+    name: String(attachment.Name || `receipt.${ext}`),
+    contentType: downloaded.contentType || attachment.ContentType || 'application/octet-stream',
+    bytes: downloaded.bytes,
+  };
 }
 
 async function sendMail(to: string, subject: string, html: string) {
@@ -420,10 +614,10 @@ async function notifyMembers(mailbox: Mailbox, detail: string, bookId: string, s
   const html = `
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px">
       <p style="font-weight:700;color:#0B1F3A;letter-spacing:1px">Byjan</p>
-      <h2 style="color:#111827;font-size:20px;margin:12px 0 8px">Receipt added for you</h2>
-      <p style="color:#374151;font-size:15px;line-height:1.5"><strong>${senderName}</strong> shared a receipt for <strong>${mailbox.name}</strong>. Byjan added a draft entry on their behalf. Every roommate on this ledger is notified.</p>
+      <h2 style="color:#111827;font-size:20px;margin:12px 0 8px">Entry added from inbound mail</h2>
+      <p style="color:#374151;font-size:15px;line-height:1.5"><strong>${senderName}</strong> sent a receipt or bill for <strong>${mailbox.name}</strong>. Byjan checked they are a member, mapped the details into an entry, and notified everyone on this ledger.</p>
       <p style="color:#0f172a;font-size:15px;font-weight:500">${detail}</p>
-      <p style="color:#64748b;font-size:13px">Open the ledger to set the category if needed, then keep or edit the draft.</p>
+      <p style="color:#64748b;font-size:13px">Open the ledger to review the entry and edit any field that needs a correction.</p>
       <p style="text-align:center;margin:28px 0 8px">
         <a href="${link}" style="display:inline-block;background:#0B1F3A;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:700;font-size:14px">Open ledger in Byjan</a>
       </p>
@@ -432,7 +626,7 @@ async function notifyMembers(mailbox: Mailbox, detail: string, bookId: string, s
   `;
   for (const email of unique) {
     try {
-      await sendMail(email, `Byjan added a receipt in ${mailbox.name}`, html);
+      await sendMail(email, `Byjan added an entry in ${mailbox.name}`, html);
     } catch (err) {
       console.error('inbound notify failed', email, err);
     }
@@ -444,7 +638,7 @@ async function notifyMembers(mailbox: Mailbox, detail: string, bookId: string, s
       userId: uid,
       bookId,
       bookName: mailbox.name,
-      action: 'shared a receipt. Byjan added a draft entry',
+      action: 'sent a receipt or bill. Byjan added an entry',
       detail,
       senderName,
       link,
@@ -473,15 +667,16 @@ async function processItem(item: any) {
 
   const fromEmail = emailsFrom(item.From)[0] || emailsFrom(item.Headers?.From)[0] || '';
   const member = matchMember(mailbox, fromEmail);
-  if (!member) return { skipped: 'unknown sender', bookId, from: fromEmail };
+  if (!member) return { skipped: 'sender is not a writable member', bookId, from: fromEmail };
 
-  const subject = firstString(item.Subject, item.Headers?.Subject) || 'PhonePe receipt';
-  const body = firstString(item.ExtractedMarkdownMessage, item.RawTextBody, item.RawHtmlBody?.replace(/<[^>]*>?/gm, ' '));
-  const hay = `${subject}\n${body}`;
-  const amount = parseAmount(hay);
-  const category = categoryFrom(subject, body);
+  const subject = firstString(item.Subject, item.Headers?.Subject);
+  const body = clipQuoted(firstString(
+    item.ExtractedMarkdownMessage,
+    item.RawTextBody,
+    stripHtml(String(item.RawHtmlBody || item.HtmlBody || '')),
+  ));
   const attachments = Array.isArray(item.Attachments) ? item.Attachments : [];
-  let receipt: { path: string; name: string; contentType: string } | null = null;
+  let receipt: { path: string; name: string; contentType: string; bytes: Buffer } | null = null;
   for (const attachment of attachments) {
     try {
       receipt = await storeReceipt(bookId, attachment);
@@ -491,33 +686,40 @@ async function processItem(item: any) {
     }
   }
 
+  let parsed = parseReceiptFields(body, { subject, fileName: receipt?.name || attachments[0]?.Name || '' });
+  if (receipt?.bytes) {
+    parsed = await parseDocumentWithGemini(receipt.bytes, receipt.contentType, receipt.name, parsed);
+  }
+
   const id = newId();
-  const description = subject.replace(/^(fwd:|fw:|re:)\s*/i, '').trim() || 'PhonePe receipt';
   const expense = {
     id,
-    amount,
-    description,
-    category,
-    entryType: entryTypeFrom(hay),
-    date: new Date().toISOString().split('T')[0],
+    amount: parsed.amount,
+    description: parsed.description,
+    category: parsed.category,
+    entryType: parsed.entryType,
+    date: parsed.date,
     paidByName: member.email,
     enteredBy: member.email,
     enteredByUid: member.uid,
     enteredByEmail: member.email,
     createdAt: new Date().toISOString(),
-    status: 'draft',
+    status: parsed.amount > 0 ? 'recorded' : 'draft',
     source: 'email',
+    documentType: parsed.documentType,
+    merchant: parsed.merchant || null,
+    parseSource: parsed.parseSource,
     emailMessageId: messageId,
     receiptPath: receipt?.path || null,
     receiptName: receipt?.name || null,
   };
   await docSet(`books/${bookId}/expenses/${id}`, expense);
   await docSet(seenKey, { id, bookId, at: new Date().toISOString() });
-  const detail = amount
-    ? `Draft ${mailbox.currency} ${amount.toFixed(2)} · ${category} · from ${member.email}`
-    : `Draft from ${member.email}. Amount was not in the mail — open the ledger and fill it in.`;
+  const detail = parsed.amount
+    ? `${mailbox.currency} ${parsed.amount.toFixed(2)} · ${parsed.category} · ${parsed.description} · from ${member.email}`
+    : `Entry from ${member.email}. Amount was not found on the document — open the ledger and fill it in.`;
   await notifyMembers(mailbox, detail, bookId, member.email);
-  return { ok: true, bookId, expenseId: id, amount, category };
+  return { ok: true, bookId, expenseId: id, amount: parsed.amount, category: parsed.category, date: parsed.date };
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

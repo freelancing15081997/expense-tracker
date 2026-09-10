@@ -329,7 +329,7 @@ export default function BookView() {
               <p style="margin: 0 0 8px 0; font-size: 14px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Details</p>
               <p style="margin: 0; font-size: 16px; color: #0f172a; font-weight: 500;">${detail}</p>
             </div>
-            <p style="color: #374151; font-size: 15px; line-height: 1.5; margin-top: 20px;">Every roommate on this ledger is notified. Open Byjan to review the entry.</p>
+            <p style="color: #374151; font-size: 15px; line-height: 1.5; margin-top: 20px;">Everyone on this ledger is notified. Open Byjan to review the entry.</p>
             ${openLedgerButtonHtml(bookId || book.id)}
           </div>
           
@@ -659,8 +659,8 @@ export default function BookView() {
                               </button>
                             )}
                             {exp.description}
-                            {(exp.status === 'draft' || exp.source === 'email') && (
-                              <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">Draft</span>
+                            {exp.status === 'draft' && (
+                              <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">Needs review</span>
                             )}
                           </span>
                         </td>
@@ -715,8 +715,8 @@ export default function BookView() {
                     <div className="flex justify-between items-start gap-2">
                       <div className="font-semibold text-slate-900 text-[14px] leading-tight flex-1">
                         {exp.description}
-                        {(exp.status === 'draft' || exp.source === 'email') && (
-                          <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">Draft</span>
+                        {exp.status === 'draft' && (
+                          <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">Needs review</span>
                         )}
                       </div>
                       <div className={cn("font-bold text-[14px] whitespace-nowrap", exp.entryType === 'in' ? "text-emerald-600" : exp.entryType === 'transfer' ? "text-blue-600" : "text-slate-900")}>{exp.entryType === 'in' ? '+' : exp.entryType === 'transfer' ? '' : '-'}{getCurrencySymbol(book.currency)} {exp.amount.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
@@ -931,7 +931,7 @@ export default function BookView() {
                 <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
                   <Mail className="w-3.5 h-3.5" /> Receipt by email
                 </p>
-                <p className="text-sm text-slate-600 leading-relaxed">Forward a PhonePe receipt to this address. Byjan adds a draft entry on your behalf, then emails every roommate with a link to open the ledger.</p>
+                <p className="text-sm text-slate-600 leading-relaxed">Forward any receipt or bill — photo, PDF, or payment mail. Byjan accepts it only if the sender is a member of this ledger, maps amount, date, merchant, and category into an entry, and emails the team a link to open it.</p>
                 <div className="flex items-center gap-2">
                   <code className="flex-1 text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 truncate">{inboundAddress || inboundMailboxAddress(book.name)}</code>
                   <button type="button" className="byjan-btn-ghost !px-2.5" onClick={() => void copyInboundAddress()}>
