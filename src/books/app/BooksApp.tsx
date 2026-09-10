@@ -43,9 +43,9 @@ function BooksReady({ children }: { children: React.ReactNode }) {
   if (error) {
     return (
       <div className="max-w-lg mx-auto mt-10 bg-white border border-slate-200 rounded-xl p-5">
-        <h1 className="font-semibold text-slate-800">Preparing your workspace</h1>
+        <h1 className="font-display text-[18px] font-semibold text-[#0B1F3A]">Couldn’t open Books</h1>
         <p className="text-sm text-slate-600 mt-2">{error}</p>
-        <button className="mt-4 px-3 py-2 rounded-lg bg-slate-900 text-white text-sm" onClick={() => refresh()}>
+        <button className="byjan-btn mt-4" onClick={() => refresh()}>
           Retry
         </button>
       </div>

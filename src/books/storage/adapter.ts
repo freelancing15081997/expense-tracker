@@ -88,9 +88,13 @@ export async function storeBooksFile(tenantId: string, fileId: string, file: Fil
   }
 }
 
+const fileUrlCache = new Map<string, { url: string; at: number }>();
+
 export async function booksFileUrl(path: string) {
   if (!path) throw new Error('Missing file path');
   if (path.startsWith('data:')) return path;
+  const cached = fileUrlCache.get(path);
+  if (cached && Date.now() - cached.at < 5 * 60_000) return cached.url;
   const needsProxy =
     path.startsWith('erp_workspaces/') ||
     path.includes('blob.vercel-storage.com');
@@ -101,7 +105,9 @@ export async function booksFileUrl(path: string) {
     });
     if (!res.ok) throw new Error('File URL is unavailable. Re-upload the file.');
     const blob = await res.blob();
-    return URL.createObjectURL(blob);
+    const url = URL.createObjectURL(blob);
+    fileUrlCache.set(path, { url, at: Date.now() });
+    return url;
   }
   if (path.startsWith('https://') || path.startsWith('http://')) return path;
   throw new Error('File URL is unavailable. Re-upload the file to Vercel Blob.');

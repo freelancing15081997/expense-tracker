@@ -29,10 +29,10 @@ export default function BooksShell({ children }: { children: React.ReactNode }) 
               key={rel.href}
               to={rel.href}
               title={rel.name}
-              className="group inline-flex items-center gap-2 h-10 pl-1.5 pr-2.5 rounded-xl border border-slate-200 bg-white text-slate-600 shadow-[0_1px_2px_rgba(11,31,58,0.06)] hover:border-slate-300 hover:bg-slate-50 hover:text-[#0B1F3A] shrink-0"
+              className="group inline-flex items-center gap-1.5 h-8 pl-1 pr-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 hover:text-[#0B1F3A] shrink-0"
             >
-              <span className="w-7 h-7 rounded-lg bg-[#F4F7FB] text-[#0B1F3A] border border-slate-200/80 flex items-center justify-center group-hover:bg-white">
-                <FeatureIcon href={rel.href} className="w-4 h-4" />
+              <span className="w-6 h-6 rounded-md bg-[#F4F7FB] text-[#0B1F3A] border border-slate-200/80 flex items-center justify-center group-hover:bg-white">
+                <FeatureIcon href={rel.href} className="w-3.5 h-3.5" />
               </span>
               <span className="hidden lg:inline text-[12px] font-semibold max-w-[9rem] truncate">{rel.name}</span>
             </Link>

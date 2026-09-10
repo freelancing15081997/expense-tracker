@@ -212,6 +212,16 @@ export function useBooks() {
   return value;
 }
 
+function isWorkspaceMember(tenant: FinanceTenant, uid: string, tenantId: string) {
+  if (tenantId === uid) return true;
+  if (tenant.ownerId === uid) return true;
+  const ids = tenant.memberIds as unknown;
+  if (Array.isArray(ids) && ids.includes(uid)) return true;
+  if (ids && typeof ids === 'object' && !Array.isArray(ids) && uid in (ids as object)) return true;
+  if (tenant.members && typeof tenant.members === 'object' && uid in tenant.members) return true;
+  return false;
+}
+
 export default function BooksProvider({ children }: { children: React.ReactNode }) {
   const { currentUser, userProfile } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -257,13 +267,10 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
         userProfile?.displayName || currentUser.displayName || 'Byjan'
       );
       setTenantId(id);
-      const [workspace, domains, extras] = await Promise.all([
-        loadWorkspace(db, id),
-        loadDomainCollections(db, id),
-        loadFilesAndTemplates(db, id),
-      ]);
-      const allowed = workspace.tenant.memberIds?.includes(currentUser.uid) || workspace.tenant.ownerId === currentUser.uid;
-      if (!allowed) throw new Error('Not a member of this Books workspace');
+      const workspace = await loadWorkspace(db, id);
+      if (!isWorkspaceMember(workspace.tenant, currentUser.uid, id)) {
+        throw new Error('Not a member of this Books workspace');
+      }
       setTenant(workspace.tenant);
       setAccounts(workspace.accounts);
       setParties(workspace.parties);
@@ -274,6 +281,11 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
       setRecurring(workspace.recurring);
       setAudit(workspace.audit);
       setEntities(workspace.entities);
+      setLoading(false);
+      const [domains, extras] = await Promise.all([
+        loadDomainCollections(db, id),
+        loadFilesAndTemplates(db, id),
+      ]);
       setProducts(domains.products);
       setAssets(domains.assets);
       setProjects(domains.projects);

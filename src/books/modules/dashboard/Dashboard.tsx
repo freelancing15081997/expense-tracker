@@ -6,10 +6,9 @@ import { Card, FeatureIcon, GroupIcon, Kpi, Money, PageShell, Status, btnPrimary
 import { todayISO } from '../../core/money';
 import { BOOKS_QUICK_CREATE } from '../../nav';
 import { BOOKS_TREE } from '../../catalog/modules';
-import { BOOKS_CATALOG } from '../../catalog';
 
 export default function Dashboard() {
-  const { tenant, accounts, journals, documents, parties, currency, approvals, bankTxns, periods } = useBooks();
+  const { tenant, accounts, journals, documents, parties, currency, approvals, bankTxns } = useBooks();
   const byKey = (key: string) => accounts.find((a) => a.systemKey === key);
 
   const cards = useMemo(() => {
@@ -38,17 +37,21 @@ export default function Dashboard() {
   const unrec = bankTxns.filter((t) => !t.reconciled).length;
 
   return (
-    <PageShell title={tenant?.name || 'Books'} subtitle="Command center for every live Books feature. Posted balances only — adapters are labeled as not operational.">
+    <PageShell title={tenant?.name || 'Books'} subtitle="Live balances, drafts, and the work waiting on you.">
       <div className="flex flex-wrap gap-2">
-        <Link to="/" className="byjan-btn-ghost">Main dashboard</Link>
-        <Link to="/expenses" className="byjan-btn-ghost">Expense Tracker</Link>
+        {BOOKS_QUICK_CREATE.map((item) => (
+          <Link key={item.href} to={item.href} className={btnPrimary}>
+            <FeatureIcon href={item.href} className="w-3.5 h-3.5" />
+            {item.name}
+          </Link>
+        ))}
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
         {cards.map((card) => (
           <Link key={card.label} to={card.href}>
             <Kpi label={card.label}>
               <span className="flex items-center gap-2">
-                <FeatureIcon href={card.href} className="w-6 h-6" />
+                <FeatureIcon href={card.href} className="w-5 h-5" />
                 <Money minor={card.value} currency={currency} />
               </span>
             </Kpi>
@@ -56,21 +59,11 @@ export default function Dashboard() {
         ))}
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        {BOOKS_QUICK_CREATE.map((item) => (
-          <Link key={item.href} to={item.href} className={btnPrimary}>
-            <FeatureIcon href={item.href} className="w-5 h-5" />
-            {item.name}
-          </Link>
-        ))}
-        <Link to="/books/control-tower" className="byjan-btn-ghost">Control Tower</Link>
-      </div>
-
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
-        <Card className="p-4"><p className="text-[#6B7280]">Customers</p><p className="text-xl font-display mt-1">{customers}</p></Card>
-        <Card className="p-4"><p className="text-[#6B7280]">Vendors</p><p className="text-xl font-display mt-1">{vendors}</p></Card>
-        <Card className="p-4"><p className="text-[#6B7280]">Draft documents</p><p className="text-xl font-display mt-1">{drafts.length}</p></Card>
-        <Card className="p-4"><p className="text-[#6B7280]">Posted journals</p><p className="text-xl font-display mt-1">{posted}</p></Card>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+        <Card className="p-4"><p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Customers</p><p className="text-xl font-display mt-1">{customers}</p></Card>
+        <Card className="p-4"><p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Vendors</p><p className="text-xl font-display mt-1">{vendors}</p></Card>
+        <Card className="p-4"><p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Drafts</p><p className="text-xl font-display mt-1">{drafts.length}</p></Card>
+        <Card className="p-4"><p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Journals</p><p className="text-xl font-display mt-1">{posted}</p></Card>
       </div>
 
       {(overdue.length > 0 || openBills.length > 0 || pending > 0 || unrec > 0) && (
@@ -82,49 +75,40 @@ export default function Dashboard() {
         </Card>
       )}
 
-      <div>
-        <h2 className="font-display text-lg mb-3">All Books features</h2>
-        <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {BOOKS_TREE.map((branch) => (
-            <Card key={branch.id} className="p-4 space-y-3">
-              <div>
-                <Link to={branch.href} className="font-semibold text-[#0B1F3A] hover:underline inline-flex items-center gap-2">
-                  <GroupIcon title={branch.name} className="w-6 h-6" />
-                  {branch.name}
-                </Link>
-                <p className="text-xs text-[#6B7280] mt-1">{branch.blurb}</p>
-              </div>
-              <ul className="space-y-1">
-                {branch.items.map((item) => (
-                  <li key={item.href}>
-                    <Link to={item.href} className="text-sm text-[#0B1F3A] hover:text-teal-800 flex justify-between gap-2 items-center">
-                      <span className="inline-flex items-center gap-2 min-w-0">
-                        <FeatureIcon href={item.href} className="w-5 h-5 shrink-0" />
-                        <span className="truncate">{item.name}</span>
-                      </span>
-                      <span className="text-[10px] uppercase tracking-wide text-emerald-700">Live</span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </Card>
-          ))}
-        </div>
+      <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
+        {BOOKS_TREE.map((branch) => (
+          <Card key={branch.id} className="p-4 space-y-2">
+            <Link to={branch.href} className="font-semibold text-[#0B1F3A] hover:underline inline-flex items-center gap-2">
+              <GroupIcon title={branch.name} className="w-4 h-4" />
+              {branch.name}
+            </Link>
+            <ul className="space-y-0.5">
+              {branch.items.map((item) => (
+                <li key={item.href}>
+                  <Link to={item.href} className="text-[13px] text-slate-600 hover:text-[#0B1F3A] flex items-center gap-2 py-1">
+                    <FeatureIcon href={item.href} className="w-3.5 h-3.5 shrink-0" />
+                    <span className="truncate">{item.name}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        ))}
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-4">
+      <div className="grid lg:grid-cols-2 gap-3">
         <Card>
           <div className="px-4 py-3 border-b border-slate-100 flex justify-between">
-            <h2 className="font-semibold text-slate-800">Recent journals</h2>
-            <Link to="/books/journals" className="text-sm text-slate-500 hover:text-slate-800">Open</Link>
+            <h2 className="text-sm font-semibold text-slate-800">Recent journals</h2>
+            <Link to="/books/journals" className="text-xs font-semibold text-slate-500 hover:text-slate-800">Open</Link>
           </div>
           {journals.slice(0, 6).length === 0 ? <p className="p-4 text-sm text-slate-500">No journals posted yet.</p> : (
             <ul className="divide-y divide-slate-100">
               {journals.slice(0, 6).map((j) => (
-                <li key={j.id} className="px-4 py-3 flex items-center justify-between gap-3 text-sm">
-                  <div>
-                    <p className="font-medium text-slate-800">{j.number} · {j.description}</p>
-                    <p className="text-slate-500">{j.date}</p>
+                <li key={j.id} className="px-4 py-2.5 flex items-center justify-between gap-3 text-sm">
+                  <div className="min-w-0">
+                    <p className="font-medium text-slate-800 truncate">{j.number} · {j.description}</p>
+                    <p className="text-xs text-slate-500">{j.date}</p>
                   </div>
                   <Status value={j.status} />
                 </li>
@@ -134,18 +118,18 @@ export default function Dashboard() {
         </Card>
         <Card>
           <div className="px-4 py-3 border-b border-slate-100 flex justify-between">
-            <h2 className="font-semibold text-slate-800">Open documents</h2>
-            <Link to="/books/invoices" className="text-sm text-slate-500 hover:text-slate-800">Invoices</Link>
+            <h2 className="text-sm font-semibold text-slate-800">Open documents</h2>
+            <Link to="/books/invoices" className="text-xs font-semibold text-slate-500 hover:text-slate-800">Invoices</Link>
           </div>
           {documents.filter((d) => d.status === 'draft' || d.status === 'posted').slice(0, 6).length === 0 ? (
             <p className="p-4 text-sm text-slate-500">No open invoices, bills, or expenses.</p>
           ) : (
             <ul className="divide-y divide-slate-100">
               {documents.filter((d) => d.status === 'draft' || d.status === 'posted').slice(0, 6).map((d) => (
-                <li key={d.id} className="px-4 py-3 flex items-center justify-between gap-3 text-sm">
-                  <div>
-                    <p className="font-medium text-slate-800">{d.number}</p>
-                    <p className="text-slate-500 capitalize">{d.kind} · {d.date}</p>
+                <li key={d.id} className="px-4 py-2.5 flex items-center justify-between gap-3 text-sm">
+                  <div className="min-w-0">
+                    <p className="font-medium text-slate-800 truncate">{d.number}</p>
+                    <p className="text-xs text-slate-500 capitalize">{d.kind} · {d.date}</p>
                   </div>
                   <Money minor={d.totalMinor - d.paidMinor} currency={currency} />
                 </li>
@@ -154,24 +138,6 @@ export default function Dashboard() {
           )}
         </Card>
       </div>
-
-      <Card className="p-4 space-y-3">
-        <h2 className="font-semibold">Requirement coverage</h2>
-        <p className="text-sm text-slate-500">{periods.filter((p) => p.status === 'open').length} open period(s). Live items post journals. Adapter items need an external service and are not faked.</p>
-        {BOOKS_CATALOG.map((group) => (
-          <div key={group.domain}>
-            <h3 className="text-xs uppercase tracking-wide text-slate-500 font-bold mb-1">{group.domain}</h3>
-            <ul className="text-sm grid sm:grid-cols-2 gap-1">
-              {group.items.map((item) => (
-                <li key={item.name} className="flex justify-between gap-3">
-                  {item.href ? <Link to={item.href} className="hover:underline">{item.name}</Link> : <span>{item.name}</span>}
-                  <span className={item.status === 'live' ? 'text-emerald-700' : 'text-slate-400'}>{item.status}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-      </Card>
     </PageShell>
   );
 }

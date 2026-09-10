@@ -55,19 +55,19 @@ export default function Register() {
         type="button"
         onClick={handleGoogleLogin}
         disabled={loading}
-        className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 h-12 text-sm font-semibold text-slate-800 shadow-[0_1px_2px_rgba(11,31,58,0.06)] hover:bg-slate-50 disabled:opacity-60"
+        className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 h-10 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-60"
       >
         <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" className="w-5 h-5" />
         Continue with Google
       </button>
 
-      <div className="my-6 flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+      <div className="my-4 flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
         <span className="h-px flex-1 bg-slate-200" />
         or email
         <span className="h-px flex-1 bg-slate-200" />
       </div>
 
-      <form className="space-y-5" onSubmit={handleRegister}>
+      <form className="space-y-3" onSubmit={handleRegister}>
         <div>
           <label className="block text-sm font-medium text-slate-700">Email address</label>
           <div className="mt-1.5 relative">
@@ -79,7 +79,7 @@ export default function Register() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="byjan-input pl-10 h-12"
+              className="byjan-input pl-10 h-10"
               placeholder="you@example.com"
             />
           </div>
@@ -95,13 +95,13 @@ export default function Register() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="byjan-input pl-10 h-12"
+              className="byjan-input pl-10 h-10"
               placeholder="••••••••"
               minLength={6}
             />
           </div>
         </div>
-        <button type="submit" disabled={loading} className="byjan-btn w-full h-12 text-[15px]">
+        <button type="submit" disabled={loading} className="byjan-btn w-full h-10">
           {loading ? 'Creating account…' : 'Create account'}
         </button>
       </form>

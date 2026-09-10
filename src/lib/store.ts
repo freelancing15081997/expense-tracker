@@ -156,7 +156,7 @@ export async function getDoc(ref: DocRef) {
   } catch {
     // Named Firestore holds existing ledgers.
   }
-  const payload = await withTimeout(call({ op: 'get', path: ref.path }), data ? 450 : 900);
+  const payload = await withTimeout(call({ op: 'get', path: ref.path }), data ? 280 : 500);
   if (payload?.data) data = payload.data;
   return wrapDoc(ref.id, data, ref.path);
 }
@@ -201,9 +201,9 @@ export type QuerySnapshot = {
   forEach: (fn: (doc: { id: string; data: () => any; exists: () => boolean }) => void) => void;
 };
 
-export async function getDocs(source: { path: string; constraints?: Constraint[] }): Promise<QuerySnapshot> {
+export async function getDocs(source: { path: string; constraints?: Constraint[] }, opts?: { kvMs?: number }): Promise<QuerySnapshot> {
   const byId = new Map<string, Record<string, unknown>>();
-  const kv = withTimeout(call({ op: 'query', path: source.path, constraints: source.constraints || [] }), 850);
+  const kv = withTimeout(call({ op: 'query', path: source.path, constraints: source.constraints || [] }), opts?.kvMs ?? 400);
   try {
     for (const row of await readFirestoreDocs(source.path, source.constraints || [])) {
       byId.set(row.id, row.data);

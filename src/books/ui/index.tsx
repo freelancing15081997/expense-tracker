@@ -127,7 +127,7 @@ export function FileField({
 
   return (
     <Field label={label}>
-      <label className="relative flex flex-col sm:flex-row sm:items-center gap-3 min-h-[104px] rounded-2xl border border-dashed border-slate-300 bg-[#F8FAFC] hover:border-[#12B8A8] hover:bg-white px-4 py-3 cursor-pointer transition-colors">
+      <label className="relative flex items-center gap-3 min-h-[72px] rounded-xl border border-dashed border-slate-300 bg-[#F8FAFC] hover:border-[#12B8A8] hover:bg-white px-3 py-2 cursor-pointer transition-colors">
         <span className="w-11 h-11 rounded-xl bg-white border border-slate-200 text-[#0B1F3A] flex items-center justify-center shadow-[0_1px_2px_rgba(11,31,58,0.06)] shrink-0">
           <ActionIcon name="file" className="w-5 h-5" />
         </span>
@@ -185,7 +185,7 @@ export function IconBtn({
   const cls = variant === 'ghost' ? btnGhost : btnPrimary;
   return (
     <button className={`${cls} ${className}`} {...props}>
-      <ActionIcon name={action} className="w-5 h-5 shrink-0" />
+      <ActionIcon name={action} className="w-3.5 h-3.5 shrink-0" />
       {children}
     </button>
   );

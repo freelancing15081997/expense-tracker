@@ -97,6 +97,20 @@ export async function resolveTenantId(db: Firestore, uid: string, email: string,
       version: 1,
       createdAt: serverTimestamp(),
     }));
+  } else {
+    const data = existing.data() || {};
+    const rawIds = data.memberIds;
+    const memberIds = Array.isArray(rawIds)
+      ? rawIds.map(String)
+      : (rawIds && typeof rawIds === 'object' ? Object.keys(rawIds as object) : []);
+    const members = (data.members && typeof data.members === 'object' ? data.members : {}) as Record<string, unknown>;
+    if (!memberIds.includes(uid) || data.ownerId !== uid || !members[uid]) {
+      await updateDoc(tRef, clean({
+        ownerId: uid,
+        memberIds: [...new Set([...memberIds, uid])],
+        members: { ...members, [uid]: { role: 'owner', email: email || '' } },
+      }));
+    }
   }
   const sentinel = doc(col(db, tenantId, 'entities'), 'default');
   const alreadySeeded = await getDoc(sentinel);
@@ -172,7 +186,8 @@ export async function loadWorkspace(db: Firestore, tenantId: string) {
     getDocs(query(col(db, tenantId, 'audit'), limit(100))),
   ]);
   if (!tenantSnap.exists()) throw new BooksError('Workspace not found');
-  const tenant = { id: tenantSnap.id, ...tenantSnap.data() } as FinanceTenant;
+  const raw = tenantSnap.data() as Record<string, unknown>;
+  const tenant = { ...raw, id: tenantId } as FinanceTenant;
   return {
     tenant,
     entities: mapDocs<FinanceEntity>(entities),
