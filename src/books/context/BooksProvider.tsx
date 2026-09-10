@@ -288,21 +288,26 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
     ? tenant.members?.[currentUser.uid]?.role ?? (tenant.ownerId === currentUser.uid ? 'owner' : 'viewer')
     : null;
 
-  const refresh = useCallback(async (knownTenantId?: string) => {
+  const refresh = useCallback(async (knownTenantId?: string, silent = false) => {
     if (!currentUser) return;
     const firstOpen = !(knownTenantId || tenantId);
-    if (firstOpen) setLoading(true);
+    if (firstOpen && !silent) setLoading(true);
     setError(null);
     try {
-      const rootId = await resolveTenantId(
-        db,
-        currentUser.uid,
-        currentUser.email || userProfile?.email || '',
-        userProfile?.displayName || currentUser.displayName || 'Byjan'
-      );
+      let rootId = currentUser.uid;
+      let provisioned = false;
+      try { provisioned = sessionStorage.getItem(`byjan_books_ready_${currentUser.uid}`) === '1'; } catch { /* private mode */ }
+      if (!provisioned) {
+        rootId = await resolveTenantId(
+          db,
+          currentUser.uid,
+          currentUser.email || userProfile?.email || '',
+          userProfile?.displayName || currentUser.displayName || 'Byjan'
+        );
+      }
       let id = knownTenantId || readActiveWorkspace(currentUser.uid);
       if (!ownsWorkspace(currentUser.uid, id)) id = rootId;
-      if (id !== tenantId) setLoading(true);
+      if (!silent && id !== tenantId) setLoading(true);
       setTenantId(id);
       writeActiveWorkspace(currentUser.uid, id);
       let workspace;
@@ -390,7 +395,7 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
       refreshTimer.current = null;
       if (refreshBusy.current) return;
       refreshBusy.current = true;
-      void refresh().catch((err) => {
+      void refresh(undefined, true).catch((err) => {
         if (isFirestoreQuota(err)) return;
       }).finally(() => {
         refreshBusy.current = false;
@@ -573,7 +578,7 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
       payDoc: (id, amountMinor, date, cashAccountId) => after(() => recordPayment(ctx(), id, amountMinor, date, cashAccountId, accounts), 'Payment posted', 'post'),
       applyDocCredit: (creditId, targetId, amountMinor) => after(() => applyCredit(ctx(), creditId, targetId, amountMinor), 'Credit applied', 'post'),
       voidDoc: (id) => after(() => voidDocument(ctx(), id), 'Voided', 'delete'),
-      convertDoc: (id, nextKind) => after(() => convertDocument(ctx(), id, nextKind), 'Converted'),
+      convertDoc: (id, nextKind) => after(() => convertDocument(ctx(), id, nextKind, taxCodes), 'Converted'),
       postJournal: (input) => after(() => postManualJournal(ctx(), { ...input, idempotencyKey: `manual_${crypto.randomUUID()}` }), 'Journal posted', 'post'),
       reverse: (journalId) => after(() => reverseJournal(ctx(), journalId), 'Journal reversed', 'delete'),
       close: (periodId) => after(() => closePeriod(ctx(), periodId), 'Period closed', 'post'),

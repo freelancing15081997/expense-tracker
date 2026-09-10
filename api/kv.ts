@@ -5,6 +5,27 @@ const FIRESTORE_DB = 'ai-studio-sharedsheetexpen-15aa5fbb-9604-4c59-b4a3-aa99444
 const FIRESTORE_ROOT = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/${FIRESTORE_DB}/documents`;
 const DOC_PREFIX = 'documents/';
 
+const jwtMem = new Map<string, { uid: string; exp: number }>();
+let jwks: any = null;
+
+async function uidFromToken(token: string) {
+  const hit = jwtMem.get(token);
+  if (hit && hit.exp > Date.now() + 5000) return hit.uid;
+  const { createRemoteJWKSet, jwtVerify } = await import('jose');
+  if (!jwks) {
+    jwks = createRemoteJWKSet(new URL('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com'));
+  }
+  const { payload } = await jwtVerify(token, jwks, {
+    issuer: `https://securetoken.google.com/${FIREBASE_PROJECT}`,
+    audience: FIREBASE_PROJECT,
+  });
+  const uid = String(payload.user_id || payload.sub || '');
+  const exp = Number(payload.exp || 0) * 1000 || Date.now() + 50_000;
+  if (uid) jwtMem.set(token, { uid, exp });
+  if (jwtMem.size > 300) jwtMem.clear();
+  return uid;
+}
+
 function json(res: VercelResponse, status: number, payload: unknown) {
   res.statusCode = status;
   res.setHeader('content-type', 'application/json');
@@ -307,24 +328,273 @@ async function blobList(prefix: string) {
   return out;
 }
 
-async function localGet(path: string) {
+async function rawGet(path: string) {
   if (postgresUrl()) return pgGet(path);
   return blobGet(path);
 }
 
-async function localSet(path: string, data: unknown) {
+async function rawSet(path: string, data: unknown) {
   if (postgresUrl()) return pgSet(path, data);
   return blobSet(path, data);
 }
 
-async function localDel(path: string) {
+async function rawDel(path: string) {
   if (postgresUrl()) return pgDel(path);
   return blobDel(path);
 }
 
+type WorkspaceSnap = {
+  v: number;
+  tenant: Record<string, unknown> | null;
+  docs: Record<string, Record<string, unknown>>;
+};
+
+const SNAP_NAME = '_snapshot';
+const snapMem = new Map<string, { at: number; snap: WorkspaceSnap; dirty?: boolean }>();
+const snapLocks = new Map<string, Promise<void>>();
+
+function erpParts(path: string): { ws: string; rel: string } | null {
+  if (!path.startsWith('erp_workspaces/')) return null;
+  const bits = path.split('/').filter(Boolean);
+  if (bits.length < 2) return null;
+  const ws = bits[1];
+  const rel = bits.slice(2).join('/');
+  if (!rel || rel === SNAP_NAME) return null;
+  return { ws, rel };
+}
+
+function emptySnap(): WorkspaceSnap {
+  return { v: 1, tenant: null, docs: {} };
+}
+
+function snapPath(ws: string) {
+  return `erp_workspaces/${ws}/${SNAP_NAME}`;
+}
+
+function listFromSnap(snap: WorkspaceSnap, colPath: string) {
+  const bits = colPath.split('/').filter(Boolean);
+  const prefix = `${bits.slice(2).join('/')}/`;
+  if (prefix === '/') return [];
+  const out: { id: string; data: Record<string, unknown> }[] = [];
+  for (const [rel, data] of Object.entries(snap.docs)) {
+    if (!rel.startsWith(prefix)) continue;
+    const rest = rel.slice(prefix.length);
+    if (!rest || rest.includes('/')) continue;
+    out.push({ id: rest, data });
+  }
+  return out;
+}
+
+async function pgLoadWorkspace(ws: string): Promise<WorkspaceSnap> {
+  const sql = await ensurePg();
+  const prefix = `erp_workspaces/${ws}/`;
+  const rows = (await sql`SELECT path, data FROM documents WHERE path LIKE ${prefix + '%'}`) as { path: string; data: unknown }[];
+  const snap = emptySnap();
+  for (const row of rows) {
+    const rel = String(row.path).slice(prefix.length);
+    if (!rel || rel === SNAP_NAME || rel.includes('/' + SNAP_NAME)) continue;
+    const data = asObject(row.data);
+    if (!data) continue;
+    if (rel === 'meta/tenant') snap.tenant = data;
+    snap.docs[rel] = data;
+  }
+  return snap;
+}
+
+async function blobBuildWorkspace(ws: string): Promise<WorkspaceSnap> {
+  const { list } = await import('@vercel/blob');
+  const base = `${DOC_PREFIX}erp_workspaces/${ws}/`;
+  const rels: string[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await list({ prefix: base, cursor, limit: 1000, ...blobAuth() });
+    for (const item of page.blobs) {
+      if (!item.pathname.endsWith('.json')) continue;
+      const rel = item.pathname.slice(base.length, -5);
+      if (!rel || rel === SNAP_NAME) continue;
+      rels.push(rel);
+    }
+    cursor = page.hasMore ? page.cursor : undefined;
+  } while (cursor);
+  const snap = emptySnap();
+  for (let i = 0; i < rels.length; i += 24) {
+    const slice = rels.slice(i, i + 24);
+    const rows = await Promise.all(slice.map(async (rel) => {
+      const data = await blobGet(`erp_workspaces/${ws}/${rel}`);
+      return data ? { rel, data } : null;
+    }));
+    for (const row of rows) {
+      if (!row) continue;
+      if (row.rel === 'meta/tenant') snap.tenant = row.data;
+      snap.docs[row.rel] = row.data;
+    }
+  }
+  return snap;
+}
+
+async function loadSnap(ws: string): Promise<WorkspaceSnap> {
+  const hit = snapMem.get(ws);
+  if (hit && Date.now() - hit.at < 30_000) return hit.snap;
+  if (postgresUrl()) {
+    const snap = await pgLoadWorkspace(ws);
+    snapMem.set(ws, { at: Date.now(), snap });
+    return snap;
+  }
+  const stored = asObject(await blobGet(snapPath(ws)).catch(() => null)) as WorkspaceSnap | null;
+  if (stored && stored.docs && typeof stored.docs === 'object') {
+    const snap: WorkspaceSnap = {
+      v: Number(stored.v || 1),
+      tenant: asObject(stored.tenant) || stored.tenant || null,
+      docs: stored.docs as Record<string, Record<string, unknown>>,
+    };
+    snapMem.set(ws, { at: Date.now(), snap });
+    return snap;
+  }
+  const built = await blobBuildWorkspace(ws);
+  snapMem.set(ws, { at: Date.now(), snap: built });
+  await blobSet(snapPath(ws), built).catch(() => undefined);
+  return built;
+}
+
+async function persistSnap(ws: string, snap: WorkspaceSnap) {
+  snap.v = (Number(snap.v) || 1) + 1;
+  snapMem.set(ws, { at: Date.now(), snap });
+  if (postgresUrl()) return;
+  await blobSet(snapPath(ws), snap);
+}
+
+function writeSnapDoc(snap: WorkspaceSnap, rel: string, data: Record<string, unknown> | null) {
+  if (data == null) {
+    delete snap.docs[rel];
+    if (rel === 'meta/tenant') snap.tenant = null;
+    return;
+  }
+  snap.docs[rel] = data;
+  if (rel === 'meta/tenant') snap.tenant = data;
+}
+
+async function withSnap(ws: string, fn: (snap: WorkspaceSnap) => void | Promise<void>) {
+  const prev = snapLocks.get(ws) || Promise.resolve();
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const queued = prev.then(() => gate);
+  snapLocks.set(ws, queued);
+  await prev.catch(() => undefined);
+  try {
+    const snap = await loadSnap(ws);
+    await fn(snap);
+    await persistSnap(ws, snap);
+  } finally {
+    release();
+    if (snapLocks.get(ws) === queued) snapLocks.delete(ws);
+  }
+}
+
+async function localSetMany(writes: Array<{ path: string; data: Record<string, unknown> | null; merge?: boolean }>) {
+  const byWs = new Map<string, typeof writes>();
+  const other: typeof writes = [];
+  for (const write of writes) {
+    const parsed = erpParts(write.path);
+    if (parsed) {
+      const list = byWs.get(parsed.ws) || [];
+      list.push(write);
+      byWs.set(parsed.ws, list);
+    } else other.push(write);
+  }
+  for (const [ws, rows] of byWs) {
+    await withSnap(ws, async (snap) => {
+      for (const write of rows) {
+        const parsed = erpParts(write.path);
+        if (!parsed) continue;
+        if (write.data == null) {
+          writeSnapDoc(snap, parsed.rel, null);
+          if (postgresUrl()) await rawDel(write.path);
+          continue;
+        }
+        const next = write.merge ? { ...(snap.docs[parsed.rel] || {}), ...write.data } : write.data;
+        writeSnapDoc(snap, parsed.rel, next);
+        if (postgresUrl()) await rawSet(write.path, next);
+      }
+    });
+  }
+  for (const write of other) {
+    if (write.data == null) await rawDel(write.path);
+    else await rawSet(write.path, write.data);
+  }
+}
+
+async function localGet(path: string) {
+  const parsed = erpParts(path);
+  if (parsed) {
+    const snap = await loadSnap(parsed.ws);
+    if (Object.prototype.hasOwnProperty.call(snap.docs, parsed.rel)) return snap.docs[parsed.rel];
+    if (parsed.rel === 'meta/tenant' && snap.tenant) return snap.tenant;
+  }
+  return rawGet(path);
+}
+
+async function localSet(path: string, data: unknown) {
+  const obj = asObject(data) || {};
+  const parsed = erpParts(path);
+  if (parsed) {
+    await withSnap(parsed.ws, (snap) => writeSnapDoc(snap, parsed.rel, obj));
+    if (postgresUrl()) await rawSet(path, obj);
+    return;
+  }
+  await rawSet(path, obj);
+}
+
+async function localDel(path: string) {
+  const parsed = erpParts(path);
+  if (parsed) {
+    await withSnap(parsed.ws, (snap) => writeSnapDoc(snap, parsed.rel, null));
+    if (postgresUrl()) await rawDel(path);
+    return;
+  }
+  await rawDel(path);
+}
+
 async function localList(prefix: string) {
+  const bits = prefix.split('/').filter(Boolean);
+  if (bits[0] === 'erp_workspaces' && bits[1]) {
+    const snap = await loadSnap(bits[1]);
+    return listFromSnap(snap, prefix);
+  }
   if (postgresUrl()) return pgList(prefix);
   return blobList(prefix);
+}
+
+function applyConstraints(docs: { id: string; data: Record<string, unknown> }[], constraints: any[] = []) {
+  let next = docs;
+  for (const c of constraints) {
+    if (c.type === 'where' && c.op === '==') {
+      next = next.filter((row) => getAt({ id: row.id, ...row.data }, c.field) === c.value);
+    } else if (c.type === 'where' && c.op === 'in') {
+      const allowed = Array.isArray(c.value) ? c.value : [];
+      next = next.filter((row) => allowed.includes(getAt({ id: row.id, ...row.data }, c.field)));
+    } else if (c.type === 'orderBy') {
+      const dir = c.dir === 'desc' ? -1 : 1;
+      next.sort((a, b) => String(getAt(a.data, c.field) || '').localeCompare(String(getAt(b.data, c.field) || '')) * dir);
+    } else if (c.type === 'limit') {
+      next = next.slice(0, Number(c.n) || next.length);
+    }
+  }
+  return next;
+}
+
+function packCollections(snap: WorkspaceSnap) {
+  const grouped: Record<string, { id: string; data: Record<string, unknown> }[]> = {};
+  for (const [rel, data] of Object.entries(snap.docs)) {
+    if (rel.includes('/')) {
+      const col = rel.slice(0, rel.lastIndexOf('/'));
+      const id = rel.slice(col.length + 1);
+      if (!id || id.includes('/')) continue;
+      (grouped[col] ||= []).push({ id, data });
+    } else {
+      (grouped[rel] ||= []).push({ id: rel, data });
+    }
+  }
+  return grouped;
 }
 
 function isErpPath(path: string) {
@@ -373,6 +643,25 @@ function getAt(obj: any, field: string) {
   return field.split('.').reduce((acc, key) => (acc == null ? acc : acc[key]), obj);
 }
 
+function applyPatch(current: Record<string, unknown>, patch: Record<string, unknown>) {
+  const next: Record<string, unknown> = { ...current };
+  for (const [key, value] of Object.entries(patch)) {
+    if (key.includes('.')) {
+      const parts = key.split('.');
+      let cur: any = next;
+      for (let i = 0; i < parts.length - 1; i++) {
+        const piece = cur[parts[i]];
+        cur[parts[i]] = piece && typeof piece === 'object' && !Array.isArray(piece) ? { ...piece } : {};
+        cur = cur[parts[i]];
+      }
+      cur[parts[parts.length - 1]] = value;
+    } else {
+      next[key] = value;
+    }
+  }
+  return next;
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const origin = String(req.headers.origin || '');
@@ -390,18 +679,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    const { createRemoteJWKSet, jwtVerify } = await import('jose');
     const header = String(req.headers.authorization || '');
     const token = header.toLowerCase().startsWith('bearer ') ? header.slice(7).trim() : '';
     if (!token) {
       json(res, 401, { error: 'Sign in required' });
       return;
     }
-    const { payload } = await jwtVerify(token, createRemoteJWKSet(new URL('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com')), {
-      issuer: `https://securetoken.google.com/${FIREBASE_PROJECT}`,
-      audience: FIREBASE_PROJECT,
-    });
-    const uid = String(payload.user_id || payload.sub || '');
+    const uid = await uidFromToken(token);
     if (!uid) {
       json(res, 401, { error: 'Sign in required' });
       return;
@@ -413,11 +697,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       : (rawBody && typeof rawBody === 'object' ? rawBody : {});
     const op = String(body.op || '');
     const path = String(body.path || '').replace(/^\/+|\/+$/g, '');
-    if (!path && op !== 'list' && op !== 'query' && op !== 'queryMany' && op !== 'batch') {
+    if (!path && op !== 'list' && op !== 'query' && op !== 'queryMany' && op !== 'batch' && op !== 'workspace') {
       json(res, 400, { error: 'Missing path' });
       return;
     }
     if (path) assertErpAccess(uid, path);
+
+    if (op === 'workspace') {
+      const bits = path.split('/').filter(Boolean);
+      const ws = bits[0] === 'erp_workspaces' ? bits[1] : bits[0];
+      if (!ws) {
+        json(res, 400, { error: 'Missing workspace' });
+        return;
+      }
+      assertErpAccess(uid, `erp_workspaces/${ws}`);
+      const snap = await loadSnap(ws);
+      json(res, 200, {
+        tenant: snap.tenant || snap.docs['meta/tenant'] || null,
+        collections: packCollections(snap),
+      });
+      return;
+    }
 
     if (op === 'get') {
       const data = await readDoc(path, token);
@@ -437,21 +737,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (op === 'update') {
       const current = (await localGet(path).catch(() => null)) || {};
-      const next: Record<string, unknown> = { ...current };
-      const patch = (body.data || {}) as Record<string, unknown>;
-      for (const [key, value] of Object.entries(patch)) {
-        if (key.includes('.')) {
-          const parts = key.split('.');
-          let cur: any = next;
-          for (let i = 0; i < parts.length - 1; i++) {
-            if (typeof cur[parts[i]] !== 'object' || !cur[parts[i]]) cur[parts[i]] = {};
-            cur = cur[parts[i]];
-          }
-          cur[parts[parts.length - 1]] = value;
-        } else {
-          next[key] = value;
-        }
-      }
+      const next = applyPatch(current, (body.data || {}) as Record<string, unknown>);
       await localSet(path, next);
       json(res, 200, { ok: true, data: next });
       return;
@@ -474,86 +760,61 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (op === 'list' || op === 'query') {
       const constraints = Array.isArray(body.constraints) ? body.constraints : [];
-      let docs = await readList(path, token, constraints);
-      for (const c of constraints) {
-        if (c.type === 'where' && c.op === '==') {
-          docs = docs.filter((row) => getAt({ id: row.id, ...row.data }, c.field) === c.value);
-        } else if (c.type === 'where' && c.op === 'in') {
-          const allowed = Array.isArray(c.value) ? c.value : [];
-          docs = docs.filter((row) => allowed.includes(getAt({ id: row.id, ...row.data }, c.field)));
-        } else if (c.type === 'orderBy') {
-          const dir = c.dir === 'desc' ? -1 : 1;
-          docs.sort((a, b) => String(getAt(a.data, c.field) || '').localeCompare(String(getAt(b.data, c.field) || '')) * dir);
-        } else if (c.type === 'limit') {
-          docs = docs.slice(0, Number(c.n) || docs.length);
-        }
-      }
+      const docs = applyConstraints(await readList(path, token, constraints), constraints);
       json(res, 200, { docs });
       return;
     }
 
     if (op === 'batch') {
       const writes = Array.isArray(body.writes) ? body.writes.slice(0, 80) : [];
-      const apply = async (write: any) => {
+      const prepared: Array<{ path: string; data: Record<string, unknown> | null; merge?: boolean }> = [];
+      for (const write of writes) {
         const writeOp = String(write.op || '');
         const writePath = String(write.path || '').replace(/^\/+|\/+$/g, '');
-        if (!writePath) return;
+        if (!writePath) continue;
         assertErpAccess(uid, writePath);
         if (writeOp === 'set') {
-          const incoming = (write.data || {}) as Record<string, unknown>;
-          const next = write.merge
-            ? { ...((await localGet(writePath).catch(() => null)) || {}), ...incoming }
-            : incoming;
-          await localSet(writePath, next);
+          prepared.push({ path: writePath, data: (write.data || {}) as Record<string, unknown>, merge: Boolean(write.merge) });
         } else if (writeOp === 'update') {
           const current = (await localGet(writePath).catch(() => null)) || {};
-          const next: Record<string, unknown> = { ...current };
-          const patch = (write.data || {}) as Record<string, unknown>;
-          for (const [key, value] of Object.entries(patch)) {
-            if (key.includes('.')) {
-              const parts = key.split('.');
-              let cur: any = next;
-              for (let i = 0; i < parts.length - 1; i++) {
-                if (typeof cur[parts[i]] !== 'object' || !cur[parts[i]]) cur[parts[i]] = {};
-                cur = cur[parts[i]];
-              }
-              cur[parts[parts.length - 1]] = value;
-            } else {
-              next[key] = value;
-            }
-          }
-          await localSet(writePath, next);
+          prepared.push({ path: writePath, data: applyPatch(current, (write.data || {}) as Record<string, unknown>) });
         }
-      };
-      for (let i = 0; i < writes.length; i += 8) {
-        await Promise.all(writes.slice(i, i + 8).map(apply));
       }
-      json(res, 200, { ok: true, count: writes.length });
+      await localSetMany(prepared);
+      json(res, 200, { ok: true, count: prepared.length });
       return;
     }
 
     if (op === 'queryMany') {
       const queries = Array.isArray(body.queries) ? body.queries.slice(0, 24) : [];
-      const results = await Promise.all(queries.map(async (item: any) => {
+      const parsed = queries.map((item: any) => {
         const qPath = String(item.path || '').replace(/^\/+|\/+$/g, '');
-        if (!qPath) return { path: qPath, docs: [] };
-        assertErpAccess(uid, qPath);
-        const constraints = Array.isArray(item.constraints) ? item.constraints : [];
-        let docs = await readList(qPath, token, constraints);
-        for (const c of constraints) {
-          if (c.type === 'where' && c.op === '==') {
-            docs = docs.filter((row) => getAt({ id: row.id, ...row.data }, c.field) === c.value);
-          } else if (c.type === 'where' && c.op === 'in') {
-            const allowed = Array.isArray(c.value) ? c.value : [];
-            docs = docs.filter((row) => allowed.includes(getAt({ id: row.id, ...row.data }, c.field)));
-          } else if (c.type === 'orderBy') {
-            const dir = c.dir === 'desc' ? -1 : 1;
-            docs.sort((a, b) => String(getAt(a.data, c.field) || '').localeCompare(String(getAt(b.data, c.field) || '')) * dir);
-          } else if (c.type === 'limit') {
-            docs = docs.slice(0, Number(c.n) || docs.length);
-          }
+        return { qPath, constraints: Array.isArray(item.constraints) ? item.constraints : [] };
+      });
+      const wsIds = [...new Set(parsed.map((row: { qPath: string }) => {
+        const bits = row.qPath.split('/').filter(Boolean);
+        return bits[0] === 'erp_workspaces' ? bits[1] : '';
+      }).filter(Boolean))];
+      if (wsIds.length === 1 && parsed.every((row: { qPath: string }) => row.qPath.startsWith('erp_workspaces/'))) {
+        const ws = String(wsIds[0] || '');
+        if (!ws) {
+          json(res, 400, { error: 'Missing workspace' });
+          return;
         }
-        return { path: qPath, docs };
+        assertErpAccess(uid, `erp_workspaces/${ws}`);
+        const snap = await loadSnap(ws);
+        const results = parsed.map((row: { qPath: string; constraints: any[] }) => ({
+          path: row.qPath,
+          docs: applyConstraints(listFromSnap(snap, row.qPath), row.constraints),
+        }));
+        json(res, 200, { results });
+        return;
+      }
+      const results = await Promise.all(parsed.map(async (row: { qPath: string; constraints: any[] }) => {
+        if (!row.qPath) return { path: row.qPath, docs: [] };
+        assertErpAccess(uid, row.qPath);
+        const docs = applyConstraints(await readList(row.qPath, token, row.constraints), row.constraints);
+        return { path: row.qPath, docs };
       }));
       json(res, 200, { results });
       return;

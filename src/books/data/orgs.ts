@@ -22,11 +22,9 @@ function asOrg(id: string, data: Record<string, unknown>, fallback?: Partial<Org
 }
 
 export async function listOrgDirectory(db: Firestore, uid: string, rootName: string): Promise<OrgRecord[]> {
-  const rootSnap = await getDoc(tenantRef(db, uid));
-  const rootData = rootSnap.exists() ? rootSnap.data() : {};
   const root: OrgRecord = {
     id: uid,
-    name: String(rootData.name || rootName || 'Books'),
+    name: rootName || 'Books',
     parentId: null,
     depth: 0,
     kind: 'root',

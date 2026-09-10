@@ -4,6 +4,7 @@ import {
   getDoc,
   getDocs,
   getDocsMany,
+  loadErpWorkspace,
   limit,
   query,
   runTransaction,
@@ -173,6 +174,9 @@ export async function seedWorkspace(db: Firestore, tenantId: string, uid: string
 }
 
 export async function resolveTenantId(db: Firestore, uid: string, email: string, displayName: string): Promise<string> {
+  try {
+    if (sessionStorage.getItem(provisionCacheKey(uid)) === '1') return uid;
+  } catch { /* private mode */ }
   const tenantId = uid;
   const tRef = tenantRef(db, tenantId);
   const existing = await getDoc(tRef);
@@ -193,20 +197,18 @@ export async function resolveTenantId(db: Firestore, uid: string, email: string,
       ? rawIds.map(String)
       : (rawIds && typeof rawIds === 'object' ? Object.keys(rawIds as object) : []);
     const members = (data.members && typeof data.members === 'object' ? data.members : {}) as Record<string, unknown>;
-    const patch = clean({
-      rootOwnerId: data.rootOwnerId || uid,
-      parentId: data.parentId ?? null,
-      depth: Number(data.depth || 0),
-      kind: data.kind || 'root',
-      ...(memberIds.includes(uid) && data.ownerId === uid && members[uid]
-        ? {}
-        : {
-          ownerId: uid,
-          memberIds: [...new Set([...memberIds, uid])],
-          members: { ...members, [uid]: { role: 'owner', email: email || '' } },
-        }),
-    });
-    if (Object.keys(patch).length) await updateDoc(tRef, patch);
+    const missingMember = !memberIds.includes(uid) || data.ownerId !== uid || !members[uid];
+    if (missingMember) {
+      await updateDoc(tRef, clean({
+        rootOwnerId: data.rootOwnerId || uid,
+        parentId: data.parentId ?? null,
+        depth: Number(data.depth || 0),
+        kind: data.kind || 'root',
+        ownerId: uid,
+        memberIds: [...new Set([...memberIds, uid])],
+        members: { ...members, [uid]: { role: 'owner', email: email || '' } },
+      }));
+    }
   }
   await seedWorkspace(db, tenantId, uid, displayName || 'Default entity');
   try {
@@ -233,7 +235,69 @@ async function ensureExtendedWorkspace(db: Firestore, tenantId: string) {
   }
 }
 
+const WORKSPACE_COLS = [
+  'entities', 'accounts', 'parties', 'journals', 'documents', 'periods', 'taxCodes', 'recurring', 'audit',
+  'products', 'assets', 'projects', 'budgets', 'contracts', 'leases', 'bankTxns', 'inbox', 'workpapers', 'approvals',
+  'files', 'templates', 'bankRules',
+] as const;
+
+function emptySnap(): QuerySnapshot {
+  return { docs: [], empty: true, forEach: () => undefined };
+}
+
+function workspaceFromPack(tenantId: string, pack: { tenant: Record<string, unknown> | null; collections: Record<string, QuerySnapshot> }) {
+  const tenant = {
+    parentId: null,
+    depth: 0,
+    kind: tenantId === pack.tenant?.ownerId ? 'root' : 'company',
+    rootOwnerId: pack.tenant?.rootOwnerId || pack.tenant?.ownerId || tenantId,
+    ...pack.tenant,
+    id: tenantId,
+  } as FinanceTenant;
+  const grab = (name: string) => pack.collections[name] || emptySnap();
+  return hydrateWorkspace(tenant, WORKSPACE_COLS.map(grab) as QuerySnapshot[]);
+}
+
+function hydrateWorkspace(tenant: FinanceTenant, packs: QuerySnapshot[]) {
+  const [
+    entities, accounts, parties, journals, documents, periods, taxCodes, recurring, audit,
+    products, assets, projects, budgets, contracts, leases, bankTxns, inbox, workpapers, approvals,
+    files, templates, bankRules,
+  ] = packs;
+  return {
+    tenant,
+    entities: mapDocs<FinanceEntity>(entities),
+    accounts: mapDocs<FinanceAccount>(accounts).sort((a, b) => byText(a.code, b.code)),
+    parties: mapDocs<FinanceParty>(parties),
+    journals: mapDocs<FinanceJournal>(journals).sort((a, b) => byText(b.date, a.date) || byText(b.number, a.number)),
+    documents: mapDocs<FinanceDocument>(documents).sort((a, b) => byText(b.date, a.date) || byText(b.number, a.number)),
+    periods: mapDocs<FinancePeriod>(periods),
+    taxCodes: mapDocs<TaxCode>(taxCodes),
+    recurring: mapDocs<RecurringTemplate>(recurring),
+    audit: mapDocs<AuditEvent>(audit).sort((a, b) => byText(b.at, a.at)),
+    products: mapDocs<Product>(products),
+    assets: mapDocs<FixedAsset>(assets),
+    projects: mapDocs<Project>(projects),
+    budgets: mapDocs<BudgetLine>(budgets),
+    contracts: mapDocs<RevenueContract>(contracts),
+    leases: mapDocs<LeaseContract>(leases),
+    bankTxns: mapDocs<BankTxn>(bankTxns).sort((a, b) => byText(b.date, a.date)),
+    inbox: mapDocs<InboxItem>(inbox).sort((a, b) => byText(b.createdAt, a.createdAt)),
+    workpapers: mapDocs<Workpaper>(workpapers).sort((a, b) => byText(b.createdAt, a.createdAt)),
+    approvals: mapDocs<Approval>(approvals).sort((a, b) => byText(b.createdAt, a.createdAt)),
+    files: mapDocs<BooksFile>(files).filter((f) => f.status !== 'archived').sort((a, b) => byText(b.createdAt, a.createdAt)),
+    templates: mapDocs<BooksTemplate>(templates).filter((t) => t.status !== 'archived').sort((a, b) => byText(b.createdAt, a.createdAt)),
+    bankRules: mapDocs<BankRule>(bankRules),
+  };
+}
+
 export async function loadWorkspace(db: Firestore, tenantId: string) {
+  try {
+    const pack = await loadErpWorkspace(tenantId);
+    if (pack?.tenant) return workspaceFromPack(tenantId, pack);
+  } catch {
+    // Fall through to the collection query path.
+  }
   const [tenantSnap, packs] = await Promise.all([
     getDoc(tenantRef(db, tenantId)),
     getDocsMany([
@@ -271,36 +335,7 @@ export async function loadWorkspace(db: Firestore, tenantId: string) {
     ...raw,
     id: tenantId,
   } as FinanceTenant;
-  const [
-    entities, accounts, parties, journals, documents, periods, taxCodes, recurring, audit,
-    products, assets, projects, budgets, contracts, leases, bankTxns, inbox, workpapers, approvals,
-    files, templates, bankRules,
-  ] = packs;
-  return {
-    tenant,
-    entities: mapDocs<FinanceEntity>(entities),
-    accounts: mapDocs<FinanceAccount>(accounts).sort((a, b) => byText(a.code, b.code)),
-    parties: mapDocs<FinanceParty>(parties),
-    journals: mapDocs<FinanceJournal>(journals).sort((a, b) => byText(b.date, a.date) || byText(b.number, a.number)),
-    documents: mapDocs<FinanceDocument>(documents).sort((a, b) => byText(b.date, a.date) || byText(b.number, a.number)),
-    periods: mapDocs<FinancePeriod>(periods),
-    taxCodes: mapDocs<TaxCode>(taxCodes),
-    recurring: mapDocs<RecurringTemplate>(recurring),
-    audit: mapDocs<AuditEvent>(audit).sort((a, b) => byText(b.at, a.at)),
-    products: mapDocs<Product>(products),
-    assets: mapDocs<FixedAsset>(assets),
-    projects: mapDocs<Project>(projects),
-    budgets: mapDocs<BudgetLine>(budgets),
-    contracts: mapDocs<RevenueContract>(contracts),
-    leases: mapDocs<LeaseContract>(leases),
-    bankTxns: mapDocs<BankTxn>(bankTxns).sort((a, b) => byText(b.date, a.date)),
-    inbox: mapDocs<InboxItem>(inbox).sort((a, b) => byText(b.createdAt, a.createdAt)),
-    workpapers: mapDocs<Workpaper>(workpapers).sort((a, b) => byText(b.createdAt, a.createdAt)),
-    approvals: mapDocs<Approval>(approvals).sort((a, b) => byText(b.createdAt, a.createdAt)),
-    files: mapDocs<BooksFile>(files).filter((f) => f.status !== 'archived').sort((a, b) => byText(b.createdAt, a.createdAt)),
-    templates: mapDocs<BooksTemplate>(templates).filter((t) => t.status !== 'archived').sort((a, b) => byText(b.createdAt, a.createdAt)),
-    bankRules: mapDocs<BankRule>(bankRules),
-  };
+  return hydrateWorkspace(tenant, packs);
 }
 
 export async function loadLedger(db: Firestore, tenantId: string, accountId: string) {
@@ -643,67 +678,74 @@ export async function saveDocument(
   };
   if (input.id) await updateDoc(ref, clean(base));
   else {
-    const tenantSnap = await getDoc(tenantRef(ctx.db, ctx.tenantId));
-    const tenant = tenantSnap.data() as FinanceTenant;
-    const seqKey = input.kind;
-    const seq = (tenant.sequences[seqKey] || 0) + 1;
-    const prefix = docNumberPrefix(input.kind);
-    await setDoc(ref, clean({
-      ...base,
-      number: nextNumber(prefix, seq),
-      idempotencyKey: `${input.kind}_${ref.id}`,
-      createdBy: ctx.uid,
-      createdAt: nowISO(),
-    }));
-    await updateDoc(tenantRef(ctx.db, ctx.tenantId), { [`sequences.${seqKey}`]: seq });
+    await runTransaction(ctx.db, async (tx) => {
+      const tenantSnap = await tx.get(tenantRef(ctx.db, ctx.tenantId));
+      const tenant = tenantSnap.data() as FinanceTenant;
+      const seqKey = input.kind;
+      const seq = (tenant.sequences[seqKey] || 0) + 1;
+      const prefix = docNumberPrefix(input.kind);
+      tx.set(ref, clean({
+        ...base,
+        number: nextNumber(prefix, seq),
+        idempotencyKey: `${input.kind}_${ref.id}`,
+        createdBy: ctx.uid,
+        createdAt: nowISO(),
+      }));
+      tx.update(tenantRef(ctx.db, ctx.tenantId), { [`sequences.${seqKey}`]: seq });
+    });
   }
   return ref.id;
 }
 
-export async function convertDocument(ctx: TxCtx, documentId: string, nextKind: DocumentKind) {
+export async function convertDocument(ctx: TxCtx, documentId: string, nextKind: DocumentKind, taxCodes?: TaxCode[]) {
   assertCan(ctx.role, 'create');
   const srcRef = doc(col(ctx.db, ctx.tenantId, 'documents'), documentId);
   const snap = await getDoc(srcRef);
   if (!snap.exists()) throw new BooksError('Document not found');
   const source = { id: snap.id, ...snap.data() } as FinanceDocument;
   if (source.status === 'voided') throw new BooksError('Cannot convert a voided document');
-  const taxSnap = await getDocs(col(ctx.db, ctx.tenantId, 'taxCodes'));
-  const taxCodes = (taxSnap.docs || []).map((d) => ({ id: d.id, ...(d.data() as object) })) as TaxCode[];
-  const converted = prepareConvertedTotals(source, nextKind, taxCodes);
-  const tenantSnap = await getDoc(tenantRef(ctx.db, ctx.tenantId));
-  const tenant = tenantSnap.data() as FinanceTenant;
-  const seq = (tenant.sequences[nextKind] || 0) + 1;
+  let codes = taxCodes || [];
+  if (!codes.length) {
+    const taxSnap = await getDocs(col(ctx.db, ctx.tenantId, 'taxCodes'));
+    codes = (taxSnap.docs || []).map((d) => ({ id: d.id, ...(d.data() as object) })) as TaxCode[];
+  }
+  const converted = prepareConvertedTotals(source, nextKind, codes);
   const ref = doc(col(ctx.db, ctx.tenantId, 'documents'));
-  await setDoc(ref, clean({
-    kind: nextKind,
-    number: nextNumber(docNumberPrefix(nextKind), seq),
-    partyId: source.partyId,
-    date: source.date,
-    dueDate: converted.dueDate,
-    lines: converted.lines,
-    taxCode: converted.lines[0]?.taxCode || source.taxCode,
-    interstate: source.interstate,
-    tax: converted.tax,
-    totalMinor: converted.totalMinor,
-    paidMinor: 0,
-    status: 'draft',
-    journalId: null,
-    paymentJournalIds: [],
-    memo: source.memo,
-    projectId: source.projectId || null,
-    poNumber: source.poNumber || '',
-    customerNotes: source.customerNotes || '',
-    terms: source.terms || '',
-    placeOfSupply: source.placeOfSupply || '',
-    billTo: source.billTo || '',
-    shipTo: source.shipTo || '',
-    convertedFromId: source.id,
-    idempotencyKey: `${nextKind}_${ref.id}`,
-    createdBy: ctx.uid,
-    createdAt: nowISO(),
-    updatedAt: nowISO(),
-  }));
-  await updateDoc(tenantRef(ctx.db, ctx.tenantId), { [`sequences.${nextKind}`]: seq });
+  await runTransaction(ctx.db, async (tx) => {
+    const tenantSnap = await tx.get(tenantRef(ctx.db, ctx.tenantId));
+    const tenant = tenantSnap.data() as FinanceTenant;
+    const seq = (tenant.sequences[nextKind] || 0) + 1;
+    tx.set(ref, clean({
+      kind: nextKind,
+      number: nextNumber(docNumberPrefix(nextKind), seq),
+      partyId: source.partyId,
+      date: source.date,
+      dueDate: converted.dueDate,
+      lines: converted.lines,
+      taxCode: converted.lines[0]?.taxCode || source.taxCode,
+      interstate: source.interstate,
+      tax: converted.tax,
+      totalMinor: converted.totalMinor,
+      paidMinor: 0,
+      status: 'draft',
+      journalId: null,
+      paymentJournalIds: [],
+      memo: source.memo,
+      projectId: source.projectId || null,
+      poNumber: source.poNumber || '',
+      customerNotes: source.customerNotes || '',
+      terms: source.terms || '',
+      placeOfSupply: source.placeOfSupply || '',
+      billTo: source.billTo || '',
+      shipTo: source.shipTo || '',
+      convertedFromId: source.id,
+      idempotencyKey: `${nextKind}_${ref.id}`,
+      createdBy: ctx.uid,
+      createdAt: nowISO(),
+      updatedAt: nowISO(),
+    }));
+    tx.update(tenantRef(ctx.db, ctx.tenantId), { [`sequences.${nextKind}`]: seq });
+  });
   return ref.id;
 }
 

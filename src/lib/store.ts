@@ -143,8 +143,8 @@ function wrapDoc(id: string, data: any, path: string) {
   };
 }
 
-const DOC_TTL = 20_000;
-const COL_TTL = 20_000;
+const DOC_TTL = 120_000;
+const COL_TTL = 120_000;
 const memory = new Map<string, { data: Record<string, unknown> | null; at: number }>();
 const colCache = new Map<string, { at: number; rows: Array<[string, Record<string, unknown>]> }>();
 
@@ -158,6 +158,21 @@ function colKey(path: string, constraints?: Constraint[]) {
 
 function remember(path: string, data: Record<string, unknown> | null) {
   memory.set(path, { data, at: Date.now() });
+}
+
+function bumpColCache(docPath: string, data: Record<string, unknown> | null) {
+  const slash = docPath.lastIndexOf('/');
+  if (slash < 0) return;
+  const colPath = docPath.slice(0, slash);
+  const id = docPath.slice(slash + 1);
+  if (!id || id === '_snapshot') return;
+  for (const [key, entry] of colCache) {
+    if (key !== colPath && !key.startsWith(`${colPath}::`)) continue;
+    const rows = new Map(entry.rows);
+    if (data === null) rows.delete(id);
+    else rows.set(id, data);
+    colCache.set(key, { at: Date.now(), rows: [...rows.entries()] });
+  }
 }
 
 function overlayCollection(colPath: string, byId: Map<string, Record<string, unknown>>) {
@@ -232,11 +247,14 @@ export async function getDoc(ref: DocRef) {
 export async function setDoc(ref: DocRef, data: Record<string, unknown>, opts?: { merge?: boolean }) {
   const next = opts?.merge ? { ...(memory.get(ref.path)?.data || {}), ...data } : data;
   remember(ref.path, next);
+  bumpColCache(ref.path, next);
   await call({ op: 'set', path: ref.path, data, merge: Boolean(opts?.merge) });
 }
 
 export async function updateDoc(ref: DocRef, data: Record<string, unknown>) {
-  remember(ref.path, { ...(memory.get(ref.path)?.data || {}), ...data });
+  const next = { ...(memory.get(ref.path)?.data || {}), ...data };
+  remember(ref.path, next);
+  bumpColCache(ref.path, next);
   await call({ op: 'update', path: ref.path, data });
 }
 
@@ -260,6 +278,7 @@ export async function addDoc(col: { path: string }, data: Record<string, unknown
 
 export async function deleteDoc(ref: DocRef) {
   remember(ref.path, null);
+  bumpColCache(ref.path, null);
   await call({ op: 'delete', path: ref.path });
 }
 
@@ -292,6 +311,28 @@ export async function getDocs(source: { path: string; constraints?: Constraint[]
   overlayCollection(source.path, byId);
   storeCollection(source.path, source.constraints, byId);
   return asSnap(byId);
+}
+
+export async function loadErpWorkspace(tenantId: string): Promise<{
+  tenant: Record<string, unknown> | null;
+  collections: Record<string, QuerySnapshot>;
+} | null> {
+  const payload = await call({ op: 'workspace', path: `erp_workspaces/${tenantId}` });
+  if (!payload || (payload.tenant == null && !payload.collections)) return null;
+  const collections: Record<string, QuerySnapshot> = {};
+  for (const [name, rows] of Object.entries((payload.collections || {}) as Record<string, Array<{ id: string; data: Record<string, unknown> }>>)) {
+    const byId = new Map<string, Record<string, unknown>>();
+    for (const row of rows || []) {
+      if (row?.id && row.data) byId.set(row.id, row.data);
+    }
+    const colPath = `erp_workspaces/${tenantId}/${name}`;
+    overlayCollection(colPath, byId);
+    storeCollection(colPath, undefined, byId);
+    collections[name] = asSnap(byId);
+  }
+  const tenant = payload.tenant || null;
+  if (tenant) remember(`erp_workspaces/${tenantId}/meta/tenant`, tenant);
+  return { tenant, collections };
 }
 
 export async function getDocsMany(sources: Array<{ path: string; constraints?: Constraint[] }>): Promise<QuerySnapshot[]> {
@@ -377,7 +418,9 @@ export async function runTransaction<T>(_db: Firestore, fn: (tx: Transaction) =>
   };
   const result = await fn(tx);
   for (const write of writes) {
-    remember(write.path, overlay.get(write.path) || write.data);
+    const next = overlay.get(write.path) || write.data;
+    remember(write.path, next);
+    bumpColCache(write.path, next);
   }
   if (writes.length === 1) {
     await call(writes[0]);
