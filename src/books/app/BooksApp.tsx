@@ -5,11 +5,14 @@ import { BooksLoader } from '../ui/BooksLoader';
 import { moduleByPath } from '../catalog/modules';
 import Dashboard from '../modules/dashboard/Dashboard';
 import ControlTower from '../modules/control/ControlTower';
+import CfoDashboard from '../modules/dashboard/CfoDashboard';
 import Accounts from '../modules/accounting/Accounts';
 import Journals from '../modules/accounting/Journals';
 import Recurring from '../modules/accounting/Recurring';
 import Ledger from '../modules/accounting/Ledger';
 import LedgerIndex from '../modules/accounting/LedgerIndex';
+import Periods from '../modules/accounting/Periods';
+import MonthEndClose from '../modules/accounting/Close';
 import Parties from '../modules/parties/Parties';
 import Documents from '../modules/documents/Documents';
 import Reports from '../modules/reporting/Reports';
@@ -21,6 +24,7 @@ import Inventory from '../modules/inventory/Inventory';
 import Assets from '../modules/assets/Assets';
 import Projects from '../modules/projects/Projects';
 import Budgets from '../modules/budgets/Budgets';
+import Forecast from '../modules/budgets/Forecast';
 import Revenue from '../modules/revenue/Revenue';
 import Leases from '../modules/leases/Leases';
 import Entities from '../modules/entities/Entities';
@@ -61,21 +65,28 @@ export default function BooksApp() {
         <BooksShell>
         <Routes>
           <Route index element={<Dashboard />} />
+          <Route path="cfo" element={<CfoDashboard />} />
           <Route path="control-tower" element={<ControlTower />} />
           <Route path="chart-of-accounts" element={<Accounts />} />
           <Route path="journals" element={<Journals />} />
           <Route path="recurring" element={<Recurring />} />
           <Route path="ledger" element={<LedgerIndex />} />
           <Route path="ledger/:accountId" element={<Ledger />} />
+          <Route path="periods" element={<Periods />} />
+          <Route path="close" element={<MonthEndClose />} />
           <Route path="customers" element={<Parties kind="customer" />} />
           <Route path="vendors" element={<Parties kind="vendor" />} />
+          <Route path="estimates" element={<Documents kind="estimate" />} />
           <Route path="quotes" element={<Documents kind="quote" />} />
+          <Route path="sales-orders" element={<Documents kind="sales_order" />} />
           <Route path="invoices" element={<Documents kind="invoice" />} />
           <Route path="credit-notes" element={<Documents kind="credit_note" />} />
+          <Route path="debit-notes" element={<Documents kind="debit_note" />} />
           <Route path="statements" element={<Statements />} />
           <Route path="collections" element={<Collections />} />
           <Route path="payment-run" element={<PaymentRun />} />
           <Route path="purchase-orders" element={<Documents kind="purchase_order" />} />
+          <Route path="purchase-receipts" element={<Documents kind="purchase_receipt" />} />
           <Route path="bills" element={<Documents kind="bill" />} />
           <Route path="vendor-credits" element={<Documents kind="vendor_credit" />} />
           <Route path="expenses" element={<Documents kind="expense" />} />
@@ -84,6 +95,7 @@ export default function BooksApp() {
           <Route path="assets" element={<Assets />} />
           <Route path="projects" element={<Projects />} />
           <Route path="budgets" element={<Budgets />} />
+          <Route path="forecast" element={<Forecast />} />
           <Route path="revenue" element={<Revenue />} />
           <Route path="leases" element={<Leases />} />
           <Route path="entities" element={<Entities />} />

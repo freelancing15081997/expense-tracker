@@ -35,8 +35,12 @@ export function documentHref(kind: string, id?: string) {
     bill: '/books/bills',
     expense: '/books/expenses',
     quote: '/books/quotes',
+    estimate: '/books/estimates',
+    sales_order: '/books/sales-orders',
     credit_note: '/books/credit-notes',
+    debit_note: '/books/debit-notes',
     purchase_order: '/books/purchase-orders',
+    purchase_receipt: '/books/purchase-receipts',
     vendor_credit: '/books/vendor-credits',
   };
   const base = map[kind] || '/books/invoices';

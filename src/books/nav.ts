@@ -17,4 +17,6 @@ export const BOOKS_QUICK_CREATE = [
   { name: 'Customer', href: '/books/customers' },
   { name: 'Vendor', href: '/books/vendors' },
   { name: 'Expense', href: '/books/expenses' },
+  { name: 'Estimate', href: '/books/estimates' },
+  { name: 'Sales Order', href: '/books/sales-orders' },
 ];

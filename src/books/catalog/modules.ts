@@ -22,6 +22,7 @@ export const BOOKS_TREE: BooksBranch[] = [
     blurb: 'Posted balances, close health, and the work queue.',
     items: [
       { name: 'Finance Dashboard', href: '/books' },
+      { name: 'CFO Dashboard', href: '/books/cfo' },
       { name: 'Control Tower', href: '/books/control-tower' },
     ],
   },
@@ -35,6 +36,8 @@ export const BOOKS_TREE: BooksBranch[] = [
       { name: 'Journal Entries', href: '/books/journals' },
       { name: 'Recurring Journals', href: '/books/recurring' },
       { name: 'General Ledger', href: '/books/ledger' },
+      { name: 'Accounting Periods', href: '/books/periods' },
+      { name: 'Month-End Close', href: '/books/close' },
     ],
   },
   {
@@ -44,9 +47,12 @@ export const BOOKS_TREE: BooksBranch[] = [
     blurb: 'Customers, quotes, invoices, credits, and collections.',
     items: [
       { name: 'Customers', href: '/books/customers' },
+      { name: 'Estimates', href: '/books/estimates' },
       { name: 'Quotes', href: '/books/quotes' },
+      { name: 'Sales Orders', href: '/books/sales-orders' },
       { name: 'Invoices', href: '/books/invoices' },
       { name: 'Credit Notes', href: '/books/credit-notes' },
+      { name: 'Debit Notes', href: '/books/debit-notes' },
       { name: 'Statements', href: '/books/statements' },
       { name: 'Collections', href: '/books/collections' },
     ],
@@ -59,6 +65,7 @@ export const BOOKS_TREE: BooksBranch[] = [
     items: [
       { name: 'Vendors', href: '/books/vendors' },
       { name: 'Purchase Orders', href: '/books/purchase-orders' },
+      { name: 'Purchase Receipts', href: '/books/purchase-receipts' },
       { name: 'Bills', href: '/books/bills' },
       { name: 'Vendor Credits', href: '/books/vendor-credits' },
       { name: 'Payment Run', href: '/books/payment-run' },
@@ -84,6 +91,7 @@ export const BOOKS_TREE: BooksBranch[] = [
       { name: 'Fixed Assets', href: '/books/assets' },
       { name: 'Projects', href: '/books/projects' },
       { name: 'Budgets', href: '/books/budgets' },
+      { name: 'Cash Forecast', href: '/books/forecast' },
       { name: 'Revenue', href: '/books/revenue' },
       { name: 'Leases', href: '/books/leases' },
     ],

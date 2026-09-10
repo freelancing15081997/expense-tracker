@@ -1,9 +1,11 @@
 import React, { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useBooks } from '../../context/BooksProvider';
 import { signedBalance } from '../../engine/chartOfAccounts';
 import { Card, Money, PageShell } from '../../ui';
 import type { AccountType } from '../../core/types';
 import { todayISO } from '../../core/money';
+import { documentHref } from '../../../lib/search-index';
 
 type Report = 'tb' | 'pl' | 'bs' | 'aging' | 'gst' | 'cash';
 
@@ -58,6 +60,7 @@ export default function Reports() {
         <Card>
           <ReportTable currency={currency} rows={accounts.filter((a) => a.allowPosting || a.debitTotalMinor || a.creditTotalMinor).map((a) => ({
             label: `${a.code} ${a.name}`,
+            href: `/books/ledger/${a.id}`,
             debit: a.debitTotalMinor,
             credit: a.creditTotalMinor,
           }))} totals />
@@ -103,7 +106,7 @@ export default function Reports() {
                 <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-500">No posted tax documents.</td></tr>
               ) : documents.filter((d) => d.status === 'posted' || d.status === 'paid').map((d) => (
                 <tr key={d.id} className="border-b border-slate-100">
-                  <td className="px-4 py-2.5">{d.number}</td>
+                  <td className="px-4 py-2.5"><Link to={documentHref(d.kind, d.id)} className="font-medium text-teal-800 hover:underline">{d.number}</Link></td>
                   <td className="px-4 py-2.5 capitalize">{d.kind}</td>
                   <td className="px-4 py-2.5 text-right"><Money minor={d.tax.exclusiveMinor} currency={currency} /></td>
                   <td className="px-4 py-2.5 text-right"><Money minor={d.tax.cgstMinor} currency={currency} /></td>
@@ -119,7 +122,7 @@ export default function Reports() {
         <Card className="p-4 space-y-2">
           {accounts.filter((a) => a.systemKey === 'cash' || a.systemKey === 'bank').map((a) => (
             <div key={a.id} className="flex justify-between text-sm">
-              <span>{a.code} {a.name}</span>
+              <Link to={`/books/ledger/${a.id}`} className="hover:underline">{a.code} {a.name}</Link>
               <Money minor={signedBalance(a)} currency={currency} />
             </div>
           ))}
@@ -142,7 +145,7 @@ export default function Reports() {
                 <tr><td colSpan={4} className="px-4 py-8 text-center text-slate-500">No open invoices or bills.</td></tr>
               ) : aging.map((row) => (
                 <tr key={row.id} className="border-b border-slate-100">
-                  <td className="px-4 py-2.5">{row.number}</td>
+                  <td className="px-4 py-2.5"><Link to={documentHref(row.kind, row.id)} className="font-medium text-teal-800 hover:underline">{row.number}</Link></td>
                   <td className="px-4 py-2.5">{row.party}</td>
                   <td className="px-4 py-2.5">{row.bucket}</td>
                   <td className="px-4 py-2.5 text-right"><Money minor={row.outstanding} currency={currency} /></td>
@@ -161,17 +164,17 @@ function sumTypes(accounts: { type: AccountType; debitTotalMinor: number; credit
 }
 
 function listTypes(grouped: Map<AccountType, any[]>, types: AccountType[]) {
-  return types.flatMap((type) => (grouped.get(type) || []).map((a) => ({ name: `${a.code} ${a.name}`, amount: signedBalance(a) })));
+  return types.flatMap((type) => (grouped.get(type) || []).map((a) => ({ name: `${a.code} ${a.name}`, amount: signedBalance(a), href: `/books/ledger/${a.id}` })));
 }
 
-function Section({ title, rows, currency }: { title: string; rows: { name: string; amount: number }[]; currency: string }) {
+function Section({ title, rows, currency }: { title: string; rows: { name: string; amount: number; href?: string }[]; currency: string }) {
   return (
     <div>
       <h3 className="font-semibold text-slate-800 mb-2">{title}</h3>
       <ul className="space-y-1">
         {rows.map((row) => (
           <li key={row.name} className="flex justify-between text-sm">
-            <span>{row.name}</span>
+            {row.href ? <Link to={row.href} className="hover:underline">{row.name}</Link> : <span>{row.name}</span>}
             <Money minor={row.amount} currency={currency} />
           </li>
         ))}
@@ -180,7 +183,7 @@ function Section({ title, rows, currency }: { title: string; rows: { name: strin
   );
 }
 
-function ReportTable({ rows, currency, totals }: { rows: { label: string; debit: number; credit: number }[]; currency: string; totals?: boolean }) {
+function ReportTable({ rows, currency, totals }: { rows: { label: string; debit: number; credit: number; href?: string }[]; currency: string; totals?: boolean }) {
   const debit = rows.reduce((s, r) => s + r.debit, 0);
   const credit = rows.reduce((s, r) => s + r.credit, 0);
   return (
@@ -195,7 +198,7 @@ function ReportTable({ rows, currency, totals }: { rows: { label: string; debit:
       <tbody>
         {rows.map((row) => (
           <tr key={row.label} className="border-b border-slate-100">
-            <td className="px-4 py-2.5">{row.label}</td>
+            <td className="px-4 py-2.5">{row.href ? <Link to={row.href} className="hover:underline">{row.label}</Link> : row.label}</td>
             <td className="px-4 py-2.5 text-right">{row.debit ? <Money minor={row.debit} currency={currency} /> : ''}</td>
             <td className="px-4 py-2.5 text-right">{row.credit ? <Money minor={row.credit} currency={currency} /> : ''}</td>
           </tr>

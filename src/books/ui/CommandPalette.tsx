@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useBooks } from '../context/BooksProvider';
 import { BOOKS_FLAT_LINKS, BOOKS_QUICK_CREATE } from '../nav';
 import { FeatureIcon } from './icons';
+import { documentHref } from '../../lib/search-index';
 
 export default function CommandPalette() {
   const navigate = useNavigate();
@@ -33,13 +34,12 @@ export default function CommandPalette() {
     if (needle.length >= 2) {
       for (const d of books.documents) {
         if (d.number.toLowerCase().includes(needle) || d.memo.toLowerCase().includes(needle)) {
-          const href = d.kind === 'bill' ? '/books/bills' : d.kind === 'invoice' ? '/books/invoices' : d.kind === 'expense' ? '/books/expenses' : '/books/quotes';
-          records.push({ name: d.number, href, hint: d.kind });
+          records.push({ name: d.number, href: documentHref(d.kind, d.id), hint: d.kind.replace('_', ' ') });
         }
       }
       for (const p of books.parties) {
         if (p.name.toLowerCase().includes(needle)) {
-          records.push({ name: p.name, href: p.kind === 'vendor' ? '/books/vendors' : '/books/customers', hint: p.kind });
+          records.push({ name: p.name, href: `${p.kind === 'vendor' ? '/books/vendors' : '/books/customers'}?open=${p.id}`, hint: p.kind });
         }
       }
       for (const a of books.accounts) {
@@ -53,11 +53,11 @@ export default function CommandPalette() {
 
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 bg-[#161411]/40 flex items-start justify-center pt-24 px-4" onClick={() => setOpen(false)}>
-      <div className="w-full max-w-lg bg-[#fffcf7] rounded-2xl shadow-2xl border border-[#e6e0d4]" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[180] bg-[#0B1F3A]/40 flex items-start justify-center pt-24 px-4" onClick={() => setOpen(false)}>
+      <div className="w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-slate-200" onClick={(e) => e.stopPropagation()}>
         <input
           autoFocus
-          className="w-full px-4 py-3.5 border-b border-[#e6e0d4] text-sm outline-none bg-transparent"
+          className="w-full px-4 py-3.5 border-b border-slate-200 text-sm outline-none bg-transparent"
           placeholder="Search features, invoices, parties, accounts…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -66,7 +66,8 @@ export default function CommandPalette() {
           {results.map((item) => (
             <li key={`${item.href}-${item.name}`}>
               <button
-                className="w-full text-left px-4 py-2.5 text-sm hover:bg-[#f3efe6] flex justify-between gap-3"
+                type="button"
+                className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 flex justify-between gap-3"
                 onClick={() => {
                   navigate(item.href);
                   setOpen(false);
@@ -77,12 +78,12 @@ export default function CommandPalette() {
                   <FeatureIcon href={item.href} className="w-4 h-4 shrink-0" />
                   <span className="truncate">{item.name}</span>
                 </span>
-                <span className="text-[11px] uppercase tracking-wide text-[#8a8274]">{item.hint}</span>
+                <span className="text-[11px] uppercase tracking-wide text-slate-400">{item.hint}</span>
               </button>
             </li>
           ))}
         </ul>
-        <p className="px-4 py-2 text-[11px] text-[#8a8274]">Ctrl/⌘ Shift+K · invoices, parties, and accounts in this workspace</p>
+        <p className="px-4 py-2 text-[11px] text-slate-400">Ctrl/⌘ Shift+K · does not replace header search (Ctrl+K)</p>
       </div>
     </div>
   );

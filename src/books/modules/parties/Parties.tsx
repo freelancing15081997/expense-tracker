@@ -6,6 +6,7 @@ import { formatMinorPlain, parseMoney } from '../../core/money';
 import { btnGhost, btnPrimary, Card, Empty, Field, FileField, IconBtn, inputClass, Money, PageShell, RecordFlyout, Status } from '../../ui';
 import { Pager, usePaging } from '../../ui/PagedList';
 import type { FinanceParty, PartyKind } from '../../core/types';
+import { documentHref } from '../../../lib/search-index';
 
 const GST_TREATMENTS = [
   { id: '', label: 'Not specified' },
@@ -322,7 +323,7 @@ export default function Parties({ kind }: { kind: PartyKind }) {
               <ul className="space-y-2 text-sm">
                 {related.slice(0, 8).map((d) => (
                   <li key={d.id} className="flex justify-between gap-3">
-                    <Link to={d.kind === 'bill' || d.kind === 'purchase_order' || d.kind === 'vendor_credit' ? `/books/bills?open=${d.id}` : `/books/invoices?open=${d.id}`} className="underline underline-offset-2">{d.number}</Link>
+                    <Link to={documentHref(d.kind, d.id)} className="underline underline-offset-2">{d.number}</Link>
                     <span className="flex items-center gap-2"><Status value={d.status} /><Money minor={d.totalMinor} currency={currency} /></span>
                   </li>
                 ))}

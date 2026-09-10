@@ -41,7 +41,7 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
   const books = useBooks();
   const { documents, parties, postingAccounts, taxCodes, currency, can, projects, files, uploadFile } = books;
   const allRows = documents.filter((d) => d.kind === kind && d.status !== 'voided');
-  const salesKinds = ['invoice', 'quote', 'credit_note'];
+  const salesKinds = ['invoice', 'quote', 'estimate', 'sales_order', 'credit_note', 'debit_note'];
   const partyKind = kind === 'expense' ? null : salesKinds.includes(kind) ? 'customer' : 'vendor';
   const defaultAccount = postingAccounts.find((a) => a.systemKey === (salesKinds.includes(kind) ? 'sales' : 'operating_expense'))?.id || '';
   const cashAccounts = postingAccounts.filter((a) => a.systemKey === 'cash' || a.systemKey === 'bank');
@@ -50,13 +50,21 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
     bill: 'Bills',
     expense: 'Books Expenses',
     quote: 'Quotes',
+    estimate: 'Estimates',
+    sales_order: 'Sales Orders',
     credit_note: 'Credit Notes',
+    debit_note: 'Debit Notes',
     purchase_order: 'Purchase Orders',
+    purchase_receipt: 'Purchase Receipts',
     vendor_credit: 'Vendor Credits',
   };
   const title = titles[kind];
-  const convertTo = kind === 'quote' ? 'invoice' : kind === 'purchase_order' ? 'bill' : null;
-  const canPost = kind !== 'quote' && kind !== 'purchase_order';
+  const convertTo = kind === 'quote' || kind === 'estimate' || kind === 'sales_order'
+    ? 'invoice'
+    : kind === 'purchase_order' || kind === 'purchase_receipt'
+      ? 'bill'
+      : null;
+  const canPost = !['quote', 'estimate', 'sales_order', 'purchase_order', 'purchase_receipt'].includes(kind);
 
   const [open, setOpen] = useState(false);
   const [partyId, setPartyId] = useState('');
@@ -457,12 +465,12 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
                           <IconBtn action="post" onClick={() => books.postDoc(row.id, kind === 'expense' ? (payFrom || cashAccounts[0]?.id) : undefined)}>Post</IconBtn>
                         )}
                         {row.status === 'draft' && convertTo && can('create') && (
-                          <button className={btnPrimary} onClick={() => books.convertDoc(row.id, convertTo).catch((err) => setError(err.message))}>Convert</button>
+                          <button className={btnPrimary} onClick={() => books.convertDoc(row.id, convertTo).catch((err) => setError(err.message))}>Convert to {convertTo.replace('_', ' ')}</button>
                         )}
                         {row.status === 'draft' && can('void') && (
                           <button className={btnGhost} onClick={() => books.voidDoc(row.id)}>Void</button>
                         )}
-                        {(row.status === 'posted' || row.status === 'paid') && (kind === 'invoice' || kind === 'bill' || kind === 'quote') && (
+                        {kind !== 'expense' && (
                           <button className={btnGhost} onClick={async () => {
                             const party = parties.find((p) => p.id === row.partyId) || null;
                             const companyLogo = books.tenant?.logoPath ? await booksFileUrl(books.tenant.logoPath) : undefined;

@@ -107,7 +107,7 @@ export function paymentJournalLines(
 }
 
 export function documentJournalType(kind: DocumentKind) {
-  if (kind === 'invoice' || kind === 'credit_note') return 'invoice';
+  if (kind === 'invoice' || kind === 'credit_note' || kind === 'debit_note') return 'invoice';
   if (kind === 'bill' || kind === 'vendor_credit') return 'bill';
   return 'expense';
 }
@@ -119,10 +119,10 @@ export function documentToJournalLines(
   docLines: DocumentLineInput[],
   payFromAccountId?: string
 ): JournalLineInput[] {
-  if (kind === 'quote' || kind === 'purchase_order') {
+  if (kind === 'quote' || kind === 'estimate' || kind === 'sales_order' || kind === 'purchase_order' || kind === 'purchase_receipt') {
     throw new BooksError('Convert this document before posting');
   }
-  if (kind === 'invoice') return invoiceJournalLines(accounts, tax, docLines);
+  if (kind === 'invoice' || kind === 'debit_note') return invoiceJournalLines(accounts, tax, docLines);
   if (kind === 'bill') return billJournalLines(accounts, tax, docLines);
   if (kind === 'credit_note') return invertLines(invoiceJournalLines(accounts, tax, docLines));
   if (kind === 'vendor_credit') return invertLines(billJournalLines(accounts, tax, docLines));
@@ -136,8 +136,12 @@ export function docNumberPrefix(kind: DocumentKind) {
     bill: 'BILL',
     expense: 'EXP',
     quote: 'QUO',
+    estimate: 'EST',
+    sales_order: 'SO',
     credit_note: 'CN',
+    debit_note: 'DN',
     purchase_order: 'PO',
+    purchase_receipt: 'GRN',
     vendor_credit: 'VC',
   };
   return map[kind];

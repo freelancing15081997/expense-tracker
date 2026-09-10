@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { BOOKS_TREE, branchByPath, moduleByPath } from '../catalog/modules';
 import { useBooks } from '../context/BooksProvider';
 import { BooksPageMode, FeatureIcon } from '../ui';
+import CommandPalette from '../ui/CommandPalette';
 
 export default function BooksShell({ children }: { children: React.ReactNode }) {
   const location = useLocation();
@@ -42,6 +43,7 @@ export default function BooksShell({ children }: { children: React.ReactNode }) 
       <div className="flex-1 min-h-0 overflow-y-auto px-4 md:px-6 py-4">
         <BooksPageMode embedded>{children}</BooksPageMode>
       </div>
+      <CommandPalette />
     </div>
   );
 }

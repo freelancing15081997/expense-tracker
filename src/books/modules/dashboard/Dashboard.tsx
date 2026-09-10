@@ -72,6 +72,7 @@ export default function Dashboard() {
           {openBills.length > 0 && <p className="text-sm font-medium text-amber-900">{openBills.length} unpaid bill{openBills.length === 1 ? '' : 's'} — <Link to="/books/payment-run" className="underline">Payment run</Link></p>}
           {pending > 0 && <p className="text-sm font-medium text-amber-900">{pending} pending approval{pending === 1 ? '' : 's'} — <Link to="/books/approvals" className="underline">Approvals</Link></p>}
           {unrec > 0 && <p className="text-sm font-medium text-amber-900">{unrec} unreconciled bank item{unrec === 1 ? '' : 's'} — <Link to="/books/banking" className="underline">Banking</Link></p>}
+          <p className="text-sm font-medium text-amber-900">Close checklist — <Link to="/books/close" className="underline">Month-end close</Link></p>
         </Card>
       )}
 

@@ -560,7 +560,10 @@ export async function convertDocument(ctx: TxCtx, documentId: string, nextKind: 
   const source = { id: snap.id, ...snap.data() } as FinanceDocument;
   if (source.status === 'voided') throw new BooksError('Cannot convert a voided document');
   if (source.kind === 'quote' && nextKind !== 'invoice') throw new BooksError('A quote converts to an invoice');
+  if (source.kind === 'estimate' && nextKind !== 'invoice') throw new BooksError('An estimate converts to an invoice');
+  if (source.kind === 'sales_order' && nextKind !== 'invoice') throw new BooksError('A sales order converts to an invoice');
   if (source.kind === 'purchase_order' && nextKind !== 'bill') throw new BooksError('A purchase order converts to a bill');
+  if (source.kind === 'purchase_receipt' && nextKind !== 'bill') throw new BooksError('A goods receipt converts to a bill');
   const tenantSnap = await getDoc(tenantRef(ctx.db, ctx.tenantId));
   const tenant = tenantSnap.data() as FinanceTenant;
   const seq = (tenant.sequences[nextKind] || 0) + 1;
