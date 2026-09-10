@@ -167,7 +167,7 @@ export function IconBtn({
   const cls = variant === 'ghost' ? btnGhost : btnPrimary;
   return (
     <button className={`${cls} ${className}`} {...props}>
-      <ActionIcon name={action} className="w-4 h-4 shrink-0" />
+      <ActionIcon name={action} className="w-5 h-5 shrink-0" />
       {children}
     </button>
   );

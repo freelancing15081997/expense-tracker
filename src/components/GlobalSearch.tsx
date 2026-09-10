@@ -77,7 +77,7 @@ export function SearchTrigger({
         onClick={open}
         className="w-full flex items-center gap-2 px-3 py-2 rounded-xl bg-[#F8FAFC] border border-slate-200 text-left text-sm text-slate-600 hover:bg-white byjan-lift"
       >
-        <Search className="w-4 h-4 text-slate-500 shrink-0" />
+        <Search className="w-6 h-6 text-slate-500 shrink-0" />
         <span className="flex-1">Search…</span>
         <kbd className="hidden lg:inline px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 bg-white border border-slate-200 rounded">⌘K</kbd>
       </button>
@@ -90,7 +90,7 @@ export function SearchTrigger({
         onClick={open}
         className="flex items-center gap-2 w-full max-w-xl px-3 py-2 text-sm text-slate-800 bg-white hover:bg-slate-50 rounded-xl border border-slate-200 shadow-[0_1px_1px_rgba(11,31,58,0.04),0_8px_18px_-12px_rgba(11,31,58,0.18)] transition-colors"
       >
-        <Search className="w-4 h-4 text-slate-600" />
+        <Search className="w-6 h-6 text-slate-600" />
         <span className="flex-1 text-left text-slate-500">Search features, customers, expenses…</span>
         <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 bg-slate-100 border border-slate-200 rounded">⌘K</kbd>
       </button>
@@ -99,7 +99,7 @@ export function SearchTrigger({
   if (variant === 'icon') {
     return (
       <button type="button" onClick={open} className="p-2 rounded-lg text-slate-600 hover:bg-slate-100" title="Search (⌘K)">
-        <Search className="w-4 h-4" />
+        <Search className="w-6 h-6" />
       </button>
     );
   }
@@ -109,7 +109,7 @@ export function SearchTrigger({
       onClick={open}
       className="flex items-center gap-2 px-3 py-1.5 text-sm text-slate-700 bg-slate-100 hover:bg-slate-50 rounded-lg border border-slate-200 transition-colors"
     >
-      <Search className="w-4 h-4" />
+      <Search className="w-6 h-6" />
       <span className="hidden sm:inline">Search</span>
     </button>
   );
@@ -217,7 +217,7 @@ export default function GlobalSearch() {
     <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[80] flex items-start justify-center pt-[12vh]">
       <div ref={searchRef} className="w-full max-w-2xl mx-4 byjan-panel overflow-hidden">
         <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-200">
-          <Search className="w-5 h-5 text-slate-500" />
+          <Search className="w-6 h-6 text-slate-500" />
           <input
             ref={inputRef}
             type="text"

@@ -47,7 +47,7 @@ export type BooksGlyphName =
 
 function Frame({ className, children }: { className?: string; children: React.ReactNode }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" className={className || 'w-4 h-4'} aria-hidden>
+    <svg viewBox="0 0 24 24" fill="none" className={`byjan-glyph ${className || 'w-6 h-6'}`} aria-hidden>
       {children}
     </svg>
   );

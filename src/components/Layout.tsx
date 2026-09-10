@@ -101,7 +101,7 @@ export default function Layout() {
         {showText && <p className="text-[10px] font-bold tracking-widest text-slate-400 uppercase px-3 mb-1 whitespace-nowrap">Workspace</p>}
 
         <Link to="/expenses" className={navBtn(onExpenses)}>
-          <ArrowRightLeft className="w-5 h-5 shrink-0" />
+          <ArrowRightLeft className="w-6 h-6 shrink-0" />
           {showText && <span className="whitespace-nowrap">Expense Tracker</span>}
         </Link>
 
@@ -114,7 +114,7 @@ export default function Layout() {
                 onBooks ? 'text-[#0B1F3A]' : 'text-slate-700 hover:bg-slate-50 rounded-xl'
               )}
             >
-              <BooksGlyph name="book" className="w-5 h-5 shrink-0" />
+              <BooksGlyph name="book" className="w-6 h-6 shrink-0" />
               {showText && <span className="whitespace-nowrap">Books</span>}
             </Link>
             {showText && (
@@ -124,7 +124,7 @@ export default function Layout() {
                 onClick={() => setBooksOpen((open) => !open)}
                 className="px-2 rounded-r-xl text-slate-500 hover:text-[#0B1F3A]"
               >
-                {booksOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                {booksOpen ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
               </button>
             )}
           </div>
@@ -145,7 +145,7 @@ export default function Layout() {
                       className="w-full flex items-center justify-between px-2 py-1.5 rounded-xl text-[13px] font-semibold text-slate-600 hover:bg-slate-50 hover:text-[#0B1F3A] whitespace-nowrap"
                     >
                       <span className="flex items-center gap-2 min-w-0">
-                        <GroupIcon title={group.title} className="w-4 h-4 shrink-0" />
+                        <GroupIcon title={group.title} className="w-5 h-5 shrink-0" />
                         <span className="truncate">{group.title}</span>
                       </span>
                       <ChevronRight className={cn('w-3.5 h-3.5 text-slate-400 transition-transform shrink-0', groupOpen && 'rotate-90')} />
@@ -161,7 +161,7 @@ export default function Layout() {
                               location.pathname === sub.href ? 'byjan-subnav-active' : ''
                             )}
                           >
-                            <FeatureIcon href={sub.href} className="w-4 h-4 shrink-0" />
+                            <FeatureIcon href={sub.href} className="w-5 h-5 shrink-0" />
                             {sub.name}
                           </Link>
                         ))}
@@ -175,7 +175,7 @@ export default function Layout() {
         </div>
 
         <Link to="/settings" className={navBtn(location.pathname === '/settings')}>
-          <Settings className="w-5 h-5 shrink-0" />
+          <Settings className="w-6 h-6 shrink-0" />
           {showText && <span className="whitespace-nowrap">Settings</span>}
         </Link>
       </nav>
@@ -207,7 +207,7 @@ export default function Layout() {
               title="Sign out"
               className="p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-700 rounded-lg"
             >
-              <LogOut className="w-4 h-4" />
+              <LogOut className="w-6 h-6" />
             </button>
           </div>
       </div>
@@ -226,11 +226,11 @@ export default function Layout() {
         <div className="flex items-center gap-1">
           <SearchTrigger />
           <button onClick={() => setNotificationsPanelOpen(true)} className="relative p-2 text-slate-600 hover:bg-slate-100 rounded-lg">
-            <Bell className="w-5 h-5" />
+            <Bell className="w-6 h-6" />
             {unreadCount > 0 && <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full" />}
           </button>
           <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg">
-            {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
           </button>
         </div>
       </div>
@@ -282,7 +282,7 @@ export default function Layout() {
           <div className="fixed inset-y-0 right-0 w-full max-w-sm bg-white z-50 flex flex-col shadow-[-12px_0_40px_-16px_rgba(11,31,58,0.28)]">
             <div className="p-4 border-b flex items-center justify-between bg-slate-50">
               <h2 className="font-semibold flex items-center gap-2 text-slate-800">
-                <Bell className="w-4 h-4 text-slate-500" />
+                <Bell className="w-6 h-6 text-slate-500" />
                 Notifications
               </h2>
               <button onClick={() => setNotificationsPanelOpen(false)} className="p-1 text-slate-400 hover:text-slate-600 rounded">

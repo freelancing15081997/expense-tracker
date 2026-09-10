@@ -6,22 +6,21 @@ type BrandLogoProps = {
 };
 
 const sizes = {
-  sm: 'w-8 h-8',
-  md: 'w-16 h-16',
-  lg: 'w-28 h-28',
+  sm: 'w-12 h-12',
+  md: 'w-24 h-24',
+  lg: 'w-72 h-72 max-w-[88vw]',
 };
 
 export default function BrandLogo({ size = 'sm', className = '' }: BrandLogoProps) {
-  const crop = size === 'lg'
-    ? 'object-contain p-[4%]'
-    : 'object-cover object-[50%_10%] scale-[1.35] origin-center';
-
   return (
-    <div className={`${sizes[size]} ${className} overflow-hidden rounded-lg bg-white shrink-0 ring-1 ring-slate-200/80`.trim()}>
+    <div
+      className={`${sizes[size]} ${className} brand-logo overflow-hidden rounded-2xl bg-white shrink-0 ring-1 ring-slate-200/90 shadow-[0_8px_24px_-12px_rgba(11,31,58,0.35)]`.trim()}
+      data-size={size}
+    >
       <img
         src="/logo.png"
         alt="Byjan — Trace Financials Easily"
-        className={`w-full h-full ${crop}`}
+        className="brand-logo-img"
       />
     </div>
   );
