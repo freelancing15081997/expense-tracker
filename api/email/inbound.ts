@@ -275,7 +275,12 @@ type ParsedReceipt = {
   category: string;
   entryType: 'in' | 'out';
   documentType: 'receipt' | 'bill' | 'invoice';
-  parseSource: 'text' | 'image' | 'mixed' | 'ocr';
+  parseSource: 'text' | 'image' | 'mixed' | 'ocr' | 'ai';
+  taxAmount?: number;
+  currency?: string;
+  invoiceNumber?: string;
+  paymentMethod?: string;
+  notes?: string;
 };
 
 const CATEGORY_RULES: Array<{ category: string; pattern: RegExp }> = [
@@ -432,7 +437,34 @@ function withTimeoutMs<T>(promise: Promise<T>, ms: number): Promise<T | null> {
   });
 }
 
-async function extractPdfText(bytes: Buffer) {
+function preferParsed(primary: ParsedReceipt, secondary: ParsedReceipt): ParsedReceipt {
+  const amount = primary.amount || secondary.amount;
+  const merchant = primary.merchant || secondary.merchant;
+  const description = primary.description || secondary.description;
+  const category = primary.category !== 'Uncategorized' ? primary.category : secondary.category;
+  return {
+    amount,
+    date: primary.date || secondary.date,
+    merchant,
+    description,
+    category,
+    entryType: primary.entryType === 'in' || secondary.entryType === 'in' ? 'in' : 'out',
+    documentType: primary.documentType !== 'receipt' ? primary.documentType : secondary.documentType,
+    parseSource:
+      primary.amount && secondary.amount && primary.parseSource !== secondary.parseSource
+        ? 'mixed'
+        : primary.amount
+          ? primary.parseSource
+          : secondary.parseSource,
+    taxAmount: primary.taxAmount || secondary.taxAmount,
+    currency: primary.currency || secondary.currency,
+    invoiceNumber: primary.invoiceNumber || secondary.invoiceNumber,
+    paymentMethod: primary.paymentMethod || secondary.paymentMethod,
+    notes: primary.notes || secondary.notes,
+  };
+}
+
+async function extractPdfTextFast(bytes: Buffer) {
   const { PDFParse } = await import('pdf-parse');
   const parser = new PDFParse({ data: bytes });
   try {
@@ -454,62 +486,27 @@ async function extractImageText(bytes: Buffer) {
   }
 }
 
-async function extractDocumentText(bytes: Buffer, contentType: string, fileName: string) {
-  const mime = mimeForDocument(contentType, fileName);
-  if (!mime || !bytes.length) return '';
-  try {
-    if (mime === 'application/pdf') {
-      return (await withTimeoutMs(extractPdfText(bytes), 20_000)) || '';
-    }
-    if (mime.startsWith('image/')) {
-      return (await withTimeoutMs(extractImageText(bytes), 40_000)) || '';
-    }
-  } catch (err) {
-    console.error('document text extract failed', err);
-  }
-  return '';
-}
-
-async function parseDocumentLocal(
-  bytes: Buffer,
-  contentType: string,
-  fileName: string,
-  body: string,
-  subject: string,
-  fallback: ParsedReceipt,
-) {
-  const extracted = await extractDocumentText(bytes, contentType, fileName);
-  if (!extracted) return { parsed: fallback, ocrText: '' };
-  const merged = parseReceiptFields(`${subject}\n${body}\n${extracted}`, { subject, fileName });
-  const parsed: ParsedReceipt = {
-    amount: merged.amount || fallback.amount,
-    date: merged.date || fallback.date,
-    merchant: merged.merchant || fallback.merchant,
-    description: merged.description || fallback.description,
-    category: merged.category !== 'Uncategorized' ? merged.category : fallback.category,
-    entryType: fallback.entryType === 'in' ? 'in' : merged.entryType,
-    documentType: merged.documentType || fallback.documentType,
-    parseSource: merged.amount
-      ? (fallback.amount || body ? 'mixed' : 'ocr')
-      : fallback.parseSource,
-  };
-  return { parsed, ocrText: extracted.slice(0, 500) };
-}
-
 function geminiKey() {
   return String(process.env.GEMINI_API_KEY || process.env.GOOGLE_GENAI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
 }
 
-function mimeForGemini(contentType: string, fileName = '') {
-  return mimeForDocument(contentType, fileName);
+function allowSlowOcr() {
+  return String(process.env.INBOUND_ALLOW_SLOW_OCR || '').trim() === '1';
 }
 
 function asParsed(value: any, fallback: ParsedReceipt): ParsedReceipt {
   if (!value || typeof value !== 'object') return fallback;
-  const amount = toNumber(value.amount);
-  const date = parseIsoDate(String(value.date || '')) || fallback.date;
-  const merchant = String(value.merchant || fallback.merchant || '').slice(0, 80);
-  const description = String(value.description || merchant || fallback.description).slice(0, 120);
+  const amount = toNumber(value.amount ?? value.total ?? value.grandTotal);
+  const taxAmount = toNumber(value.taxAmount ?? value.tax ?? value.gst ?? value.vat);
+  const date = parseIsoDate(String(value.date || value.invoiceDate || value.billDate || '')) || fallback.date;
+  const merchant = String(value.merchant || value.vendor || value.seller || fallback.merchant || '').slice(0, 80);
+  const description = String(
+    value.description ||
+    value.summary ||
+    (Array.isArray(value.lineItems) ? value.lineItems.slice(0, 3).map((row: any) => row?.name || row?.description).filter(Boolean).join(', ') : '') ||
+    merchant ||
+    fallback.description,
+  ).slice(0, 160);
   const category = String(value.category || '').trim() || fallback.category;
   const entryType = value.entryType === 'in' ? 'in' : 'out';
   const documentType = value.documentType === 'invoice' || value.documentType === 'bill' ? value.documentType : 'receipt';
@@ -521,16 +518,30 @@ function asParsed(value: any, fallback: ParsedReceipt): ParsedReceipt {
     category: category === 'Uncategorized' ? fallback.category : category,
     entryType: fallback.entryType === 'in' ? 'in' : entryType,
     documentType,
-    parseSource: fallback.amount && amount ? 'mixed' : amount ? 'image' : fallback.parseSource,
+    parseSource: amount ? 'ai' : fallback.parseSource,
+    taxAmount: taxAmount || fallback.taxAmount,
+    currency: String(value.currency || fallback.currency || '').slice(0, 8) || undefined,
+    invoiceNumber: String(value.invoiceNumber || value.billNumber || value.receiptNumber || fallback.invoiceNumber || '').slice(0, 64) || undefined,
+    paymentMethod: String(value.paymentMethod || fallback.paymentMethod || '').slice(0, 40) || undefined,
+    notes: String(value.notes || fallback.notes || '').slice(0, 240) || undefined,
   };
 }
 
-async function parseDocumentWithGemini(bytes: Buffer, contentType: string, fileName: string, fallback: ParsedReceipt) {
+async function parseDocumentWithGemini(
+  bytes: Buffer,
+  contentType: string,
+  fileName: string,
+  fallback: ParsedReceipt,
+  emailContext = '',
+) {
   const key = geminiKey();
-  const mime = mimeForGemini(contentType, fileName);
+  const mime = mimeForDocument(contentType, fileName);
   if (!key || !mime || !bytes.length) return fallback;
+  // Keep payloads lean for speed (complex docs still work; very large scans are truncated).
+  const maxBytes = 4 * 1024 * 1024;
+  const payloadBytes = bytes.length > maxBytes ? bytes.subarray(0, maxBytes) : bytes;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 18_000);
+  const timer = setTimeout(() => controller.abort(), 12_000);
   try {
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(key)}`, {
       method: 'POST',
@@ -540,9 +551,26 @@ async function parseDocumentWithGemini(bytes: Buffer, contentType: string, fileN
         contents: [{
           parts: [
             {
-              text: 'Read this receipt, bill, or invoice. Return JSON only with keys amount (number), date (YYYY-MM-DD), merchant, description, category (Fuel, Groceries, Meals, Travel, Utilities, Health, Shopping, Software Subscriptions, or Uncategorized), entryType (out unless it is money received), documentType (receipt, bill, or invoice). Use 0 if amount is missing. Do not invent amounts.',
+              text: `You are a professional accounts-payable document parser for Byjan.
+Read this receipt, bill, invoice, tax invoice, UPI screenshot, bank slip, or photo of a document.
+Email context (may be empty): ${emailContext.slice(0, 1200)}
+Return JSON only with:
+amount (number, grand total payable; 0 if unknown),
+taxAmount (number or 0),
+currency (INR/USD/EUR/GBP or empty),
+date (YYYY-MM-DD),
+merchant (store/vendor),
+description (short human summary for an expense form),
+category (Fuel, Groceries, Meals, Travel, Utilities, Health, Shopping, Software Subscriptions, or Uncategorized),
+entryType ("out" for spend, "in" only if money received),
+documentType (receipt|bill|invoice),
+invoiceNumber (string),
+paymentMethod (cash|upi|card|bank|other or empty),
+notes (one short line of useful extras; empty if none),
+lineItems (optional array of {name, amount}).
+Rules: never invent an amount; prefer printed grand total/net payable; handle messy photos, skewed scans, multi-column invoices, and Indian GST layouts.`,
             },
-            { inline_data: { mime_type: mime, data: bytes.toString('base64') } },
+            { inline_data: { mime_type: mime, data: payloadBytes.toString('base64') } },
           ],
         }],
         generationConfig: { temperature: 0, responseMimeType: 'application/json' },
@@ -557,6 +585,104 @@ async function parseDocumentWithGemini(bytes: Buffer, contentType: string, fileN
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Professional + fast document enrichment:
+ * 1) Gemini multimodal (complex images/PDFs) when GEMINI_API_KEY is set — typically 2–6s
+ * 2) Fast PDF text extract in parallel (embedded text only)
+ * 3) Slow Tesseract OCR only if INBOUND_ALLOW_SLOW_OCR=1 and no Gemini key
+ */
+async function enrichFromDocument(
+  bytes: Buffer,
+  contentType: string,
+  fileName: string,
+  body: string,
+  subject: string,
+  fallback: ParsedReceipt,
+) {
+  const mime = mimeForDocument(contentType, fileName);
+  if (!mime) return { parsed: fallback, preview: '', engine: 'none' };
+
+  const jobs: Array<Promise<{ parsed: ParsedReceipt; preview: string; engine: string } | null>> = [];
+  const emailContext = `${subject}\n${body}`.trim();
+
+  if (geminiKey()) {
+    jobs.push(
+      parseDocumentWithGemini(bytes, contentType, fileName, fallback, emailContext).then((parsed) => ({
+        parsed,
+        preview: '',
+        engine: 'gemini',
+      })),
+    );
+  }
+
+  if (mime === 'application/pdf') {
+    jobs.push(
+      (async () => {
+        const text = await withTimeoutMs(extractPdfTextFast(bytes), 8_000);
+        if (!text) return null;
+        const merged = parseReceiptFields(`${subject}\n${body}\n${text}`, { subject, fileName });
+        return {
+          parsed: preferParsed(
+            {
+              ...merged,
+              parseSource: merged.amount ? 'ocr' : fallback.parseSource,
+            },
+            fallback,
+          ),
+          preview: text.slice(0, 500),
+          engine: 'pdf-text',
+        };
+      })(),
+    );
+  } else if (mime.startsWith('image/') && !geminiKey() && allowSlowOcr()) {
+    jobs.push(
+      (async () => {
+        const text = await withTimeoutMs(extractImageText(bytes), 12_000);
+        if (!text) return null;
+        const merged = parseReceiptFields(`${subject}\n${body}\n${text}`, { subject, fileName });
+        return {
+          parsed: preferParsed(
+            {
+              ...merged,
+              parseSource: merged.amount ? 'ocr' : fallback.parseSource,
+            },
+            fallback,
+          ),
+          preview: text.slice(0, 500),
+          engine: 'tesseract',
+        };
+      })(),
+    );
+  }
+
+  if (!jobs.length) return { parsed: fallback, preview: '', engine: 'none' };
+
+  const settled = await Promise.all(jobs);
+  let best = fallback;
+  let preview = '';
+  let engine = 'none';
+  for (const row of settled) {
+    if (!row) continue;
+    // Prefer AI / higher-confidence amount results.
+    if (row.engine === 'gemini' && (row.parsed.amount || row.parsed.merchant)) {
+      best = preferParsed(row.parsed, best);
+      engine = 'gemini';
+      if (row.preview) preview = row.preview;
+      continue;
+    }
+    if (row.parsed.amount && !best.amount) {
+      best = preferParsed(row.parsed, best);
+      engine = row.engine;
+      preview = row.preview || preview;
+      continue;
+    }
+    best = preferParsed(best, row.parsed);
+    if (!preview && row.preview) preview = row.preview;
+    if (engine === 'none') engine = row.engine;
+  }
+  return { parsed: best, preview, engine };
 }
 
 type RoleRow = { role?: string; email?: string };
@@ -941,8 +1067,9 @@ async function processItem(item: any) {
 
   let parsed = parseReceiptFields(body, { subject, fileName: receipt?.name || attachments[0]?.Name || '' });
   let ocrPreview = '';
+  let parseEngine = 'text';
   if (receipt?.bytes) {
-    const local = await parseDocumentLocal(
+    const enriched = await enrichFromDocument(
       receipt.bytes,
       receipt.contentType,
       receipt.name,
@@ -950,12 +1077,9 @@ async function processItem(item: any) {
       subject,
       parsed,
     );
-    parsed = local.parsed;
-    ocrPreview = local.ocrText;
-    // Optional upgrade only when open-source OCR still couldn't find an amount.
-    if (!parsed.amount) {
-      parsed = await parseDocumentWithGemini(receipt.bytes, receipt.contentType, receipt.name, parsed);
-    }
+    parsed = enriched.parsed;
+    ocrPreview = enriched.preview;
+    parseEngine = enriched.engine || parseEngine;
   }
 
   const id = newId();
@@ -975,7 +1099,13 @@ async function processItem(item: any) {
     source: 'email',
     documentType: parsed.documentType,
     merchant: parsed.merchant || null,
+    taxAmount: parsed.taxAmount || 0,
+    invoiceNumber: parsed.invoiceNumber || null,
+    paymentMethod: parsed.paymentMethod || null,
+    notes: parsed.notes || null,
+    currencyHint: parsed.currency || null,
     parseSource: parsed.parseSource,
+    parseEngine,
     emailMessageId: messageId,
     receiptPath: receipt?.path || null,
     receiptName: receipt?.name || null,
@@ -1026,6 +1156,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         service: 'inbound-email',
         accepts: 'POST',
         secretConfigured: Boolean(inboundSecret()),
+        docAiConfigured: Boolean(geminiKey()),
+        slowOcrEnabled: allowSlowOcr(),
       });
       return;
     }
