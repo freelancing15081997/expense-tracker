@@ -84,13 +84,35 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const textMessage = message.replace(/<[^>]*>?/gm, '');
     const from = mailFrom();
     const mail = {
-      from: `"Byjan Notifications" <${from}>`,
+      from: `"Byjan" <${from}>`,
       replyTo: from,
       envelope: { from, to },
       to,
       subject,
       text: textMessage,
-      html: `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;background:#f8fafc;padding:24px">${message}<p style="color:#94a3b8;font-size:12px">This is an automated notification from Byjan.</p></body></html>`,
+      html: `<!DOCTYPE html>
+<html lang="en">
+<body style="margin:0;padding:0;background:#f4f1ea">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:32px 12px;background:#f4f1ea">
+    <tr><td align="center">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border:1px solid #e6e1d6">
+        <tr><td style="padding:28px 32px 20px;border-bottom:3px solid #0B1F3A">
+          <p style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:22px;color:#0B1F3A;letter-spacing:0.08em">BYJAN</p>
+          <p style="margin:6px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:#8a8070">Ledger notice</p>
+        </td></tr>
+        <tr><td style="padding:28px 32px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#334155">${message}</td></tr>
+        <tr><td style="padding:16px 32px 24px;border-top:1px solid #edf0f2;font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#94a3b8">
+          You received this because you are a member of a Byjan ledger.<br/>Byjan · easypado.com · Service notice, not marketing.
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`,
+      headers: {
+        'List-Unsubscribe': '<mailto:noreply@easypado.com?subject=unsubscribe>',
+        'X-Auto-Response-Suppress': 'All',
+      },
     };
     try {
       const info = await transporter.sendMail(mail);

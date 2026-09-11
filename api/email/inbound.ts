@@ -594,7 +594,8 @@ Return JSON only with keys:
 amount (number), taxAmount (number), currency, date (YYYY-MM-DD), merchant, description, category
 (Fuel, Groceries, Meals, Travel, Utilities, Health, Shopping, Software Subscriptions, or Uncategorized),
 entryType (out|in), documentType (receipt|bill|invoice), invoiceNumber, paymentMethod, notes.
-Never invent amounts. Prefer grand total / amount paid / net payable.`;
+Never invent amounts. Prefer grand total / amount paid / net payable.
+If this is not a financial document (selfie, personal photo, meme, blank page, encrypted or password-protected file, or a screenshot with no totals), set amount to 0, leave merchant empty, and set notes to "not_a_receipt".`;
 
   const requestBody = {
     contents: [{
@@ -918,6 +919,89 @@ async function storeReceipt(bookId: string, attachment: Record<string, unknown>)
   };
 }
 
+function escapeHtml(value: string) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function wrapByjanEmail(opts: {
+  kicker: string;
+  title: string;
+  intro: string;
+  rows?: Array<{ label: string; value: string }>;
+  note?: string;
+  ctaLabel: string;
+  ctaHref: string;
+}) {
+  const rows = (opts.rows || [])
+    .filter((row) => String(row.value || '').trim())
+    .map((row) => `
+      <tr>
+        <td style="padding:10px 0;border-bottom:1px solid #edf0f2;width:34%;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#64748b;font-family:Georgia,'Times New Roman',serif">${escapeHtml(row.label)}</td>
+        <td style="padding:10px 0;border-bottom:1px solid #edf0f2;font-size:14px;color:#0f172a;font-family:Arial,Helvetica,sans-serif">${escapeHtml(row.value)}</td>
+      </tr>`).join('');
+  return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
+<body style="margin:0;padding:0;background:#f4f1ea;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f1ea;padding:32px 12px">
+    <tr><td align="center">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border:1px solid #e6e1d6">
+        <tr>
+          <td style="padding:28px 32px 20px;border-bottom:3px solid #0B1F3A">
+            <p style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:22px;color:#0B1F3A;letter-spacing:0.08em">BYJAN</p>
+            <p style="margin:6px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:#8a8070">${escapeHtml(opts.kicker)}</p>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:28px 32px 8px">
+            <h1 style="margin:0 0 12px;font-family:Georgia,'Times New Roman',serif;font-size:22px;line-height:1.3;color:#0B1F3A;font-weight:normal">${escapeHtml(opts.title)}</h1>
+            <p style="margin:0 0 20px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#334155">${escapeHtml(opts.intro)}</p>
+            ${rows ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">${rows}</table>` : ''}
+            ${opts.note ? `<p style="margin:20px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.55;color:#64748b">${escapeHtml(opts.note)}</p>` : ''}
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:24px 32px 32px">
+            <a href="${escapeHtml(opts.ctaHref)}" style="display:inline-block;background:#0B1F3A;color:#ffffff;text-decoration:none;padding:12px 22px;font-family:Arial,Helvetica,sans-serif;font-size:13px;letter-spacing:0.04em">${escapeHtml(opts.ctaLabel)}</a>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:16px 32px 24px;border-top:1px solid #edf0f2;font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:1.6;color:#94a3b8">
+            You received this because you are a member of this ledger on Byjan.<br/>
+            Byjan · easypado.com · This is a service notice, not a marketing message.
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+}
+
+function looksLikeFilename(value: string) {
+  const text = String(value || '').trim();
+  return !text || /\.(jpe?g|png|webp|gif|heic|pdf)$/i.test(text) || /^img[-_\s.]?\d+/i.test(text);
+}
+
+function isUnusableDocument(parsed: ParsedReceipt, body: string, ocrPreview: string, parseEngine: string, hasFile: boolean) {
+  const hay = `${parsed.notes || ''} ${parsed.description || ''} ${ocrPreview || ''}`.toLowerCase();
+  if (/\bnot_a_receipt\b|not a receipt|not an invoice|not a bill|selfie|personal photo|encrypted|password-protected|password protected|unreadable document/.test(hay)) {
+    return true;
+  }
+  const noAmount = !parsed.amount;
+  const noMerchant = looksLikeFilename(parsed.merchant || '');
+  const thinBody = clipQuoted(body).length < 24;
+  const failedParse = parseEngine === 'gemini-failed' || parseEngine === 'none' || ocrPreview.startsWith('gemini_error:');
+  if (noAmount && noMerchant && parsed.category === 'Uncategorized' && (thinBody || failedParse || !hasFile)) {
+    return true;
+  }
+  return false;
+}
+
 async function sendMail(to: string, subject: string, html: string) {
   const nodemailerMod: any = await import('nodemailer');
   const createTransport = nodemailerMod.createTransport || nodemailerMod.default?.createTransport;
@@ -933,13 +1017,17 @@ async function sendMail(to: string, subject: string, html: string) {
   let transporter = createTransport(settings);
   const from = mailFrom();
   const mail = {
-    from: `"Byjan Notifications" <${from}>`,
+    from: `"Byjan" <${from}>`,
     replyTo: from,
     envelope: { from, to },
     to,
     subject,
-    text: html.replace(/<[^>]*>?/gm, ''),
+    text: html.replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim(),
     html,
+    headers: {
+      'List-Unsubscribe': `<mailto:noreply@${INBOUND_DOMAIN}?subject=unsubscribe>`,
+      'X-Auto-Response-Suppress': 'All',
+    },
   };
   try {
     await transporter.sendMail(mail);
@@ -966,38 +1054,80 @@ async function logInboundEvent(bookId: string, event: Record<string, unknown>) {
 
 async function notifyMembers(
   mailbox: Mailbox,
-  detail: string,
   bookId: string,
-  senderName: string,
-  action: string,
-  inboundEventId?: string,
+  opts: {
+    kind: 'added' | 'rejected' | 'unreadable';
+    sender: string;
+    subjectLine?: string;
+    amount?: string;
+    category?: string;
+    description?: string;
+    fileName?: string;
+    reason?: string;
+    inboundEventId?: string;
+  },
 ) {
   const emails = Object.values(mailbox.roles).map((row) => String(row?.email || '').toLowerCase()).filter(Boolean);
   const unique = [...new Set(emails)];
   const link = `${APP_ORIGIN}/#/book/${bookId}`;
-  const html = `
-    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px">
-      <p style="font-weight:700;color:#0B1F3A;letter-spacing:1px">Byjan</p>
-      <h2 style="color:#111827;font-size:20px;margin:12px 0 8px">Inbound mail · ${mailbox.name}</h2>
-      <p style="color:#374151;font-size:15px;line-height:1.5"><strong>${senderName}</strong> — ${action}</p>
-      <p style="color:#0f172a;font-size:15px;font-weight:500">${detail}</p>
-      <p style="text-align:center;margin:28px 0 8px">
-        <a href="${link}" style="display:inline-block;background:#0B1F3A;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:700;font-size:14px">Open ledger in Byjan</a>
-      </p>
-      <p style="text-align:center;color:#64748b;font-size:12px;margin:0">Or paste this link:<br/><a href="${link}" style="color:#0B1F3A">${link}</a></p>
-    </div>
-  `;
+  const copy = {
+    added: {
+      subject: `Ledger update · ${mailbox.name}`,
+      kicker: 'Ledger notice',
+      title: `An entry was added to ${mailbox.name}`,
+      intro: `${opts.sender} sent a document to this ledger. Byjan recorded the details below.`,
+      cta: 'View ledger',
+      action: 'Entry added from inbound mail',
+    },
+    rejected: {
+      subject: `Mail not added · ${mailbox.name}`,
+      kicker: 'Access notice',
+      title: `Mail was not added to ${mailbox.name}`,
+      intro: 'A message reached this ledger address, but no entry was created.',
+      cta: 'Review team',
+      action: 'Inbound mail was not added',
+    },
+    unreadable: {
+      subject: `Document not recorded · ${mailbox.name}`,
+      kicker: 'Document notice',
+      title: `No entry was created in ${mailbox.name}`,
+      intro: `${opts.sender} sent a file that could not be read as a receipt, bill, or invoice. Nothing was posted to the ledger.`,
+      cta: 'Open ledger',
+      action: 'Unreadable document was not recorded',
+    },
+  }[opts.kind];
+  const html = wrapByjanEmail({
+    kicker: copy.kicker,
+    title: copy.title,
+    intro: copy.intro,
+    rows: [
+      { label: 'Ledger', value: mailbox.name },
+      { label: 'From', value: opts.sender },
+      { label: 'Subject', value: opts.subjectLine || '' },
+      { label: 'Amount', value: opts.amount || '' },
+      { label: 'Category', value: opts.category || '' },
+      { label: 'Description', value: opts.description || '' },
+      { label: 'File', value: opts.fileName || '' },
+      { label: 'Reason', value: opts.reason || '' },
+    ],
+    note: opts.kind === 'unreadable'
+      ? 'Photos of people, blank images, encrypted files, and other non-financial documents are ignored on purpose.'
+      : undefined,
+    ctaLabel: copy.cta,
+    ctaHref: link,
+  });
+  const detail = opts.reason || opts.description || copy.intro;
   let sent = 0;
   let failed = 0;
   const mailResults = await Promise.allSettled(
     unique.map(async (email) => {
-      await sendMail(email, `Inbound mail in ${mailbox.name}`, html);
+      await sendMail(email, copy.subject, html);
       await docSet(`books/${bookId}/email_events/${newId()}`, {
         direction: 'outbound',
         status: 'sent',
         toEmail: email,
-        subject: `Inbound mail in ${mailbox.name}`,
-        action,
+        subject: copy.subject,
+        action: copy.action,
         detail,
         createdAt: new Date().toISOString(),
       }).catch(() => undefined);
@@ -1017,8 +1147,8 @@ async function notifyMembers(
       direction: 'outbound',
       status: 'failed',
       toEmail: email,
-      subject: `Inbound mail in ${mailbox.name}`,
-      action,
+      subject: copy.subject,
+      action: copy.action,
       detail: String(result.reason?.message || result.reason || 'Send failed'),
       createdAt: new Date().toISOString(),
     }).catch(() => undefined);
@@ -1031,18 +1161,18 @@ async function notifyMembers(
       bookId,
       bookName: mailbox.name,
       kind: 'inbound',
-      action,
+      action: copy.action,
       detail,
-      senderName,
+      senderName: opts.sender,
       link,
       createdAt: new Date().toISOString(),
       read: false,
     }).catch(() => undefined);
   }
-  if (inboundEventId) {
-    const current = await docGet(`books/${bookId}/inbound_events/${inboundEventId}`);
+  if (opts.inboundEventId) {
+    const current = await docGet(`books/${bookId}/inbound_events/${opts.inboundEventId}`);
     if (current) {
-      await docSet(`books/${bookId}/inbound_events/${inboundEventId}`, {
+      await docSet(`books/${bookId}/inbound_events/${opts.inboundEventId}`, {
         ...current,
         teamNotified: sent > 0,
         notifySent: sent,
@@ -1116,16 +1246,15 @@ async function processItem(item: any) {
       fromEmail: fromEmail || '(missing)',
       subject: subject || '(no subject)',
     });
-    await notifyMembers(
-      mailbox,
-      fromEmail
-        ? `${fromEmail} sent mail to this ledger. No entry was created because that address is not on the team.`
-        : 'Mail arrived with no From address. No entry was created.',
-      bookId,
-      fromEmail || 'Unknown sender',
-      'Inbound mail was not added',
-      eventId,
-    ).catch(() => undefined);
+    await notifyMembers(mailbox, bookId, {
+      kind: 'rejected',
+      sender: fromEmail || 'Unknown sender',
+      subjectLine: subject,
+      reason: fromEmail
+        ? 'This sender is not a member of the ledger, so no entry was created.'
+        : 'The message had no From address, so no entry was created.',
+      inboundEventId: eventId,
+    }).catch(() => undefined);
     return { skipped: 'sender is not a member', bookId, from: fromEmail };
   }
   const body = clipQuoted(firstString(
@@ -1159,6 +1288,28 @@ async function processItem(item: any) {
     parsed = enriched.parsed;
     ocrPreview = enriched.preview;
     parseEngine = enriched.engine || parseEngine;
+  }
+
+  if (isUnusableDocument(parsed, body, ocrPreview, parseEngine, Boolean(receipt?.path))) {
+    await docSet(seenKey, { bookId, at: new Date().toISOString(), status: 'unreadable' });
+    const eventId = await logInboundEvent(bookId, {
+      status: 'unreadable',
+      reason: 'Attachment was not a readable receipt, bill, or invoice',
+      fromEmail: member.email,
+      subject: subject || '(no subject)',
+      hasFile: Boolean(receipt?.path),
+      receiptName: receipt?.name || null,
+      parseEngine,
+    });
+    await notifyMembers(mailbox, bookId, {
+      kind: 'unreadable',
+      sender: member.email,
+      subjectLine: subject,
+      fileName: receipt?.name || '',
+      reason: 'The file had no usable amount, merchant, or invoice data. It was not posted.',
+      inboundEventId: eventId,
+    }).catch(() => undefined);
+    return { skipped: 'unreadable document', bookId, from: member.email };
   }
 
   const id = newId();
@@ -1206,7 +1357,7 @@ async function processItem(item: any) {
       // category merge is best-effort
     }
   }
-  await logInboundEvent(bookId, {
+  const eventId = await logInboundEvent(bookId, {
     status: 'accepted',
     fromEmail: member.email,
     subject: subject || '(no subject)',
@@ -1217,9 +1368,17 @@ async function processItem(item: any) {
     hasFile: Boolean(receipt?.path),
     parseEngine,
     parseError: expense.parseError || null,
-    teamNotified: false,
   });
-  // Successful inbound already created the ledger entry. Do not email the whole team.
+  await notifyMembers(mailbox, bookId, {
+    kind: 'added',
+    sender: member.email,
+    subjectLine: subject,
+    amount: parsed.amount ? `${mailbox.currency} ${parsed.amount.toFixed(2)}` : 'Not found — saved as draft',
+    category: parsed.category,
+    description: parsed.description,
+    fileName: receipt?.name || '',
+    inboundEventId: eventId,
+  }).catch(() => undefined);
   return {
     ok: true,
     bookId,
