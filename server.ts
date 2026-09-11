@@ -32,10 +32,6 @@ app.use("/neondb/auth", (req, res, next) => {
 app.post("/api/blob/upload", express.raw({ type: "*/*", limit: "9mb" }), (req, res) => {
   void handleBlobUploadRequest(req, res);
 });
-app.post("/api/blob/handle", express.json({ limit: "1mb" }), async (req, res) => {
-  const { default: handle } = await import("./api/blob/handle");
-  await handle(req as any, res as any);
-});
 app.post("/api/blob/delete", express.json({ limit: "1mb" }), (req, res) => {
   void handleBlobDeleteRequest(req, res);
 });
@@ -61,21 +57,9 @@ app.all("/api/invites", async (req, res) => {
   const { default: invites } = await import("./api/invites");
   await invites(req as any, res as any);
 });
-app.all("/api/ledgers", async (req, res) => {
-  const { default: ledgers } = await import("./api/ledgers");
-  await ledgers(req as any, res as any);
-});
-app.all("/api/expenses", async (req, res) => {
-  const { default: expenses } = await import("./api/expenses");
-  await expenses(req as any, res as any);
-});
-app.all("/api/notifications", async (req, res) => {
-  const { default: notifications } = await import("./api/notifications");
-  await notifications(req as any, res as any);
-});
-app.all("/api/me", async (req, res) => {
-  const { default: me } = await import("./api/me");
-  await me(req as any, res as any);
+app.all(["/api/ledgers", "/api/expenses", "/api/notifications", "/api/me", "/api/tracker"], async (req, res) => {
+  const { default: tracker } = await import("./api/tracker");
+  await tracker(req as any, res as any);
 });
 app.post("/api/email/inbound", async (req, res) => {
   const { default: inbound } = await import("./api/email/inbound");

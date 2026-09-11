@@ -5,10 +5,7 @@
   "functions": {
     "api/kv.ts": { "maxDuration": 30, "includeFiles": "api/_pg-tables.js" },
     "api/invites.ts": { "maxDuration": 15, "includeFiles": "api/_pg-tables.js" },
-    "api/ledgers.ts": { "maxDuration": 15, "includeFiles": "api/_pg-tables.js" },
-    "api/expenses.ts": { "maxDuration": 15, "includeFiles": "api/_pg-tables.js" },
-    "api/notifications.ts": { "maxDuration": 15, "includeFiles": "api/_pg-tables.js" },
-    "api/me.ts": { "maxDuration": 15, "includeFiles": "api/_pg-tables.js" },
+    "api/tracker.ts": { "maxDuration": 15, "includeFiles": "api/_pg-tables.js" },
     "api/migrate.ts": { "maxDuration": 60, "includeFiles": "api/_pg-tables.js" },
     "api/email/send.ts": { "maxDuration": 30 },
     "api/email/send-report.ts": { "maxDuration": 60 },
@@ -34,6 +31,10 @@
     }
   ],
   "rewrites": [
+    { "source": "/api/ledgers", "destination": "/api/tracker?domain=ledgers" },
+    { "source": "/api/expenses", "destination": "/api/tracker?domain=expenses" },
+    { "source": "/api/notifications", "destination": "/api/tracker?domain=notifications" },
+    { "source": "/api/me", "destination": "/api/tracker?domain=me" },
     { "source": "/api/auth/:path*", "destination": "/api" },
     { "source": "/neondb/auth/:path*", "destination": "/api" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
