@@ -156,7 +156,7 @@ function neonOnly(path: string) {
 }
 
 function collectionTtl(path: string) {
-  if (/\/inbound_events$/.test(path) || /\/email_events$/.test(path)) return 2500;
+  if (/\/inbound_events$/.test(path) || /\/email_events$/.test(path)) return 800;
   if (/\/expenses$/.test(path) || path === 'notifications') return 12_000;
   return COL_TTL;
 }
@@ -168,7 +168,7 @@ function shouldReadFirestore(path: string) {
   const last = fsStamp.get(path) || 0;
   return Date.now() - last > 45_000;
 }
-const memory = new Map<string, { data: Record<string, unknown> | null; at: number }>();
+const memory = new Map<string, { data: Record<string, unknown> | null; at: number; local?: boolean }>();
 const colCache = new Map<string, { at: number; rows: Array<[string, Record<string, unknown>]> }>();
 
 function isErp(path: string) {
@@ -179,8 +179,8 @@ function colKey(path: string, constraints?: Constraint[]) {
   return `${path}::${JSON.stringify(constraints || [])}`;
 }
 
-function remember(path: string, data: Record<string, unknown> | null) {
-  memory.set(path, { data, at: Date.now() });
+function remember(path: string, data: Record<string, unknown> | null, local = false) {
+  memory.set(path, { data, at: Date.now(), local });
 }
 
 function bumpColCache(docPath: string, data: Record<string, unknown> | null) {
@@ -205,7 +205,7 @@ function overlayCollection(colPath: string, byId: Map<string, Record<string, unk
     const id = path.slice(prefix.length);
     if (!id || id.includes('/')) continue;
     if (entry.data === null) byId.delete(id);
-    else byId.set(id, entry.data);
+    else if (entry.local) byId.set(id, entry.data);
   }
 }
 
@@ -270,14 +270,14 @@ export async function getDoc(ref: DocRef) {
 
 export async function setDoc(ref: DocRef, data: Record<string, unknown>, opts?: { merge?: boolean }) {
   const next = opts?.merge ? { ...(memory.get(ref.path)?.data || {}), ...data } : data;
-  remember(ref.path, next);
+  remember(ref.path, next, true);
   bumpColCache(ref.path, next);
   await call({ op: 'set', path: ref.path, data, merge: Boolean(opts?.merge) });
 }
 
 export async function updateDoc(ref: DocRef, data: Record<string, unknown>) {
   const next = { ...(memory.get(ref.path)?.data || {}), ...data };
-  remember(ref.path, next);
+  remember(ref.path, next, true);
   bumpColCache(ref.path, next);
   await call({ op: 'update', path: ref.path, data });
 }
@@ -285,13 +285,13 @@ export async function updateDoc(ref: DocRef, data: Record<string, unknown>) {
 export async function addDoc(col: { path: string }, data: Record<string, unknown>) {
   const id = newDocId();
   const next = { ...data, id };
-  remember(`${col.path}/${id}`, next);
+  remember(`${col.path}/${id}`, next, true);
   try {
     const payload = await call({ op: 'add', path: col.path, data: next, id });
     const realId = String(payload.id || id);
     if (realId !== id) {
       memory.delete(`${col.path}/${id}`);
-      remember(`${col.path}/${realId}`, { ...data, id: realId });
+      remember(`${col.path}/${realId}`, { ...data, id: realId }, true);
     }
     return { id: realId };
   } catch (err) {
@@ -301,7 +301,7 @@ export async function addDoc(col: { path: string }, data: Record<string, unknown
 }
 
 export async function deleteDoc(ref: DocRef) {
-  remember(ref.path, null);
+  remember(ref.path, null, true);
   bumpColCache(ref.path, null);
   await call({ op: 'delete', path: ref.path });
 }
@@ -415,19 +415,21 @@ export function onSnapshot(
       });
       return;
     }
-    const cached = fromCache(source.path, source.constraints);
-    if (cached && !force) {
-      next(cached);
-      return;
+    if (!mailLive) {
+      const cached = fromCache(source.path, source.constraints);
+      if (cached && !force) {
+        next(cached);
+        return;
+      }
     }
-    getDocs(source, { kvMs: mailLive ? 4000 : 8000, force }).then((snap) => {
+    getDocs(source, { kvMs: mailLive ? 4000 : 8000, force: mailLive || force }).then((snap) => {
       if (!stopped) next(snap);
     }).catch((err) => {
       if (!stopped) error?.(err);
     });
   };
   tick(true);
-  const timer = setInterval(() => tick(false), mailLive ? 2500 : livePath ? 15000 : 30000);
+  const timer = setInterval(() => tick(false), mailLive ? 1500 : livePath ? 15000 : 30000);
   return () => {
     stopped = true;
     clearInterval(timer);
@@ -464,7 +466,7 @@ export async function runTransaction<T>(_db: Firestore, fn: (tx: Transaction) =>
   const result = await fn(tx);
   for (const write of writes) {
     const next = overlay.get(write.path) || write.data;
-    remember(write.path, next);
+    remember(write.path, next, true);
     bumpColCache(write.path, next);
   }
   if (writes.length === 1) {

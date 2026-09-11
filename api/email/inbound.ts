@@ -1399,7 +1399,8 @@ async function listLedgerExpenses(bookId: string): Promise<Array<Record<string, 
 async function findMatchingReceipt(
   bookId: string,
   hash: string,
-  parsed?: { amount?: number; merchant?: string; date?: string; description?: string },
+  parsed?: { amount?: number; merchant?: string; date?: string; description?: string; invoiceNumber?: string },
+  senderEmail?: string,
 ) {
   if (hash) {
     const row = await docGet(`inbound_hashes/${bookId}/${hash}`);
@@ -1407,7 +1408,7 @@ async function findMatchingReceipt(
     if (expenseId) {
       const expense = await docGet(`books/${bookId}/expenses/${expenseId}`);
       if (expense && expense.deleted !== true && expense.status !== 'deleted' && !expense.deletedAt) {
-        return { hash, expenseId, expense, reason: 'same_file' as const };
+        return { hash, expenseId, expense: { id: expenseId, ...expense }, reason: 'same_file' as const };
       }
     }
     if (row?.reserved) {
@@ -1423,20 +1424,46 @@ async function findMatchingReceipt(
   const amount = Number(parsed?.amount || 0);
   const merchant = normText(parsed?.merchant);
   const description = normText(parsed?.description);
+  const inv = normText(parsed?.invoiceNumber);
+  const sender = String(senderEmail || '').toLowerCase();
   if (amount > 0) {
     const byBill = expenses.find((row) => {
       if (Number(row.amount || 0) !== amount) return false;
+      const otherInv = normText(row.invoiceNumber);
+      if (inv && otherInv && inv === otherInv) return true;
       const otherMerchant = normText(row.merchant);
-      if (merchant && otherMerchant && merchant === otherMerchant) return true;
+      if (merchant && otherMerchant && (merchant === otherMerchant || merchant.includes(otherMerchant) || otherMerchant.includes(merchant))) {
+        if (!parsed?.date || !row.date || String(row.date) === parsed.date) return true;
+      }
       if (parsed?.date && String(row.date || '') === parsed.date) {
         const otherDesc = normText(row.description);
-        if (description && otherDesc && (description.includes(otherDesc) || otherDesc.includes(description))) return true;
+        if (description && otherDesc && (description === otherDesc || description.includes(otherDesc) || otherDesc.includes(description))) return true;
+        const rowSender = String(row.enteredByEmail || row.enteredBy || '').toLowerCase();
+        if (sender && rowSender === sender) return true;
       }
       return false;
     });
     if (byBill) return { hash, expenseId: String(byBill.id), expense: byBill, reason: 'same_bill' as const };
   }
   return null;
+}
+
+function billFingerprint(
+  parsed: { amount?: number; merchant?: string; date?: string; description?: string; invoiceNumber?: string },
+  senderEmail: string,
+) {
+  const amount = Number(parsed?.amount || 0);
+  if (!(amount > 0)) return '';
+  const inv = normText(parsed?.invoiceNumber);
+  const merchant = normText(parsed?.merchant);
+  const desc = normText(parsed?.description);
+  const date = String(parsed?.date || '');
+  const who = String(senderEmail || '').toLowerCase();
+  const parts = inv
+    ? [amount.toFixed(2), inv]
+    : [amount.toFixed(2), date, merchant || desc, who];
+  if (!inv && (!date || !(merchant || desc || who))) return '';
+  return createHash('sha256').update(parts.join('|')).digest('hex').slice(0, 40);
 }
 
 async function reserveReceiptHash(bookId: string, hash: string, meta: Record<string, unknown>) {
@@ -1543,6 +1570,7 @@ async function notifySender(
     attachments?: Array<{ filename: string; content: Buffer; contentType?: string }>;
     action: string;
     inboundEventId?: string;
+    throwOnFail?: boolean;
   },
 ) {
   const html = wrapByjanEmail({
@@ -1586,6 +1614,7 @@ async function notifySender(
       detail: String(err?.message || err || 'Send failed'),
       createdAt: new Date().toISOString(),
     }).catch(() => undefined);
+    if (opts.throwOnFail) throw err;
   }
 }
 
@@ -1681,6 +1710,7 @@ async function sendDuplicateConfirmToSender(
     `,
     action: 'Sender asked to confirm possible duplicate',
     inboundEventId: opts.inboundEventId,
+    throwOnFail: true,
   });
 }
 
@@ -1887,14 +1917,21 @@ async function holdAsDuplicate(opts: {
   receipt: { path: string; name: string; contentType: string; bytes: Buffer } | null;
   messageId: string;
 }) {
+  let existingExpense = opts.match.expense || {};
+  if (opts.match.expenseId) {
+    const full = await docGet(`books/${opts.bookId}/expenses/${opts.match.expenseId}`);
+    if (full && full.deleted !== true && !full.deletedAt) {
+      existingExpense = { id: opts.match.expenseId, ...full };
+    }
+  }
   const pendingId = newId();
   const expense = {
     id: newId(),
-    amount: opts.parsed.amount || 0,
-    description: opts.parsed.description || opts.match.expense.description || 'Receipt',
-    category: opts.parsed.category || opts.match.expense.category || 'Uncategorized',
+    amount: opts.parsed.amount || existingExpense.amount || 0,
+    description: opts.parsed.description || existingExpense.description || 'Receipt',
+    category: opts.parsed.category || existingExpense.category || 'Uncategorized',
     entryType: opts.parsed.entryType || 'out',
-    date: opts.parsed.date || new Date().toISOString().slice(0, 10),
+    date: opts.parsed.date || existingExpense.date || new Date().toISOString().slice(0, 10),
     paidByName: opts.member.email,
     enteredBy: opts.member.email,
     enteredByUid: opts.member.uid,
@@ -1917,13 +1954,13 @@ async function holdAsDuplicate(opts: {
     existingExpenseId: opts.match.expenseId,
     existing: {
       id: opts.match.expenseId,
-      amount: opts.match.expense.amount,
-      category: opts.match.expense.category,
-      paidByName: opts.match.expense.paidByName,
-      enteredBy: opts.match.expense.enteredBy,
-      enteredByEmail: opts.match.expense.enteredByEmail,
-      description: opts.match.expense.description,
-      date: opts.match.expense.date,
+      amount: existingExpense.amount,
+      category: existingExpense.category,
+      paidByName: existingExpense.paidByName,
+      enteredBy: existingExpense.enteredBy,
+      enteredByEmail: existingExpense.enteredByEmail,
+      description: existingExpense.description,
+      date: existingExpense.date,
     },
     expense,
     inboundEventId: opts.eventId,
@@ -1935,15 +1972,20 @@ async function holdAsDuplicate(opts: {
     pendingId,
     existingExpenseId: opts.match.expenseId,
   });
-  await sendDuplicateConfirmToSender(opts.mailbox, opts.bookId, pendingId, {
+  const payload = {
     sender: opts.member.email,
     subjectLine: opts.subject,
-    existing: { id: opts.match.expenseId, ...opts.match.expense },
+    existing: { id: opts.match.expenseId, ...existingExpense },
     parsedAmount: Number(opts.parsed.amount || 0),
-    parsedCategory: String(opts.parsed.category || opts.match.expense.category || ''),
+    parsedCategory: String(opts.parsed.category || existingExpense.category || ''),
     fileName: opts.receipt?.name,
     inboundEventId: opts.eventId,
-  }).catch(() => undefined);
+  };
+  try {
+    await sendDuplicateConfirmToSender(opts.mailbox, opts.bookId, pendingId, payload);
+  } catch {
+    await sendDuplicateConfirmToSender(opts.mailbox, opts.bookId, pendingId, payload).catch(() => undefined);
+  }
   await markFlow(opts.bookId, opts.eventId, 'awaiting_sender_confirm', { senderNotified: true });
   return { pending: true, bookId: opts.bookId, pendingId, existingExpenseId: opts.match.expenseId };
 }
@@ -2089,7 +2131,49 @@ async function processItem(item: any) {
     return { skipped: 'unreadable document', bookId, from: member.email };
   }
 
-  match = await findMatchingReceipt(bookId, hash, parsed);
+  match = await findMatchingReceipt(bookId, hash, parsed, member.email);
+  if (!match) {
+    const fingerprint = billFingerprint(parsed, member.email);
+    if (fingerprint) {
+      const reservedBill = await docInsertIfNew(`inbound_bills/${bookId}/${fingerprint}`, {
+        bookId,
+        fingerprint,
+        inboundEventId: eventId,
+        reserved: true,
+        at: new Date().toISOString(),
+      });
+      if (!reservedBill) {
+        match = await findMatchingReceipt(bookId, hash, parsed, member.email);
+        if (!match) {
+          const bill = await docGet(`inbound_bills/${bookId}/${fingerprint}`);
+          const expenseId = String(bill?.expenseId || '').trim();
+          if (expenseId) {
+            const expense = await docGet(`books/${bookId}/expenses/${expenseId}`);
+            if (expense) match = { hash, expenseId, expense: { id: expenseId, ...expense }, reason: 'same_bill' as const };
+          }
+        }
+        if (!match?.expenseId) {
+          await docSet(seenKey, { bookId, at: new Date().toISOString(), status: 'duplicate_pending' });
+          await markFlow(bookId, eventId, 'duplicate_detected', { status: 'duplicate_pending' });
+          await notifySender(mailbox, bookId, {
+            to: member.email,
+            subject: `This receipt is already being recorded · ${mailbox.name}`,
+            kicker: 'Already in progress',
+            title: 'Byjan is already recording this file',
+            intro: 'The same bill is already being processed for this ledger. No second entry will be created. You will receive the usual notice when it is saved.',
+            rows: [
+              { label: 'Ledger', value: mailbox.name },
+              { label: 'File', value: receipt?.name || 'Attachment' },
+            ],
+            action: 'Sender told duplicate is already in progress',
+            inboundEventId: eventId,
+          }).catch(() => undefined);
+          await markFlow(bookId, eventId, 'sender_notified', { senderNotified: true });
+          return { skipped: 'duplicate in flight', bookId };
+        }
+      }
+    }
+  }
   if (match) {
     if (match.expenseId) {
       return holdAsDuplicate({
@@ -2098,6 +2182,20 @@ async function processItem(item: any) {
     }
     await docSet(seenKey, { bookId, at: new Date().toISOString(), status: 'duplicate_pending' });
     await markFlow(bookId, eventId, 'duplicate_detected', { status: 'duplicate_pending' });
+    await notifySender(mailbox, bookId, {
+      to: member.email,
+      subject: `This receipt is already being recorded · ${mailbox.name}`,
+      kicker: 'Already in progress',
+      title: 'Byjan is already recording this file',
+      intro: 'The same attachment is already being processed for this ledger. No second entry will be created. You will receive the usual notice when it is saved.',
+      rows: [
+        { label: 'Ledger', value: mailbox.name },
+        { label: 'File', value: receipt?.name || 'Attachment' },
+      ],
+      action: 'Sender told duplicate is already in progress',
+      inboundEventId: eventId,
+    }).catch(() => undefined);
+    await markFlow(bookId, eventId, 'sender_notified', { senderNotified: true });
     return { skipped: 'duplicate in flight', bookId };
   }
 
@@ -2137,6 +2235,20 @@ async function processItem(item: any) {
 
   const saved = await saveExpenseRecord(bookId, expense);
   if (hash) await storeFileHash(bookId, hash, saved).catch(() => undefined);
+  const fingerprint = billFingerprint(parsed, member.email);
+  if (fingerprint) {
+    await docSet(`inbound_bills/${bookId}/${fingerprint}`, {
+      bookId,
+      fingerprint,
+      reserved: false,
+      expenseId: saved.id,
+      amount: saved.amount,
+      description: saved.description,
+      category: saved.category,
+      date: saved.date,
+      at: new Date().toISOString(),
+    }).catch(() => undefined);
+  }
   await docSet(seenKey, { id: saved.id, bookId, at: new Date().toISOString(), status: 'accepted' });
   await markFlow(bookId, eventId, amountMissing ? 'draft' : 'recorded', {
     status: amountMissing ? 'amount_missing' : 'accepted',

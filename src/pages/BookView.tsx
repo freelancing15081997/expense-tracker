@@ -18,7 +18,7 @@ import { isSoftDeleted, softDeletePatch } from '../lib/records';
 import { inboundMailboxAddress, ledgerAppLink, openLedgerButtonHtml, syncInboundMailbox } from '../lib/inbound-mail';
 import { authHeaders } from '../lib/auth-client';
 import { ReceiptModal } from '../components/ReceiptModal';
-import { EmailActivityFlow, emailStatusClass, emailStatusLabel } from '../components/EmailActivityFlow';
+import { EventMailTrack, emailStatusClass, emailStatusLabel, resolvedStatus } from '../components/EmailActivityFlow';
 import { ListControls, usePagedList } from '../components/ListControls';
 import AppLoader from '../components/AppLoader';
 import { clsx, type ClassValue } from "clsx";
@@ -705,9 +705,10 @@ export default function BookView() {
 
   return (
     <>
-      <div className="max-w-6xl mx-auto">
-      <Tabs.Root value={ledgerTab} onValueChange={setLedgerTab} className="space-y-4">
-        <div className="sticky top-0 z-20 -mx-4 md:-mx-6 lg:-mx-8 px-4 md:px-6 lg:px-8 pt-1 pb-3 bg-[#F5F7FA]/95 backdrop-blur-md border-b border-slate-200/80">
+      <div className="h-full min-h-0 flex flex-col">
+      <Tabs.Root value={ledgerTab} onValueChange={setLedgerTab} className="h-full min-h-0 flex flex-col">
+        <div className="shrink-0 px-4 md:px-6 lg:px-8 pt-4 pb-3 bg-[#F5F7FA] border-b border-slate-200/80">
+        <div className="max-w-6xl mx-auto">
       <div className="flex items-center justify-between gap-2 mb-3">
         <div className="flex items-center gap-2 min-w-0">
           <Link to="/expenses" className="p-1 text-slate-400 hover:text-slate-700" title="Back">
@@ -772,30 +773,38 @@ export default function BookView() {
           </Tabs.Trigger>
         </Tabs.List>
 
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-          <div className="byjan-card flex items-center justify-between gap-2 px-3 py-2">
-            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Net</p>
-            <p className={cn("text-sm font-bold tabular-nums", balance >= 0 ? "text-emerald-600" : "text-rose-600")}>{balance < 0 ? '-' : ''}{getCurrencySymbol(book.currency)}{Math.abs(balance).toLocaleString(undefined, {minimumFractionDigits: 2})}</p>
+        {ledgerTab === 'ledger' && (
+          <div className="flex flex-col sm:flex-row items-center gap-3 mt-3">
+            <div className="w-full sm:w-auto flex-1 flex flex-row items-center justify-between byjan-card p-3 px-5">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Net Balance</p>
+              <h2 className={cn("text-lg font-bold", balance >= 0 ? "text-emerald-600" : "text-rose-600")}>{balance < 0 ? '-' : ''}{getCurrencySymbol(book.currency)} {Math.abs(balance).toLocaleString(undefined, {minimumFractionDigits: 2})}</h2>
+            </div>
+            <div className="w-full sm:w-auto flex-1 flex flex-row items-center justify-between byjan-card p-3 px-5">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Money Out</p>
+              <h2 className="text-lg font-bold text-rose-600">{getCurrencySymbol(book.currency)} {totalOut.toLocaleString(undefined, {minimumFractionDigits: 2})}</h2>
+            </div>
+            <div className="w-full sm:w-auto flex-1 flex flex-row items-center justify-between byjan-card p-3 px-5">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Money In</p>
+              <h2 className="text-lg font-bold text-emerald-600">{getCurrencySymbol(book.currency)} {totalIn.toLocaleString(undefined, {minimumFractionDigits: 2})}</h2>
+            </div>
+            <div className="w-full sm:w-auto flex-1 flex flex-row items-center justify-between byjan-card p-3 px-5">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Transfer</p>
+              <h2 className="text-lg font-bold text-blue-600">{getCurrencySymbol(book.currency)} {totalTransfer.toLocaleString(undefined, {minimumFractionDigits: 2})}</h2>
+            </div>
+            {isAuditor && (
+              <div className="w-full sm:w-auto flex-1 bg-amber-50 p-3 px-5 rounded-lg border border-amber-200 shadow-sm flex flex-row items-center justify-between">
+                <p className="text-xs font-bold text-amber-800 uppercase tracking-wider">Auditor</p>
+                <p className="text-[10px] text-amber-900/80 font-medium">Read-only</p>
+              </div>
+            )}
           </div>
-          <div className="byjan-card flex items-center justify-between gap-2 px-3 py-2">
-            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Out</p>
-            <p className="text-sm font-bold tabular-nums text-rose-600">{getCurrencySymbol(book.currency)}{totalOut.toLocaleString(undefined, {minimumFractionDigits: 2})}</p>
-          </div>
-          <div className="byjan-card flex items-center justify-between gap-2 px-3 py-2">
-            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">In</p>
-            <p className="text-sm font-bold tabular-nums text-emerald-600">{getCurrencySymbol(book.currency)}{totalIn.toLocaleString(undefined, {minimumFractionDigits: 2})}</p>
-          </div>
-          <div className="byjan-card flex items-center justify-between gap-2 px-3 py-2">
-            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Transfer</p>
-            <p className="text-sm font-bold tabular-nums text-blue-600">{getCurrencySymbol(book.currency)}{totalTransfer.toLocaleString(undefined, {minimumFractionDigits: 2})}</p>
-          </div>
-        </div>
-        {isAuditor && (
-          <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">Auditor view — read only</p>
         )}
         </div>
+        </div>
 
-        <Tabs.Content value="ledger" className="space-y-4 outline-none pt-4">
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 md:px-6 lg:px-8 py-4">
+        <div className="max-w-6xl mx-auto">
+        <Tabs.Content value="ledger" className="space-y-4 outline-none">
           {/* Enhanced Action Bar */}
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
             <div className="relative w-full sm:w-72">
@@ -1002,7 +1011,7 @@ export default function BookView() {
                 <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
                   <Mail className="w-4 h-4 text-slate-500" /> Email activity
                 </h3>
-                <p className="text-xs text-slate-500 mt-1">Inbound receipts and team mail for this ledger. The path above updates while Byjan works.</p>
+                <p className="text-xs text-slate-500 mt-1">Each inbound receipt shows its own path. It updates while Byjan works, then settles when the entry is saved.</p>
               </div>
               <div className="flex items-center gap-2">
                 <code className="text-[11px] bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 max-w-[220px] truncate">{inboundAddress || inboundMailboxAddress(book.name)}</code>
@@ -1018,8 +1027,6 @@ export default function BookView() {
             <p className="text-[11px] text-slate-500">Send receipts to this address. The team is notified when an entry is saved.</p>
           </div>
 
-          <EmailActivityFlow events={emailActivityAll} />
-
           <ListControls
             query={emailList.query}
             onQuery={emailList.setQuery}
@@ -1032,55 +1039,43 @@ export default function BookView() {
             placeholder="Search status, sender, subject…"
           />
 
-          <div className="byjan-table overflow-hidden">
+          <div className="space-y-3">
             {inboundEventsLoading && emailList.filtered.length === 0 ? (
-              <AppLoader title="Email activity" message="Updating the live mail path." />
+              <AppLoader title="Email activity" message="Updating mail status." />
             ) : emailList.filtered.length === 0 ? (
-              <div className="p-8 text-center text-sm text-slate-500">No email activity for this ledger yet. Forward a receipt to the inbound address or add an entry to notify the team.</div>
+              <div className="byjan-card p-8 text-center text-sm text-slate-500">No email activity for this ledger yet. Forward a receipt to the inbound address or add an entry to notify the team.</div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse min-w-[720px]">
-                  <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200">
-                      <th className="px-4 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">When</th>
-                      <th className="px-4 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Type</th>
-                      <th className="px-4 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-                      <th className="px-4 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">From / To</th>
-                      <th className="px-4 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Details</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {emailList.pageRows.map((event) => {
-                      const when = event.createdAt ? new Date(event.createdAt).toLocaleString() : '—';
-                      const isInbound = event.direction !== 'outbound';
-                      const status = String(event.status || '');
-                      return (
-                        <tr key={`${event.direction}-${event.id}`} className="align-top">
-                          <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{when}</td>
-                          <td className="px-4 py-3 text-xs font-medium text-slate-800">{isInbound ? 'Inbound receipt' : 'Team email'}</td>
-                          <td className="px-4 py-3">
-                            <span className={cn('inline-flex text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded border', emailStatusClass(status))}>
-                              {emailStatusLabel(status)}
-                            </span>
-                            {event.teamNotified ? <span className="block text-[10px] text-slate-500 mt-1">Team notified</span> : null}
-                            {event.senderNotified ? <span className="block text-[10px] text-slate-500 mt-1">Sender notified</span> : null}
-                          </td>
-                          <td className="px-4 py-3 text-xs text-slate-700 break-all">
-                            {isInbound ? (event.fromEmail || 'unknown') : (event.toEmail || '—')}
-                          </td>
-                          <td className="px-4 py-3 text-xs text-slate-600">
-                            <p className="font-medium text-slate-800">{event.subject || event.action || '—'}</p>
-                            {event.reason ? <p className="mt-0.5">{event.reason}</p> : null}
-                            {event.detail ? <p className="mt-0.5">{event.detail}</p> : null}
-                            {event.amount != null && event.amount !== '' ? <p className="mt-0.5">{event.category || 'Uncategorized'} · {event.amount}</p> : null}
-                            {event.description ? <p className="mt-0.5 text-slate-500">{event.description}</p> : null}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              emailList.pageRows.map((event) => {
+                const when = event.createdAt ? new Date(event.createdAt).toLocaleString() : '—';
+                const isInbound = event.direction !== 'outbound';
+                const status = isInbound ? resolvedStatus(event) : String(event.status || '');
+                return (
+                  <article key={`${event.direction}-${event.id}`} className="byjan-card p-4 space-y-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-900 truncate">{event.subject || event.action || (isInbound ? 'Inbound receipt' : 'Team email')}</p>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {isInbound ? (event.fromEmail || 'unknown') : (event.toEmail || '—')}
+                          <span className="text-slate-300 px-1.5">·</span>
+                          {when}
+                        </p>
+                      </div>
+                      <span className={cn('inline-flex text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border shrink-0', emailStatusClass(status))}>
+                        {emailStatusLabel(status)}
+                      </span>
+                    </div>
+                    {isInbound ? <EventMailTrack event={event} /> : null}
+                    {(event.reason || event.detail || event.description || event.category || event.amount != null) ? (
+                      <div className="text-xs text-slate-600 space-y-0.5">
+                        {event.reason ? <p>{event.reason}</p> : null}
+                        {event.detail ? <p>{event.detail}</p> : null}
+                        {event.amount != null && event.amount !== '' ? <p>{event.category || 'Uncategorized'} · {event.amount}</p> : null}
+                        {event.description ? <p className="text-slate-500">{event.description}</p> : null}
+                      </div>
+                    ) : null}
+                  </article>
+                );
+              })
             )}
           </div>
         </Tabs.Content>
@@ -1129,6 +1124,8 @@ export default function BookView() {
             </div>
           </div>
         </Tabs.Content>
+        </div>
+        </div>
       </Tabs.Root>
 
       {/* Expense Edit/Add Modal */}
