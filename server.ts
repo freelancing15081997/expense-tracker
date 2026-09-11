@@ -57,7 +57,7 @@ app.all("/api/invites", async (req, res) => {
   const { default: invites } = await import("./api/invites");
   await invites(req as any, res as any);
 });
-app.all(["/api/ledgers", "/api/expenses", "/api/notifications", "/api/me", "/api/tracker"], async (req, res) => {
+app.all(["/api/ledgers", "/api/expenses", "/api/notifications", "/api/me", "/api/books", "/api/tracker"], async (req, res) => {
   const { default: tracker } = await import("./api/tracker");
   await tracker(req as any, res as any);
 });

@@ -109,6 +109,21 @@ export function query(col: { path: string }, ...constraints: Constraint[]) {
 
 const pendingCalls = new Map<string, Promise<any>>();
 
+function storeUrl(body: Record<string, unknown>) {
+  const path = String(body.path || '');
+  const op = String(body.op || '');
+  if (path.startsWith('erp_workspaces/') || op === 'workspace') return '/api/books';
+  if (op === 'queryMany') {
+    const queries = Array.isArray(body.queries) ? body.queries : [];
+    if (queries.length && queries.every((row: any) => String(row?.path || '').startsWith('erp_workspaces/'))) return '/api/books';
+  }
+  if (op === 'batch') {
+    const writes = Array.isArray(body.writes) ? body.writes : [];
+    if (writes.length && writes.every((row: any) => String(row?.path || '').startsWith('erp_workspaces/'))) return '/api/books';
+  }
+  return '/api/kv';
+}
+
 async function call(body: Record<string, unknown>) {
   const op = String(body.op || '');
   const dedupe = op === 'get' || op === 'query' || op === 'queryMany';
@@ -116,7 +131,7 @@ async function call(body: Record<string, unknown>) {
   if (key && pendingCalls.has(key)) return pendingCalls.get(key);
   const run = (async () => {
     const { authHeaders } = await import('./auth-client');
-    const res = await fetch('/api/kv', {
+    const res = await fetch(storeUrl(body), {
       method: 'POST',
       credentials: 'include',
       headers: await authHeaders({ 'content-type': 'application/json' }),

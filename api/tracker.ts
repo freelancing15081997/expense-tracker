@@ -28,20 +28,24 @@ import {
   ledgerSoftDeleteExpense,
   ledgerUpdateBook,
   ledgerUpsertUser,
+  assertErpWorkspace,
+  erpLoadWorkspace,
+  ledgerDel,
+  ledgerList,
   withDomainApi,
 } from './_pg-tables.js';
 
-type Domain = 'ledgers' | 'expenses' | 'notifications' | 'me';
+type Domain = 'ledgers' | 'expenses' | 'notifications' | 'me' | 'books';
 
 function domainFrom(req: VercelRequest): Domain | '' {
   const raw = req.query?.domain;
   const query = Array.isArray(raw) ? raw[0] : raw;
   const hinted = String(query || '').trim();
-  if (hinted === 'ledgers' || hinted === 'expenses' || hinted === 'notifications' || hinted === 'me') return hinted;
+  if (hinted === 'ledgers' || hinted === 'expenses' || hinted === 'notifications' || hinted === 'me' || hinted === 'books') return hinted;
   try {
     const path = new URL(req.url || '/', 'https://local.invalid').pathname;
     const part = path.split('/').filter(Boolean)[1] || '';
-    if (part === 'ledgers' || part === 'expenses' || part === 'notifications' || part === 'me') return part;
+    if (part === 'ledgers' || part === 'expenses' || part === 'notifications' || part === 'me' || part === 'books') return part;
   } catch {
     // fall through
   }
@@ -372,12 +376,239 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
   });
 }
 
+function applyDocPatch(current: Record<string, unknown>, patch: Record<string, unknown>) {
+  const next: Record<string, unknown> = { ...current };
+  for (const [key, value] of Object.entries(patch)) {
+    if (key.includes('.')) {
+      const parts = key.split('.');
+      let cur: any = next;
+      for (let i = 0; i < parts.length - 1; i++) {
+        const piece = cur[parts[i]];
+        cur[parts[i]] = piece && typeof piece === 'object' && !Array.isArray(piece) ? { ...piece } : {};
+        cur = cur[parts[i]];
+      }
+      cur[parts[parts.length - 1]] = value;
+    } else {
+      next[key] = value;
+    }
+  }
+  return next;
+}
+
+function getAt(obj: any, field: string) {
+  return field.split('.').reduce((acc, key) => (acc == null ? acc : acc[key]), obj);
+}
+
+function applyBooksConstraints(docs: { id: string; data: Record<string, unknown> }[], constraints: any[] = []) {
+  let next = docs;
+  for (const c of constraints) {
+    if (c.type === 'where' && c.op === '==') next = next.filter((row) => getAt({ id: row.id, ...row.data }, c.field) === c.value);
+    else if (c.type === 'where' && c.op === 'in') {
+      const allowed = Array.isArray(c.value) ? c.value : [];
+      next = next.filter((row) => allowed.includes(getAt({ id: row.id, ...row.data }, c.field)));
+    } else if (c.type === 'limit') next = next.slice(0, Number(c.n) || next.length);
+  }
+  return next;
+}
+
+function packBooksCollections(docs: Record<string, Record<string, unknown>>) {
+  const grouped: Record<string, { id: string; data: Record<string, unknown> }[]> = {};
+  for (const [rel, data] of Object.entries(docs)) {
+    const cut = rel.lastIndexOf('/');
+    if (cut < 0) {
+      (grouped[rel] ||= []).push({ id: rel, data });
+      continue;
+    }
+    const col = rel.slice(0, cut);
+    const id = rel.slice(cut + 1);
+    if (!id || id.includes('/')) continue;
+    (grouped[col] ||= []).push({ id, data });
+  }
+  return grouped;
+}
+
+function booksId() {
+  return Array.from({ length: 24 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+}
+
+async function handleBooks(req: VercelRequest, res: VercelResponse) {
+  await withDomainApi(req, res, async (user, body) => {
+    const op = String(body.op || '');
+    const path = String(body.path || '').replace(/^\/+|\/+$/g, '');
+
+    if (op === 'workspace') {
+      const bits = path.split('/').filter(Boolean);
+      const ws = bits[0] === 'erp_workspaces' ? bits[1] : bits[0];
+      if (!ws) throw new ApiError(400, 'Missing workspace');
+      assertErpWorkspace(user.uid, `erp_workspaces/${ws}`);
+      const loaded = await erpLoadWorkspace(ws);
+      apiJson(res, 200, {
+        tenant: loaded.tenant,
+        collections: packBooksCollections(loaded.docs),
+      });
+      return;
+    }
+
+    if (!path) {
+      if (op !== 'queryMany' && op !== 'batch') throw new ApiError(400, 'Missing path');
+    } else {
+      assertErpWorkspace(user.uid, path);
+    }
+
+    if (op === 'get') {
+      const data = await ledgerGet(path);
+      apiJson(res, 200, { exists: Boolean(data), id: path.split('/').pop(), data });
+      return;
+    }
+
+    if (op === 'set') {
+      const incoming = (body.data && typeof body.data === 'object' && !Array.isArray(body.data))
+        ? body.data as Record<string, unknown>
+        : {};
+      const next = body.merge ? { ...((await ledgerGet(path)) || {}), ...incoming } : incoming;
+      await ledgerSet(path, next);
+      await ledgerAudit({
+        bookId: assertErpWorkspace(user.uid, path),
+        actorUid: user.uid,
+        actorEmail: user.email,
+        action: 'books.set',
+        entityType: 'erp_record',
+        entityId: path,
+      }).catch(() => undefined);
+      apiJson(res, 200, { ok: true, id: path.split('/').pop(), data: next });
+      return;
+    }
+
+    if (op === 'update') {
+      const current = (await ledgerGet(path)) || {};
+      const patch = (body.data && typeof body.data === 'object' && !Array.isArray(body.data))
+        ? body.data as Record<string, unknown>
+        : {};
+      const next = applyDocPatch(current, patch);
+      await ledgerSet(path, next);
+      await ledgerAudit({
+        bookId: assertErpWorkspace(user.uid, path),
+        actorUid: user.uid,
+        actorEmail: user.email,
+        action: 'books.update',
+        entityType: 'erp_record',
+        entityId: path,
+      }).catch(() => undefined);
+      apiJson(res, 200, { ok: true, data: next });
+      return;
+    }
+
+    if (op === 'delete') {
+      await ledgerDel(path);
+      await ledgerAudit({
+        bookId: assertErpWorkspace(user.uid, path),
+        actorUid: user.uid,
+        actorEmail: user.email,
+        action: 'books.soft_delete',
+        entityType: 'erp_record',
+        entityId: path,
+      }).catch(() => undefined);
+      apiJson(res, 200, { ok: true });
+      return;
+    }
+
+    if (op === 'add') {
+      const requested = String(body.id || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48);
+      const id = requested || booksId();
+      const data = { ...((body.data && typeof body.data === 'object' && !Array.isArray(body.data)) ? body.data as Record<string, unknown> : {}), id };
+      await ledgerSet(`${path}/${id}`, data);
+      apiJson(res, 200, { id, data });
+      return;
+    }
+
+    if (op === 'list' || op === 'query') {
+      const constraints = Array.isArray(body.constraints) ? body.constraints : [];
+      apiJson(res, 200, { docs: applyBooksConstraints(await ledgerList(path, constraints), constraints) });
+      return;
+    }
+
+    if (op === 'batch') {
+      const writes = Array.isArray(body.writes) ? body.writes.slice(0, 80) : [];
+      let count = 0;
+      for (const write of writes) {
+        const writePath = String(write?.path || '').replace(/^\/+|\/+$/g, '');
+        if (!writePath) continue;
+        assertErpWorkspace(user.uid, writePath);
+        const writeOp = String(write?.op || '');
+        if (writeOp === 'set') {
+          const incoming = (write.data && typeof write.data === 'object' && !Array.isArray(write.data))
+            ? write.data as Record<string, unknown>
+            : {};
+          const next = write.merge ? { ...((await ledgerGet(writePath)) || {}), ...incoming } : incoming;
+          await ledgerSet(writePath, next);
+          count += 1;
+        } else if (writeOp === 'update') {
+          const current = (await ledgerGet(writePath)) || {};
+          const patch = (write.data && typeof write.data === 'object' && !Array.isArray(write.data))
+            ? write.data as Record<string, unknown>
+            : {};
+          await ledgerSet(writePath, applyDocPatch(current, patch));
+          count += 1;
+        }
+      }
+      await ledgerAudit({
+        actorUid: user.uid,
+        actorEmail: user.email,
+        action: 'books.batch',
+        entityType: 'erp_record',
+        detail: { count },
+      }).catch(() => undefined);
+      apiJson(res, 200, { ok: true, count });
+      return;
+    }
+
+    if (op === 'queryMany') {
+      const queries = Array.isArray(body.queries) ? body.queries.slice(0, 24) : [];
+      const parsed = queries.map((item: any) => ({
+        qPath: String(item?.path || '').replace(/^\/+|\/+$/g, ''),
+        constraints: Array.isArray(item?.constraints) ? item.constraints : [],
+      }));
+      const wsIds = [...new Set(parsed.map((row) => {
+        const bits = row.qPath.split('/').filter(Boolean);
+        return bits[0] === 'erp_workspaces' ? bits[1] : '';
+      }).filter(Boolean))];
+      if (wsIds.length === 1 && parsed.every((row) => row.qPath.startsWith('erp_workspaces/'))) {
+        const ws = String(wsIds[0] || '');
+        assertErpWorkspace(user.uid, `erp_workspaces/${ws}`);
+        const loaded = await erpLoadWorkspace(ws);
+        const grouped = packBooksCollections(loaded.docs);
+        apiJson(res, 200, {
+          results: parsed.map((row) => {
+            const col = row.qPath.split('/').filter(Boolean).slice(2).join('/');
+            return { path: row.qPath, docs: applyBooksConstraints(grouped[col] || [], row.constraints) };
+          }),
+        });
+        return;
+      }
+      const results = [];
+      for (const row of parsed) {
+        if (!row.qPath) {
+          results.push({ path: row.qPath, docs: [] });
+          continue;
+        }
+        assertErpWorkspace(user.uid, row.qPath);
+        results.push({ path: row.qPath, docs: applyBooksConstraints(await ledgerList(row.qPath, row.constraints), row.constraints) });
+      }
+      apiJson(res, 200, { results });
+      return;
+    }
+
+    throw new ApiError(400, 'Unknown Books operation');
+  });
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const domain = domainFrom(req);
   if (domain === 'ledgers') return handleLedgers(req, res);
   if (domain === 'expenses') return handleExpenses(req, res);
   if (domain === 'notifications') return handleNotifications(req, res);
   if (domain === 'me') return handleMe(req, res);
+  if (domain === 'books') return handleBooks(req, res);
 
   const origin = String(req.headers.origin || '');
   res.setHeader('Access-Control-Allow-Origin', origin || '*');

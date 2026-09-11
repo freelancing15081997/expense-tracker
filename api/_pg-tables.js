@@ -1022,19 +1022,20 @@ async function ledgerDel(path) {
     await erpDel(p);
     return;
   }
-  if (parts[0] === "users" && parts.length === 2) await sql`DELETE FROM users WHERE id = ${parts[1]}`;
-  else if (parts[0] === "books" && parts.length === 2) {
-    await sql`DELETE FROM book_members WHERE book_id = ${parts[1]}`;
-    await sql`DELETE FROM books WHERE id = ${parts[1]}`;
-  } else if (parts[0] === "books" && parts[2] === "expenses" && parts.length === 4) {
-    await sql`DELETE FROM expenses WHERE book_id = ${parts[1]} AND id = ${parts[3]}`;
-  } else if (parts[0] === "books" && parts[2] === "inbound_events" && parts.length === 4) {
-    await sql`DELETE FROM inbound_events WHERE book_id = ${parts[1]} AND id = ${parts[3]}`;
-  } else if (parts[0] === "books" && parts[2] === "email_events" && parts.length === 4) {
-    await sql`DELETE FROM email_events WHERE book_id = ${parts[1]} AND id = ${parts[3]}`;
-  } else if (parts[0] === "notifications" && parts.length === 2) await sql`DELETE FROM notifications WHERE id = ${parts[1]}`;
-  else if (parts[0] === "invites" && parts.length === 2) await sql`DELETE FROM invites WHERE id = ${parts[1]}`;
-  else await sql`DELETE FROM documents WHERE path = ${p}`;
+  if (parts[0] === "users" && parts.length === 2) {
+    await sql`DELETE FROM users WHERE id = ${parts[1]}`;
+    return;
+  }
+  if (parts[0] === "books" && parts.length === 2 || parts[0] === "books" && parts.length === 4 && (parts[2] === "expenses" || parts[2] === "inbound_events" || parts[2] === "email_events")) {
+    const current = asObject(await ledgerGet(p)) || {};
+    await ledgerSet(p, { ...current, deleted: true, deletedAt: (/* @__PURE__ */ new Date()).toISOString() });
+    return;
+  }
+  if (parts[0] === "notifications" && parts.length === 2) await sql`DELETE FROM notifications WHERE id = ${parts[1]}`;
+  else if (parts[0] === "invites" && parts.length === 2) {
+    const current = asObject(await ledgerGet(p)) || {};
+    await ledgerSet(p, { ...current, deleted: true, deletedAt: (/* @__PURE__ */ new Date()).toISOString(), status: "closed" });
+  } else await sql`DELETE FROM documents WHERE path = ${p}`;
 }
 function rowsOf(result) {
   return asRows(result).map((row) => {
@@ -1446,6 +1447,17 @@ class ApiError extends Error {
     this.extra = extra;
   }
 }
+function ownsErpWorkspace(uid, workspaceId) {
+  return Boolean(uid && workspaceId && (workspaceId === uid || workspaceId.startsWith(`${uid}_`)));
+}
+function assertErpWorkspace(uid, path) {
+  const parts = String(path || "").split("/").filter(Boolean);
+  const ws = parts[0] === "erp_workspaces" ? parts[1] || "" : parts[0] || "";
+  if (!ownsErpWorkspace(uid, ws)) {
+    throw new ApiError(403, "Not allowed to access this Books workspace");
+  }
+  return ws;
+}
 function applyApiCors(req, res) {
   const origin = String(req.headers.origin || "");
   res.setHeader("Access-Control-Allow-Origin", origin || "*");
@@ -1527,6 +1539,7 @@ export {
   apiJson,
   applyApiCors,
   asObject,
+  assertErpWorkspace,
   cleanPath,
   erpLoadWorkspace,
   getLedgerSql,
@@ -1566,6 +1579,7 @@ export {
   ledgerUpdateBook,
   ledgerUpsertUser,
   newLedgerId,
+  ownsErpWorkspace,
   postgresUrl,
   requireApiUser,
   verifyFirebaseUser,

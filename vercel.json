@@ -35,6 +35,7 @@
     { "source": "/api/expenses", "destination": "/api/tracker?domain=expenses" },
     { "source": "/api/notifications", "destination": "/api/tracker?domain=notifications" },
     { "source": "/api/me", "destination": "/api/tracker?domain=me" },
+    { "source": "/api/books", "destination": "/api/tracker?domain=books" },
     { "source": "/api/auth/:path*", "destination": "/api" },
     { "source": "/neondb/auth/:path*", "destination": "/api" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
