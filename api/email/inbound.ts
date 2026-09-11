@@ -1206,7 +1206,7 @@ async function processItem(item: any) {
       // category merge is best-effort
     }
   }
-  const eventId = await logInboundEvent(bookId, {
+  await logInboundEvent(bookId, {
     status: 'accepted',
     fromEmail: member.email,
     subject: subject || '(no subject)',
@@ -1217,11 +1217,9 @@ async function processItem(item: any) {
     hasFile: Boolean(receipt?.path),
     parseEngine,
     parseError: expense.parseError || null,
+    teamNotified: false,
   });
-  const detail = parsed.amount
-    ? `${mailbox.currency} ${parsed.amount.toFixed(2)} · ${parsed.category} · ${parsed.description} · from ${member.email}`
-    : `Entry from ${member.email}. Amount was not found on the document — open the ledger and fill it in.`;
-  await notifyMembers(mailbox, detail, bookId, member.email, 'sent inbound mail. Byjan added an entry', eventId).catch(() => undefined);
+  // Successful inbound already created the ledger entry. Do not email the whole team.
   return {
     ok: true,
     bookId,
