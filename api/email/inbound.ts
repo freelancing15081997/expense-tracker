@@ -531,12 +531,53 @@ function geminiModels() {
   const preferred = String(process.env.GEMINI_MODEL || '').trim();
   const defaults = [
     'gemini-2.5-flash',
-    'gemini-flash-latest',
     'gemini-2.5-flash-lite',
-    'gemini-3.5-flash',
+    'gemini-flash-latest',
+    'gemini-2.0-flash',
     'gemini-1.5-flash',
   ];
   return [...new Set([preferred, ...defaults].filter(Boolean))];
+}
+
+function extractGeminiText(response: any) {
+  if (!response) return '';
+  if (typeof response.text === 'string' && response.text.trim()) return response.text.trim();
+  if (typeof response.text === 'function') {
+    try {
+      const value = response.text();
+      if (typeof value === 'string' && value.trim()) return value.trim();
+    } catch {
+      // ignore
+    }
+  }
+  const parts = response?.candidates?.[0]?.content?.parts;
+  return (Array.isArray(parts) ? parts : [])
+    .map((part: any) => String(part?.text || ''))
+    .join('\n')
+    .trim();
+}
+
+async function listUsableGeminiModels(ai: any) {
+  try {
+    const pager = ai.models.list({ config: { pageSize: 50 } });
+    const names: string[] = [];
+    if (pager && typeof pager[Symbol.asyncIterator] === 'function') {
+      for await (const model of pager) {
+        const name = String(model?.name || model?.model || '').replace(/^models\//, '');
+        if (name && /flash|pro/i.test(name)) names.push(name);
+      }
+    } else if (Array.isArray(pager?.models)) {
+      for (const model of pager.models) {
+        const name = String(model?.name || '').replace(/^models\//, '');
+        if (name && /flash|pro/i.test(name)) names.push(name);
+      }
+    }
+    const flashFirst = names.filter((n) => /flash/i.test(n));
+    return [...new Set([...(flashFirst.length ? flashFirst : names), ...geminiModels()])];
+  } catch (err: any) {
+    console.error('gemini list models failed', err?.message || err);
+    return geminiModels();
+  }
 }
 
 async function parseDocumentWithGemini(
@@ -551,7 +592,7 @@ async function parseDocumentWithGemini(
   if (!key || !mime || !bytes.length) {
     return { parsed: fallback, error: !key ? 'missing_key' : !mime ? 'unsupported_mime' : 'empty_file' };
   }
-  // Keep payloads lean for speed (complex docs still work; very large scans are truncated).
+
   const maxBytes = 4 * 1024 * 1024;
   const payloadBytes = bytes.length > maxBytes ? bytes.subarray(0, maxBytes) : bytes;
   const prompt = `You are a professional accounts-payable document parser for Byjan.
@@ -573,65 +614,93 @@ notes (one short line of useful extras; empty if none),
 lineItems (optional array of {name, amount}).
 Rules: never invent an amount; prefer printed grand total/net payable; handle messy photos, skewed scans, multi-column invoices, and Indian GST layouts.`;
 
-  const body = {
-    contents: [{
-      parts: [
-        { text: prompt },
-        { inline_data: { mime_type: mime, data: payloadBytes.toString('base64') } },
-      ],
-    }],
-    generationConfig: { temperature: 0, responseMimeType: 'application/json' },
-  };
+  let ai: any;
+  try {
+    const mod: any = await import('@google/genai');
+    const GoogleGenAI = mod.GoogleGenAI || mod.default?.GoogleGenAI;
+    if (!GoogleGenAI) return { parsed: fallback, error: 'sdk_missing' };
+    ai = new GoogleGenAI({ apiKey: key });
+  } catch (err: any) {
+    return { parsed: fallback, error: `sdk_import: ${err?.message || err}` };
+  }
 
+  const models = await listUsableGeminiModels(ai);
   const errors: string[] = [];
-  for (const model of geminiModels()) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 14_000);
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          signal: controller.signal,
-          body: JSON.stringify(body),
-        },
-      );
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const msg = String(payload?.error?.message || `http_${res.status}`);
-        errors.push(`${model}: ${msg}`);
-        console.error('gemini model failed', model, msg);
-        continue;
-      }
-      const parts = payload?.candidates?.[0]?.content?.parts;
-      const raw = (Array.isArray(parts) ? parts : [])
-        .map((part: any) => String(part?.text || ''))
-        .join('\n')
-        .replace(/^```json\s*|\s*```$/g, '')
-        .trim();
-      if (!raw) {
-        const block = payload?.candidates?.[0]?.finishReason || payload?.promptFeedback?.blockReason || 'empty_response';
-        errors.push(`${model}: ${block}`);
-        continue;
-      }
-      // Model may wrap JSON in prose; extract the first object.
-      const jsonSlice = raw.includes('{') ? raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1) : raw;
+
+  for (const model of models.slice(0, 5)) {
+    for (const useJsonMime of [true, false]) {
       try {
-        const parsed = asParsed(JSON.parse(jsonSlice), fallback);
-        return { parsed, model };
+        const response = await withTimeoutMs(
+          ai.models.generateContent({
+            model,
+            contents: [{
+              role: 'user',
+              parts: [
+                { text: prompt },
+                { inlineData: { mimeType: mime, data: payloadBytes.toString('base64') } },
+              ],
+            }],
+            config: {
+              temperature: 0,
+              ...(useJsonMime ? { responseMimeType: 'application/json' } : {}),
+            },
+          }),
+          18_000,
+        );
+        if (!response) {
+          errors.push(`${model}: timeout`);
+          continue;
+        }
+        const raw = extractGeminiText(response).replace(/^```json\s*|\s*```$/g, '').trim();
+        if (!raw) {
+          const block = response?.candidates?.[0]?.finishReason || response?.promptFeedback?.blockReason || 'empty_response';
+          errors.push(`${model}: ${block}`);
+          continue;
+        }
+        const jsonSlice = raw.includes('{') ? raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1) : raw;
+        try {
+          const parsed = asParsed(JSON.parse(jsonSlice), fallback);
+          return { parsed, model };
+        } catch (err: any) {
+          errors.push(`${model}: bad_json`);
+          console.error('gemini json parse failed', model, err?.message || err, raw.slice(0, 220));
+        }
       } catch (err: any) {
-        errors.push(`${model}: bad_json`);
-        console.error('gemini json parse failed', model, err?.message || err, raw.slice(0, 200));
+        errors.push(`${model}: ${err?.message || 'request_failed'}`);
+        console.error('gemini sdk failed', model, err?.message || err);
       }
-    } catch (err: any) {
-      errors.push(`${model}: ${err?.name === 'AbortError' ? 'timeout' : (err?.message || 'request_failed')}`);
-      console.error('gemini request failed', model, err?.message || err);
-    } finally {
-      clearTimeout(timer);
     }
   }
-  return { parsed: fallback, error: errors.slice(0, 4).join(' | ') || 'all_models_failed' };
+
+  return { parsed: fallback, error: errors.slice(0, 6).join(' | ') || 'all_models_failed' };
+}
+
+async function probeGemini() {
+  const key = geminiKey();
+  if (!key) return { ok: false, error: 'missing_key' };
+  try {
+    const mod: any = await import('@google/genai');
+    const GoogleGenAI = mod.GoogleGenAI || mod.default?.GoogleGenAI;
+    const ai = new GoogleGenAI({ apiKey: key });
+    const models = await listUsableGeminiModels(ai);
+    const model = models[0] || 'gemini-2.5-flash';
+    const response = await withTimeoutMs(
+      ai.models.generateContent({
+        model,
+        contents: 'Reply with JSON only: {"ok":true,"amount":12.5}',
+        config: { temperature: 0, responseMimeType: 'application/json' },
+      }),
+      12_000,
+    );
+    return {
+      ok: Boolean(response),
+      model,
+      modelsTried: models.slice(0, 8),
+      sample: extractGeminiText(response).slice(0, 200),
+    };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || String(err) };
+  }
 }
 
 /**
@@ -1214,6 +1283,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
     if (req.method === 'GET' || req.method === 'HEAD') {
+      const url = new URL(req.url || '/', 'https://local.invalid');
+      const wantsProbe = url.searchParams.get('probe') === 'gemini';
+      if (wantsProbe) {
+        if (!authorized(req) && !secretsMatch(String(url.searchParams.get('secret') || ''), inboundSecret())) {
+          json(res, 401, { error: 'Invalid inbound secret' });
+          return;
+        }
+        json(res, 200, { ok: true, probe: await probeGemini() });
+        return;
+      }
       json(res, 200, {
         ok: true,
         service: 'inbound-email',
