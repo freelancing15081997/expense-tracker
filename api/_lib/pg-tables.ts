@@ -73,7 +73,8 @@ function ts(value: unknown) {
 }
 
 function flag(data: Record<string, unknown>) {
-  return data.deleted === true || Boolean(data.deletedAt) || data.status === 'deleted';
+  const deleted = data.deleted;
+  return deleted === true || deleted === 'true' || deleted === 1 || deleted === '1' || Boolean(data.deletedAt) || data.status === 'deleted';
 }
 
 const INBOUND_DOMAIN = 'easypado.com';
@@ -831,8 +832,14 @@ export async function ledgerList(prefix: string, constraints: any[] = []) {
   }
 
   if (parts[0] === 'books' && parts[2] === 'expenses' && parts.length === 3) {
-    const rows = await sql`SELECT id, data FROM expenses WHERE book_id = ${parts[1]} ORDER BY updated_at DESC`;
-    return rowsOf(rows);
+    const rows = await sql`SELECT id, data, deleted FROM expenses WHERE book_id = ${parts[1]} ORDER BY updated_at DESC`;
+    return asRows<{ id: string; data: unknown; deleted?: boolean }>(rows)
+      .map((row) => {
+        const data = asObject(row.data);
+        if (!data || row.deleted === true || flag(data)) return null;
+        return { id: String(row.id), data };
+      })
+      .filter(Boolean) as { id: string; data: Record<string, unknown> }[];
   }
   if (parts[0] === 'books' && parts[2] === 'inbound_events' && parts.length === 3) {
     const rows = await sql`SELECT id, data FROM inbound_events WHERE book_id = ${parts[1]} ORDER BY created_at DESC NULLS LAST, updated_at DESC`;
@@ -886,14 +893,14 @@ export async function ledgerList(prefix: string, constraints: any[] = []) {
 export async function ledgerListExpensesByBooks(bookIds: string[]) {
   if (!bookIds.length) return new Map<string, { id: string; data: Record<string, unknown> }[]>();
   const sql = await getLedgerSql();
-  const rows = await sql`SELECT id, book_id, data FROM expenses WHERE book_id = ANY(${bookIds})`;
+  const rows = await sql`SELECT id, book_id, data, deleted FROM expenses WHERE book_id = ANY(${bookIds})`;
   const grouped = new Map<string, { id: string; data: Record<string, unknown> }[]>();
-  for (const row of asRows<{ id: string; book_id: string; data: unknown }>(rows)) {
+  for (const row of asRows<{ id: string; book_id: string; data: unknown; deleted?: boolean }>(rows)) {
     const data = asObject(row.data);
-    if (!data) continue;
+    if (!data || row.deleted === true || flag(data)) continue;
     const col = `books/${row.book_id}/expenses`;
     const list = grouped.get(col) || [];
-    list.push({ id: row.id, data });
+    list.push({ id: String(row.id), data });
     grouped.set(col, list);
   }
   return grouped;

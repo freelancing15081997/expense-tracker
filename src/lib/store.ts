@@ -1,3 +1,5 @@
+import { isSoftDeleted } from './records';
+
 export type Firestore = { vendor: 'neon' };
 export const db: Firestore = { vendor: 'neon' };
 
@@ -211,7 +213,7 @@ function overlayCollection(colPath: string, byId: Map<string, Record<string, unk
     if (!path.startsWith(prefix)) continue;
     const id = path.slice(prefix.length);
     if (!id || id.includes('/')) continue;
-    if (entry.data === null) {
+    if (entry.data === null || isSoftDeleted(entry.data)) {
       byId.delete(id);
       continue;
     }
@@ -246,7 +248,10 @@ function storeCollection(path: string, constraints: Constraint[] | undefined, by
     const prev = colCache.get(colKey(path, constraints));
     if (prev && prev.rows.length > byId.size) {
       for (const [id, data] of prev.rows) {
-        if (!byId.has(id)) byId.set(id, data);
+        if (byId.has(id) || isSoftDeleted(data)) continue;
+        const mem = memory.get(`${path}/${id}`);
+        if (!mem || mem.data === null || isSoftDeleted(mem.data)) continue;
+        byId.set(id, data);
       }
     }
   }

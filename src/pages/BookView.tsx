@@ -554,6 +554,7 @@ export default function BookView() {
       setIsDeleting(id);
       try {
         await updateDoc(doc(db, `books/${bookId}/expenses`, id), softDeletePatch(currentUser.uid));
+        setExpenses((prev) => prev.filter((row) => row.id !== id));
         await notifyTeamMembers('Deleted an entry', `Removed entry for "${description}"`, `${userProfile?.displayName || currentUser?.email} deleted "${description}" from ${book.name}`);
         addToast('Entry removed. The record is kept for audit.', 'success');
       } catch (err: any) {

@@ -3,7 +3,8 @@
 export function isSoftDeleted(data: object | null | undefined): boolean {
   if (!data) return false;
   const rec = data as Record<string, unknown>;
-  if (rec.deleted === true) return true;
+  const deleted = rec.deleted;
+  if (deleted === true || deleted === 'true' || deleted === 1 || deleted === '1') return true;
   if (rec.deletedAt) return true;
   return rec.status === 'deleted';
 }
