@@ -146,6 +146,10 @@ function postgresUrl() {
     process.env.DATABASE_URL_UNPOOLED ||
     process.env.POSTGRES_URL_NON_POOLING ||
     process.env.POSTGRES_PRISMA_URL ||
+    process.env.BYJAN_NEON_DATABASE_URL ||
+    process.env.BYJAN_NEON_POSTGRES_URL ||
+    process.env.BYJAN_NEON_DATABASE_URL_UNPOOLED ||
+    process.env.BYJAN_NEON_POSTGRES_URL_NON_POOLING ||
     '';
   if (!raw) return '';
   try {
@@ -456,8 +460,17 @@ async function blobList(prefix: string) {
 }
 
 async function rawGet(path: string) {
-  if (postgresUrl()) return pgGet(path);
-  return blobGet(path);
+  if (postgresUrl()) {
+    const row = await pgGet(path);
+    if (row) return row;
+  }
+  try {
+    const blob = await blobGet(path);
+    if (blob && postgresUrl()) await pgCopyIfNew(path, blob).catch(() => undefined);
+    return blob;
+  } catch {
+    return null;
+  }
 }
 
 async function rawSet(path: string, data: unknown) {
@@ -682,7 +695,20 @@ async function localList(prefix: string) {
     const snap = await loadSnap(bits[1]);
     return listFromSnap(snap, prefix);
   }
-  if (postgresUrl()) return pgList(prefix);
+  if (postgresUrl()) {
+    const rows = await pgList(prefix);
+    if (rows.length) return rows;
+    try {
+      const blobRows = await blobList(prefix);
+      if (blobRows.length) {
+        const base = cleanPath(prefix);
+        await Promise.all(blobRows.map((row) => pgCopyIfNew(`${base}/${row.id}`, row.data).catch(() => undefined)));
+      }
+      return blobRows;
+    } catch {
+      return rows;
+    }
+  }
   return blobList(prefix);
 }
 

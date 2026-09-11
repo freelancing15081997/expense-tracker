@@ -17,6 +17,10 @@ function postgresUrl() {
     process.env.POSTGRES_URL ||
     process.env.DATABASE_URL_UNPOOLED ||
     process.env.POSTGRES_URL_NON_POOLING ||
+    process.env.BYJAN_NEON_DATABASE_URL ||
+    process.env.BYJAN_NEON_POSTGRES_URL ||
+    process.env.BYJAN_NEON_DATABASE_URL_UNPOOLED ||
+    process.env.BYJAN_NEON_POSTGRES_URL_NON_POOLING ||
     '';
   if (!raw) return '';
   try {

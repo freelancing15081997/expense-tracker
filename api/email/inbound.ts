@@ -137,6 +137,10 @@ function postgresUrl() {
     process.env.DATABASE_URL_UNPOOLED ||
     process.env.POSTGRES_URL_NON_POOLING ||
     process.env.POSTGRES_PRISMA_URL ||
+    process.env.BYJAN_NEON_DATABASE_URL ||
+    process.env.BYJAN_NEON_POSTGRES_URL ||
+    process.env.BYJAN_NEON_DATABASE_URL_UNPOOLED ||
+    process.env.BYJAN_NEON_POSTGRES_URL_NON_POOLING ||
     '';
   if (!raw) return '';
   try {
@@ -1386,8 +1390,8 @@ function normText(value: unknown) {
 }
 
 async function listLedgerExpenses(bookId: string): Promise<Array<Record<string, unknown>>> {
-  if (!postgresUrl()) return [];
-  const rows = await pgList(`books/${bookId}/expenses`);
+  let rows: Array<{ path: string; data: Record<string, unknown> }> = [];
+  if (postgresUrl()) rows = await pgList(`books/${bookId}/expenses`);
   return rows
     .map((row) => {
       const id = row.path.split('/').pop() || '';
