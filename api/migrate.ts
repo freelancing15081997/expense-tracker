@@ -135,29 +135,28 @@ async function getDoc(token: string, path: string) {
   return null;
 }
 
-async function listCollectionIds(token: string, parentPath: string) {
-  for (const root of firestoreRoots()) {
-    const parent = parentPath ? `${root}/${parentPath}` : root;
-    const res = await fsFetch(token, `${parent}:listCollectionIds`, {
-      method: 'POST',
-      body: JSON.stringify({ pageSize: 100 }),
-    });
-    if (!res.ok) continue;
-    const body = await res.json();
-    return (body.collectionIds || []) as string[];
+async function listBooks(token: string, uid: string) {
+  const found = new Map<string, { path: string; data: Record<string, unknown> }>();
+  const fromIn = await runQuery(token, '', 'books', [{
+    fieldFilter: {
+      field: { fieldPath: `roles.${uid}.role` },
+      op: 'IN',
+      value: { arrayValue: { values: ROLES.map((role) => ({ stringValue: role })) } },
+    },
+  }]);
+  for (const row of fromIn) found.set(row.path, row);
+  if (found.size) return [...found.values()];
+  for (const role of ROLES) {
+    const rows = await runQuery(token, '', 'books', [{
+      fieldFilter: {
+        field: { fieldPath: `roles.${uid}.role` },
+        op: 'EQUAL',
+        value: { stringValue: role },
+      },
+    }]);
+    for (const row of rows) found.set(row.path, row);
   }
-  return [] as string[];
-}
-
-async function walk(token: string, path: string, rows: { path: string; data: Record<string, unknown> }[]) {
-  const doc = await getDoc(token, path);
-  if (doc?.path) rows.push(doc);
-  for (const col of await listCollectionIds(token, path)) {
-    for (const child of await listCollection(token, `${path}/${col}`)) {
-      if (!child.path) continue;
-      await walk(token, child.path, rows);
-    }
-  }
+  return [...found.values()];
 }
 
 async function collect(token: string, uid: string, email: string) {
@@ -171,14 +170,7 @@ async function collect(token: string, uid: string, email: string) {
 
   add(await getDoc(token, `users/${uid}`));
 
-  const books = await runQuery(token, '', 'books', [{
-    fieldFilter: {
-      field: { fieldPath: `roles.${uid}.role` },
-      op: 'IN',
-      value: { arrayValue: { values: ROLES.map((role) => ({ stringValue: role })) } },
-    },
-  }]);
-  for (const book of books) {
+  for (const book of await listBooks(token, uid)) {
     add(book);
     const bookId = book.path.split('/')[1];
     if (!bookId) continue;
@@ -205,10 +197,6 @@ async function collect(token: string, uid: string, email: string) {
     },
   }])) add(row);
 
-  await walk(token, `erp_workspaces/${uid}`, rows);
-  await walk(token, `financeMembers/${uid}`, rows);
-  await walk(token, `financeTenants/t_${uid}`, rows);
-
   return rows;
 }
 
@@ -223,20 +211,25 @@ async function upsertNeon(rows: { path: string; data: Record<string, unknown> }[
   )`;
   await sql`CREATE INDEX IF NOT EXISTS documents_path_idx ON documents (path)`;
   let copied = 0;
+  const failed: string[] = [];
   for (const row of rows) {
     const path = String(row.path || '').replace(/^\/+|\/+$/g, '');
     if (!path || !/^[a-zA-Z0-9_./-]+$/.test(path)) continue;
     const payload = JSON.stringify(row.data ?? {});
-    await sql`
-      INSERT INTO documents (path, data, updated_at)
-      VALUES (${path}, ${payload}::jsonb, NOW())
-      ON CONFLICT (path) DO UPDATE SET
-        data = EXCLUDED.data || documents.data,
-        updated_at = NOW()
-    `;
-    copied += 1;
+    try {
+      await sql`
+        INSERT INTO documents (path, data, updated_at)
+        VALUES (${path}, ${payload}::jsonb, NOW())
+        ON CONFLICT (path) DO UPDATE SET
+          data = EXCLUDED.data || documents.data,
+          updated_at = NOW()
+      `;
+      copied += 1;
+    } catch (err: any) {
+      failed.push(`${path}: ${err?.message || 'write failed'}`);
+    }
   }
-  return copied;
+  return { copied, failed };
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -278,10 +271,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const rows = await collect(token, uid, email);
-    const copied = await upsertNeon(rows);
-    json(res, 200, { copied, skipped: false, documents: rows.length });
+    const result = await upsertNeon(rows);
+    json(res, 200, {
+      copied: result.copied,
+      skipped: false,
+      documents: rows.length,
+      failed: result.failed.slice(0, 8),
+    });
   } catch (err: any) {
-    json(res, 500, { error: err?.message || 'Copy failed' });
+    json(res, 200, { copied: 0, skipped: true, error: err?.message || 'Copy failed' });
   }
 }
 

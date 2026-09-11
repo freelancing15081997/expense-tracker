@@ -87,7 +87,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return;
         }
         try {
-          await copyLegacyBooks();
+          void copyLegacyBooks();
           const userRef = doc(db, 'users', user.uid);
           const snap = await getDoc(userRef);
           if (!snap.exists()) {
