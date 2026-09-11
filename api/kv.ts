@@ -11,6 +11,7 @@ import {
   ledgerListExpensesByBooks,
   cleanPath,
   ledgerHasPendingInvite,
+  ledgerListBooksForUser,
   ledgerMember,
 } from './_pg-tables.js';
 
@@ -720,15 +721,19 @@ async function resolveEmail(uid: string, email: string) {
   return String(me?.email || '').trim().toLowerCase();
 }
 
+function forbid(message: string): never {
+  const err: Error & { status?: number } = new Error(message);
+  err.status = 403;
+  throw err;
+}
+
 async function assertLedgerAccess(uid: string, email: string, path: string, writer = false, op = '') {
   const parts = path.split('/').filter(Boolean);
   if (parts[0] !== 'books' || parts.length < 2) return;
   const member = await ledgerMember(parts[1], uid);
   if (member) {
     if (writer && !['owner', 'admin', 'contributor'].includes(member.role)) {
-      const err: Error & { status?: number } = new Error('Not allowed to change this ledger');
-      err.status = 403;
-      throw err;
+      forbid('Not allowed to change this ledger');
     }
     return;
   }
@@ -736,9 +741,34 @@ async function assertLedgerAccess(uid: string, email: string, path: string, writ
   const mail = await resolveEmail(uid, email);
   const invited = Boolean(mail) && await ledgerHasPendingInvite(parts[1], mail);
   if (invited && parts.length === 2 && (!writer || op === 'set' || op === 'update')) return;
-  const err: Error & { status?: number } = new Error('You do not have access to this ledger');
-  err.status = 403;
-  throw err;
+  forbid('You do not have access to this ledger');
+}
+
+async function assertPathAccess(uid: string, email: string, path: string, writer = false, op = '') {
+  const parts = path.split('/').filter(Boolean);
+  if (!parts.length) return;
+  if (parts[0] === 'users') {
+    if (parts[1] && parts[1] !== uid) forbid('Not allowed to access this profile');
+    return;
+  }
+  if (parts[0] === 'invites') {
+    if (parts.length < 2) return;
+    const invite = await ledgerGet(`invites/${parts[1]}`).catch(() => null);
+    if (!invite) return;
+    const mail = String(invite.email || '').trim().toLowerCase();
+    if (mail === email || String(invite.invitedBy || '') === uid) return;
+    forbid('Not allowed to access this invite');
+  }
+  await assertLedgerAccess(uid, email, path, writer, op);
+}
+
+async function memberBookIds(uid: string, ids: string[]) {
+  const unique = [...new Set(ids.filter(Boolean))];
+  const allowed = new Set<string>();
+  await Promise.all(unique.map(async (id) => {
+    if (await ledgerMember(id, uid)) allowed.add(id);
+  }));
+  return allowed;
 }
 
 async function readDoc(path: string, token: string, uid: string) {
@@ -845,7 +875,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
     if (path) assertErpAccess(uid, path);
-    if (path) await assertLedgerAccess(uid, session.email, path, ['set', 'update', 'delete', 'add'].includes(op), op);
+    if (path) await assertPathAccess(uid, session.email, path, ['set', 'update', 'delete', 'add'].includes(op), op);
 
     if (op === 'workspace') {
       const bits = path.split('/').filter(Boolean);
@@ -911,7 +941,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (op === 'list' || op === 'query') {
-      const constraints = Array.isArray(body.constraints) ? body.constraints : [];
+      const parts = path.split('/').filter(Boolean);
+      let constraints = Array.isArray(body.constraints) ? body.constraints : [];
+      if (parts[0] === 'books' && parts.length === 1) {
+        const books = await ledgerListBooksForUser(uid);
+        json(res, 200, { docs: applyConstraints(books.map((book) => ({ id: String(book.id), data: book })), constraints) });
+        return;
+      }
+      if (parts[0] === 'invites' && parts.length === 1) {
+        constraints = [{ type: 'where', field: 'email', op: '==', value: session.email }, ...constraints];
+      }
+      if (parts[0] === 'notifications' && parts.length === 1) {
+        constraints = [{ type: 'where', field: 'userId', op: '==', value: uid }, ...constraints];
+      }
       const docs = applyConstraints(await readList(path, token, constraints, uid), constraints);
       json(res, 200, { docs });
       return;
@@ -925,7 +967,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const writePath = String(write.path || '').replace(/^\/+|\/+$/g, '');
         if (!writePath) continue;
         assertErpAccess(uid, writePath);
-        await assertLedgerAccess(uid, session.email, writePath, true, writeOp);
+        await assertPathAccess(uid, session.email, writePath, true, writeOp);
         if (writeOp === 'set') {
           prepared.push({ path: writePath, data: (write.data || {}) as Record<string, unknown>, merge: Boolean(write.merge) });
         } else if (writeOp === 'update') {
@@ -968,18 +1010,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ));
       if (expenseOnly && postgresUrl()) {
         const bookIds = parsed.map((row: { qPath: string }) => row.qPath.split('/')[1]).filter(Boolean);
-        const grouped = await ledgerListExpensesByBooks(bookIds);
-        const haveAny = [...grouped.values()].some((rows) => rows.length);
-        if (haveAny) {
-          json(res, 200, {
-            results: parsed.map((row: { qPath: string }) => ({ path: row.qPath, docs: grouped.get(row.qPath) || [] })),
-          });
-          return;
-        }
+        const allowed = await memberBookIds(uid, bookIds);
+        const grouped = allowed.size ? await ledgerListExpensesByBooks([...allowed]) : new Map();
+        json(res, 200, {
+          results: parsed.map((row: { qPath: string }) => (
+            allowed.has(row.qPath.split('/')[1] || '')
+              ? { path: row.qPath, docs: grouped.get(row.qPath) || [] }
+              : { path: row.qPath, docs: [] }
+          )),
+        });
+        return;
       }
       const results = await Promise.all(parsed.map(async (row: { qPath: string; constraints: any[] }) => {
         if (!row.qPath) return { path: row.qPath, docs: [] };
         assertErpAccess(uid, row.qPath);
+        try {
+          await assertPathAccess(uid, session.email, row.qPath, false, 'query');
+        } catch (err: any) {
+          if (err?.status === 403) return { path: row.qPath, docs: [] };
+          throw err;
+        }
         const docs = applyConstraints(await readList(row.qPath, token, row.constraints, uid), row.constraints);
         return { path: row.qPath, docs };
       }));
