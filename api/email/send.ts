@@ -83,25 +83,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let transporter = createTransport(settings);
     const textMessage = message.replace(/<[^>]*>?/gm, '');
     const from = mailFrom();
-    const mail = {
-      from: `"Byjan" <${from}>`,
-      replyTo: from,
-      envelope: { from, to },
-      to,
-      subject,
-      text: textMessage,
-      html: `<!DOCTYPE html>
+    const html = /<!DOCTYPE html/i.test(message) ? message : `<!DOCTYPE html>
 <html lang="en">
-<body style="margin:0;padding:0;background:#f4f1ea">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:32px 12px;background:#f4f1ea">
+<head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
+<body style="margin:0;padding:0;background:#eef2f6">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:36px 12px;background:#eef2f6">
     <tr><td align="center">
-      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border:1px solid #e6e1d6">
-        <tr><td style="padding:28px 32px 20px;border-bottom:3px solid #0B1F3A">
-          <p style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:22px;color:#0B1F3A;letter-spacing:0.08em">BYJAN</p>
-          <p style="margin:6px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:#8a8070">${String(body.kind || '') === 'announcement' ? 'Team announcement' : 'Ledger notice'}</p>
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border:1px solid #dbe3ea;border-radius:16px;overflow:hidden">
+        <tr><td style="padding:26px 32px 18px;background:#0B1F3A">
+          <p style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:22px;color:#ffffff;letter-spacing:0.12em">BYJAN</p>
+          <p style="margin:8px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:#12B8A8">${String(body.kind || '') === 'announcement' ? 'Team announcement' : 'Ledger notice'}</p>
         </td></tr>
-        <tr><td style="padding:28px 32px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#334155">${message}</td></tr>
-        <tr><td style="padding:16px 32px 24px;border-top:1px solid #edf0f2;font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#94a3b8">
+        <tr><td style="height:4px;background:#12B8A8;font-size:0;line-height:0">&nbsp;</td></tr>
+        <tr><td style="padding:28px 32px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.65;color:#334155">${message}</td></tr>
+        <tr><td style="padding:18px 32px 26px;border-top:1px solid #edf2f7;font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#94a3b8">
           You received this because you are a member of a Byjan ledger.<br/>
           ${body.ledgerMail ? `Send receipts or entries to ${String(body.ledgerMail)} and Byjan will record them for the team.<br/>` : ''}
           Byjan · easypado.com · Service notice, not marketing.
@@ -110,7 +105,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     </td></tr>
   </table>
 </body>
-</html>`,
+</html>`;
+    const mail = {
+      from: `"Byjan" <${from}>`,
+      replyTo: from,
+      envelope: { from, to },
+      to,
+      subject,
+      text: textMessage,
+      html,
       headers: {
         'List-Unsubscribe': '<mailto:noreply@easypado.com?subject=unsubscribe>',
         'X-Auto-Response-Suppress': 'All',

@@ -43,6 +43,17 @@ import {
   Users,
   Wallet,
   Wrench,
+  CalendarRange,
+  Lock,
+  FilePlus,
+  FileQuestionMark,
+  PackageCheck,
+  Building,
+  LineChart,
+  Briefcase,
+  ClipboardCheck,
+  FileSearch,
+  Network,
 } from 'lucide-react';
 
 export type BooksGlyphName =
@@ -78,6 +89,16 @@ export type BooksGlyphName =
   | 'workbench'
   | 'inbox'
   | 'approval'
+  | 'period'
+  | 'close'
+  | 'estimate'
+  | 'sales-order'
+  | 'debit'
+  | 'purchase-request'
+  | 'purchase-receipt'
+  | 'company'
+  | 'forecast'
+  | 'cfo'
   | 'insight'
   | 'audit'
   | 'settings'
@@ -119,7 +140,7 @@ const ICONS: Record<BooksGlyphName, LucideIcon> = {
   lease: KeyRound,
   tax: Percent,
   report: BarChart3,
-  entity: Building2,
+  entity: Network,
   workbench: Wrench,
   inbox: Inbox,
   approval: BadgeCheck,
@@ -134,31 +155,41 @@ const ICONS: Record<BooksGlyphName, LucideIcon> = {
   file: File,
   image: Image,
   pdf: FileType,
+  period: CalendarRange,
+  close: Lock,
+  estimate: FileSearch,
+  'sales-order': ClipboardCheck,
+  debit: FilePlus,
+  'purchase-request': FileQuestionMark,
+  'purchase-receipt': PackageCheck,
+  company: Building,
+  forecast: LineChart,
+  cfo: Briefcase,
 };
 
 const HREF_GLYPH: Record<string, BooksGlyphName> = {
   '/books': 'dashboard',
-  '/books/cfo': 'dashboard',
+  '/books/cfo': 'cfo',
   '/books/control-tower': 'tower',
   '/books/chart-of-accounts': 'accounts',
   '/books/journals': 'journal',
   '/books/recurring': 'recurring',
   '/books/ledger': 'ledger',
-  '/books/periods': 'recurring',
-  '/books/close': 'approval',
+  '/books/periods': 'period',
+  '/books/close': 'close',
   '/books/customers': 'customer',
-  '/books/estimates': 'quote',
+  '/books/estimates': 'estimate',
   '/books/quotes': 'quote',
-  '/books/sales-orders': 'invoice',
+  '/books/sales-orders': 'sales-order',
   '/books/invoices': 'invoice',
   '/books/credit-notes': 'credit',
-  '/books/debit-notes': 'credit',
+  '/books/debit-notes': 'debit',
   '/books/statements': 'statement',
   '/books/collections': 'collection',
   '/books/vendors': 'vendor',
-  '/books/purchase-requests': 'po',
+  '/books/purchase-requests': 'purchase-request',
   '/books/purchase-orders': 'po',
-  '/books/purchase-receipts': 'po',
+  '/books/purchase-receipts': 'purchase-receipt',
   '/books/bills': 'bill',
   '/books/vendor-credits': 'vendor-credit',
   '/books/payment-run': 'payment',
@@ -168,13 +199,13 @@ const HREF_GLYPH: Record<string, BooksGlyphName> = {
   '/books/assets': 'asset',
   '/books/projects': 'project',
   '/books/budgets': 'budget',
-  '/books/forecast': 'budget',
+  '/books/forecast': 'forecast',
   '/books/revenue': 'revenue',
   '/books/leases': 'lease',
   '/books/tax': 'tax',
   '/books/reports': 'report',
   '/books/entities': 'entity',
-  '/books/companies': 'entity',
+  '/books/companies': 'company',
   '/books/workbench': 'workbench',
   '/books/inbox': 'inbox',
   '/books/approvals': 'approval',

@@ -7,6 +7,7 @@ import {
   addLedgerMailEvent,
   ensureLedgerMailbox,
   getLedger,
+  listLedgerAudit,
   listLedgerMail,
   removeLedgerMember,
   softDeleteLedger,
@@ -16,14 +17,14 @@ import { createExpense, listExpenses, softDeleteExpense, updateExpense } from '.
 import { createNotification } from '../lib/notifications';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send, Copy, Paperclip, Mail, Megaphone } from 'lucide-react';
+import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send, Copy, Paperclip, Mail, Megaphone, Shield, Pin, PinOff } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Tabs from '@radix-ui/react-tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { format } from 'date-fns';
 import { getCurrencySymbol } from '../lib/currency';
-import { bookInboundAddress, ledgerAppLink, openInviteButtonHtml, openLedgerButtonHtml } from '../lib/inbound-mail';
+import { bookInboundAddress, ledgerAppLink, openInviteButtonHtml, openLedgerButtonHtml, wrapByjanEmailHtml } from '../lib/inbound-mail';
 import { createLedgerInvite, memberEmails } from '../lib/invites';
 import { authHeaders } from '../lib/auth-client';
 import { ReceiptModal } from '../components/ReceiptModal';
@@ -97,6 +98,22 @@ export default function BookView() {
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
   const [customCatInput, setCustomCatInput] = useState('');
+  const [entryDate, setEntryDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [merchant, setMerchant] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [notes, setNotes] = useState('');
+  const [reimbursable, setReimbursable] = useState(false);
+  const [billable, setBillable] = useState(false);
+  const [tags, setTags] = useState('');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [methodFilter, setMethodFilter] = useState('all');
+  const [reimbursableOnly, setReimbursableOnly] = useState(false);
+  const [uncategorizedOnly, setUncategorizedOnly] = useState(false);
+  const [auditEvents, setAuditEvents] = useState<Array<Record<string, unknown>>>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [monthlyBudget, setMonthlyBudget] = useState('');
   
   // Invite State
   const [inviteEmail, setInviteEmail] = useState('');
@@ -170,6 +187,7 @@ export default function BookView() {
         const next = await getLedger(bookId);
         if (!alive) return;
         setBook(next);
+        setMonthlyBudget(next.monthlyBudget != null ? String(next.monthlyBudget) : '');
         setInboundAddress(bookInboundAddress(next));
         if (!String(next.inboundAddress || next.inboundSlug || '').trim()) {
           void ensureLedgerMailbox(bookId).then((payload) => {
@@ -204,7 +222,16 @@ export default function BookView() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, itemsPerPage]);
+  }, [searchQuery, itemsPerPage, typeFilter, dateFrom, dateTo, methodFilter, reimbursableOnly, uncategorizedOnly]);
+
+  useEffect(() => {
+    if (!bookId || ledgerTab !== 'audit') return;
+    setAuditLoading(true);
+    listLedgerAudit(bookId, 150)
+      .then(setAuditEvents)
+      .catch(() => setAuditEvents([]))
+      .finally(() => setAuditLoading(false));
+  }, [ledgerTab, bookId]);
 
   const loadEmailActivity = async () => {
     if (!bookId) return;
@@ -283,6 +310,26 @@ export default function BookView() {
     setBook((prev: any) => prev ? { ...prev, categories: next } : prev);
   };
 
+  const togglePinned = async () => {
+    if (!bookId) return;
+    const pinned = !book.pinned;
+    await updateLedger(bookId, { pinned });
+    setBook((prev: any) => prev ? { ...prev, pinned } : prev);
+    addToast(pinned ? 'Ledger pinned to the top of your list.' : 'Ledger unpinned.', 'success');
+  };
+
+  const saveMonthlyBudget = async () => {
+    if (!bookId || !canManageUsers) return;
+    const value = Number(monthlyBudget);
+    if (!Number.isFinite(value) || value < 0) {
+      addToast('Enter a valid monthly budget.', 'error');
+      return;
+    }
+    await updateLedger(bookId, { monthlyBudget: value });
+    setBook((prev: any) => prev ? { ...prev, monthlyBudget: value } : prev);
+    addToast('Monthly spend budget saved.', 'success');
+  };
+
   const openNewExpense = () => {
     setEditingExpense(null);
     setEntryType('out');
@@ -290,6 +337,13 @@ export default function BookView() {
     setDescription('');
     setCategory(categoryOptions[0] || '');
     setCustomCatInput('');
+    setEntryDate(new Date().toISOString().split('T')[0]);
+    setMerchant('');
+    setPaymentMethod('cash');
+    setNotes('');
+    setReimbursable(false);
+    setBillable(false);
+    setTags('');
     setIsExpenseModalOpen(true);
   };
 
@@ -388,7 +442,42 @@ export default function BookView() {
       setCategory('__custom__');
       setCustomCatInput(exp.category);
     }
+    setEntryDate(String(exp.date || new Date().toISOString().split('T')[0]));
+    setMerchant(String(exp.merchant || ''));
+    setPaymentMethod(String(exp.paymentMethod || 'cash'));
+    setNotes(String(exp.notes || ''));
+    setReimbursable(Boolean(exp.reimbursable));
+    setBillable(Boolean(exp.billable));
+    setTags(String(exp.tags || ''));
     setIsExpenseModalOpen(true);
+  };
+
+  const downloadCsv = () => {
+    const rows = filteredExpenses.map((exp) => [
+      exp.date || '',
+      exp.entryType || 'out',
+      exp.category || '',
+      exp.description || '',
+      exp.merchant || '',
+      exp.paymentMethod || '',
+      exp.enteredBy || exp.paidByName || '',
+      Number(exp.amount || 0).toFixed(2),
+      exp.reimbursable ? 'yes' : '',
+      exp.billable ? 'yes' : '',
+      exp.tags || '',
+      exp.notes || '',
+    ]);
+    const csv = [['Date', 'Type', 'Category', 'Description', 'Merchant', 'Method', 'Entered by', 'Amount', 'Reimbursable', 'Billable', 'Tags', 'Notes'], ...rows]
+      .map((line) => line.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${String(book?.name || 'ledger').replace(/\s+/g, '-')}-entries.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    addToast('CSV downloaded.', 'success');
   };
 
   const notifyTeamMembers = async (action: string, detail: string, customSubject?: string, htmlOverride?: string) => {
@@ -417,37 +506,18 @@ export default function BookView() {
     if (emails.length > 0) {
       const mailbox = inboundAddress || bookInboundAddress(book);
       const subject = customSubject || `${userProfile?.displayName || currentUser?.email} ${action.toLowerCase()} in ${book.name} expense book`;
-      const message = htmlOverride || `
-        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9fafb; border-radius: 12px; border: 1px solid #e5e7eb;">
-          <div style="text-align: center; margin-bottom: 24px;">
-            <div style="background-color: #0B1F3A; color: white; display: inline-block; padding: 8px 16px; border-radius: 8px; font-weight: bold; font-size: 18px; letter-spacing: 1px;">Byjan</div>
-            <h2 style="color: #111827; margin-top: 16px; margin-bottom: 4px; font-size: 20px;">Expense Tracker Update</h2>
-            <p style="color: #6b7280; font-size: 14px; margin: 0;">Ledger: <strong>${book.name}</strong></p>
-          </div>
-          
-          <div style="background-color: #ffffff; padding: 24px; border-radius: 8px; border: 1px solid #f3f4f6; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
-            <p style="color: #374151; font-size: 15px; line-height: 1.5; margin-top: 0;">Hello,</p>
-            <p style="color: #374151; font-size: 15px; line-height: 1.5;">An entry in a ledger you follow has been updated by <strong style="color: #111827;">${userProfile?.displayName || currentUser?.email}</strong>.</p>
-            
-            <div style="margin-top: 24px; padding: 16px; background-color: #f8fafc; border-radius: 6px; border-left: 4px solid #3b82f6;">
-              <p style="margin: 0 0 8px 0; font-size: 14px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Action</p>
-              <p style="margin: 0; font-size: 16px; color: #0f172a; font-weight: 500;">${action}</p>
-            </div>
-            
-            <div style="margin-top: 16px; padding: 16px; background-color: #f8fafc; border-radius: 6px; border-left: 4px solid #10b981;">
-              <p style="margin: 0 0 8px 0; font-size: 14px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Details</p>
-              <p style="margin: 0; font-size: 16px; color: #0f172a; font-weight: 500;">${detail}</p>
-            </div>
-            <p style="color: #374151; font-size: 15px; line-height: 1.5; margin-top: 20px;">Everyone on this ledger is notified. Open Byjan to review the entry.</p>
-            <p style="color:#64748b;font-size:13px;line-height:1.55">Send receipts or entries to <strong>${mailbox}</strong> and Byjan will record them automatically. The ledger team is notified when an entry is added.</p>
-            ${openLedgerButtonHtml(bookId || book.id)}
-          </div>
-          
-          <div style="text-align: center; margin-top: 24px;">
-            <p style="color: #9ca3af; font-size: 12px; margin: 0;">This is an automated notification from Byjan.</p>
-          </div>
-        </div>
-      `;
+      const message = htmlOverride || wrapByjanEmailHtml({
+        kicker: 'Ledger notice',
+        title: 'Expense Tracker update',
+        intro: `${userProfile?.displayName || currentUser?.email} updated a ledger you belong to.`,
+        rows: [
+          { label: 'Ledger', value: String(book.name || '') },
+          { label: 'Action', value: action },
+          { label: 'Details', value: detail },
+        ],
+        note: `Send receipts to ${mailbox} and Byjan will record them for the team.`,
+        extraHtml: openLedgerButtonHtml(bookId || book.id),
+      });
       
       for (const email of emails) {
         // This hits our reliable Express backend which doesn't lose credentials
@@ -476,6 +546,13 @@ export default function BookView() {
           description,
           category: finalCategory,
           entryType: entryType,
+          date: entryDate,
+          merchant,
+          paymentMethod,
+          notes,
+          reimbursable,
+          billable,
+          tags,
           status: nextStatus,
           lastEditedBy: userProfile?.displayName || currentUser?.email,
           lastEditedByUid: currentUser?.uid || '',
@@ -487,18 +564,33 @@ export default function BookView() {
         setIsExpenseModalOpen(false);
         notifyTeamMembers('Edited an entry', `Updated ${entryType === 'in' ? 'money in' : 'money out'} for "${description}" to ${getCurrencySymbol(book.currency)} ${amount} in category "${finalCategory}"`, `${userProfile?.displayName || currentUser?.email} updated "${description}" to ${getCurrencySymbol(book.currency)}${amount} in ${book.name}`).catch(console.error);
       } else {
-        await createExpense(bookId, {
+        const payload = {
           amount: Number(amount),
           description,
           category: finalCategory,
           entryType: entryType,
-          date: new Date().toISOString().split('T')[0],
+          date: entryDate,
+          merchant,
+          paymentMethod,
+          notes,
+          reimbursable,
+          billable,
+          tags,
           paidByName: userProfile?.displayName || currentUser?.email,
           enteredBy: userProfile?.displayName || currentUser?.email,
           enteredByUid: currentUser?.uid || '',
           enteredByEmail: currentUser?.email || '',
           status: Number(amount) > 0 ? 'recorded' : 'draft',
-        });
+        };
+        try {
+          await createExpense(bookId, payload);
+        } catch (err: any) {
+          if (err?.status === 409 && window.confirm('A similar entry already exists on this ledger. Save it anyway?')) {
+            await createExpense(bookId, payload, { force: true });
+          } else {
+            throw err;
+          }
+        }
         await persistLedgerCategory(finalCategory);
         const rows = await listExpenses(bookId);
         setExpenses(rows.sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt)));
@@ -513,7 +605,7 @@ export default function BookView() {
       }
     } catch (err) {
       console.error(err);
-      addToast('Error saving expense', 'error');
+      addToast(err instanceof Error ? err.message : 'Error saving expense', 'error');
     } finally { setIsSaving(false); }
   };
 
@@ -601,7 +693,18 @@ export default function BookView() {
       const sent = await sendEmailNotification(
         inviteEmail.toLowerCase(),
         `Invitation to ledger: ${book.name}`,
-        `<p>Hello,</p><p>You have been invited to join the ledger <b>${book.name}</b> on Byjan.</p><p>Open the invitation while signed in as <b>${inviteEmail.toLowerCase()}</b>. If another account is already signed in on this device, sign out first.</p>${openInviteButtonHtml(inviteId)}`
+        wrapByjanEmailHtml({
+          kicker: 'Invitation',
+          title: `Join ${book.name} on Byjan`,
+          intro: `You have been invited as ${inviteRole} to this expense ledger.`,
+          rows: [
+            { label: 'Ledger', value: String(book.name || '') },
+            { label: 'Role', value: inviteRole },
+            { label: 'Sign in as', value: inviteEmail.toLowerCase() },
+          ],
+          note: 'Open the invitation while signed in as the invited email. Sign out first if another account is already open on this device.',
+          extraHtml: openInviteButtonHtml(inviteId),
+        })
       );
       if (sent) {
         addToast('Invitation added and email notification sent!', 'success');
@@ -623,14 +726,13 @@ export default function BookView() {
     try {
       const mailbox = inboundAddress || bookInboundAddress(book);
       const sender = userProfile?.displayName || currentUser?.email || 'A teammate';
-      const html = `
-        <p style="margin:0 0 8px;font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:#8a8070">Team announcement</p>
-        <h2 style="margin:0 0 12px;font-family:Georgia,'Times New Roman',serif;font-size:22px;color:#0B1F3A;font-weight:normal">${title.replace(/</g, '&lt;')}</h2>
-        <p style="margin:0 0 16px;color:#64748b;font-size:13px">From ${sender} · ${book.name}</p>
-        <div style="white-space:pre-wrap;font-size:15px;line-height:1.65;color:#334155">${body.replace(/</g, '&lt;')}</div>
-        <p style="margin:24px 0 0;font-size:13px;color:#64748b">Send receipts or any entry to <strong>${mailbox}</strong> and Byjan will record it automatically. This ledger team is notified when a line is added.</p>
-        ${openLedgerButtonHtml(book.id, 'Open ledger')}
-      `;
+      const html = wrapByjanEmailHtml({
+        kicker: 'Team announcement',
+        title,
+        intro: `From ${sender} on ${book.name}.`,
+        note: `Send receipts to ${mailbox} and Byjan will record them for the team.`,
+        extraHtml: `<div style="white-space:pre-wrap;font-size:15px;line-height:1.65;color:#334155;margin:8px 0 16px">${body.replace(/</g, '&lt;')}</div>${openLedgerButtonHtml(book.id, 'Open ledger')}`,
+      });
       await notifyTeamMembers(title, body, `Announcement · ${book.name}: ${title}`, html);
       setAnnounceTitle('');
       setAnnounceBody('');
@@ -662,6 +764,10 @@ export default function BookView() {
   const totalTransfer = expenses.filter(e => e.entryType === 'transfer').reduce((sum, exp) => sum + (exp.amount || 0), 0);
   const totalOut = expenses.filter(e => e.entryType !== 'in' && e.entryType !== 'transfer').reduce((sum, exp) => sum + (exp.amount || 0), 0);
   const balance = totalIn - totalOut;
+  const monthKey = new Date().toISOString().slice(0, 7);
+  const monthOut = expenses.filter((e) => e.entryType !== 'in' && e.entryType !== 'transfer' && String(e.date || '').startsWith(monthKey)).reduce((sum, exp) => sum + Number(exp.amount || 0), 0);
+  const reimbursableOpen = expenses.filter((e) => e.reimbursable).reduce((sum, exp) => sum + Number(exp.amount || 0), 0);
+  const budget = Number(book.monthlyBudget || 0);
   
   const chartData = expenses.filter(e => e.entryType !== 'in' && e.entryType !== 'transfer').reduce((acc: any[], exp) => {
     const existing = acc.find(a => a.name === exp.category);
@@ -672,12 +778,23 @@ export default function BookView() {
 
   
   // Filter and Pagination Logic
-  const filteredExpenses = expenses.filter(exp => 
-    exp.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    exp.category?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    exp.paidByName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    exp.enteredBy?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const q = searchQuery.trim().toLowerCase();
+  const filteredExpenses = expenses.filter((exp) => {
+    const hay = [exp.description, exp.category, exp.paidByName, exp.enteredBy, exp.merchant, exp.notes, exp.tags, exp.paymentMethod]
+      .some((value) => String(value || '').toLowerCase().includes(q));
+    if (q && !hay) return false;
+    if (typeFilter !== 'all' && String(exp.entryType || 'out') !== typeFilter) return false;
+    if (methodFilter !== 'all' && String(exp.paymentMethod || 'cash') !== methodFilter) return false;
+    if (reimbursableOnly && !exp.reimbursable) return false;
+    if (uncategorizedOnly) {
+      const cat = String(exp.category || '').trim().toLowerCase();
+      if (cat && cat !== 'uncategorized') return false;
+    }
+    const day = String(exp.date || '').slice(0, 10);
+    if (dateFrom && day && day < dateFrom) return false;
+    if (dateTo && day && day > dateTo) return false;
+    return true;
+  });
   const totalPages = Math.max(1, Math.ceil(filteredExpenses.length / itemsPerPage));
   const paginatedExpenses = filteredExpenses.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
@@ -693,6 +810,9 @@ export default function BookView() {
             <ArrowLeft className="w-4 h-4" />
           </Link>
           <h1 className="text-lg font-bold text-slate-900 truncate">{book.name}</h1>
+          <button type="button" onClick={() => void togglePinned()} className="p-1 text-slate-400 hover:text-[#0B1F3A]" title={book.pinned ? 'Unpin ledger' : 'Pin ledger'}>
+            {book.pinned ? <Pin className="w-4 h-4 text-[#12B8A8]" /> : <PinOff className="w-4 h-4" />}
+          </button>
           <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-zinc-50 text-zinc-700 uppercase border border-zinc-100">
             {myRole}
           </span>
@@ -749,6 +869,9 @@ export default function BookView() {
           <Tabs.Trigger value="analytics" className="pb-2 text-sm font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B1F3A] data-[state=active]:border-b-2 data-[state=active]:border-[#12B8A8] transition-colors whitespace-nowrap">
             Analytics & Reports
           </Tabs.Trigger>
+          <Tabs.Trigger value="audit" className="pb-2 text-sm font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B1F3A] data-[state=active]:border-b-2 data-[state=active]:border-[#12B8A8] transition-colors whitespace-nowrap">
+            Audit
+          </Tabs.Trigger>
         </Tabs.List>
 
         {ledgerTab === 'ledger' && (
@@ -766,9 +889,21 @@ export default function BookView() {
               <h2 className="text-lg font-bold text-emerald-600">{getCurrencySymbol(book.currency)} {totalIn.toLocaleString(undefined, {minimumFractionDigits: 2})}</h2>
             </div>
             <div className="w-full sm:w-auto flex-1 flex flex-row items-center justify-between byjan-card p-3 px-5">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Transfer</p>
-              <h2 className="text-lg font-bold text-blue-600">{getCurrencySymbol(book.currency)} {totalTransfer.toLocaleString(undefined, {minimumFractionDigits: 2})}</h2>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">This month out</p>
+              <h2 className="text-lg font-bold text-slate-800">{getCurrencySymbol(book.currency)} {monthOut.toLocaleString(undefined, {minimumFractionDigits: 2})}</h2>
             </div>
+            {budget > 0 && (
+              <div className="w-full sm:w-auto flex-1 flex flex-row items-center justify-between byjan-card p-3 px-5">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Budget left</p>
+                <h2 className={cn("text-lg font-bold", monthOut > budget ? "text-rose-600" : "text-emerald-600")}>{getCurrencySymbol(book.currency)} {(budget - monthOut).toLocaleString(undefined, {minimumFractionDigits: 2})}</h2>
+              </div>
+            )}
+            {reimbursableOpen > 0 && (
+              <div className="w-full sm:w-auto flex-1 flex flex-row items-center justify-between byjan-card p-3 px-5">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Reimbursable</p>
+                <h2 className="text-lg font-bold text-amber-700">{getCurrencySymbol(book.currency)} {reimbursableOpen.toLocaleString(undefined, {minimumFractionDigits: 2})}</h2>
+              </div>
+            )}
             {isAuditor && (
               <div className="w-full sm:w-auto flex-1 bg-amber-50 p-3 px-5 rounded-lg border border-amber-200 shadow-sm flex flex-row items-center justify-between">
                 <p className="text-xs font-bold text-amber-800 uppercase tracking-wider">Auditor</p>
@@ -795,7 +930,31 @@ export default function BookView() {
                 className="byjan-input pl-9"
               />
             </div>
-            <div className="flex items-center gap-2 w-full sm:w-auto">
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+              <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="byjan-input !w-auto !h-9 text-sm">
+                <option value="all">All types</option>
+                <option value="out">Money out</option>
+                <option value="in">Money in</option>
+                <option value="transfer">Transfer</option>
+              </select>
+              <select value={methodFilter} onChange={(e) => setMethodFilter(e.target.value)} className="byjan-input !w-auto !h-9 text-sm">
+                <option value="all">All methods</option>
+                <option value="cash">Cash</option>
+                <option value="card">Card</option>
+                <option value="upi">UPI</option>
+                <option value="bank">Bank</option>
+                <option value="wallet">Wallet</option>
+              </select>
+              <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="byjan-input !w-auto !h-9 text-sm" title="From date" />
+              <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="byjan-input !w-auto !h-9 text-sm" title="To date" />
+              <label className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600">
+                <input type="checkbox" checked={reimbursableOnly} onChange={(e) => setReimbursableOnly(e.target.checked)} />
+                Reimbursable
+              </label>
+              <label className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600">
+                <input type="checkbox" checked={uncategorizedOnly} onChange={(e) => setUncategorizedOnly(e.target.checked)} />
+                Uncategorized
+              </label>
               <button onClick={() => generatePDF(false)} className="byjan-btn-ghost flex-1 sm:flex-none !px-3 !py-2">
                 <Download className="w-4 h-4" /> <span className="hidden sm:inline">PDF</span>
               </button>
@@ -1094,13 +1253,51 @@ export default function BookView() {
               </h3>
               <p className="text-xs text-slate-500 mb-6 flex-1">Generate comprehensive CSV exports of the ledger for tax filing, audits, or external accounting software integration.</p>
               <button 
-                onClick={() => addToast("CSV Export coming soon.", "info")}
+                onClick={downloadCsv}
                 className="byjan-btn w-full"
               >
                 Download CSV Ledger
               </button>
             </div>
           </div>
+          {canManageUsers && (
+            <div className="byjan-card p-5">
+              <h3 className="font-semibold text-sm text-slate-900 mb-2">Monthly spend budget</h3>
+              <p className="text-xs text-slate-500 mb-3">Compares money-out this calendar month against a target you set for this ledger.</p>
+              <div className="flex gap-2">
+                <input className="byjan-input" type="number" min={0} step="0.01" value={monthlyBudget} onChange={(e) => setMonthlyBudget(e.target.value)} placeholder="0.00" />
+                <button type="button" className="byjan-btn" onClick={() => void saveMonthlyBudget()}>Save</button>
+              </div>
+            </div>
+          )}
+        </Tabs.Content>
+
+        <Tabs.Content value="audit" className="outline-none space-y-3">
+          <div className="byjan-card p-4">
+            <h3 className="font-semibold text-sm text-slate-900 flex items-center gap-2">
+              <Shield className="w-4 h-4 text-slate-400" /> Ledger audit
+            </h3>
+            <p className="text-xs text-slate-500 mt-1">Creates, edits, mailbox claims, and membership changes for this ledger. Financial rows are soft-deleted, not erased.</p>
+          </div>
+          {auditLoading ? (
+            <AppLoader title="Audit" message="Loading ledger activity." />
+          ) : auditEvents.length === 0 ? (
+            <div className="byjan-card p-8 text-center text-sm text-slate-500">No audit events yet for this ledger.</div>
+          ) : (
+            <div className="space-y-2">
+              {auditEvents.map((event, idx) => (
+                <article key={String(event.id || idx)} className="byjan-card p-4">
+                  <p className="text-sm font-semibold text-slate-900">{String(event.action || 'Event')}</p>
+                  <p className="text-xs text-slate-500 mt-1">
+                    {String(event.actorEmail || event.actorUid || 'Someone')}
+                    <span className="text-slate-300 px-1.5">·</span>
+                    {event.createdAt ? new Date(String(event.createdAt)).toLocaleString() : '—'}
+                  </p>
+                  {event.entityType ? <p className="text-xs text-slate-500 mt-1">{String(event.entityType)} {event.entityId ? `· ${String(event.entityId)}` : ''}</p> : null}
+                </article>
+              ))}
+            </div>
+          )}
         </Tabs.Content>
         </div>
         </div>
@@ -1110,7 +1307,7 @@ export default function BookView() {
       <Dialog.Root open={isExpenseModalOpen} onOpenChange={setIsExpenseModalOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-slate-900/40 z-50 backdrop-blur-sm" />
-          <Dialog.Content className="byjan-panel fixed left-[50%] top-[50%] z-50 grid w-full max-w-md translate-x-[-50%] translate-y-[-50%] gap-4 p-5">
+          <Dialog.Content className="byjan-panel fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 p-5 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <Dialog.Title className="text-base font-bold text-slate-900">
                 {editingExpense ? 'Edit Entry' : 'Record Expense'}
@@ -1181,6 +1378,44 @@ export default function BookView() {
                     placeholder="Enter custom category name"
                   />
                 )}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Date</label>
+                  <input type="date" required value={entryDate} onChange={(e) => setEntryDate(e.target.value)} className="byjan-input" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Payment method</label>
+                  <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} className="byjan-input">
+                    <option value="cash">Cash</option>
+                    <option value="card">Card</option>
+                    <option value="upi">UPI</option>
+                    <option value="bank">Bank transfer</option>
+                    <option value="wallet">Wallet</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Merchant / payee</label>
+                <input type="text" value={merchant} onChange={(e) => setMerchant(e.target.value)} className="byjan-input" placeholder="e.g. Amazon, landlord" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Tags</label>
+                <input type="text" value={tags} onChange={(e) => setTags(e.target.value)} className="byjan-input" placeholder="Comma-separated, e.g. trip, gst" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Notes</label>
+                <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="byjan-input min-h-[72px]" placeholder="Internal notes" />
+              </div>
+              <div className="flex flex-wrap gap-4 text-sm text-slate-700">
+                <label className="inline-flex items-center gap-2">
+                  <input type="checkbox" checked={reimbursable} onChange={(e) => setReimbursable(e.target.checked)} />
+                  Reimbursable
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  <input type="checkbox" checked={billable} onChange={(e) => setBillable(e.target.checked)} />
+                  Billable to client
+                </label>
               </div>
               <div className="pt-2 flex justify-end gap-2">
                 <Dialog.Close asChild>

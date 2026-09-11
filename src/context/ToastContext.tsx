@@ -39,9 +39,9 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       {toasts.map((toast) => (
         <div
           key={toast.id}
-          className={`pointer-events-auto w-full max-w-md flex items-start gap-3 px-4 py-3 rounded-2xl border ${
-            toast.type === 'success' ? 'bg-white text-[#0B1F3A] border-teal-200' :
-            toast.type === 'error' ? 'bg-rose-50 text-rose-900 border-rose-200' :
+          className={`pointer-events-auto w-full max-w-md flex items-start gap-3 px-4 py-3 rounded-2xl border shadow-[0_12px_32px_-18px_rgba(11,31,58,0.45)] ${
+            toast.type === 'success' ? 'bg-emerald-50 text-emerald-950 border-emerald-200' :
+            toast.type === 'error' ? 'bg-rose-50 text-rose-950 border-rose-300' :
             'bg-[#0B1F3A] text-white border-[#0B1F3A]'
           }`}
         >

@@ -32,9 +32,7 @@ function iconWell(active: boolean) {
 export default function AppSidebar({ expanded, tenant, userProfile, onLogout }: AppSidebarProps) {
   const location = useLocation();
   const booksWrapRef = useRef<HTMLDivElement>(null);
-  const userWrapRef = useRef<HTMLDivElement>(null);
   const [booksFlyout, setBooksFlyout] = useState(false);
-  const [userFlyout, setUserFlyout] = useState(false);
   const [mobileBooks, setMobileBooks] = useState(location.pathname.startsWith('/books'));
   const [flyoutPos, setFlyoutPos] = useState({ top: 72, left: 84 });
   const closeTimer = useRef<number | null>(null);
@@ -51,7 +49,6 @@ export default function AppSidebar({ expanded, tenant, userProfile, onLogout }: 
 
   useEffect(() => {
     setBooksFlyout(false);
-    setUserFlyout(false);
   }, [location.pathname]);
 
   useLayoutEffect(() => {
@@ -67,7 +64,6 @@ export default function AppSidebar({ expanded, tenant, userProfile, onLogout }: 
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setBooksFlyout(false);
-        setUserFlyout(false);
       }
     };
     const onClick = (event: MouseEvent) => {
@@ -76,7 +72,6 @@ export default function AppSidebar({ expanded, tenant, userProfile, onLogout }: 
         const flyout = document.getElementById('books-nav-flyout');
         if (!flyout?.contains(node)) setBooksFlyout(false);
       }
-      if (userWrapRef.current && !userWrapRef.current.contains(node)) setUserFlyout(false);
     };
     window.addEventListener('keydown', onKey);
     window.addEventListener('mousedown', onClick);
@@ -89,7 +84,6 @@ export default function AppSidebar({ expanded, tenant, userProfile, onLogout }: 
   const openBooksFlyout = () => {
     if (closeTimer.current) window.clearTimeout(closeTimer.current);
     setBooksFlyout(true);
-    setUserFlyout(false);
   };
   const scheduleCloseBooks = () => {
     if (closeTimer.current) window.clearTimeout(closeTimer.current);
@@ -215,47 +209,30 @@ export default function AppSidebar({ expanded, tenant, userProfile, onLogout }: 
         </Link>
       </nav>
 
-      <div className="p-2 border-t border-slate-200/80">
-        <div ref={userWrapRef} className="relative">
-          <button
-            type="button"
-            onClick={() => { setUserFlyout((open) => !open); setBooksFlyout(false); }}
-            className={cn(
-              'group w-full flex items-center rounded-2xl border border-transparent hover:border-slate-200 hover:bg-white',
-              showText ? 'gap-2.5 px-1.5 py-1.5' : 'justify-center p-1'
-            )}
-            title={userProfile?.displayName || 'Account'}
-          >
-            <span className="w-10 h-10 rounded-xl bg-[#0B1F3A] text-white flex items-center justify-center font-semibold text-sm shrink-0 overflow-hidden shadow-[0_8px_16px_-10px_rgba(11,31,58,0.7)]">
-              {userProfile?.photoURL ? <img src={userProfile.photoURL} alt="" className="w-full h-full object-cover" /> : initial}
+      <div className="p-2 border-t border-slate-200/80 space-y-1.5">
+        <div className={cn('flex items-center', showText ? 'gap-2 px-1.5' : 'justify-center')}>
+          <span className="w-10 h-10 rounded-xl bg-[#0B1F3A] text-white flex items-center justify-center font-semibold text-sm shrink-0 overflow-hidden">
+            {userProfile?.photoURL ? <img src={userProfile.photoURL} alt="" className="w-full h-full object-cover" /> : initial}
+          </span>
+          {showText && (
+            <span className="min-w-0 flex-1 text-left">
+              <span className="block text-sm font-semibold text-[#0B1F3A] truncate">{userProfile?.displayName || 'User'}</span>
+              <span className="block text-[11px] text-slate-500 truncate">{userProfile?.email || 'Account'}</span>
             </span>
-            {showText && (
-              <span className="min-w-0 flex-1 text-left">
-                <span className="block text-sm font-semibold text-[#0B1F3A] truncate">{userProfile?.displayName || 'User'}</span>
-                <span className="block text-[11px] text-slate-500 truncate">{userProfile?.email || 'Account'}</span>
-              </span>
-            )}
-          </button>
-          {userFlyout && (
-            <div
-              className={cn(
-                'absolute z-[90] byjan-flyout p-3',
-                showText ? 'bottom-[calc(100%+8px)] left-0 right-0' : 'bottom-0 left-[calc(100%+10px)] w-64'
-              )}
-            >
-              <p className="text-sm font-semibold text-[#0B1F3A] truncate">{userProfile?.displayName || 'User'}</p>
-              <p className="text-xs text-slate-500 truncate mb-3">{userProfile?.email}</p>
-              <button
-                type="button"
-                onClick={onLogout}
-                className="w-full inline-flex items-center justify-center gap-2 h-10 rounded-xl border border-rose-100 bg-rose-50 text-rose-700 text-sm font-semibold hover:bg-rose-100"
-              >
-                <LogOut className="w-4 h-4" />
-                Sign out
-              </button>
-            </div>
           )}
         </div>
+        <button
+          type="button"
+          onClick={onLogout}
+          title="Sign out"
+          className={cn(
+            'w-full inline-flex items-center rounded-xl border border-rose-100 bg-rose-50 text-rose-700 text-sm font-semibold hover:bg-rose-100',
+            showText ? 'justify-center gap-2 h-10' : 'justify-center h-10'
+          )}
+        >
+          <LogOut className="w-4 h-4" />
+          {showText && 'Sign out'}
+        </button>
       </div>
 
       {booksFlyout && (

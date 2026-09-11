@@ -27,9 +27,19 @@ export async function listAllExpenses() {
   };
 }
 
-export async function createExpense(bookId: string, expense: Record<string, unknown>) {
-  const payload = await apiPost<{ expense: LedgerExpense }>('/api/expenses', { op: 'create', bookId, expense });
+export async function createExpense(bookId: string, expense: Record<string, unknown>, opts?: { force?: boolean }) {
+  const payload = await apiPost<{ expense: LedgerExpense }>('/api/expenses', {
+    op: 'create',
+    bookId,
+    expense,
+    force: Boolean(opts?.force),
+  });
   return payload.expense;
+}
+
+export async function checkDuplicateExpense(bookId: string, expense: Record<string, unknown>) {
+  const payload = await apiPost<{ matches?: LedgerExpense[] }>('/api/expenses', { op: 'checkDuplicate', bookId, expense });
+  return Array.isArray(payload.matches) ? payload.matches : [];
 }
 
 export async function updateExpense(bookId: string, expenseId: string, expense: Record<string, unknown>) {

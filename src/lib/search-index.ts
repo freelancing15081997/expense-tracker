@@ -10,6 +10,9 @@ export type SearchHit = {
   category?: string;
   bookName?: string;
   enteredBy?: string;
+  merchant?: string;
+  notes?: string;
+  tags?: string;
 };
 
 let hits: SearchHit[] = [];

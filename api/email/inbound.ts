@@ -939,20 +939,23 @@ function wrapByjanEmail(opts: {
   return `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
-<body style="margin:0;padding:0;background:#f4f1ea;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f1ea;padding:32px 12px">
+<body style="margin:0;padding:0;background:#eef2f6;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef2f6;padding:36px 12px">
     <tr><td align="center">
-      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border:1px solid #e6e1d6">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border:1px solid #dbe3ea;border-radius:16px;overflow:hidden">
         <tr>
-          <td style="padding:28px 32px 20px;border-bottom:3px solid #0B1F3A">
-            <p style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:22px;color:#0B1F3A;letter-spacing:0.08em">BYJAN</p>
-            <p style="margin:6px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:#8a8070">${escapeHtml(opts.kicker)}</p>
+          <td style="padding:26px 32px 18px;background:#0B1F3A">
+            <p style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:22px;color:#ffffff;letter-spacing:0.12em">BYJAN</p>
+            <p style="margin:8px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:#12B8A8">${escapeHtml(opts.kicker)}</p>
           </td>
+        </tr>
+        <tr>
+          <td style="height:4px;background:#12B8A8;font-size:0;line-height:0">&nbsp;</td>
         </tr>
         <tr>
           <td style="padding:28px 32px 8px">
             <h1 style="margin:0 0 12px;font-family:Georgia,'Times New Roman',serif;font-size:22px;line-height:1.3;color:#0B1F3A;font-weight:normal">${escapeHtml(opts.title)}</h1>
-            <p style="margin:0 0 20px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#334155">${escapeHtml(opts.intro)}</p>
+            <p style="margin:0 0 20px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.65;color:#334155">${escapeHtml(opts.intro)}</p>
             ${rows ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">${rows}</table>` : ''}
             ${opts.note ? `<p style="margin:20px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.55;color:#64748b">${escapeHtml(opts.note)}</p>` : ''}
             ${opts.extraHtml || ''}
@@ -960,11 +963,11 @@ function wrapByjanEmail(opts: {
         </tr>
         ${opts.ctaLabel && opts.ctaHref ? `<tr>
           <td style="padding:24px 32px 32px">
-            <a href="${escapeHtml(opts.ctaHref)}" style="display:inline-block;background:#0B1F3A;color:#ffffff;text-decoration:none;padding:12px 22px;font-family:Arial,Helvetica,sans-serif;font-size:13px;letter-spacing:0.04em">${escapeHtml(opts.ctaLabel)}</a>
+            <a href="${escapeHtml(opts.ctaHref)}" style="display:inline-block;background:#0B1F3A;color:#ffffff;text-decoration:none;padding:12px 22px;font-family:Arial,Helvetica,sans-serif;font-size:13px;letter-spacing:0.04em;border-radius:8px">${escapeHtml(opts.ctaLabel)}</a>
           </td>
         </tr>` : ''}
         <tr>
-          <td style="padding:16px 32px 24px;border-top:1px solid #edf0f2;font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:1.6;color:#94a3b8">
+          <td style="padding:18px 32px 26px;border-top:1px solid #edf2f7;font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:1.6;color:#94a3b8">
             You received this because you are a member of this ledger on Byjan.<br/>
             ${opts.ledgerMail ? `Send receipts to ${escapeHtml(opts.ledgerMail)} and Byjan will record them for the team.<br/>` : ''}
             Byjan · easypado.com · This is a service notice, not a marketing message.

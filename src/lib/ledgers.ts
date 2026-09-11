@@ -63,3 +63,12 @@ export async function listLedgerMail(bookId: string) {
 export async function addLedgerMailEvent(bookId: string, event: Record<string, unknown>) {
   await apiPost('/api/ledgers', { op: 'mailAdd', bookId, event });
 }
+
+export async function listLedgerAudit(bookId?: string, limit = 80) {
+  const payload = await apiPost<{ events?: Array<Record<string, unknown>> }>('/api/ledgers', {
+    op: 'auditList',
+    bookId,
+    limit,
+  });
+  return Array.isArray(payload.events) ? payload.events : [];
+}

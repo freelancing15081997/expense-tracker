@@ -444,6 +444,18 @@ svg.byjan-glyph {
   border-right-color: rgba(18, 184, 168, 0.35);
   animation: app-loader-spin 0.85s linear infinite;
 }
+.app-loader-orbit-rev {
+  position: absolute;
+  inset: -16px;
+  border-radius: 28px;
+  border: 2px solid #E5E7EB;
+  border-bottom-color: #0B1F3A;
+  border-left-color: rgba(11, 31, 58, 0.35);
+  animation: app-loader-spin-rev 1.15s linear infinite;
+}
+@keyframes app-loader-spin-rev {
+  to { transform: rotate(-360deg); }
+}
 @keyframes app-loader-spin {
   to { transform: rotate(360deg); }
 }

@@ -28,6 +28,8 @@ import {
   ledgerSoftDeleteExpense,
   ledgerUpdateBook,
   ledgerUpsertUser,
+  ledgerFindDuplicateExpense,
+  ledgerListAudit,
   assertErpWorkspace,
   erpLoadWorkspace,
   ledgerDel,
@@ -159,6 +161,12 @@ async function handleLedgers(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
+    if (op === 'auditList') {
+      const bookId = String(body.bookId || '').trim();
+      apiJson(res, 200, { events: await ledgerListAudit(user.uid, bookId || undefined, Number(body.limit || 80)) });
+      return;
+    }
+
     if (op === 'mailAdd') {
       const bookId = String(body.bookId || '').trim();
       if (!bookId) throw new ApiError(400, 'Missing ledger');
@@ -215,6 +223,17 @@ async function handleExpenses(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
+    if (op === 'checkDuplicate') {
+      const bookId = String(body.bookId || '').trim();
+      if (!bookId) throw new ApiError(400, 'Missing ledger');
+      await ledgerRequireMember(bookId, user.uid);
+      const input = body.expense && typeof body.expense === 'object' && !Array.isArray(body.expense)
+        ? body.expense as Record<string, unknown>
+        : {};
+      apiJson(res, 200, { matches: await ledgerFindDuplicateExpense(bookId, input) });
+      return;
+    }
+
     if (op === 'create') {
       const bookId = String(body.bookId || '').trim();
       if (!bookId) throw new ApiError(400, 'Missing ledger');
@@ -222,6 +241,10 @@ async function handleExpenses(req: VercelRequest, res: VercelResponse) {
       const input = body.expense && typeof body.expense === 'object' && !Array.isArray(body.expense)
         ? body.expense as Record<string, unknown>
         : {};
+      if (!body.force) {
+        const matches = await ledgerFindDuplicateExpense(bookId, input);
+        if (matches.length) throw new ApiError(409, 'A matching entry is already on this ledger', { matches });
+      }
       const now = new Date().toISOString();
       const saved = await ledgerSaveExpense(bookId, {
         ...input,

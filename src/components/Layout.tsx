@@ -6,6 +6,7 @@ import { Bell, CheckCircle2, Menu, X, Mail } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { listNotifications, markNotificationRead } from '../lib/notifications';
+import { warmSearchCatalog } from '../lib/search-catalog';
 import BrandLogo from './BrandLogo';
 import GlobalSearch, { SearchTrigger } from './GlobalSearch';
 import AppSidebar from './AppSidebar';
@@ -52,6 +53,7 @@ export default function Layout() {
 
   useEffect(() => {
     loadNotifications();
+    if (currentUser?.uid) void warmSearchCatalog(currentUser.uid);
   }, [currentUser?.uid]);
 
   const openNotifications = () => {
@@ -131,10 +133,10 @@ export default function Layout() {
       </aside>
 
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-        <div className="hidden md:flex relative z-30 shrink-0 items-center gap-3 px-5 h-14 bg-white border-b border-slate-200">
+        <div className="hidden md:flex relative z-[70] shrink-0 items-center gap-3 px-5 h-14 bg-white border-b border-slate-200">
           <WorkspaceSwitcher variant="header" />
           <div className="flex-1 flex justify-center min-w-0">
-            <div className="w-full max-w-2xl" data-open-search>
+            <div className="w-full max-w-2xl">
               <SearchTrigger variant="bar" />
             </div>
           </div>

@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useAppPrefs } from '../context/AppPrefsContext';
 import { upsertMe } from '../lib/me';
-import { Save, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { listLedgerAudit } from '../lib/ledgers';
+import { Save, AlertCircle, CheckCircle2, Shield } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 import { useBooksTenantMeta } from '../lib/tenant';
 import type { AppPrefs, DateFormat, ListPageSize, NumberLocale, UiDensity } from '../lib/app-prefs';
@@ -47,11 +48,21 @@ export default function Settings() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [auditEvents, setAuditEvents] = useState<Array<Record<string, unknown>>>([]);
+  const [auditLoading, setAuditLoading] = useState(true);
 
   useEffect(() => {
     setDisplayName(userProfile?.displayName || '');
     setCategories(userProfile?.customCategories || []);
   }, [userProfile?.displayName, userProfile?.customCategories]);
+
+  useEffect(() => {
+    setAuditLoading(true);
+    listLedgerAudit(undefined, 80)
+      .then(setAuditEvents)
+      .catch(() => setAuditEvents([]))
+      .finally(() => setAuditLoading(false));
+  }, []);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -296,10 +307,47 @@ export default function Settings() {
         </div>
       </section>
 
+      <section className="byjan-card overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-200 bg-[#F8FAFC]">
+          <h2 className="text-base font-semibold text-slate-900">Security</h2>
+          <p className="text-xs text-slate-500 mt-1">These controls are already enforced on this browser session.</p>
+        </div>
+        <div className="p-5 space-y-3 text-sm text-slate-600">
+          <p>Idle sign-out after 30 minutes without activity. Maximum session length is 12 hours.</p>
+          <p>Financial rows are soft-deleted and remain available for audit. Duplicate ledger entries are blocked unless you confirm a forced save.</p>
+          <p>Sign out is always visible on the sidebar. Firebase Auth remains the only sign-in method.</p>
+        </div>
+      </section>
+
+      <section className="byjan-card overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-200 bg-[#F8FAFC]">
+          <h2 className="text-base font-semibold text-slate-900 flex items-center gap-2"><Shield className="w-4 h-4" /> Activity audit</h2>
+          <p className="text-xs text-slate-500 mt-1">Ledger and Books events you are allowed to see across every workspace you belong to.</p>
+        </div>
+        <div className="p-5 space-y-2">
+          {auditLoading ? (
+            <p className="text-sm text-slate-500">Loading activity…</p>
+          ) : auditEvents.length === 0 ? (
+            <p className="text-sm text-slate-500">No audit events yet.</p>
+          ) : (
+            auditEvents.slice(0, 40).map((event, idx) => (
+              <div key={String(event.id || idx)} className="flex items-start justify-between gap-3 py-2 border-b border-slate-100 last:border-0">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-slate-900 truncate">{String(event.action || 'Event')}</p>
+                  <p className="text-xs text-slate-500 truncate">{String(event.actorEmail || event.actorUid || '')}{event.bookId ? ` · ${String(event.bookId)}` : ''}</p>
+                </div>
+                <p className="text-xs text-slate-400 shrink-0">{event.createdAt ? new Date(String(event.createdAt)).toLocaleString() : ''}</p>
+              </div>
+            ))
+          )}
+        </div>
+      </section>
+
       <div className="flex justify-end">
         <button type="submit" disabled={loading} className="byjan-btn">
+          {loading && <span className="app-loader-ring app-loader-ring-sm" />}
           <Save className="w-4 h-4" />
-          {loading ? 'Saving…' : 'Save settings'}
+          {loading ? 'Saving settings' : 'Save settings'}
         </button>
       </div>
     </form>

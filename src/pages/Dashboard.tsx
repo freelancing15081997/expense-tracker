@@ -6,7 +6,7 @@ import { createLedger, listLedgers } from '../lib/ledgers';
 import { listAllExpenses } from '../lib/expenses';
 import { useBooksTenantMeta } from '../lib/tenant';
 import { getCurrencySymbol } from '../lib/currency';
-import { Plus, Check, X, Users, Building2, Receipt, ArrowRight, BookOpen } from 'lucide-react';
+import { Plus, Check, X, Users, Building2, Receipt, ArrowRight, BookOpen, Pin } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 import AppLoader from '../components/AppLoader';
@@ -20,6 +20,7 @@ interface BookItem {
   name: string;
   ownerId: string;
   currency: string;
+  pinned?: boolean;
   roles: Record<string, { role: string; email: string }>;
 }
 
@@ -32,7 +33,16 @@ export default function Dashboard() {
   const tenant = useBooksTenantMeta();
   const expensesOnly = location.pathname.startsWith('/expenses');
   const [books, setBooks] = useState<BookItem[]>([]);
-  const [globalStats, setGlobalStats] = useState({ totalIn: 0, totalOut: 0, userActivity: {} as Record<string, number> });
+  const [globalStats, setGlobalStats] = useState({
+    totalIn: 0,
+    totalOut: 0,
+    monthIn: 0,
+    monthOut: 0,
+    reimbursable: 0,
+    entries: 0,
+    uncategorized: 0,
+    userActivity: {} as Record<string, number>,
+  });
   const [invites, setInvites] = useState<InviteItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [showNewBook, setShowNewBook] = useState(false);
@@ -49,23 +59,46 @@ export default function Dashboard() {
         name: String(book.name || 'Ledger'),
         ownerId: String(book.ownerId || ''),
         currency: String(book.currency || 'INR'),
+        pinned: Boolean(book.pinned),
         roles: (book.roles || {}) as BookItem['roles'],
-      }));
+      })).sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || a.name.localeCompare(b.name));
       setBooks(fetchedBooks);
       setLoading(false);
 
-      let tIn = 0; let tOut = 0;
+      let tIn = 0; let tOut = 0; let monthIn = 0; let monthOut = 0; let reimbursable = 0; let uncategorized = 0;
+      const monthKey = new Date().toISOString().slice(0, 7);
       let activity: Record<string, number> = {};
       if (fetchedBooks.length) {
         const { expenses } = await listAllExpenses();
         expenses.forEach((data) => {
-          if (data.entryType === 'in' || data.type === 'in') tIn += Number(data.amount || 0);
-          else tOut += Number(data.amount || 0);
+          const amount = Number(data.amount || 0);
+          const isIn = data.entryType === 'in' || data.type === 'in';
+          const isTransfer = data.entryType === 'transfer';
+          if (isIn) tIn += amount;
+          else if (!isTransfer) tOut += amount;
+          if (String(data.date || '').startsWith(monthKey)) {
+            if (isIn) monthIn += amount;
+            else if (!isTransfer) monthOut += amount;
+          }
+          if (data.reimbursable) reimbursable += amount;
+          const cat = String(data.category || '').trim().toLowerCase();
+          if (!cat || cat === 'uncategorized') uncategorized += 1;
           const user = String(data.enteredBy || data.paidByName || data.createdBy || 'Unknown');
           activity[user] = (activity[user] || 0) + 1;
         });
+        setGlobalStats({
+          totalIn: tIn,
+          totalOut: tOut,
+          monthIn,
+          monthOut,
+          reimbursable,
+          entries: expenses.length,
+          uncategorized,
+          userActivity: activity,
+        });
+      } else {
+        setGlobalStats({ totalIn: 0, totalOut: 0, monthIn: 0, monthOut: 0, reimbursable: 0, entries: 0, uncategorized: 0, userActivity: {} });
       }
-      setGlobalStats({ totalIn: tIn, totalOut: tOut, userActivity: activity });
 
       setInvites(await listLedgerInvites());
     } catch (err) { console.error("Fetch API error:", err); } finally {
@@ -261,20 +294,34 @@ export default function Dashboard() {
             <span className="text-xs text-slate-500">{books.length} ledger{books.length === 1 ? '' : 's'}</span>
           </div>
           {books.length > 0 && (
-            <div className="grid grid-cols-3 gap-3">
-              <div className="byjan-card p-5">
-                <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Money in</h3>
-                <span className="text-2xl font-display font-semibold text-emerald-600">+{getCurrencySymbol(books[0]?.currency || userProfile?.defaultCurrency || 'INR')}{globalStats.totalIn.toLocaleString()}</span>
-              </div>
-              <div className="byjan-card p-5">
-                <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Money out</h3>
-                <span className="text-2xl font-display font-semibold text-[#0B1F3A]">-{getCurrencySymbol(books[0]?.currency || userProfile?.defaultCurrency || 'INR')}{globalStats.totalOut.toLocaleString()}</span>
-              </div>
-              <div className="byjan-card p-5">
-                <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Most active</h3>
-                <span className="text-sm font-bold text-[#0B1F3A] truncate block mt-1">
-                  {Object.entries(globalStats.userActivity).sort((a,b)=> (b[1] as number) - (a[1] as number))[0]?.[0] || '—'}
+            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+              <div className="byjan-card p-4">
+                <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Net position</h3>
+                <span className={`text-xl font-display font-semibold ${(globalStats.totalIn - globalStats.totalOut) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                  {getCurrencySymbol(books[0]?.currency || userProfile?.defaultCurrency || 'INR')}{(globalStats.totalIn - globalStats.totalOut).toLocaleString()}
                 </span>
+              </div>
+              <div className="byjan-card p-4">
+                <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Money in</h3>
+                <span className="text-xl font-display font-semibold text-emerald-600">+{getCurrencySymbol(books[0]?.currency || userProfile?.defaultCurrency || 'INR')}{globalStats.totalIn.toLocaleString()}</span>
+              </div>
+              <div className="byjan-card p-4">
+                <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Money out</h3>
+                <span className="text-xl font-display font-semibold text-[#0B1F3A]">-{getCurrencySymbol(books[0]?.currency || userProfile?.defaultCurrency || 'INR')}{globalStats.totalOut.toLocaleString()}</span>
+              </div>
+              <div className="byjan-card p-4">
+                <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">This month</h3>
+                <span className="text-sm font-bold text-[#0B1F3A] block">In {globalStats.monthIn.toLocaleString()}</span>
+                <span className="text-xs text-slate-500">Out {globalStats.monthOut.toLocaleString()}</span>
+              </div>
+              <div className="byjan-card p-4">
+                <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Entries</h3>
+                <span className="text-xl font-display font-semibold text-[#0B1F3A]">{globalStats.entries}</span>
+                <span className="text-xs text-slate-500 block">{globalStats.uncategorized} uncategorized</span>
+              </div>
+              <div className="byjan-card p-4">
+                <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Reimbursable</h3>
+                <span className="text-xl font-display font-semibold text-amber-700">{getCurrencySymbol(books[0]?.currency || userProfile?.defaultCurrency || 'INR')}{globalStats.reimbursable.toLocaleString()}</span>
               </div>
             </div>
           )}
@@ -308,8 +355,11 @@ export default function Dashboard() {
                       <div className="w-9 h-9 bg-slate-50 rounded-md flex items-center justify-center border border-slate-100">
                         <Receipt className="w-4 h-4 text-slate-600" />
                       </div>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase tracking-wide ${getRoleBadgeColor(role)}`}>
-                        {role}
+                      <span className="inline-flex items-center gap-1">
+                        {book.pinned ? <Pin className="w-3.5 h-3.5 text-[#12B8A8]" /> : null}
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase tracking-wide ${getRoleBadgeColor(role)}`}>
+                          {role}
+                        </span>
                       </span>
                     </div>
                     <h3 className="text-sm font-bold text-slate-900 truncate">{book.name}</h3>

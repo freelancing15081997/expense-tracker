@@ -14,6 +14,7 @@ export default function AppLoader({
   const body = (
     <div className="flex flex-col items-center justify-center gap-4 text-center" role="status" aria-live="polite">
       <span className="app-loader-mark" aria-hidden>
+        <span className="app-loader-orbit-rev" />
         <span className="app-loader-orbit" />
         <span className="font-display text-lg font-semibold tracking-tight">B</span>
       </span>

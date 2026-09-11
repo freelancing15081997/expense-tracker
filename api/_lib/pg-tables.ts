@@ -1468,7 +1468,7 @@ export async function ledgerLiveExpenseByHash(bookId: string, hash: string) {
 
 export async function ledgerListLiveExpenses(bookId: string) {
   const rows = await ledgerList(`books/${bookId}/expenses`);
-  return rows.map((row) => ({ id: row.id, ...row.data }));
+  return rows.map((row) => ({ id: row.id, ...(asObject(row.data) || {}) })) as Array<Record<string, unknown> & { id: string }>;
 }
 
 export async function ledgerGetExpense(bookId: string, expenseId: string) {
@@ -1578,6 +1578,80 @@ export async function ledgerAddEmailEvent(bookId: string, data: Record<string, u
   const row = { ...data, id, createdAt: text(data.createdAt) || new Date().toISOString() };
   await ledgerSet(`books/${bookId}/email_events/${id}`, row);
   return row;
+}
+
+export async function ledgerFindDuplicateExpense(bookId: string, input: {
+  amount?: unknown;
+  date?: unknown;
+  description?: unknown;
+  receiptHash?: unknown;
+  exceptId?: string;
+}) {
+  const hash = text(input.receiptHash);
+  if (hash) {
+    const hit = await ledgerLiveExpenseByHash(bookId, hash);
+    if (hit && hit.id !== input.exceptId) return [hit];
+  }
+  const amount = num(input.amount);
+  const date = text(input.date);
+  const description = text(input.description).trim().toLowerCase();
+  if (!amount || !date || !description) return [];
+  const rows = await ledgerListLiveExpenses(bookId);
+  return rows.filter((row) => (
+    row.id !== input.exceptId
+    && Number(row.amount || 0) === amount
+    && text(row.date) === date
+    && text(row.description).trim().toLowerCase() === description
+  )).slice(0, 5);
+}
+
+export async function ledgerListAudit(uid: string, bookId?: string, limit = 80) {
+  const sql = await getLedgerSql();
+  const cap = Math.min(Math.max(Number(limit) || 80, 1), 200);
+  if (bookId) {
+    await ledgerRequireMember(bookId, uid);
+    const rows = asRows<{ id: string; book_id: string; actor_uid: string; actor_email: string; action: string; entity_type: string; entity_id: string; detail: unknown; created_at: string }>(
+      await sql`
+        SELECT id, book_id, actor_uid, actor_email, action, entity_type, entity_id, detail, created_at
+        FROM audit_events
+        WHERE book_id = ${bookId}
+        ORDER BY created_at DESC
+        LIMIT ${cap}
+      `,
+    );
+    return rows.map((row) => ({
+      id: text(row.id),
+      bookId: text(row.book_id),
+      actorUid: text(row.actor_uid),
+      actorEmail: text(row.actor_email),
+      action: text(row.action),
+      entityType: text(row.entity_type),
+      entityId: text(row.entity_id),
+      detail: asObject(row.detail) || {},
+      createdAt: text(row.created_at),
+    }));
+  }
+  const rows = asRows<{ id: string; book_id: string; actor_uid: string; actor_email: string; action: string; entity_type: string; entity_id: string; detail: unknown; created_at: string }>(
+    await sql`
+      SELECT a.id, a.book_id, a.actor_uid, a.actor_email, a.action, a.entity_type, a.entity_id, a.detail, a.created_at
+      FROM audit_events a
+      INNER JOIN book_members m ON m.book_id = a.book_id
+      WHERE m.uid = ${uid}
+      ORDER BY a.created_at DESC
+      LIMIT ${cap}
+    `,
+  );
+  return rows.map((row) => ({
+    id: text(row.id),
+    bookId: text(row.book_id),
+    actorUid: text(row.actor_uid),
+    actorEmail: text(row.actor_email),
+    action: text(row.action),
+    entityType: text(row.entity_type),
+    entityId: text(row.entity_id),
+    detail: asObject(row.detail) || {},
+    createdAt: text(row.created_at),
+  }));
 }
 
 type ApiReq = { method?: string; headers: Record<string, unknown>; body?: unknown };

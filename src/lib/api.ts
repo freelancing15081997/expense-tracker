@@ -9,7 +9,10 @@ export async function apiPost<T>(path: string, body: Record<string, unknown> = {
   });
   const payload = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(String((payload as { error?: string }).error || `Request failed (${res.status})`));
+    const err: Error & { status?: number; extra?: unknown } = new Error(String((payload as { error?: string }).error || `Request failed (${res.status})`));
+    err.status = res.status;
+    err.extra = payload;
+    throw err;
   }
   return payload as T;
 }
