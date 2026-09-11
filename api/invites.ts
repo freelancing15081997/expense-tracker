@@ -4,6 +4,17 @@ import { ledgerAudit, ledgerGet, ledgerList, ledgerSet } from './_pg-tables.js';
 const FIREBASE_PROJECT = 'gen-lang-client-0616065043';
 const jwtMem = new Map<string, { uid: string; email: string; exp: number }>();
 let jwks: any = null;
+const inviteHits = new Map<string, number[]>();
+
+function inviteRateLimit(key: string, max = 20, windowMs = 60_000) {
+  const now = Date.now();
+  const arr = (inviteHits.get(key) || []).filter((at) => now - at < windowMs);
+  if (arr.length >= max) return false;
+  arr.push(now);
+  inviteHits.set(key, arr);
+  if (inviteHits.size > 2000) inviteHits.clear();
+  return true;
+}
 
 type Role = { role?: string; email?: string };
 
@@ -172,6 +183,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (op === 'create') {
       const bookId = String(body.bookId || '').trim();
+      if (!inviteRateLimit(`invite:${user.uid}:${bookId || 'none'}`, 12, 60_000)) {
+        json(res, 429, { error: 'Too many invites. Wait a minute and try again.' });
+        return;
+      }
       const email = String(body.email || '').trim().toLowerCase();
       const role = String(body.role || 'contributor').trim() || 'contributor';
       if (!bookId || !email) {

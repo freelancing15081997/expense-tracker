@@ -10,6 +10,7 @@ import {
   ledgerList,
   ledgerListExpensesByBooks,
   cleanPath,
+  ledgerMember,
 } from './_pg-tables.js';
 
 const R2_REGION = 'auto';
@@ -305,6 +306,11 @@ async function pgList(prefix: string, constraints: any[] = []) {
 
 function skipFirestore(path: string) {
   return (
+    path === 'books' ||
+    path.startsWith('books/') ||
+    path.startsWith('users/') ||
+    path.startsWith('notifications') ||
+    path.startsWith('invites') ||
     path.startsWith('erp_workspaces/') ||
     path.startsWith('inbound_') ||
     path.startsWith('meta/') ||
@@ -704,6 +710,22 @@ function assertErpAccess(uid: string, path: string) {
   }
 }
 
+async function assertLedgerAccess(uid: string, path: string, writer = false) {
+  const parts = path.split('/').filter(Boolean);
+  if (parts[0] !== 'books' || parts.length < 2) return;
+  const member = await ledgerMember(parts[1], uid);
+  if (!member) {
+    const err: Error & { status?: number } = new Error('You do not have access to this ledger');
+    err.status = 403;
+    throw err;
+  }
+  if (writer && !['owner', 'admin', 'contributor'].includes(member.role)) {
+    const err: Error & { status?: number } = new Error('Not allowed to change this ledger');
+    err.status = 403;
+    throw err;
+  }
+}
+
 async function readDoc(path: string, token: string, uid: string) {
   try {
     const local = await localGet(path);
@@ -711,7 +733,7 @@ async function readDoc(path: string, token: string, uid: string) {
   } catch {
     // Production often has no DATABASE_URL; object store may also be empty.
   }
-  if (skipFirestore(path) || isErpPath(path)) return null;
+  if (skipFirestore(path) || isErpPath(path) || postgresUrl()) return null;
   const parent = path.split('/').filter(Boolean).slice(0, -1).join('/');
   if (parent && postgresUrl() && await isHydrated(uid, parent)) return null;
   const fromFs = await firestoreGet(token, path);
@@ -720,7 +742,7 @@ async function readDoc(path: string, token: string, uid: string) {
 }
 
 async function readList(path: string, token: string, constraints: any[] = [], uid = '') {
-  if (skipFirestore(path) || isErpPath(path)) {
+  if (skipFirestore(path) || isErpPath(path) || postgresUrl()) {
     return localList(path, constraints).catch(() => [] as { id: string; data: Record<string, unknown> }[]);
   }
   const localP = localList(path, constraints).catch(() => [] as { id: string; data: Record<string, unknown> }[]);
@@ -807,6 +829,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
     if (path) assertErpAccess(uid, path);
+    if (path) await assertLedgerAccess(uid, path, ['set', 'update', 'delete', 'add'].includes(op));
 
     if (op === 'workspace') {
       const bits = path.split('/').filter(Boolean);

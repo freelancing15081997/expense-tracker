@@ -177,7 +177,9 @@ export function EmailActivityFlow({ events }: { events: EventRow[] }) {
   return (
     <div className="space-y-3">
       {inbound.map((event) => (
-        <EventMailTrack key={event.id || event.createdAt} event={event} />
+        <React.Fragment key={event.id || event.createdAt}>
+          <EventMailTrack event={event} />
+        </React.Fragment>
       ))}
     </div>
   );

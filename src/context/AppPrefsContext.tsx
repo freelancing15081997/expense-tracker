@@ -1,8 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuth } from './AuthContext';
-import { db } from '../lib/firebase';
-import { doc, getDoc, setDoc } from '../lib/store';
+import { getMe, upsertMe } from '../lib/me';
 import {
   DEFAULT_APP_PREFS,
   getRuntimePrefs,
@@ -50,9 +49,8 @@ export const AppPrefsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       setPrefs(next);
       setRuntimePrefs(next);
     }
-    void getDoc(doc(db, 'users', currentUser.uid)).then((snap) => {
-      if (!snap.exists()) return;
-      const data = snap.data() || {};
+    void getMe().then((data) => {
+      if (!data) return;
       const next = normalizeAppPrefs({
         ...((data.appPrefs && typeof data.appPrefs === 'object') ? data.appPrefs as Record<string, unknown> : {}),
         defaultCurrency: String(data.defaultCurrency || userProfile?.defaultCurrency || DEFAULT_APP_PREFS.defaultCurrency),
@@ -67,11 +65,11 @@ export const AppPrefsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setPrefs(normalized);
     setRuntimePrefs(normalized);
     if (!currentUser) return;
-    await setDoc(doc(db, 'users', currentUser.uid), {
+    await upsertMe({
       appPrefs: normalized,
       defaultCurrency: normalized.defaultCurrency,
       updatedAt: new Date().toISOString(),
-    }, { merge: true });
+    });
   }, [currentUser, prefs]);
 
   const setPref = useCallback(<K extends keyof AppPrefs>(key: K, value: AppPrefs[K]) => {

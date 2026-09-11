@@ -5,10 +5,17 @@
   "functions": {
     "api/kv.ts": { "maxDuration": 30, "includeFiles": "api/_pg-tables.js" },
     "api/invites.ts": { "maxDuration": 15, "includeFiles": "api/_pg-tables.js" },
+    "api/ledgers.ts": { "maxDuration": 15, "includeFiles": "api/_pg-tables.js" },
+    "api/expenses.ts": { "maxDuration": 15, "includeFiles": "api/_pg-tables.js" },
+    "api/notifications.ts": { "maxDuration": 15, "includeFiles": "api/_pg-tables.js" },
+    "api/me.ts": { "maxDuration": 15, "includeFiles": "api/_pg-tables.js" },
     "api/migrate.ts": { "maxDuration": 60, "includeFiles": "api/_pg-tables.js" },
     "api/email/send.ts": { "maxDuration": 30 },
     "api/email/send-report.ts": { "maxDuration": 60 },
-    "api/email/inbound.ts": { "maxDuration": 60, "memory": 1536, "includeFiles": "api/_pg-tables.js" }
+    "api/email/inbound.ts": { "maxDuration": 60, "memory": 1536, "includeFiles": "api/_pg-tables.js" },
+    "api/blob/upload.ts": { "maxDuration": 30, "includeFiles": "api/_pg-tables.js" },
+    "api/blob/delete.ts": { "maxDuration": 15, "includeFiles": "api/_pg-tables.js" },
+    "api/blob/file.ts": { "maxDuration": 15, "includeFiles": "api/_pg-tables.js" }
   },
   "headers": [
     {
@@ -21,7 +28,7 @@
       "source": "/api/(.*)",
       "headers": [
         { "key": "Access-Control-Allow-Methods", "value": "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS" },
-        { "key": "Access-Control-Allow-Headers", "value": "Authorization,Content-Type,X-CSRF-Token,X-Requested-With,Accept,X-Tenant-Id,X-File-Id,X-File-Ext,X-File-Name,X-Content-Type,X-Inbound-Secret,X-Brevo-Secret,vercel-blob-api-version" },
+        { "key": "Access-Control-Allow-Headers", "value": "Authorization,Content-Type,X-CSRF-Token,X-Requested-With,Accept,X-Tenant-Id,X-Book-Id,X-File-Id,X-File-Ext,X-File-Name,X-Content-Type,X-Inbound-Secret,X-Brevo-Secret,vercel-blob-api-version" },
         { "key": "Access-Control-Allow-Credentials", "value": "true" }
       ]
     }

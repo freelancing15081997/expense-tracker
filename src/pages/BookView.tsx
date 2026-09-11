@@ -3,8 +3,17 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { db } from '../lib/firebase';
-import { doc, getDoc, getDocs, collection, query, onSnapshot, addDoc, serverTimestamp, updateDoc, deleteField } from '../lib/store';
+import {
+  addLedgerMailEvent,
+  ensureLedgerMailbox,
+  getLedger,
+  listLedgerMail,
+  removeLedgerMember,
+  softDeleteLedger,
+  updateLedger,
+} from '../lib/ledgers';
+import { createExpense, listExpenses, softDeleteExpense, updateExpense } from '../lib/expenses';
+import { createNotification } from '../lib/notifications';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send, Copy, Paperclip, Mail, Megaphone } from 'lucide-react';
@@ -14,8 +23,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { format } from 'date-fns';
 import { getCurrencySymbol } from '../lib/currency';
-import { isSoftDeleted, softDeletePatch } from '../lib/records';
-import { bookInboundAddress, ledgerAppLink, openInviteButtonHtml, openLedgerButtonHtml, syncInboundMailbox } from '../lib/inbound-mail';
+import { bookInboundAddress, ledgerAppLink, openInviteButtonHtml, openLedgerButtonHtml } from '../lib/inbound-mail';
 import { createLedgerInvite, memberEmails } from '../lib/invites';
 import { authHeaders } from '../lib/auth-client';
 import { ReceiptModal } from '../components/ReceiptModal';
@@ -135,13 +143,7 @@ export default function BookView() {
 
     if (confirm(isSelf ? 'Are you sure you want to leave this ledger?' : 'Are you sure you want to remove this member?')) {
       try {
-        const bookRef = doc(db, 'books', book.id);
-        await updateDoc(bookRef, {
-          [`roles.${uidToRemove}`]: deleteField()
-        });
-        const nextRoles = { ...book.roles };
-        delete nextRoles[uidToRemove];
-        const nextBook = { ...book, roles: nextRoles };
+        const nextBook = await removeLedgerMember(book.id, uidToRemove);
         setBook(nextBook);
         setInboundAddress(bookInboundAddress(nextBook));
         
@@ -163,56 +165,40 @@ export default function BookView() {
   useEffect(() => {
     if (!bookId || !currentUser) return;
     let alive = true;
-    let unsubscribe = () => {};
     const start = async () => {
-      const docSnap = await getDoc(doc(db, 'books', bookId));
-      if (!alive) return;
-      if (!docSnap.exists()) {
-        addToast('Ledger not found.', 'error');
+      try {
+        const next = await getLedger(bookId);
+        if (!alive) return;
+        setBook(next);
+        setInboundAddress(bookInboundAddress(next));
+        if (!String(next.inboundAddress || next.inboundSlug || '').trim()) {
+          void ensureLedgerMailbox(bookId).then((payload) => {
+            if (payload.mailbox?.address) setInboundAddress(payload.mailbox.address);
+            if (payload.book) setBook(payload.book);
+          }).catch(() => undefined);
+        }
+        const rows = await listExpenses(bookId);
+        if (!alive) return;
+        setExpenses(rows.sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt)));
+        setLoading(false);
+      } catch (err: any) {
+        if (!alive) return;
+        addToast(err?.message || 'You do not have access to this ledger.', 'error');
         navigate('/');
         setLoading(false);
-        return;
       }
-      const next = { id: docSnap.id, ...docSnap.data() };
-      const roles = next.roles && typeof next.roles === 'object' ? next.roles as Record<string, { role?: string }> : {};
-      if (!roles[currentUser.uid] && next.ownerId !== currentUser.uid) {
-        addToast('You do not have access to this ledger.', 'error');
-        navigate('/');
-        setLoading(false);
-        return;
-      }
-      setBook(next);
-      setInboundAddress(bookInboundAddress(next));
-      if (!String(next.inboundAddress || next.inboundSlug || '').trim()) {
-        void syncInboundMailbox(next).then((record) => setInboundAddress(record.address)).catch(() => undefined);
-      }
-      const q = query(collection(db, `books/${bookId}/expenses`));
-      unsubscribe = onSnapshot(q, (snapshot) => {
-        const exps: any[] = [];
-        snapshot.forEach((d) => {
-          const data = d.data();
-          if (isSoftDeleted(data)) return;
-          exps.push({ id: d.id, ...data });
-        });
-        setExpenses((prev) => {
-          const byId = new Map(exps.map((row) => [row.id, row]));
-          const recent = Date.now() - 30_000;
-          for (const row of prev) {
-            if (byId.has(row.id) || isSoftDeleted(row)) continue;
-            if (expenseMillis(row.createdAt) >= recent) byId.set(row.id, row);
-          }
-          return [...byId.values()].sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt));
-        });
-        setLoading(false);
-      }, (err) => {
-        console.error('Snapshot error on', q, err);
-        if ((err as { code?: string }).code === 'resource-exhausted') unsubscribe();
-      });
     };
     void start();
+    const timer = window.setInterval(() => {
+      if (!bookId) return;
+      listExpenses(bookId).then((rows) => {
+        if (!alive) return;
+        setExpenses(rows.sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt)));
+      }).catch(() => undefined);
+    }, 20000);
     return () => {
       alive = false;
-      unsubscribe();
+      window.clearInterval(timer);
     };
   }, [bookId, currentUser?.uid]);
 
@@ -224,15 +210,8 @@ export default function BookView() {
     if (!bookId) return;
     setInboundEventsLoading(true);
     try {
-      const [inboundSnap, outboundSnap] = await Promise.all([
-        getDocs(query(collection(db, `books/${bookId}/inbound_events`)), { force: true }),
-        getDocs(query(collection(db, `books/${bookId}/email_events`)), { force: true }),
-      ]);
-      const inbound: any[] = [];
-      inboundSnap.forEach((d) => inbound.push({ id: d.id, direction: 'inbound', ...d.data() }));
+      const { inbound, outbound } = await listLedgerMail(bookId);
       inbound.sort((a, b) => Date.parse(String(b.createdAt || '')) - Date.parse(String(a.createdAt || '')));
-      const outbound: any[] = [];
-      outboundSnap.forEach((d) => outbound.push({ id: d.id, direction: 'outbound', ...d.data() }));
       outbound.sort((a, b) => Date.parse(String(b.createdAt || '')) - Date.parse(String(a.createdAt || '')));
       setInboundEvents(inbound.slice(0, 250));
       setOutboundEvents(outbound.slice(0, 250));
@@ -247,22 +226,25 @@ export default function BookView() {
   useEffect(() => {
     if (!bookId || ledgerTab !== 'email') return;
     setInboundEventsLoading(true);
-    const unsubIn = onSnapshot(query(collection(db, `books/${bookId}/inbound_events`)), (snap) => {
-      const inbound: any[] = [];
-      snap.forEach((d) => inbound.push({ id: d.id, direction: 'inbound', ...d.data() }));
-      inbound.sort((a, b) => Date.parse(String(b.createdAt || '')) - Date.parse(String(a.createdAt || '')));
-      setInboundEvents(inbound.slice(0, 250));
-      setInboundEventsLoading(false);
-    }, () => setInboundEventsLoading(false));
-    const unsubOut = onSnapshot(query(collection(db, `books/${bookId}/email_events`)), (snap) => {
-      const outbound: any[] = [];
-      snap.forEach((d) => outbound.push({ id: d.id, direction: 'outbound', ...d.data() }));
-      outbound.sort((a, b) => Date.parse(String(b.createdAt || '')) - Date.parse(String(a.createdAt || '')));
-      setOutboundEvents(outbound.slice(0, 250));
-    });
+    let alive = true;
+    const load = () => {
+      listLedgerMail(bookId).then(({ inbound, outbound }) => {
+        if (!alive) return;
+        inbound.sort((a, b) => Date.parse(String(b.createdAt || '')) - Date.parse(String(a.createdAt || '')));
+        outbound.sort((a, b) => Date.parse(String(b.createdAt || '')) - Date.parse(String(a.createdAt || '')));
+        setInboundEvents(inbound.slice(0, 250));
+        setOutboundEvents(outbound.slice(0, 250));
+        setInboundEventsLoading(false);
+      }).catch(() => {
+        if (!alive) return;
+        setInboundEventsLoading(false);
+      });
+    };
+    load();
+    const timer = window.setInterval(load, 15000);
     return () => {
-      unsubIn();
-      unsubOut();
+      alive = false;
+      window.clearInterval(timer);
     };
   }, [ledgerTab, bookId]);
 
@@ -279,7 +261,7 @@ export default function BookView() {
   if (loading) return <AppLoader title="Ledger" message="Opening entries and balances." />;
   if (!book) return <div className="p-8 text-center text-sm text-slate-500">Book not found or access denied.</div>;
 
-  const myRole = book.roles[currentUser!.uid]?.role || 'viewer';
+  const myRole = book.roles?.[currentUser!.uid]?.role || (book.ownerId === currentUser!.uid ? 'owner' : 'viewer');
   const canWrite = ['owner', 'admin', 'contributor'].includes(myRole);
   const canManageUsers = ['owner', 'admin'].includes(myRole);
   const isAuditor = myRole === 'auditor';
@@ -297,7 +279,7 @@ export default function BookView() {
     if (!bookId || !name) return;
     const next = uniqueCategories(ledgerCategories, [name]);
     if (next.length === ledgerCategories.length && ledgerCategories.some((c) => c.toLowerCase() === name.toLowerCase())) return;
-    await updateDoc(doc(db, 'books', bookId), { categories: next });
+    await updateLedger(bookId, { categories: next });
     setBook((prev: any) => prev ? { ...prev, categories: next } : prev);
   };
 
@@ -414,9 +396,9 @@ export default function BookView() {
     const uidsToNotify = Object.keys(book.roles).filter(uid => uid !== currentUser?.uid);
     for (const uid of uidsToNotify) {
       try {
-        await addDoc(collection(db, 'notifications'), {
+        await createNotification({
           userId: uid,
-          bookId,
+          bookId: bookId || book.id,
           bookName: book.name,
           kind: htmlOverride ? 'announcement' : 'entry',
           action,
@@ -424,8 +406,6 @@ export default function BookView() {
           senderName: userProfile?.displayName || currentUser?.email,
           ledgerMail: inboundAddress || bookInboundAddress(book),
           link: ledgerAppLink(bookId || book.id),
-          createdAt: serverTimestamp(),
-          read: false
         });
       } catch (err) {
         console.error("Failed to add notification:", err);
@@ -479,7 +459,7 @@ export default function BookView() {
   
   const handleSaveExpense = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canWrite) return;
+    if (!canWrite || !bookId) return;
     setIsSaving(true);
     const finalCategory = category === '__custom__' ? customCatInput.trim() : category;
     if (!finalCategory) {
@@ -491,7 +471,7 @@ export default function BookView() {
     try {
       if (editingExpense) {
         const nextStatus = Number(amount) > 0 ? 'recorded' : 'draft';
-        await updateDoc(doc(db, `books/${bookId}/expenses`, editingExpense.id), {
+        await updateExpense(bookId, editingExpense.id, {
           amount: Number(amount),
           description,
           category: finalCategory,
@@ -499,25 +479,15 @@ export default function BookView() {
           status: nextStatus,
           lastEditedBy: userProfile?.displayName || currentUser?.email,
           lastEditedByUid: currentUser?.uid || '',
-          lastEditedAt: serverTimestamp()
         });
         await persistLedgerCategory(finalCategory);
-        setExpenses((prev) => prev.map((row) => row.id === editingExpense.id ? {
-          ...row,
-          amount: Number(amount),
-          description,
-          category: finalCategory,
-          entryType,
-          status: nextStatus,
-          lastEditedBy: userProfile?.displayName || currentUser?.email,
-          lastEditedByUid: currentUser?.uid || '',
-          lastEditedAt: new Date().toISOString(),
-        } : row));
+        const rows = await listExpenses(bookId);
+        setExpenses(rows.sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt)));
         addToast('Entry updated successfully!', 'success');
         setIsExpenseModalOpen(false);
         notifyTeamMembers('Edited an entry', `Updated ${entryType === 'in' ? 'money in' : 'money out'} for "${description}" to ${getCurrencySymbol(book.currency)} ${amount} in category "${finalCategory}"`, `${userProfile?.displayName || currentUser?.email} updated "${description}" to ${getCurrencySymbol(book.currency)}${amount} in ${book.name}`).catch(console.error);
       } else {
-        const created = await addDoc(collection(db, `books/${bookId}/expenses`), {
+        await createExpense(bookId, {
           amount: Number(amount),
           description,
           category: finalCategory,
@@ -528,23 +498,10 @@ export default function BookView() {
           enteredByUid: currentUser?.uid || '',
           enteredByEmail: currentUser?.email || '',
           status: Number(amount) > 0 ? 'recorded' : 'draft',
-          createdAt: serverTimestamp()
         });
         await persistLedgerCategory(finalCategory);
-        setExpenses((prev) => [{
-          id: created.id,
-          amount: Number(amount),
-          description,
-          category: finalCategory,
-          entryType,
-          date: new Date().toISOString().split('T')[0],
-          paidByName: userProfile?.displayName || currentUser?.email,
-          enteredBy: userProfile?.displayName || currentUser?.email,
-          enteredByUid: currentUser?.uid || '',
-          enteredByEmail: currentUser?.email || '',
-          status: Number(amount) > 0 ? 'recorded' : 'draft',
-          createdAt: new Date().toISOString(),
-        }, ...prev]);
+        const rows = await listExpenses(bookId);
+        setExpenses(rows.sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt)));
         addToast('Entry recorded successfully!', 'success');
         setCurrentPage(1);
         setIsExpenseModalOpen(false);
@@ -565,8 +522,9 @@ export default function BookView() {
     if (confirm('Remove this entry? It stays in the ledger for audit and is hidden from lists and totals.')) {
       setIsDeleting(id);
       try {
-        await updateDoc(doc(db, `books/${bookId}/expenses`, id), softDeletePatch(currentUser.uid));
-        setExpenses((prev) => prev.filter((row) => row.id !== id));
+        await softDeleteExpense(bookId, id);
+        const rows = await listExpenses(bookId);
+        setExpenses(rows.sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt)));
         await notifyTeamMembers('Deleted an entry', `Removed entry for "${description}"`, `${userProfile?.displayName || currentUser?.email} deleted "${description}" from ${book.name}`);
         addToast('Entry removed. The record is kept for audit.', 'success');
       } catch (err: any) {
@@ -592,7 +550,7 @@ export default function BookView() {
       });
       const payload = await res.json().catch(() => ({}));
       if (bookId) {
-        await addDoc(collection(db, `books/${bookId}/email_events`), {
+        await addLedgerMailEvent(bookId, {
           direction: 'outbound',
           status: res.ok ? 'sent' : 'failed',
           toEmail,
@@ -610,7 +568,7 @@ export default function BookView() {
     } catch (err: any) {
       console.error('Failed to send email via backend:', err);
       if (bookId) {
-        await addDoc(collection(db, `books/${bookId}/email_events`), {
+        await addLedgerMailEvent(bookId, {
           direction: 'outbound',
           status: 'failed',
           toEmail,
@@ -690,7 +648,7 @@ export default function BookView() {
     if (!confirm(`Delete ledger “${book.name}”? It leaves everyone’s list. Entries are kept for audit.`)) return;
     setDeletingLedger(true);
     try {
-      await updateDoc(doc(db, 'books', bookId), softDeletePatch(currentUser.uid));
+      await softDeleteLedger(bookId);
       addToast('Ledger deleted.', 'success');
       navigate('/expenses');
     } catch (err: any) {

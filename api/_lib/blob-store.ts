@@ -53,6 +53,21 @@ function storeErrorMessage(err: any, fallback: string) {
   return fallback;
 }
 
+async function requireBookMember(uid: string, bookId: string, writer = false) {
+  const { ledgerMember } = await import('../_pg-tables.js');
+  const member = await ledgerMember(bookId, uid);
+  if (!member) {
+    const err: Error & { status?: number } = new Error('Not allowed to access this ledger file');
+    err.status = 403;
+    throw err;
+  }
+  if (writer && !['owner', 'admin', 'contributor'].includes(member.role)) {
+    const err: Error & { status?: number } = new Error('Not allowed to change this ledger file');
+    err.status = 403;
+    throw err;
+  }
+}
+
 export async function handleBlobUploadRequest(
   req: IncomingMessage & { body?: unknown },
   res: ServerResponse,
@@ -72,19 +87,31 @@ export async function handleBlobUploadRequest(
   if (!uid) return;
 
   try {
+    const bookId = header(req.headers, 'x-book-id').trim().replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128);
     const tenantId = header(req.headers, 'x-tenant-id').trim().replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128);
     const fileId = header(req.headers, 'x-file-id').trim().replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128);
     const ext = header(req.headers, 'x-file-ext').trim().toLowerCase();
     const contentType = (header(req.headers, 'content-type') || header(req.headers, 'x-content-type')).split(';')[0].trim().toLowerCase();
 
-    if (tenantId.length < 4 || fileId.length < 4) {
+    if (fileId.length < 4) {
       sendJson(res, 400, { error: 'Invalid upload path' });
       return;
     }
-    const uidSafe = uid.replace(/[^a-zA-Z0-9_-]/g, '_');
-    if (tenantId !== uidSafe && !tenantId.startsWith(`${uidSafe}_`)) {
-      sendJson(res, 403, { error: 'Not allowed to upload into this Books workspace' });
-      return;
+    let pathname = '';
+    if (bookId.length >= 4) {
+      await requireBookMember(uid, bookId, true);
+      pathname = `books/${bookId}/files/${fileId}.${ext}`;
+    } else {
+      if (tenantId.length < 4) {
+        sendJson(res, 400, { error: 'Invalid upload path' });
+        return;
+      }
+      const uidSafe = uid.replace(/[^a-zA-Z0-9_-]/g, '_');
+      if (tenantId !== uidSafe && !tenantId.startsWith(`${uidSafe}_`)) {
+        sendJson(res, 403, { error: 'Not allowed to upload into this Books workspace' });
+        return;
+      }
+      pathname = `erp_workspaces/${tenantId}/files/${fileId}.${ext}`;
     }
     if (!ALLOWED_EXT.has(ext)) {
       sendJson(res, 400, { error: 'File type is not allowed' });
@@ -101,7 +128,6 @@ export async function handleBlobUploadRequest(
       return;
     }
 
-    const pathname = `erp_workspaces/${tenantId}/files/${fileId}.${ext}`;
     await r2PutBytes(pathname, body, contentType || ALLOWED_MIME[ext][0]);
     sendJson(res, 200, { url: pathname, pathname });
   } catch (err: any) {
@@ -135,10 +161,15 @@ export async function handleBlobDeleteRequest(
       return;
     }
     const key = r2FileKey(url);
-    const workspaceId = key.split('/').filter(Boolean)[1] || '';
-    if (workspaceId !== uid && !workspaceId.startsWith(`${uid}_`)) {
-      sendJson(res, 403, { error: 'Not allowed to delete this Books file' });
-      return;
+    const parts = key.split('/').filter(Boolean);
+    if (parts[0] === 'books') {
+      await requireBookMember(uid, parts[1] || '', true);
+    } else {
+      const workspaceId = parts[1] || '';
+      if (workspaceId !== uid && !workspaceId.startsWith(`${uid}_`)) {
+        sendJson(res, 403, { error: 'Not allowed to delete this Books file' });
+        return;
+      }
     }
     await r2Del(key);
     sendJson(res, 200, { ok: true });

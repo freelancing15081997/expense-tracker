@@ -272,12 +272,21 @@ async function ensureLedgerSchema(sql: Sql) {
     paid_by_name TEXT,
     status TEXT,
     deleted BOOLEAN NOT NULL DEFAULT FALSE,
+    receipt_hash TEXT,
     data JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`;
+  await sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS receipt_hash TEXT`;
+  await sql`UPDATE expenses SET receipt_hash = NULLIF(BTRIM(COALESCE(data->>'receiptHash', '')), '') WHERE receipt_hash IS NULL`;
   await sql`CREATE INDEX IF NOT EXISTS expenses_book_idx ON expenses (book_id, updated_at DESC)`;
   await sql`CREATE INDEX IF NOT EXISTS expenses_book_amount_idx ON expenses (book_id, amount)`;
+  await sql`CREATE INDEX IF NOT EXISTS expenses_book_live_idx ON expenses (book_id, deleted, updated_at DESC)`;
+  try {
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS expenses_live_receipt_hash_idx ON expenses (book_id, receipt_hash) WHERE deleted = false AND receipt_hash IS NOT NULL AND receipt_hash <> ''`;
+  } catch {
+    // live duplicates must be cleaned before the unique index can apply
+  }
   await sql`CREATE TABLE IF NOT EXISTS inbound_events (
     id TEXT PRIMARY KEY,
     book_id TEXT NOT NULL,
@@ -311,6 +320,11 @@ async function ensureLedgerSchema(sql: Sql) {
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`;
   await sql`CREATE INDEX IF NOT EXISTS invites_email_idx ON invites (email)`;
+  try {
+    await sql`CREATE INDEX IF NOT EXISTS invites_email_pending_idx ON invites (email) WHERE COALESCE(data->>'deleted', '') NOT IN ('true', '1') AND COALESCE(NULLIF(data->>'status', ''), 'pending') = 'pending'`;
+  } catch {
+    // partial index is best-effort
+  }
   await sql`CREATE TABLE IF NOT EXISTS inbound_hashes (
     book_id TEXT NOT NULL,
     hash TEXT NOT NULL,
@@ -603,29 +617,31 @@ export async function ledgerSet(path: string, data: unknown, insertOnly = false)
   if (parts[0] === 'books' && parts[2] === 'expenses' && parts.length === 4) {
     const bookId = parts[1];
     const created = ts(obj.createdAt);
+    const hash = text(obj.receiptHash) || null;
     if (insertOnly) {
       const rows = await sql`
-        INSERT INTO expenses (id, book_id, amount, description, category, entry_type, entry_date, paid_by_name, status, deleted, data, created_at, updated_at)
+        INSERT INTO expenses (id, book_id, amount, description, category, entry_type, entry_date, paid_by_name, status, deleted, receipt_hash, data, created_at, updated_at)
         VALUES (
           ${id}, ${bookId}, ${num(obj.amount)}, ${text(obj.description)}, ${text(obj.category)},
           ${text(obj.entryType || obj.type) || 'out'}, ${text(obj.date)}, ${text(obj.paidByName)},
-          ${text(obj.status)}, ${flag(obj)}, ${payload}::jsonb, ${created}::timestamptz, NOW()
+          ${text(obj.status)}, ${flag(obj)}, ${hash}, ${payload}::jsonb, ${created}::timestamptz, NOW()
         )
         ON CONFLICT (id) DO NOTHING RETURNING id
       `;
       return asRows(rows).length > 0;
     }
     await sql`
-      INSERT INTO expenses (id, book_id, amount, description, category, entry_type, entry_date, paid_by_name, status, deleted, data, created_at, updated_at)
+      INSERT INTO expenses (id, book_id, amount, description, category, entry_type, entry_date, paid_by_name, status, deleted, receipt_hash, data, created_at, updated_at)
       VALUES (
         ${id}, ${bookId}, ${num(obj.amount)}, ${text(obj.description)}, ${text(obj.category)},
         ${text(obj.entryType || obj.type) || 'out'}, ${text(obj.date)}, ${text(obj.paidByName)},
-        ${text(obj.status)}, ${flag(obj)}, ${payload}::jsonb, ${created}::timestamptz, NOW()
+        ${text(obj.status)}, ${flag(obj)}, ${hash}, ${payload}::jsonb, ${created}::timestamptz, NOW()
       )
       ON CONFLICT (id) DO UPDATE SET
         book_id = EXCLUDED.book_id, amount = EXCLUDED.amount, description = EXCLUDED.description,
         category = EXCLUDED.category, entry_type = EXCLUDED.entry_type, entry_date = EXCLUDED.entry_date,
         paid_by_name = EXCLUDED.paid_by_name, status = EXCLUDED.status, deleted = EXCLUDED.deleted,
+        receipt_hash = COALESCE(EXCLUDED.receipt_hash, expenses.receipt_hash),
         data = EXCLUDED.data, updated_at = NOW()
     `;
     return true;
@@ -933,7 +949,7 @@ export async function ledgerList(prefix: string, constraints: any[] = []) {
 export async function ledgerListExpensesByBooks(bookIds: string[]) {
   if (!bookIds.length) return new Map<string, { id: string; data: Record<string, unknown> }[]>();
   const sql = await getLedgerSql();
-  const rows = await sql`SELECT id, book_id, data, deleted FROM expenses WHERE book_id = ANY(${bookIds})`;
+  const rows = await sql`SELECT id, book_id, data, deleted FROM expenses WHERE book_id = ANY(${bookIds}) AND deleted = false`;
   const grouped = new Map<string, { id: string; data: Record<string, unknown> }[]>();
   for (const row of asRows<{ id: string; book_id: string; data: unknown; deleted?: boolean }>(rows)) {
     const data = asObject(row.data);
@@ -944,4 +960,441 @@ export async function ledgerListExpensesByBooks(bookIds: string[]) {
     grouped.set(col, list);
   }
   return grouped;
+}
+
+export function newLedgerId() {
+  return randomBytes(12).toString('hex');
+}
+
+export function ledgerUniqueViolation(err: unknown) {
+  const e = err as { code?: string; message?: string };
+  return e?.code === '23505' || /duplicate key|unique constraint/i.test(String(e?.message || ''));
+}
+
+export type LedgerMember = { role: string; email: string };
+
+export async function ledgerMember(bookId: string, uid: string): Promise<LedgerMember | null> {
+  const id = text(bookId);
+  const userId = text(uid);
+  if (!id || !userId) return null;
+  const sql = await getLedgerSql();
+  const rows = asRows<{ role: string; email: string; data: unknown }>(
+    await sql`
+      SELECT m.role, m.email, b.data
+      FROM book_members m
+      INNER JOIN books b ON b.id = m.book_id
+      WHERE m.book_id = ${id} AND m.uid = ${userId}
+      LIMIT 1
+    `,
+  );
+  const row = rows[0];
+  if (row) {
+    const data = asObject(row.data) || {};
+    if (flag(data)) return null;
+    return { role: text(row.role), email: text(row.email) };
+  }
+  const book = asObject(await ledgerGet(`books/${id}`));
+  if (!book || flag(book)) return null;
+  const roles = rolesOf(book.roles);
+  const rec = roles[userId] as { role?: string; email?: string } | undefined;
+  if (rec?.role) return { role: text(rec.role), email: text(rec.email) };
+  if (text(book.ownerId) === userId) return { role: 'owner', email: '' };
+  return null;
+}
+
+export async function ledgerRequireMember(bookId: string, uid: string) {
+  const member = await ledgerMember(bookId, uid);
+  if (!member) {
+    const err: Error & { status?: number } = new Error('You do not have access to this ledger');
+    err.status = 403;
+    throw err;
+  }
+  return member;
+}
+
+export async function ledgerRequireManager(bookId: string, uid: string) {
+  const member = await ledgerRequireMember(bookId, uid);
+  if (member.role !== 'owner' && member.role !== 'admin') {
+    const err: Error & { status?: number } = new Error('Not allowed to manage this ledger');
+    err.status = 403;
+    throw err;
+  }
+  return member;
+}
+
+export async function ledgerRequireWriter(bookId: string, uid: string) {
+  const member = await ledgerRequireMember(bookId, uid);
+  if (!['owner', 'admin', 'contributor'].includes(member.role)) {
+    const err: Error & { status?: number } = new Error('Not allowed to change this ledger');
+    err.status = 403;
+    throw err;
+  }
+  return member;
+}
+
+function bookRow(id: string, data: Record<string, unknown>): Record<string, unknown> {
+  return { ...data, id };
+}
+
+export async function ledgerListBooksForUser(uid: string) {
+  const rows = await ledgerList('books', [{ type: 'where', field: `roles.${uid}.role`, op: 'in', value: ['owner'] }]);
+  return rows
+    .filter((row) => !flag(row.data))
+    .map((row) => bookRow(row.id, row.data));
+}
+
+export async function ledgerGetBookForUser(bookId: string, uid: string) {
+  await ledgerRequireMember(bookId, uid);
+  const data = asObject(await ledgerGet(`books/${bookId}`));
+  if (!data || flag(data)) {
+    const err: Error & { status?: number } = new Error('Ledger not found');
+    err.status = 404;
+    throw err;
+  }
+  return bookRow(bookId, data);
+}
+
+export async function ledgerCreateBook(input: {
+  uid: string;
+  email: string;
+  name: string;
+  currency?: string;
+}) {
+  const name = text(input.name).trim();
+  if (!name) {
+    const err: Error & { status?: number } = new Error('Ledger name is required');
+    err.status = 400;
+    throw err;
+  }
+  const id = newLedgerId();
+  const now = new Date().toISOString();
+  const data = {
+    id,
+    name,
+    ownerId: input.uid,
+    currency: text(input.currency) || 'INR',
+    createdAt: now,
+    roles: { [input.uid]: { role: 'owner', email: text(input.email).toLowerCase() } },
+  };
+  await ledgerSet(`books/${id}`, data);
+  await ledgerAudit({
+    bookId: id,
+    actorUid: input.uid,
+    actorEmail: input.email,
+    action: 'ledger.create',
+    entityType: 'book',
+    entityId: id,
+    detail: { name },
+  });
+  const mailbox = await ledgerEnsureMailbox(id, data).catch(() => null);
+  return {
+    ...data,
+    inboundAddress: mailbox && typeof mailbox === 'object' ? text((mailbox as { address?: string }).address) : '',
+    inboundSlug: mailbox && typeof mailbox === 'object' ? text((mailbox as { slug?: string }).slug) : '',
+  };
+}
+
+export async function ledgerUpdateBook(bookId: string, uid: string, patch: Record<string, unknown>) {
+  const current = await ledgerGetBookForUser(bookId, uid);
+  const next: Record<string, unknown> = { ...current, ...patch, id: bookId };
+  if (patch.roles && typeof patch.roles === 'object') next.roles = patch.roles;
+  await ledgerSet(`books/${bookId}`, next);
+  await ledgerAudit({
+    bookId,
+    actorUid: uid,
+    action: 'ledger.update',
+    entityType: 'book',
+    entityId: bookId,
+  });
+  return next;
+}
+
+export async function ledgerRemoveMember(bookId: string, actorUid: string, uidToRemove: string) {
+  const book = await ledgerGetBookForUser(bookId, actorUid);
+  const roles = rolesOf(book.roles) as Record<string, { role?: string; email?: string }>;
+  if (!roles[uidToRemove]) {
+    const err: Error & { status?: number } = new Error('Member not found');
+    err.status = 404;
+    throw err;
+  }
+  if (roles[uidToRemove]?.role === 'owner') {
+    const owners = Object.values(roles).filter((row) => row?.role === 'owner').length;
+    if (owners <= 1) {
+      const err: Error & { status?: number } = new Error('You cannot remove the last owner of the ledger.');
+      err.status = 400;
+      throw err;
+    }
+  }
+  if (uidToRemove !== actorUid) await ledgerRequireManager(bookId, actorUid);
+  const nextRoles = { ...roles };
+  delete nextRoles[uidToRemove];
+  const next = { ...book, roles: nextRoles };
+  await ledgerSet(`books/${bookId}`, next);
+  await ledgerAudit({
+    bookId,
+    actorUid,
+    action: 'ledger.remove_member',
+    entityType: 'book',
+    entityId: bookId,
+    detail: { uidToRemove },
+  });
+  return next;
+}
+
+export async function ledgerSoftDeleteBook(bookId: string, uid: string) {
+  await ledgerRequireManager(bookId, uid);
+  const current = asObject(await ledgerGet(`books/${bookId}`)) || {};
+  const next = {
+    ...current,
+    deleted: true,
+    deletedAt: new Date().toISOString(),
+    deletedBy: uid,
+    status: 'deleted',
+  };
+  await ledgerSet(`books/${bookId}`, next);
+  await ledgerAudit({
+    bookId,
+    actorUid: uid,
+    action: 'ledger.soft_delete',
+    entityType: 'book',
+    entityId: bookId,
+  });
+  return next;
+}
+
+export async function ledgerLiveExpenseByHash(bookId: string, hash: string) {
+  const value = text(hash);
+  if (!value) return null;
+  const sql = await getLedgerSql();
+  const rows = asRows<{ id: string; data: unknown }>(
+    await sql`
+      SELECT id, data FROM expenses
+      WHERE book_id = ${bookId} AND deleted = false AND receipt_hash = ${value}
+      LIMIT 1
+    `,
+  );
+  const row = rows[0];
+  const data = row ? asObject(row.data) : null;
+  if (!row || !data || flag(data)) return null;
+  return { id: String(row.id), ...data };
+}
+
+export async function ledgerListLiveExpenses(bookId: string) {
+  const rows = await ledgerList(`books/${bookId}/expenses`);
+  return rows.map((row) => ({ id: row.id, ...row.data }));
+}
+
+export async function ledgerGetExpense(bookId: string, expenseId: string) {
+  const data = asObject(await ledgerGet(`books/${bookId}/expenses/${expenseId}`));
+  if (!data || flag(data)) return null;
+  return { id: expenseId, ...data };
+}
+
+export async function ledgerSaveExpense(
+  bookId: string,
+  expense: Record<string, unknown>,
+  opts?: { insertOnly?: boolean },
+) {
+  const id = text(expense.id) || newLedgerId();
+  const row: Record<string, unknown> = { ...expense, id };
+  try {
+    const wrote = await ledgerSet(`books/${bookId}/expenses/${id}`, row, Boolean(opts?.insertOnly));
+    if (opts?.insertOnly && !wrote) {
+      const existing = asObject(await ledgerGet(`books/${bookId}/expenses/${id}`));
+      return { expense: { id, ...(existing || row) }, created: false };
+    }
+  } catch (err) {
+    if (ledgerUniqueViolation(err)) {
+      const existing = await ledgerLiveExpenseByHash(bookId, text(row.receiptHash));
+      const dup: Error & { status?: number; existing?: Record<string, unknown> | null } = new Error('This receipt is already recorded');
+      dup.status = 409;
+      dup.existing = existing;
+      throw dup;
+    }
+    throw err;
+  }
+  return { expense: row, created: true };
+}
+
+export async function ledgerSoftDeleteExpense(bookId: string, expenseId: string, uid: string) {
+  const current = asObject(await ledgerGet(`books/${bookId}/expenses/${expenseId}`));
+  if (!current || flag(current)) return false;
+  const next = {
+    ...current,
+    id: expenseId,
+    deleted: true,
+    deletedAt: new Date().toISOString(),
+    deletedBy: uid,
+    status: 'deleted',
+  };
+  await ledgerSet(`books/${bookId}/expenses/${expenseId}`, next);
+  return true;
+}
+
+export async function ledgerListNotifications(userId: string) {
+  const rows = await ledgerList('notifications', [{ type: 'where', field: 'userId', op: '==', value: userId }]);
+  return rows
+    .filter((row) => text(row.data.userId) === userId && !flag(row.data))
+    .map((row) => ({ id: row.id, ...row.data }));
+}
+
+export async function ledgerAddNotification(data: Record<string, unknown>) {
+  const id = text(data.id) || newLedgerId();
+  const row = {
+    ...data,
+    id,
+    userId: text(data.userId),
+    createdAt: text(data.createdAt) || new Date().toISOString(),
+    read: Boolean(data.read),
+  };
+  await ledgerSet(`notifications/${id}`, row);
+  return row;
+}
+
+export async function ledgerMarkNotificationRead(id: string, userId: string) {
+  const current = asObject(await ledgerGet(`notifications/${id}`));
+  if (!current) return null;
+  if (text(current.userId) !== userId) {
+    const err: Error & { status?: number } = new Error('Notification not found');
+    err.status = 404;
+    throw err;
+  }
+  const next = { ...current, read: true };
+  await ledgerSet(`notifications/${id}`, next);
+  return { id, ...next };
+}
+
+export async function ledgerGetUser(uid: string) {
+  return asObject(await ledgerGet(`users/${uid}`));
+}
+
+export async function ledgerUpsertUser(uid: string, patch: Record<string, unknown>, merge = true) {
+  const current = (await ledgerGetUser(uid)) || {};
+  const next = merge ? { ...current, ...patch, uid } : { ...patch, uid };
+  await ledgerSet(`users/${uid}`, next);
+  return next;
+}
+
+export async function ledgerListMailEvents(bookId: string) {
+  const [inbound, outbound] = await Promise.all([
+    ledgerList(`books/${bookId}/inbound_events`),
+    ledgerList(`books/${bookId}/email_events`),
+  ]);
+  return {
+    inbound: inbound.map((row) => ({ id: row.id, direction: 'inbound', ...row.data })),
+    outbound: outbound.map((row) => ({ id: row.id, direction: 'outbound', ...row.data })),
+  };
+}
+
+export async function ledgerAddEmailEvent(bookId: string, data: Record<string, unknown>) {
+  const id = text(data.id) || newLedgerId();
+  const row = { ...data, id, createdAt: text(data.createdAt) || new Date().toISOString() };
+  await ledgerSet(`books/${bookId}/email_events/${id}`, row);
+  return row;
+}
+
+type ApiReq = { method?: string; headers: Record<string, unknown>; body?: unknown };
+type ApiRes = { statusCode: number; setHeader: (name: string, value: string) => void; end: (body?: string) => void };
+
+const FIREBASE_PROJECT = 'gen-lang-client-0616065043';
+const jwtMem = new Map<string, { uid: string; email: string; exp: number }>();
+let jwks: any = null;
+
+export type ApiUser = { uid: string; email: string };
+
+export class ApiError extends Error {
+  status: number;
+  extra?: Record<string, unknown>;
+  constructor(status: number, message: string, extra?: Record<string, unknown>) {
+    super(message);
+    this.status = status;
+    this.extra = extra;
+  }
+}
+
+export function applyApiCors(req: ApiReq, res: ApiRes) {
+  const origin = String(req.headers.origin || '');
+  res.setHeader('Access-Control-Allow-Origin', origin || '*');
+  if (origin) res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Authorization,Content-Type');
+}
+
+export function apiJson(res: ApiRes, status: number, payload: unknown) {
+  res.statusCode = status;
+  res.setHeader('content-type', 'application/json');
+  res.end(JSON.stringify(payload));
+}
+
+function readApiBody(req: ApiReq): Record<string, unknown> {
+  const raw = req.body;
+  if (typeof raw === 'string') return JSON.parse(raw || '{}');
+  if (raw && typeof raw === 'object') return raw as Record<string, unknown>;
+  return {};
+}
+
+export async function verifyFirebaseUser(token: string): Promise<ApiUser | null> {
+  const hit = jwtMem.get(token);
+  if (hit && hit.exp > Date.now() + 5000) return { uid: hit.uid, email: hit.email };
+  const { createRemoteJWKSet, jwtVerify } = await import('jose');
+  if (!jwks) {
+    jwks = createRemoteJWKSet(new URL('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com'));
+  }
+  const { payload } = await jwtVerify(token, jwks, {
+    issuer: `https://securetoken.google.com/${FIREBASE_PROJECT}`,
+    audience: FIREBASE_PROJECT,
+  });
+  const uid = String(payload.user_id || payload.sub || '');
+  const email = String(payload.email || '').trim().toLowerCase();
+  const exp = Number(payload.exp || 0) * 1000 || Date.now() + 50_000;
+  if (!uid) return null;
+  jwtMem.set(token, { uid, email, exp });
+  if (jwtMem.size > 300) jwtMem.clear();
+  return { uid, email };
+}
+
+export async function requireApiUser(req: ApiReq, res: ApiRes): Promise<ApiUser | null> {
+  const header = String(req.headers.authorization || '');
+  const token = header.toLowerCase().startsWith('bearer ') ? header.slice(7).trim() : '';
+  let user: ApiUser | null = null;
+  try {
+    user = token ? await verifyFirebaseUser(token) : null;
+  } catch {
+    user = null;
+  }
+  if (!user) {
+    apiJson(res, 401, { error: 'Sign in required' });
+    return null;
+  }
+  return user;
+}
+
+export function handleApiError(res: ApiRes, err: unknown) {
+  const e = err as { status?: number; message?: string; extra?: Record<string, unknown> };
+  const status = Number(e?.status || 500) || 500;
+  apiJson(res, status, { error: e?.message || 'Request failed', ...(e?.extra || {}) });
+}
+
+export async function withDomainApi(
+  req: ApiReq,
+  res: ApiRes,
+  fn: (user: ApiUser, body: Record<string, unknown>) => Promise<void>,
+) {
+  try {
+    applyApiCors(req, res);
+    if (req.method === 'OPTIONS') {
+      res.statusCode = 204;
+      res.end();
+      return;
+    }
+    if (req.method !== 'POST') {
+      apiJson(res, 405, { error: 'POST required' });
+      return;
+    }
+    const user = await requireApiUser(req, res);
+    if (!user) return;
+    await fn(user, readApiBody(req));
+  } catch (err) {
+    handleApiError(res, err);
+  }
 }

@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { logout, db } from '../lib/firebase';
+import { logout } from '../lib/firebase';
 import { Bell, CheckCircle2, Menu, X, Mail } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { collection, query, where, getDocs, updateDoc, doc } from '../lib/store';
+import { listNotifications, markNotificationRead } from '../lib/notifications';
 import BrandLogo from './BrandLogo';
 import GlobalSearch, { SearchTrigger } from './GlobalSearch';
 import AppSidebar from './AppSidebar';
@@ -32,10 +32,7 @@ export default function Layout() {
 
   const loadNotifications = () => {
     if (!currentUser) return;
-    const q = query(collection(db, 'notifications'), where('userId', '==', currentUser.uid));
-    getDocs(q).then((snap) => {
-      const notifs: any[] = [];
-      snap.forEach((d) => notifs.push({ id: d.id, ...d.data() }));
+    listNotifications().then((notifs) => {
       const millis = (value: any) => {
         if (typeof value === 'string') {
           const parsed = Date.parse(value);
@@ -66,7 +63,7 @@ export default function Layout() {
 
   const handleMarkAsRead = async (id: string) => {
     try {
-      await updateDoc(doc(db, 'notifications', id), { read: true });
+      await markNotificationRead(id);
     } catch (err) {
       console.error(err);
     }

@@ -1,8 +1,8 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, onAuthStateChanged } from 'firebase/auth';
 import { auth, googleRedirectReady } from '../lib/firebase';
-import { db } from '../lib/store';
-import { doc, getDoc, setDoc, serverTimestamp, setStoreUser } from '../lib/store';
+import { getMe, upsertMe } from '../lib/me';
+import { setStoreUser } from '../lib/store';
 import { authHeaders } from '../lib/auth-client';
 import { startSessionGuard } from '../lib/session';
 import AppLoader from '../components/AppLoader';
@@ -15,6 +15,7 @@ export interface UserProfile {
   customCategories?: string[];
   createdAt?: any;
   photoURL?: string;
+  appPrefs?: Record<string, unknown>;
 }
 
 interface AuthContextType {
@@ -53,6 +54,7 @@ function profileFromSnap(user: User, data: Record<string, unknown> | null | unde
     customCategories: Array.isArray(data.customCategories) ? data.customCategories.map(String) : [],
     createdAt: data.createdAt,
     photoURL: data.photoURL ? String(data.photoURL) : undefined,
+    appPrefs: data.appPrefs && typeof data.appPrefs === 'object' ? data.appPrefs as Record<string, unknown> : undefined,
   };
 }
 
@@ -68,8 +70,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
     try {
-      const snap = await getDoc(doc(db, 'users', user.uid));
-      setUserProfile(profileFromSnap(user, snap.exists() ? snap.data() : null));
+      const profile = await getMe();
+      setUserProfile(profileFromSnap(user, profile));
     } catch {
       // keep existing profile on refresh failure
     }
@@ -94,14 +96,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         stopSession = startSessionGuard();
         try {
           void copyLegacyBooks();
-          const userRef = doc(db, 'users', user.uid);
-          const snap = await getDoc(userRef);
-          if (!snap.exists()) {
-            const base = profileFromSnap(user, null);
-            await setDoc(userRef, { ...base, customCategories: [], createdAt: serverTimestamp() });
+          const profile = await getMe();
+          if (!profile || !profile.displayName) {
+            const base = profileFromSnap(user, profile);
+            await upsertMe({ ...base, customCategories: profile?.customCategories || [], createdAt: new Date().toISOString() });
             setUserProfile(base);
           } else {
-            setUserProfile(profileFromSnap(user, snap.data()));
+            setUserProfile(profileFromSnap(user, profile));
           }
         } catch {
           setUserProfile(profileFromSnap(user, null));

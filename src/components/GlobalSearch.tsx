@@ -1,11 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, X, Receipt, BookOpen, LayoutGrid, Loader2, FileText } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { db } from '../lib/firebase';
-import { collection, query, where, getDocs, limit } from '../lib/store';
+import { listLedgers } from '../lib/ledgers';
 import { useNavigate } from 'react-router-dom';
 import { BOOKS_FLAT_LINKS, BOOKS_QUICK_CREATE } from '../books/nav';
-import { isSoftDeleted } from '../lib/records';
 import { getBooksSearchHits, subscribeBooksSearch, type SearchHit } from '../lib/search-index';
 import { getRuntimePrefs } from '../lib/app-prefs';
 
@@ -49,17 +47,12 @@ function featureResults(term: string): SearchResult[] {
 
 async function loadBooksFast(uid: string): Promise<CachedBook[]> {
   if (bookCache.uid === uid && Date.now() - bookCache.at < 45_000) return bookCache.books;
-  const booksQuery = query(
-    collection(db, 'books'),
-    where(`roles.${uid}.role`, 'in', ['owner', 'admin', 'contributor', 'viewer', 'auditor']),
-    limit(30)
-  );
-  const snap = await getDocs(booksQuery);
-  const books = snap.docs.flatMap((d) => {
-    const data = d.data();
-    if (isSoftDeleted(data)) return [];
-    return [{ id: d.id, name: data.name || 'Ledger', currency: data.currency }];
-  });
+  const rows = await listLedgers();
+  const books = rows.slice(0, 30).map((data) => ({
+    id: data.id,
+    name: String(data.name || 'Ledger'),
+    currency: data.currency,
+  }));
   bookCache.uid = uid;
   bookCache.books = books;
   bookCache.at = Date.now();

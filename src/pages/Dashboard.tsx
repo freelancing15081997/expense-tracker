@@ -1,10 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { db } from '../lib/firebase';
-import { collection, query, where, getDocs, addDoc, serverTimestamp, getDocsMany } from '../lib/store';
 import { Link, useLocation } from 'react-router-dom';
-import { isSoftDeleted } from '../lib/records';
+import { createLedger, listLedgers } from '../lib/ledgers';
+import { listAllExpenses } from '../lib/expenses';
 import { useBooksTenantMeta } from '../lib/tenant';
 import { getCurrencySymbol } from '../lib/currency';
 import { Plus, Check, X, Users, Building2, Receipt, ArrowRight, BookOpen } from 'lucide-react';
@@ -44,32 +43,25 @@ export default function Dashboard() {
     if (!currentUser || !userProfile) return;
     try {
       setLoading(true);
-      const qBooks = query(collection(db, 'books'), where(`roles.${currentUser.uid}.role`, 'in', ['owner', 'admin', 'contributor', 'viewer', 'auditor']));
-      const bookSnaps = await getDocs(qBooks, { force: true });
-      const fetchedBooks: BookItem[] = [];
-      bookSnaps.forEach((doc) => {
-        const data = doc.data() as BookItem & { deleted?: boolean; deletedAt?: unknown };
-        if (isSoftDeleted(data)) return;
-        fetchedBooks.push({ id: doc.id, ...data } as BookItem);
-      });
+      const fetchedBooks = (await listLedgers()).map((book) => ({
+        id: book.id,
+        name: String(book.name || 'Ledger'),
+        ownerId: String(book.ownerId || ''),
+        currency: String(book.currency || 'INR'),
+        roles: (book.roles || {}) as BookItem['roles'],
+      }));
       setBooks(fetchedBooks);
       setLoading(false);
 
       let tIn = 0; let tOut = 0;
       let activity: Record<string, number> = {};
       if (fetchedBooks.length) {
-        const expenseSnaps = await getDocsMany(
-          fetchedBooks.map((b) => query(collection(db, 'books', b.id, 'expenses'))),
-        );
-        expenseSnaps.forEach((expSnap) => {
-          expSnap.forEach((e) => {
-            const data = e.data();
-            if (isSoftDeleted(data)) return;
-            if (data.entryType === 'in' || data.type === 'in') tIn += (data.amount || 0);
-            else tOut += (data.amount || 0);
-            const user = data.enteredBy || data.paidByName || data.createdBy || 'Unknown';
-            activity[user] = (activity[user] || 0) + 1;
-          });
+        const { expenses } = await listAllExpenses();
+        expenses.forEach((data) => {
+          if (data.entryType === 'in' || data.type === 'in') tIn += Number(data.amount || 0);
+          else tOut += Number(data.amount || 0);
+          const user = String(data.enteredBy || data.paidByName || data.createdBy || 'Unknown');
+          activity[user] = (activity[user] || 0) + 1;
         });
       }
       setGlobalStats({ totalIn: tIn, totalOut: tOut, userActivity: activity });
@@ -95,13 +87,7 @@ export default function Dashboard() {
     if (!currentUser || !userProfile || !newBookName.trim()) return;
     setCreating(true);
     try {
-      await addDoc(collection(db, 'books'), {
-        name: newBookName,
-        ownerId: currentUser.uid,
-        currency: newCurrency,
-        createdAt: serverTimestamp(),
-        roles: { [currentUser.uid]: { role: 'owner', email: userProfile.email } }
-      });
+      await createLedger({ name: newBookName, currency: newCurrency });
       setNewBookName('');
       setShowNewBook(false);
       fetchData();

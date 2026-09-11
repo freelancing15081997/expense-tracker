@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useAppPrefs } from '../context/AppPrefsContext';
-import { db } from '../lib/firebase';
-import { doc, updateDoc } from '../lib/store';
+import { upsertMe } from '../lib/me';
 import { Save, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 import { useBooksTenantMeta } from '../lib/tenant';
@@ -63,7 +62,7 @@ export default function Settings() {
     try {
       const cleaned = [...new Set(categories.map((c) => c.trim()).filter(Boolean))];
       await savePrefs(prefs);
-      await updateDoc(doc(db, 'users', userProfile.uid), {
+      await upsertMe({
         displayName,
         defaultCurrency: prefs.defaultCurrency,
         customCategories: cleaned,

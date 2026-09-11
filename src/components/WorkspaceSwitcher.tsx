@@ -4,8 +4,7 @@ import { BookOpen, Building2, Check, ChevronDown, LayoutDashboard, Plus, Receipt
 import { useAuth } from '../context/AuthContext';
 import { useBooksTenantMeta } from '../lib/tenant';
 import { db } from '../lib/firebase';
-import { collection, getDocs, limit, query, where } from '../lib/store';
-import { isSoftDeleted } from '../lib/records';
+import { listLedgers } from '../lib/ledgers';
 import { listOrgDirectory } from '../books/data/orgs';
 import { buildOrgTree, selectWorkspace, type OrgRecord } from '../books/core/hierarchy';
 
@@ -33,17 +32,11 @@ export default function WorkspaceSwitcher({ variant = 'header' }: { variant?: 'h
 
   useEffect(() => {
     if (!currentUser) return;
-    const uid = currentUser.uid;
-    getDocs(query(
-      collection(db, 'books'),
-      where(`roles.${uid}.role`, 'in', ['owner', 'admin', 'contributor', 'viewer', 'auditor']),
-      limit(20),
-    )).then((snap) => {
-      setLedgers(snap.docs.flatMap((row) => {
-        const data = row.data();
-        if (isSoftDeleted(data)) return [];
-        return [{ id: row.id, name: String(data.name || 'Ledger') }];
-      }));
+    listLedgers().then((rows) => {
+      setLedgers(rows.slice(0, 20).map((row) => ({
+        id: row.id,
+        name: String(row.name || 'Ledger'),
+      })));
     }).catch(() => undefined);
   }, [currentUser?.uid]);
 

@@ -64,22 +64,14 @@ function r2FileKey(target: string) {
 }
 
 async function mailboxAllows(uid: string, fileKey: string) {
-  if (!fileKey.startsWith('books/')) return fileKey.split('/').filter(Boolean)[1] === uid || fileKey.split('/').filter(Boolean)[1]?.startsWith(`${uid}_`);
-  const bookId = fileKey.split('/')[1] || '';
-  if (!bookId) return false;
-  const keys = [`documents/inbound_mailboxes/${bookId}.json`, `documents/books/${bookId}.json`];
-  for (const key of keys) {
-    try {
-      const res = await r2Fetch('GET', key);
-      if (!res.ok) continue;
-      const data = JSON.parse(Buffer.from(await res.arrayBuffer()).toString('utf8'));
-      const roles = data?.roles && typeof data.roles === 'object' ? data.roles : {};
-      if (roles[uid]) return true;
-    } catch {
-      // try next
-    }
+  if (fileKey.startsWith('books/')) {
+    const bookId = fileKey.split('/')[1] || '';
+    if (!bookId) return false;
+    const { ledgerMember } = await import('../_pg-tables.js');
+    return Boolean(await ledgerMember(bookId, uid));
   }
-  return false;
+  const workspaceId = fileKey.split('/').filter(Boolean)[1] || '';
+  return workspaceId === uid || workspaceId.startsWith(`${uid}_`);
 }
 
 async function r2GetBytes(key: string) {

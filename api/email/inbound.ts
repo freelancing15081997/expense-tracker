@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { postgresUrl, cleanPath, ledgerGet, ledgerSet, ledgerInsertIfNew, ledgerList, ledgerResolveInboundSlug } from '../_pg-tables.js';
+import { postgresUrl, cleanPath, ledgerGet, ledgerSet, ledgerInsertIfNew, ledgerList, ledgerLiveExpenseByHash, ledgerResolveInboundSlug, ledgerSaveExpense } from '../_pg-tables.js';
 
 const R2_REGION = 'auto';
 const R2_SERVICE = 's3';
@@ -8,6 +8,21 @@ const DOC_PREFIX = 'documents/';
 const INBOUND_DOMAIN = 'easypado.com';
 const APP_ORIGIN = 'https://www.easypado.com';
 const DEFAULT_FROM = 'byjanbooks@easypado.com';
+const inboundHits = new Map<string, number[]>();
+
+function inboundRateLimit(key: string, max = 40, windowMs = 60_000) {
+  const now = Date.now();
+  const arr = (inboundHits.get(key) || []).filter((at) => now - at < windowMs);
+  if (arr.length >= max) return false;
+  arr.push(now);
+  inboundHits.set(key, arr);
+  if (inboundHits.size > 4000) inboundHits.clear();
+  return true;
+}
+
+function inboundClient(req: VercelRequest) {
+  return String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || String(req.headers['x-real-ip'] || 'unknown');
+}
 
 function json(res: VercelResponse, status: number, payload: unknown) {
   res.statusCode = status;
@@ -1369,17 +1384,13 @@ async function findMatchingReceipt(
   bookId: string,
   hash: string,
   parsed?: { amount?: number; merchant?: string; date?: string; description?: string; invoiceNumber?: string },
-  selfEventId?: string,
+  _selfEventId?: string,
 ) {
   if (hash) {
-    const row = await docGet(`inbound_hashes/${bookId}/${hash}`);
-    const live = await loadLiveExpense(bookId, row?.expenseId);
-    if (live) {
-      return { hash, expenseId: String(live.id), expense: live, reason: 'same_file' as const };
-    }
-    if (isInFlightLock(row, selfEventId)) {
-      return { hash, expenseId: '', expense: row, reason: 'same_file' as const };
-    }
+    const live = await ledgerLiveExpenseByHash(bookId, hash);
+    if (live) return { hash, expenseId: String(live.id), expense: live, reason: 'same_file' as const };
+    const hashed = await loadLiveExpense(bookId, (await docGet(`inbound_hashes/${bookId}/${hash}`))?.expenseId);
+    if (hashed) return { hash, expenseId: String(hashed.id), expense: hashed, reason: 'same_file' as const };
   }
   if (!parsed) return null;
   const expenses = await listLedgerExpenses(bookId);
@@ -1477,11 +1488,9 @@ async function mergeCategory(bookId: string, category: string) {
 }
 
 async function saveExpenseRecord(bookId: string, expense: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const id = String(expense.id || newId());
-  const row: Record<string, unknown> = { ...expense, id };
-  await docSet(`books/${bookId}/expenses/${id}`, row);
-  await mergeCategory(bookId, String(row.category || ''));
-  return row;
+  const saved = await ledgerSaveExpense(bookId, { ...expense, id: String(expense.id || newId()) }, { insertOnly: true });
+  await mergeCategory(bookId, String(saved.expense.category || ''));
+  return saved.expense;
 }
 
 async function rollbackExpense(bookId: string, expenseId: string, actor: string) {
@@ -1794,13 +1803,30 @@ async function handleConfirmDecision(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  const saved = await saveExpenseRecord(bookId, {
-    ...expense,
-    id: String(expense.id || newId()),
-    status: Number(expense.amount || 0) > 0 ? 'recorded' : 'draft',
-    duplicateOf: String(pending.existingExpenseId || existing.id || ''),
-    duplicateConfirmedDifferent: true,
-  });
+  let saved: Record<string, unknown>;
+  try {
+    saved = await saveExpenseRecord(bookId, {
+      ...expense,
+      id: String(expense.id || newId()),
+      status: Number(expense.amount || 0) > 0 ? 'recorded' : 'draft',
+      duplicateOf: String(pending.existingExpenseId || existing.id || ''),
+      duplicateConfirmedDifferent: true,
+    });
+  } catch (err: any) {
+    if (Number(err?.status) === 409) {
+      htmlRes(res, 200, decisionPage(
+        'Already on the ledger',
+        'This receipt is already recorded, so nothing extra was added.',
+        [
+          { label: 'Ledger', value: mailbox?.name || '' },
+          { label: 'Amount', value: mailbox ? moneyLabel(mailbox.currency, expense.amount) : '' },
+        ],
+        true,
+      ));
+      return;
+    }
+    throw err;
+  }
   const hash = String(pending.hash || '');
   if (hash) await storeFileHash(bookId, hash, saved).catch(() => undefined);
   await docSet(`inbound_pending/${pendingId}`, {
@@ -2094,13 +2120,6 @@ async function processItem(item: any) {
   await markFlow(bookId, eventId, 'reading', { hasFile: Boolean(receipt?.path), receiptName: receipt?.name || null });
   const hash = receipt?.bytes ? fileHash(receipt.bytes) : '';
   let match = await findMatchingReceipt(bookId, hash, undefined, eventId);
-  if (!match && hash) {
-    const reserved = await reserveReceiptHash(bookId, hash, {
-      fromEmail: member.email,
-      inboundEventId: eventId,
-    });
-    if (!reserved) match = await findMatchingReceipt(bookId, hash, undefined, eventId);
-  }
   if (match?.expenseId) {
     const live = await loadLiveExpense(bookId, match.expenseId);
     if (live) {
@@ -2109,16 +2128,6 @@ async function processItem(item: any) {
       });
     }
     match = null;
-    if (hash) {
-      await reserveReceiptHash(bookId, hash, {
-        fromEmail: member.email,
-        inboundEventId: eventId,
-      });
-    }
-  } else if (match) {
-    return skipBecauseInFlight({
-      mailbox, bookId, seenKey, eventId, memberEmail: member.email, receiptName: receipt?.name, kind: 'attachment',
-    });
   }
 
   let parsed = parseReceiptFields(body, { subject, fileName: receipt?.name || attachments[0]?.Name || '' });
@@ -2140,7 +2149,6 @@ async function processItem(item: any) {
   await markFlow(bookId, eventId, 'parsed', { parseEngine });
 
   if (isUnusableDocument(parsed, body, ocrPreview, parseEngine, Boolean(receipt?.path))) {
-    await releaseReceiptHash(bookId, hash, eventId);
     await docSet(seenKey, { bookId, at: new Date().toISOString(), status: 'unreadable' });
     await markFlow(bookId, eventId, 'not_posted', {
       status: 'unreadable',
@@ -2172,34 +2180,10 @@ async function processItem(item: any) {
     const fingerprint = billFingerprint(parsed, member.email);
     if (fingerprint) {
       const billKey = `inbound_bills/${bookId}/${fingerprint}`;
-      const reservedBill = await docInsertIfNew(billKey, {
-        bookId,
-        fingerprint,
-        inboundEventId: eventId,
-        reserved: true,
-        at: new Date().toISOString(),
-      });
-      if (!reservedBill) {
-        match = await findMatchingReceipt(bookId, hash, parsed, eventId);
-        if (!match) {
-          const bill = await docGet(billKey);
-          const live = await loadLiveExpense(bookId, bill?.expenseId);
-          if (live) {
-            match = { hash, expenseId: String(live.id), expense: live, reason: 'same_bill' as const };
-          } else if (isInFlightLock(bill, eventId)) {
-            return skipBecauseInFlight({
-              mailbox, bookId, seenKey, eventId, memberEmail: member.email, receiptName: receipt?.name, kind: 'bill',
-            });
-          } else {
-            await docSet(billKey, {
-              bookId,
-              fingerprint,
-              inboundEventId: eventId,
-              reserved: true,
-              at: new Date().toISOString(),
-            });
-          }
-        }
+      const bill = await docGet(billKey);
+      const live = await loadLiveExpense(bookId, bill?.expenseId);
+      if (live) {
+        match = { hash, expenseId: String(live.id), expense: live, reason: 'same_bill' as const };
       }
     }
   }
@@ -2211,10 +2195,6 @@ async function processItem(item: any) {
       });
     }
     match = null;
-  } else if (match) {
-    return skipBecauseInFlight({
-      mailbox, bookId, seenKey, eventId, memberEmail: member.email, receiptName: receipt?.name, kind: 'attachment',
-    });
   }
 
   const amountMissing = !(Number(parsed.amount) > 0);
@@ -2251,7 +2231,20 @@ async function processItem(item: any) {
     ocrPreview: ocrPreview || null,
   };
 
-  const saved = await saveExpenseRecord(bookId, expense);
+  let saved: Record<string, unknown>;
+  try {
+    saved = await saveExpenseRecord(bookId, expense);
+  } catch (err: any) {
+    if (Number(err?.status) === 409) {
+      const live = (err.existing as Record<string, unknown> | null) || await ledgerLiveExpenseByHash(bookId, hash);
+      if (live) {
+        return holdAsDuplicate({
+          mailbox, bookId, seenKey, eventId, hash, member, subject, match: { expenseId: String(live.id), expense: live }, parsed, receipt, messageId,
+        });
+      }
+    }
+    throw err;
+  }
   if (hash) await storeFileHash(bookId, hash, saved).catch(() => undefined);
   const fingerprint = billFingerprint(parsed, member.email);
   if (fingerprint) {
@@ -2355,6 +2348,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     if (!authorized(req)) {
       json(res, 401, { error: 'Invalid inbound secret' });
+      return;
+    }
+    if (!inboundRateLimit(`ip:${inboundClient(req)}`, 60, 60_000)) {
+      json(res, 429, { error: 'Too many inbound requests' });
       return;
     }
     const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});

@@ -1,21 +1,6 @@
-import { db } from './firebase';
-import { doc, getDoc, setDoc } from './store';
+import { ensureLedgerMailbox } from './ledgers';
 
 export const INBOUND_MAIL_DOMAIN = 'easypado.com';
-
-const RESERVED_INBOUND_LOCALS = new Set([
-  'support',
-  'info',
-  'noreply',
-  'no-reply',
-  'admin',
-  'welcome',
-  'byjanbooks',
-  'hello',
-  'contact',
-  'mail',
-  'email',
-]);
 
 export function inboundMailboxSlug(name: string) {
   const slug = String(name || '')
@@ -88,10 +73,6 @@ export function openLedgerButtonHtml(bookId: string, label = 'Open ledger in Byj
   `;
 }
 
-function shortId(bookId: string) {
-  return String(bookId || '').replace(/[^a-zA-Z0-9]/g, '').slice(-6).toLowerCase() || 'book';
-}
-
 export function inboundMailboxRecord(book: {
   id: string;
   name?: string;
@@ -113,23 +94,8 @@ export function inboundMailboxRecord(book: {
 }
 
 export async function claimInboundSlug(book: { id: string; name?: string }) {
-  const preferred = inboundMailboxSlug(book.name || 'ledger');
-  const start = RESERVED_INBOUND_LOCALS.has(preferred) ? `${preferred}-ledger` : preferred;
-  const candidates = [start];
-  for (let i = 2; i <= 20; i += 1) candidates.push(`${start}-${i}`);
-  candidates.push(`${start}-${shortId(book.id)}`);
-
-  for (const slug of candidates) {
-    if (RESERVED_INBOUND_LOCALS.has(slug)) continue;
-    try {
-      const snap = await getDoc(doc(db, 'inbound_aliases', slug));
-      const owner = snap.exists() ? String(snap.data()?.bookId || '') : '';
-      if (!owner || owner === book.id) return slug;
-    } catch {
-      continue;
-    }
-  }
-  return `${start}-${shortId(book.id)}`;
+  const payload = await ensureLedgerMailbox(book.id);
+  return String(payload.mailbox?.slug || inboundMailboxSlug(book.name || 'ledger'));
 }
 
 export async function syncInboundMailbox(book: {
@@ -139,31 +105,8 @@ export async function syncInboundMailbox(book: {
   ownerId?: string;
   roles?: Record<string, { role?: string; email?: string }>;
 }) {
-  try {
-    const snap = await getDoc(doc(db, 'inbound_mailboxes', book.id));
-    const existingSlug = snap.exists() ? inboundMailboxSlug(String(snap.data()?.slug || '')) : '';
-    if (existingSlug) {
-      const record = inboundMailboxRecord(book, existingSlug);
-      await setDoc(doc(db, 'inbound_mailboxes', book.id), record);
-      await setDoc(doc(db, 'inbound_aliases', existingSlug), {
-        bookId: book.id,
-        slug: existingSlug,
-        name: record.name,
-        updatedAt: record.updatedAt,
-      });
-      return record;
-    }
-  } catch {
-    // Claim a new slug below.
-  }
-  const slug = await claimInboundSlug(book);
-  const record = inboundMailboxRecord(book, slug);
-  await setDoc(doc(db, 'inbound_mailboxes', book.id), record);
-  await setDoc(doc(db, 'inbound_aliases', slug), {
-    bookId: book.id,
-    slug,
-    name: record.name,
-    updatedAt: record.updatedAt,
-  });
-  return record;
+  const payload = await ensureLedgerMailbox(book.id);
+  const mailbox = payload.mailbox || {};
+  const slug = String(mailbox.slug || inboundMailboxSlug(book.name || 'ledger'));
+  return inboundMailboxRecord({ ...book, id: book.id }, slug);
 }

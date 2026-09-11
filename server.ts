@@ -61,6 +61,22 @@ app.all("/api/invites", async (req, res) => {
   const { default: invites } = await import("./api/invites");
   await invites(req as any, res as any);
 });
+app.all("/api/ledgers", async (req, res) => {
+  const { default: ledgers } = await import("./api/ledgers");
+  await ledgers(req as any, res as any);
+});
+app.all("/api/expenses", async (req, res) => {
+  const { default: expenses } = await import("./api/expenses");
+  await expenses(req as any, res as any);
+});
+app.all("/api/notifications", async (req, res) => {
+  const { default: notifications } = await import("./api/notifications");
+  await notifications(req as any, res as any);
+});
+app.all("/api/me", async (req, res) => {
+  const { default: me } = await import("./api/me");
+  await me(req as any, res as any);
+});
 app.post("/api/email/inbound", async (req, res) => {
   const { default: inbound } = await import("./api/email/inbound");
   await inbound(req as any, res as any);
