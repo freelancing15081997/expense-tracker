@@ -1,5 +1,5 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -7,7 +7,7 @@ import { db } from '../lib/firebase';
 import { doc, getDoc, getDocs, collection, query, onSnapshot, addDoc, serverTimestamp, updateDoc, setDoc, deleteField } from '../lib/store';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send, Copy, Paperclip, Mail } from 'lucide-react';
+import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send, Copy, Paperclip, Mail, Megaphone } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Tabs from '@radix-ui/react-tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
@@ -18,6 +18,8 @@ import { isSoftDeleted, softDeletePatch } from '../lib/records';
 import { inboundMailboxAddress, ledgerAppLink, openLedgerButtonHtml, syncInboundMailbox } from '../lib/inbound-mail';
 import { authHeaders } from '../lib/auth-client';
 import { ReceiptModal } from '../components/ReceiptModal';
+import { EmailActivityFlow, emailStatusClass, emailStatusLabel } from '../components/EmailActivityFlow';
+import { ListControls, usePagedList } from '../components/ListControls';
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -94,7 +96,7 @@ export default function BookView() {
   // List enhancements
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   const [visibleColumns, setVisibleColumns] = useState({
     date: true,
     category: true,
@@ -103,6 +105,9 @@ export default function BookView() {
   });
   const [sendingReport, setSendingReport] = useState(false);
 
+  const [announceTitle, setAnnounceTitle] = useState('');
+  const [announceBody, setAnnounceBody] = useState('');
+  const [announcing, setAnnouncing] = useState(false);
   const { addToast } = useToast();
   const [copiedInbound, setCopiedInbound] = useState(false);
   const [inboundEvents, setInboundEvents] = useState<any[]>([]);
@@ -186,7 +191,7 @@ export default function BookView() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery]);
+  }, [searchQuery, itemsPerPage]);
 
   const loadEmailActivity = async () => {
     if (!bookId) return;
@@ -202,8 +207,8 @@ export default function BookView() {
       const outbound: any[] = [];
       outboundSnap.forEach((d) => outbound.push({ id: d.id, direction: 'outbound', ...d.data() }));
       outbound.sort((a, b) => Date.parse(String(b.createdAt || '')) - Date.parse(String(a.createdAt || '')));
-      setInboundEvents(inbound.slice(0, 100));
-      setOutboundEvents(outbound.slice(0, 100));
+      setInboundEvents(inbound.slice(0, 250));
+      setOutboundEvents(outbound.slice(0, 250));
     } catch {
       setInboundEvents([]);
       setOutboundEvents([]);
@@ -218,6 +223,16 @@ export default function BookView() {
       void loadEmailActivity();
     }
   }, [ledgerTab, isMembersModalOpen, bookId]);
+
+  const emailActivityAll = useMemo(() => (
+    [...inboundEvents, ...outboundEvents]
+      .sort((a, b) => Date.parse(String(b.createdAt || '')) - Date.parse(String(a.createdAt || '')))
+  ), [inboundEvents, outboundEvents]);
+  const emailFilter = useCallback((row: any, q: string) => (
+    [row.subject, row.action, row.detail, row.reason, row.fromEmail, row.toEmail, row.status, row.description, row.category]
+      .some((value) => String(value || '').toLowerCase().includes(q))
+  ), []);
+  const emailList = usePagedList(emailActivityAll, emailFilter, 10);
 
   if (loading) return <div className="p-8 flex justify-center"><div className="w-6 h-6 border-2 border-slate-200 border-t-zinc-600 rounded-full animate-spin" /></div>;
   if (!book) return <div className="p-8 text-center text-sm text-slate-500">Book not found or access denied.</div>;
@@ -235,10 +250,6 @@ export default function BookView() {
     ledgerCategories,
     expenseCategories,
   );
-
-  const emailActivityRows = [...inboundEvents, ...outboundEvents]
-    .sort((a, b) => Date.parse(String(b.createdAt || '')) - Date.parse(String(a.createdAt || '')))
-    .slice(0, 120);
 
   const persistLedgerCategory = async (name: string) => {
     if (!bookId || !name) return;
@@ -356,7 +367,7 @@ export default function BookView() {
     setIsExpenseModalOpen(true);
   };
 
-  const notifyTeamMembers = async (action: string, detail: string, customSubject?: string) => {
+  const notifyTeamMembers = async (action: string, detail: string, customSubject?: string, htmlOverride?: string) => {
     // 1. In-app notifications
     const uidsToNotify = Object.keys(book.roles).filter(uid => uid !== currentUser?.uid);
     for (const uid of uidsToNotify) {
@@ -365,10 +376,11 @@ export default function BookView() {
           userId: uid,
           bookId,
           bookName: book.name,
-          kind: 'entry',
+          kind: htmlOverride ? 'announcement' : 'entry',
           action,
           detail,
           senderName: userProfile?.displayName || currentUser?.email,
+          ledgerMail: inboundAddress || inboundMailboxAddress(book.name),
           link: ledgerAppLink(bookId || book.id),
           createdAt: serverTimestamp(),
           read: false
@@ -384,8 +396,9 @@ export default function BookView() {
       ; // Removed self-filter for testing so the user gets their own emails
     
     if (emails.length > 0) {
+      const mailbox = inboundAddress || inboundMailboxAddress(book.name);
       const subject = customSubject || `${userProfile?.displayName || currentUser?.email} ${action.toLowerCase()} in ${book.name} expense book`;
-      const message = `
+      const message = htmlOverride || `
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9fafb; border-radius: 12px; border: 1px solid #e5e7eb;">
           <div style="text-align: center; margin-bottom: 24px;">
             <div style="background-color: #0B1F3A; color: white; display: inline-block; padding: 8px 16px; border-radius: 8px; font-weight: bold; font-size: 18px; letter-spacing: 1px;">Byjan</div>
@@ -407,6 +420,7 @@ export default function BookView() {
               <p style="margin: 0; font-size: 16px; color: #0f172a; font-weight: 500;">${detail}</p>
             </div>
             <p style="color: #374151; font-size: 15px; line-height: 1.5; margin-top: 20px;">Everyone on this ledger is notified. Open Byjan to review the entry.</p>
+            <p style="color:#64748b;font-size:13px;line-height:1.55">Send receipts or entries to <strong>${mailbox}</strong> and Byjan will record them automatically. The ledger team is notified when an entry is added.</p>
             ${openLedgerButtonHtml(bookId || book.id)}
           </div>
           
@@ -437,11 +451,13 @@ export default function BookView() {
 
     try {
       if (editingExpense) {
+        const nextStatus = Number(amount) > 0 ? 'recorded' : 'draft';
         await updateDoc(doc(db, `books/${bookId}/expenses`, editingExpense.id), {
           amount: Number(amount),
           description,
           category: finalCategory,
           entryType: entryType,
+          status: nextStatus,
           lastEditedBy: userProfile?.displayName || currentUser?.email,
           lastEditedByUid: currentUser?.uid || '',
           lastEditedAt: serverTimestamp()
@@ -453,6 +469,7 @@ export default function BookView() {
           description,
           category: finalCategory,
           entryType,
+          status: nextStatus,
           lastEditedBy: userProfile?.displayName || currentUser?.email,
           lastEditedByUid: currentUser?.uid || '',
           lastEditedAt: new Date().toISOString(),
@@ -471,6 +488,7 @@ export default function BookView() {
           enteredBy: userProfile?.displayName || currentUser?.email,
           enteredByUid: currentUser?.uid || '',
           enteredByEmail: currentUser?.email || '',
+          status: Number(amount) > 0 ? 'recorded' : 'draft',
           createdAt: serverTimestamp()
         });
         await persistLedgerCategory(finalCategory);
@@ -485,6 +503,7 @@ export default function BookView() {
           enteredBy: userProfile?.displayName || currentUser?.email,
           enteredByUid: currentUser?.uid || '',
           enteredByEmail: currentUser?.email || '',
+          status: Number(amount) > 0 ? 'recorded' : 'draft',
           createdAt: new Date().toISOString(),
         }, ...prev]);
         addToast('Entry recorded successfully!', 'success');
@@ -523,7 +542,13 @@ export default function BookView() {
       const res = await fetch('/api/email/send', {
         method: 'POST',
         headers: await authHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ to: toEmail, subject, message })
+        body: JSON.stringify({
+          to: toEmail,
+          subject,
+          message,
+          ledgerMail: inboundAddress || inboundMailboxAddress(book?.name || 'ledger'),
+          kind: meta?.action?.toLowerCase().includes('announcement') ? 'announcement' : 'notice',
+        })
       });
       const payload = await res.json().catch(() => ({}));
       if (bookId) {
@@ -590,6 +615,34 @@ export default function BookView() {
       addToast('Failed to send invite. Check permissions.', 'error');
     } finally {
       setInviting(false);
+    }
+  };
+
+  const sendAnnouncement = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const title = announceTitle.trim();
+    const body = announceBody.trim();
+    if (!title || !body || !book) return;
+    setAnnouncing(true);
+    try {
+      const mailbox = inboundAddress || inboundMailboxAddress(book.name);
+      const sender = userProfile?.displayName || currentUser?.email || 'A teammate';
+      const html = `
+        <p style="margin:0 0 8px;font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:#8a8070">Team announcement</p>
+        <h2 style="margin:0 0 12px;font-family:Georgia,'Times New Roman',serif;font-size:22px;color:#0B1F3A;font-weight:normal">${title.replace(/</g, '&lt;')}</h2>
+        <p style="margin:0 0 16px;color:#64748b;font-size:13px">From ${sender} · ${book.name}</p>
+        <div style="white-space:pre-wrap;font-size:15px;line-height:1.65;color:#334155">${body.replace(/</g, '&lt;')}</div>
+        <p style="margin:24px 0 0;font-size:13px;color:#64748b">Send receipts or any entry to <strong>${mailbox}</strong> and Byjan will record it automatically. This ledger team is notified when a line is added.</p>
+        ${openLedgerButtonHtml(book.id, 'Open ledger')}
+      `;
+      await notifyTeamMembers(title, body, `Announcement · ${book.name}: ${title}`, html);
+      setAnnounceTitle('');
+      setAnnounceBody('');
+      addToast('Announcement sent to the ledger team.', 'success');
+    } catch (err: any) {
+      addToast(err?.message || 'Could not send announcement', 'error');
+    } finally {
+      setAnnouncing(false);
     }
   };
 
@@ -854,11 +907,19 @@ export default function BookView() {
           </div>
           {/* Pagination Controls */}
           {filteredExpenses.length > 0 && (
-            <div className="flex items-center justify-between px-3 py-2 byjan-card mt-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-3 py-2 byjan-card mt-3">
               <span className="text-xs font-medium text-slate-500">
                 <span className="text-slate-900">{((currentPage - 1) * itemsPerPage) + 1}-{Math.min(currentPage * itemsPerPage, filteredExpenses.length)}</span> of <span className="text-slate-900">{filteredExpenses.length}</span>
               </span>
-              <div className="flex gap-1">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500">Rows</span>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                  className="byjan-input !w-auto !py-1 !h-auto text-xs"
+                >
+                  {[10, 25, 50, 100].map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
                 <button 
                   onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                   disabled={currentPage === 1}
@@ -885,7 +946,7 @@ export default function BookView() {
                 <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
                   <Mail className="w-4 h-4 text-slate-500" /> Email activity
                 </h3>
-                <p className="text-xs text-slate-500 mt-1">Real inbound receipts and outbound team notifications for this ledger only. Nothing is invented.</p>
+                <p className="text-xs text-slate-500 mt-1">Every inbound receipt and outbound team notice for this ledger. Send documents to the unique mailbox and Byjan records them for the team.</p>
               </div>
               <div className="flex items-center gap-2">
                 <code className="text-[11px] bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 max-w-[220px] truncate">{inboundAddress || inboundMailboxAddress(book.name)}</code>
@@ -898,30 +959,27 @@ export default function BookView() {
                 </button>
               </div>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
-              <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-2">
-                <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Inbound</p>
-                <p className="text-sm font-bold text-slate-900">{inboundEvents.length}</p>
-              </div>
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-2">
-                <p className="text-[10px] uppercase tracking-wider text-emerald-700 font-semibold">Added</p>
-                <p className="text-sm font-bold text-emerald-800">{inboundEvents.filter((e) => e.status === 'accepted').length}</p>
-              </div>
-              <div className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-2">
-                <p className="text-[10px] uppercase tracking-wider text-amber-700 font-semibold">Rejected</p>
-                <p className="text-sm font-bold text-amber-800">{inboundEvents.filter((e) => e.status === 'rejected').length}</p>
-              </div>
-              <div className="rounded-lg border border-slate-200 bg-white px-2 py-2">
-                <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Outbound</p>
-                <p className="text-sm font-bold text-slate-900">{outboundEvents.length}</p>
-              </div>
-            </div>
+            <p className="text-[11px] text-slate-500">Ledger mailbox: send any expense or receipt to this address and Byjan will take care of recording it. The ledger team is notified once the entry is added.</p>
           </div>
+
+          <EmailActivityFlow events={emailActivityAll} />
+
+          <ListControls
+            query={emailList.query}
+            onQuery={emailList.setQuery}
+            page={emailList.page}
+            totalPages={emailList.totalPages}
+            onPage={emailList.setPage}
+            pageSize={emailList.pageSize}
+            onPageSize={emailList.setPageSize}
+            total={emailList.filtered.length}
+            placeholder="Search status, sender, subject…"
+          />
 
           <div className="byjan-table overflow-hidden">
             {inboundEventsLoading ? (
               <div className="p-8 text-center text-sm text-slate-500">Loading email activity…</div>
-            ) : emailActivityRows.length === 0 ? (
+            ) : emailList.filtered.length === 0 ? (
               <div className="p-8 text-center text-sm text-slate-500">No email activity for this ledger yet. Forward a receipt to the inbound address or add an entry to notify the team.</div>
             ) : (
               <div className="overflow-x-auto">
@@ -936,29 +994,21 @@ export default function BookView() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {emailActivityRows.map((event) => {
+                    {emailList.pageRows.map((event) => {
                       const when = event.createdAt ? new Date(event.createdAt).toLocaleString() : '—';
                       const isInbound = event.direction !== 'outbound';
                       const status = String(event.status || '');
-                      const statusLabel = status === 'accepted' ? 'Entry added'
-                        : status === 'rejected' ? 'Not added'
-                        : status === 'sent' ? 'Sent'
-                        : status === 'failed' ? 'Failed'
-                        : status || 'Unknown';
-                      const statusClass = status === 'accepted' || status === 'sent'
-                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                        : status === 'rejected' || status === 'failed'
-                          ? 'bg-amber-50 text-amber-800 border-amber-200'
-                          : 'bg-slate-50 text-slate-700 border-slate-200';
+                      const flow = Array.isArray(event.flow) ? event.flow.join(' → ') : '';
                       return (
                         <tr key={`${event.direction}-${event.id}`} className="align-top">
                           <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{when}</td>
                           <td className="px-4 py-3 text-xs font-medium text-slate-800">{isInbound ? 'Inbound receipt' : 'Team email'}</td>
                           <td className="px-4 py-3">
-                            <span className={cn('inline-flex text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded border', statusClass)}>
-                              {statusLabel}
+                            <span className={cn('inline-flex text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded border', emailStatusClass(status))}>
+                              {emailStatusLabel(status)}
                             </span>
                             {event.teamNotified ? <span className="block text-[10px] text-slate-500 mt-1">Team notified</span> : null}
+                            {event.senderNotified ? <span className="block text-[10px] text-slate-500 mt-1">Sender notified</span> : null}
                           </td>
                           <td className="px-4 py-3 text-xs text-slate-700 break-all">
                             {isInbound ? (event.fromEmail || 'unknown') : (event.toEmail || '—')}
@@ -969,6 +1019,7 @@ export default function BookView() {
                             {event.detail ? <p className="mt-0.5">{event.detail}</p> : null}
                             {event.amount != null && event.amount !== '' ? <p className="mt-0.5">{event.category || 'Uncategorized'} · {event.amount}</p> : null}
                             {event.description ? <p className="mt-0.5 text-slate-500">{event.description}</p> : null}
+                            {flow ? <p className="mt-1 text-[10px] uppercase tracking-wide text-slate-400">{flow}</p> : null}
                           </td>
                         </tr>
                       );
@@ -1135,7 +1186,7 @@ export default function BookView() {
                 <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
                   <Mail className="w-3.5 h-3.5" /> Receipt by email
                 </p>
-                <p className="text-sm text-slate-600 leading-relaxed">Any member can forward a receipt to this address. Full receive/send status is on the Email Activity tab.</p>
+                <p className="text-sm text-slate-600 leading-relaxed">Any member can send a receipt or entry to this unique ledger address. Byjan records it automatically and notifies this team. Full receive/send status is on the Email Activity tab.</p>
                 <div className="flex items-center gap-2">
                   <code className="flex-1 text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 truncate">{inboundAddress || inboundMailboxAddress(book.name)}</code>
                   <button type="button" className="byjan-btn-ghost !px-2.5" onClick={() => void copyInboundAddress()}>
@@ -1154,6 +1205,34 @@ export default function BookView() {
                   Open Email Activity
                 </button>
               </div>
+
+              <form onSubmit={sendAnnouncement} className="mb-4 rounded-xl border border-slate-200 bg-white p-3 space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                  <Megaphone className="w-3.5 h-3.5" /> Team announcement
+                </p>
+                <p className="text-xs text-slate-500">Any member can send a professional notice to everyone on this ledger.</p>
+                <input
+                  type="text"
+                  required
+                  maxLength={120}
+                  value={announceTitle}
+                  onChange={(e) => setAnnounceTitle(e.target.value)}
+                  placeholder="Subject, e.g. Month-end close tomorrow"
+                  className="byjan-input"
+                />
+                <textarea
+                  required
+                  rows={4}
+                  value={announceBody}
+                  onChange={(e) => setAnnounceBody(e.target.value)}
+                  placeholder="Write the announcement. It is emailed to every teammate with the ledger mailbox at the foot of the letter."
+                  className="byjan-input min-h-[96px]"
+                />
+                <button type="submit" disabled={announcing} className="byjan-btn !w-full !justify-center">
+                  {announcing && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  Send to all members
+                </button>
+              </form>
               <div className="space-y-2">
                 {Object.entries(book.roles).map(([uid, data]: [string, any]) => (
                   <div key={uid} className="flex items-center justify-between p-3 border border-slate-200 rounded-md bg-white hover:bg-slate-50 transition-colors">

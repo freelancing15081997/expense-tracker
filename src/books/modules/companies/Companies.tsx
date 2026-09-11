@@ -8,10 +8,16 @@ export default function Companies() {
   const { tenant, tenantId, orgs, can, switchWorkspace, createCompany } = useBooks();
   const [name, setName] = useState('');
   const [parentId, setParentId] = useState(tenantId || '');
+  const [search, setSearch] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const tree = useMemo(() => buildOrgTree(orgs), [orgs]);
-  const paging = usePaging(tree, 10);
+  const filteredTree = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return tree;
+    return tree.filter((row) => [row.name, row.kind].some((v) => String(v || '').toLowerCase().includes(q)));
+  }, [tree, search]);
+  const paging = usePaging(filteredTree, 10);
   const parent = orgs.find((row) => row.id === (parentId || tenantId));
   const canNest = Number(parent?.depth || 0) < MAX_ORG_DEPTH;
 
@@ -63,6 +69,7 @@ export default function Companies() {
       )}
       <Card className="p-4">
         <h2 className="font-semibold mb-3">Your companies</h2>
+        <input className={`${inputClass} max-w-sm mb-3`} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search companies" />
         <ul className="divide-y divide-slate-100">
           {paging.slice.map((row) => {
             const active = row.id === tenantId;
@@ -86,7 +93,7 @@ export default function Companies() {
             );
           })}
         </ul>
-        <Pager page={paging.page} pages={paging.pages} total={paging.total} pageSize={paging.pageSize} onPage={paging.setPage} />
+        <Pager page={paging.page} pages={paging.pages} total={paging.total} pageSize={paging.pageSize} onPage={paging.setPage} onPageSize={paging.setPageSize} />
         <p className="text-xs text-slate-500 mt-3 leading-relaxed">
           Open books always stay inside one company. {tenant?.name} does not mix invoices or journals with a sibling or child. Group consolidation is an adapter and does not invent combined balances.
         </p>

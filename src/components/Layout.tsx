@@ -209,8 +209,9 @@ export default function Layout() {
                         </button>
                       )}
                     </div>
-                    <p className="text-slate-600"><span className="font-medium text-slate-700">{notif.senderName}</span> {notif.action.toLowerCase()}.</p>
+                    <p className="text-slate-600"><span className="font-medium text-slate-700">{notif.senderName}</span> {String(notif.action || '').toLowerCase()}.</p>
                     <p className="text-slate-500 mt-1 text-xs">{notif.detail}</p>
+                    {notif.ledgerMail ? <p className="text-[11px] text-slate-400 mt-1">Send entries to {notif.ledgerMail}</p> : null}
                     {notif.bookId ? <p className="text-indigo-600 mt-2 text-xs font-semibold">Open ledger →</p> : null}
                     </Link>
                 ))

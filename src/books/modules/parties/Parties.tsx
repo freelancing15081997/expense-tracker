@@ -126,7 +126,7 @@ export default function Parties({ kind }: { kind: PartyKind }) {
               </tbody>
             </table>
             </div>
-            <Pager page={paging.page} pages={paging.pages} total={paging.total} pageSize={paging.pageSize} onPage={paging.setPage} />
+            <Pager page={paging.page} pages={paging.pages} total={paging.total} pageSize={paging.pageSize} onPage={paging.setPage} onPageSize={paging.setPageSize} />
             </>
           )}
         </Card>

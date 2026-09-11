@@ -18,10 +18,16 @@ export default function Journals() {
   const [date, setDate] = useState(todayISO());
   const [description, setDescription] = useState('');
   const [lines, setLines] = useState([emptyLine(), emptyLine()]);
+  const [search, setSearch] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const accountName = (id: string) => accounts.find((a) => a.id === id)?.name || id;
-  const paging = usePaging(journals, prefs.listPageSize);
+  const filteredJournals = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return journals;
+    return journals.filter((j) => [j.number, j.description, j.status, j.date].some((v) => String(v || '').toLowerCase().includes(q)));
+  }, [journals, search]);
+  const paging = usePaging(filteredJournals, prefs.listPageSize);
 
   const preview = useMemo(() => {
     try {
@@ -113,6 +119,11 @@ export default function Journals() {
       )}
       <Card>
         {journals.length === 0 ? <Empty text="No journals yet. Post an invoice, bill, expense, or manual entry." /> : (
+          <div>
+            <div className="p-3 border-b border-slate-100">
+              <input className={`${inputClass} max-w-sm`} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search journals" />
+            </div>
+            {filteredJournals.length === 0 ? <Empty text="No journals match this search." /> : (
           <div className="divide-y divide-slate-100">
             {paging.slice.map((journal) => (
               <button
@@ -128,7 +139,9 @@ export default function Journals() {
                 </span>
               </button>
             ))}
-            <Pager page={paging.page} pages={paging.pages} total={paging.total} pageSize={paging.pageSize} onPage={paging.setPage} />
+            <Pager page={paging.page} pages={paging.pages} total={paging.total} pageSize={paging.pageSize} onPage={paging.setPage} onPageSize={paging.setPageSize} />
+          </div>
+            )}
           </div>
         )}
       </Card>

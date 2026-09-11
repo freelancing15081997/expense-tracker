@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { db } from '../lib/firebase';
@@ -11,6 +11,7 @@ import { Plus, Check, X, Users, Building2, Receipt, ArrowRight, BookOpen } from 
 import * as Dialog from '@radix-ui/react-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 import AppLoader from '../components/AppLoader';
+import { ListControls, usePagedList } from '../components/ListControls';
 import { BOOKS_TREE } from '../books/catalog/modules';
 import { openLedgerButtonHtml, syncInboundMailbox } from '../lib/inbound-mail';
 
@@ -215,14 +216,18 @@ export default function Dashboard() {
   };
 
   const getRoleBadgeColor = (role: string) => {
-    switch(role) {
-      case 'owner': return 'bg-slate-900 text-white border-transparent';
-      case 'admin': return 'bg-zinc-50 text-zinc-700 border-zinc-200';
-      case 'contributor': return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-      case 'auditor': return 'bg-amber-50 text-amber-700 border-amber-200';
-      default: return 'bg-slate-50 text-slate-700 border-slate-200';
-    }
+    if (role === 'owner') return 'bg-slate-900 text-white border-transparent';
+    if (role === 'admin') return 'bg-zinc-50 text-zinc-700 border-zinc-200';
+    if (role === 'contributor') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+    if (role === 'auditor') return 'bg-amber-50 text-amber-700 border-amber-200';
+    return 'bg-slate-50 text-slate-700 border-slate-200';
   };
+
+  const filterBook = useCallback((book: BookItem, q: string) => (
+    [book.name, book.currency, ...Object.values(book.roles || {}).map((r) => r.email)]
+      .some((value) => String(value || '').toLowerCase().includes(q))
+  ), []);
+  const bookList = usePagedList(books, filterBook, 10);
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -371,8 +376,20 @@ export default function Dashboard() {
               <p className="text-sm text-slate-500 mt-1">Create a tracker or wait for an invitation.</p>
             </div>
           ) : (
+            <div className="space-y-3">
+              <ListControls
+                query={bookList.query}
+                onQuery={bookList.setQuery}
+                page={bookList.page}
+                totalPages={bookList.totalPages}
+                onPage={bookList.setPage}
+                pageSize={bookList.pageSize}
+                onPageSize={bookList.setPageSize}
+                total={bookList.filtered.length}
+                placeholder="Search ledgers"
+              />
             <div className={expensesOnly ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3' : 'grid grid-cols-1 sm:grid-cols-2 gap-3'}>
-              {books.map(book => {
+              {bookList.pageRows.map(book => {
                 const role = book.roles[currentUser!.uid]?.role || 'viewer';
                 return (
                   <Link to={`/book/${book.id}`} key={book.id} className="group flex flex-col byjan-card byjan-lift p-4">
@@ -392,6 +409,7 @@ export default function Dashboard() {
                   </Link>
                 );
               })}
+            </div>
             </div>
           )}
         </section>

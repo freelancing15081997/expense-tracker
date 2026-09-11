@@ -98,11 +98,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border:1px solid #e6e1d6">
         <tr><td style="padding:28px 32px 20px;border-bottom:3px solid #0B1F3A">
           <p style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:22px;color:#0B1F3A;letter-spacing:0.08em">BYJAN</p>
-          <p style="margin:6px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:#8a8070">Ledger notice</p>
+          <p style="margin:6px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:#8a8070">${String(body.kind || '') === 'announcement' ? 'Team announcement' : 'Ledger notice'}</p>
         </td></tr>
         <tr><td style="padding:28px 32px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#334155">${message}</td></tr>
         <tr><td style="padding:16px 32px 24px;border-top:1px solid #edf0f2;font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#94a3b8">
-          You received this because you are a member of a Byjan ledger.<br/>Byjan · easypado.com · Service notice, not marketing.
+          You received this because you are a member of a Byjan ledger.<br/>
+          ${body.ledgerMail ? `Send receipts or entries to ${String(body.ledgerMail)} and Byjan will record them for the team.<br/>` : ''}
+          Byjan · easypado.com · Service notice, not marketing.
         </td></tr>
       </table>
     </td></tr>

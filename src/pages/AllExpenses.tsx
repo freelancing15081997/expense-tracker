@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../lib/firebase';
 import { collection, query, getDocs, orderBy, where } from '../lib/store';
 import { Receipt, ArrowUpRight, ArrowDownRight, Loader2, ArrowLeftRight, BookOpen } from 'lucide-react';
 import { isSoftDeleted } from '../lib/records';
+import { ListControls, usePagedList } from '../components/ListControls';
 
 export default function AllExpenses() {
   const { currentUser } = useAuth();
@@ -57,6 +58,12 @@ export default function AllExpenses() {
     fetchAllExpenses();
   }, [currentUser]);
 
+  const filterExpense = useCallback((exp: any, q: string) => (
+    [exp.description, exp.category, exp.bookName, exp.paidByName, exp.enteredBy, exp.date]
+      .some((value) => String(value || '').toLowerCase().includes(q))
+  ), []);
+  const list = usePagedList(expenses, filterExpense, 10);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -83,6 +90,20 @@ export default function AllExpenses() {
             <p className="text-sm">Expenses and money inflows will appear here.</p>
           </div>
         ) : (
+          <>
+          <div className="p-3 border-b border-zinc-100">
+            <ListControls
+              query={list.query}
+              onQuery={list.setQuery}
+              page={list.page}
+              totalPages={list.totalPages}
+              onPage={list.setPage}
+              pageSize={list.pageSize}
+              onPageSize={list.setPageSize}
+              total={list.filtered.length}
+              placeholder="Search books, description, category…"
+            />
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
               <thead className="bg-zinc-50/50 text-zinc-500 font-medium border-b border-zinc-200">
@@ -96,7 +117,7 @@ export default function AllExpenses() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
-                {expenses.map(exp => (
+                {list.pageRows.map(exp => (
                   <tr key={exp.id} className="hover:bg-zinc-50/50 transition-colors">
                     <td className="px-4 py-3 text-zinc-600 whitespace-nowrap">
                       {exp.date ? new Date(exp.date).toLocaleDateString() : 'N/A'}
@@ -140,6 +161,7 @@ export default function AllExpenses() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
     </div>

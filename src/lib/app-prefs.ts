@@ -1,7 +1,7 @@
 export type DateFormat = 'iso' | 'dmy' | 'mdy';
 export type NumberLocale = 'en-IN' | 'en-US' | 'en-GB';
 export type UiDensity = 'comfortable' | 'compact';
-export type ListPageSize = 10 | 25 | 50;
+export type ListPageSize = 10 | 25 | 50 | 100;
 
 export type AppPrefs = {
   dateFormat: DateFormat;
@@ -71,7 +71,7 @@ export function normalizeAppPrefs(raw: unknown): AppPrefs {
   const dateFormat = src.dateFormat === 'dmy' || src.dateFormat === 'mdy' ? src.dateFormat : 'iso';
   const numberFormat = src.numberFormat === 'en-US' || src.numberFormat === 'en-GB' ? src.numberFormat : 'en-IN';
   const uiDensity = src.uiDensity === 'compact' ? 'compact' : 'comfortable';
-  const listPageSize = src.listPageSize === 25 || src.listPageSize === 50 ? src.listPageSize : 10;
+  const listPageSize = src.listPageSize === 25 || src.listPageSize === 50 || src.listPageSize === 100 ? src.listPageSize : 10;
   const defaultCashAccount = src.defaultCashAccount === 'cash' ? 'cash' : 'bank';
   return {
     dateFormat,

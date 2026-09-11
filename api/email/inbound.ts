@@ -101,7 +101,7 @@ async function r2Fetch(method: string, key: string, opts?: { body?: Buffer | nul
   return fetch(href, {
     method,
     headers,
-    body: method === 'GET' || method === 'HEAD' || method === 'DELETE' ? undefined : payload,
+    body: method === 'GET' || method === 'HEAD' || method === 'DELETE' ? undefined : (payload as any),
   });
 }
 
@@ -771,6 +771,7 @@ type Mailbox = {
   name: string;
   currency: string;
   ownerId?: string;
+  address?: string;
   roles: Record<string, RoleRow>;
 };
 
@@ -784,6 +785,7 @@ function asMailbox(bookId: string, data: Record<string, unknown> | null): Mailbo
     name: String(data.name || 'Ledger'),
     currency: String(data.currency || 'INR'),
     ownerId: data.ownerId ? String(data.ownerId) : undefined,
+    address: String(data.address || '') || `${inboundMailboxSlug(String(data.name || 'ledger'))}@${INBOUND_DOMAIN}`,
     roles,
   };
 }
@@ -933,8 +935,10 @@ function wrapByjanEmail(opts: {
   intro: string;
   rows?: Array<{ label: string; value: string }>;
   note?: string;
-  ctaLabel: string;
-  ctaHref: string;
+  ctaLabel?: string;
+  ctaHref?: string;
+  ledgerMail?: string;
+  extraHtml?: string;
 }) {
   const rows = (opts.rows || [])
     .filter((row) => String(row.value || '').trim())
@@ -962,16 +966,18 @@ function wrapByjanEmail(opts: {
             <p style="margin:0 0 20px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#334155">${escapeHtml(opts.intro)}</p>
             ${rows ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">${rows}</table>` : ''}
             ${opts.note ? `<p style="margin:20px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.55;color:#64748b">${escapeHtml(opts.note)}</p>` : ''}
+            ${opts.extraHtml || ''}
           </td>
         </tr>
-        <tr>
+        ${opts.ctaLabel && opts.ctaHref ? `<tr>
           <td style="padding:24px 32px 32px">
             <a href="${escapeHtml(opts.ctaHref)}" style="display:inline-block;background:#0B1F3A;color:#ffffff;text-decoration:none;padding:12px 22px;font-family:Arial,Helvetica,sans-serif;font-size:13px;letter-spacing:0.04em">${escapeHtml(opts.ctaLabel)}</a>
           </td>
-        </tr>
+        </tr>` : ''}
         <tr>
           <td style="padding:16px 32px 24px;border-top:1px solid #edf0f2;font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:1.6;color:#94a3b8">
             You received this because you are a member of this ledger on Byjan.<br/>
+            ${opts.ledgerMail ? `Send receipts to ${escapeHtml(opts.ledgerMail)} and Byjan will record them for the team.<br/>` : ''}
             Byjan · easypado.com · This is a service notice, not a marketing message.
           </td>
         </tr>
@@ -1002,7 +1008,12 @@ function isUnusableDocument(parsed: ParsedReceipt, body: string, ocrPreview: str
   return false;
 }
 
-async function sendMail(to: string, subject: string, html: string) {
+async function sendMail(
+  to: string,
+  subject: string,
+  html: string,
+  attachments?: Array<{ filename: string; content: Buffer; contentType?: string }>,
+) {
   const nodemailerMod: any = await import('nodemailer');
   const createTransport = nodemailerMod.createTransport || nodemailerMod.default?.createTransport;
   const settings = {
@@ -1024,6 +1035,15 @@ async function sendMail(to: string, subject: string, html: string) {
     subject,
     text: html.replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim(),
     html,
+    ...(attachments?.length
+      ? {
+          attachments: attachments.map((row) => ({
+            filename: row.filename,
+            content: row.content,
+            contentType: row.contentType,
+          })),
+        }
+      : {}),
     headers: {
       'List-Unsubscribe': `<mailto:noreply@${INBOUND_DOMAIN}?subject=unsubscribe>`,
       'X-Auto-Response-Suppress': 'All',
@@ -1056,13 +1076,14 @@ async function notifyMembers(
   mailbox: Mailbox,
   bookId: string,
   opts: {
-    kind: 'added' | 'rejected' | 'unreadable';
+    kind: 'added' | 'rejected' | 'unreadable' | 'duplicate_pending' | 'duplicate_kept' | 'duplicate_added';
     sender: string;
     subjectLine?: string;
     amount?: string;
     category?: string;
     description?: string;
     fileName?: string;
+    paidBy?: string;
     reason?: string;
     inboundEventId?: string;
   },
@@ -1095,6 +1116,30 @@ async function notifyMembers(
       cta: 'Open ledger',
       action: 'Unreadable document was not recorded',
     },
+    duplicate_pending: {
+      subject: `Possible duplicate awaiting confirmation · ${mailbox.name}`,
+      kicker: 'Duplicate check',
+      title: `A matching receipt is waiting for confirmation`,
+      intro: `${opts.sender} sent a file that matches an existing ledger entry. Byjan has asked them to confirm whether it is the same receipt or a different one.`,
+      cta: 'Open ledger',
+      action: 'Duplicate receipt awaiting sender confirmation',
+    },
+    duplicate_kept: {
+      subject: `Duplicate not posted · ${mailbox.name}`,
+      kicker: 'Duplicate check',
+      title: `The extra copy was not added`,
+      intro: `${opts.sender} confirmed the latest file is the same as an existing entry. Nothing extra was posted.`,
+      cta: 'Open ledger',
+      action: 'Duplicate receipt declined',
+    },
+    duplicate_added: {
+      subject: `Confirmed as a new entry · ${mailbox.name}`,
+      kicker: 'Ledger notice',
+      title: `A matching file was posted as a new entry`,
+      intro: `${opts.sender} confirmed the latest file is different from the earlier receipt. Byjan recorded a new line.`,
+      cta: 'View ledger',
+      action: 'Duplicate confirmed as a new entry',
+    },
   }[opts.kind];
   const html = wrapByjanEmail({
     kicker: copy.kicker,
@@ -1102,19 +1147,22 @@ async function notifyMembers(
     intro: copy.intro,
     rows: [
       { label: 'Ledger', value: mailbox.name },
+      { label: 'Ledger mail', value: mailbox.address || '' },
       { label: 'From', value: opts.sender },
       { label: 'Subject', value: opts.subjectLine || '' },
       { label: 'Amount', value: opts.amount || '' },
       { label: 'Category', value: opts.category || '' },
+      { label: 'Paid by', value: opts.paidBy || '' },
       { label: 'Description', value: opts.description || '' },
       { label: 'File', value: opts.fileName || '' },
       { label: 'Reason', value: opts.reason || '' },
     ],
     note: opts.kind === 'unreadable'
       ? 'Photos of people, blank images, encrypted files, and other non-financial documents are ignored on purpose.'
-      : undefined,
+      : `Send receipts to ${mailbox.address || `this ledger@${INBOUND_DOMAIN}`} and Byjan will record them for the team.`,
     ctaLabel: copy.cta,
     ctaHref: link,
+    ledgerMail: mailbox.address,
   });
   const detail = opts.reason || opts.description || copy.intro;
   let sent = 0;
@@ -1164,6 +1212,7 @@ async function notifyMembers(
       action: copy.action,
       detail,
       senderName: opts.sender,
+      ledgerMail: mailbox.address || '',
       link,
       createdAt: new Date().toISOString(),
       read: false,
@@ -1180,6 +1229,436 @@ async function notifyMembers(
       }).catch(() => undefined);
     }
   }
+}
+
+function fileHash(bytes: Buffer) {
+  return createHash('sha256').update(bytes).digest('hex');
+}
+
+function confirmSig(id: string) {
+  return createHmac('sha256', inboundSecret() || 'inbound').update(`confirm:${id}`).digest('hex').slice(0, 40);
+}
+
+function confirmHref(id: string, decision: 'same' | 'new') {
+  const url = new URL(`${APP_ORIGIN}/api/email/inbound`);
+  url.searchParams.set('confirm', id);
+  url.searchParams.set('sig', confirmSig(id));
+  url.searchParams.set('decision', decision);
+  return url.toString();
+}
+
+function moneyLabel(currency: string, amount: unknown) {
+  const n = Number(amount || 0);
+  if (!Number.isFinite(n) || n <= 0) return 'Not found';
+  return `${currency} ${n.toFixed(2)}`;
+}
+
+function whoAdded(existing: Record<string, unknown>, senderEmail: string) {
+  const email = String(existing.enteredByEmail || existing.enteredBy || existing.paidByName || '').toLowerCase();
+  const label = String(existing.enteredBy || existing.paidByName || existing.enteredByEmail || 'a teammate');
+  if (email && email === senderEmail.toLowerCase()) return 'you';
+  return label;
+}
+
+async function storeFileHash(bookId: string, hash: string, expense: Record<string, unknown>) {
+  await docSet(`inbound_hashes/${bookId}/${hash}`, {
+    bookId,
+    hash,
+    expenseId: expense.id,
+    amount: expense.amount || 0,
+    category: expense.category || '',
+    paidByName: expense.paidByName || '',
+    enteredBy: expense.enteredBy || '',
+    enteredByEmail: expense.enteredByEmail || '',
+    createdAt: expense.createdAt || new Date().toISOString(),
+  });
+}
+
+async function findMatchingReceipt(bookId: string, hash: string) {
+  const row = await docGet(`inbound_hashes/${bookId}/${hash}`);
+  const expenseId = String(row?.expenseId || '').trim();
+  if (!expenseId) return null;
+  const expense = await docGet(`books/${bookId}/expenses/${expenseId}`);
+  if (!expense || expense.deleted === true || expense.status === 'deleted' || expense.deletedAt) return null;
+  return { hash, expenseId, expense, record: row };
+}
+
+async function mergeCategory(bookId: string, category: string) {
+  if (!category || category === 'Uncategorized') return;
+  try {
+    const bookDoc = await docGet(`books/${bookId}`);
+    if (!bookDoc) return;
+    const existing = Array.isArray(bookDoc.categories) ? bookDoc.categories.map(String) : [];
+    if (existing.some((c) => c.toLowerCase() === category.toLowerCase())) return;
+    await docSet(`books/${bookId}`, { ...bookDoc, categories: [...existing, category] });
+  } catch {
+    // category merge is best-effort
+  }
+}
+
+async function saveExpenseRecord(bookId: string, expense: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const id = String(expense.id || newId());
+  const row: Record<string, unknown> = { ...expense, id };
+  await docSet(`books/${bookId}/expenses/${id}`, row);
+  await mergeCategory(bookId, String(row.category || ''));
+  return row;
+}
+
+async function rollbackExpense(bookId: string, expenseId: string, actor: string) {
+  const current = await docGet(`books/${bookId}/expenses/${expenseId}`);
+  if (!current || current.deleted === true || current.status === 'deleted') return false;
+  await docSet(`books/${bookId}/expenses/${expenseId}`, {
+    ...current,
+    deleted: true,
+    deletedAt: new Date().toISOString(),
+    deletedBy: actor,
+    status: 'deleted',
+    rollbackReason: 'Sender confirmed this was the same receipt as an existing entry',
+  });
+  return true;
+}
+
+function decisionPage(title: string, intro: string, rows: Array<{ label: string; value: string }>, ok: boolean) {
+  const details = rows
+    .filter((row) => String(row.value || '').trim())
+    .map((row) => `<tr><td style="padding:8px 0;color:#64748b;width:34%">${escapeHtml(row.label)}</td><td style="padding:8px 0;color:#0f172a">${escapeHtml(row.value)}</td></tr>`)
+    .join('');
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>${escapeHtml(title)} · Byjan</title>
+</head>
+<body style="margin:0;background:#f4f1ea;font-family:Arial,Helvetica,sans-serif">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:48px 16px">
+    <tr><td align="center">
+      <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#fff;border:1px solid #e6e1d6">
+        <tr><td style="padding:28px 32px 18px;border-bottom:3px solid #0B1F3A">
+          <p style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:22px;color:#0B1F3A;letter-spacing:0.08em">BYJAN</p>
+          <p style="margin:6px 0 0;font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:#8a8070">${ok ? 'Confirmation complete' : 'Action needed'}</p>
+        </td></tr>
+        <tr><td style="padding:28px 32px">
+          <h1 style="margin:0 0 12px;font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:normal;color:#0B1F3A">${escapeHtml(title)}</h1>
+          <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#334155">${escapeHtml(intro)}</p>
+          ${details ? `<table role="presentation" width="100%">${details}</table>` : ''}
+          <p style="margin:24px 0 0"><a href="${APP_ORIGIN}" style="display:inline-block;background:#0B1F3A;color:#fff;text-decoration:none;padding:12px 22px;font-size:13px">Open Byjan</a></p>
+        </td></tr>
+        <tr><td style="padding:16px 32px 24px;border-top:1px solid #edf0f2;font-size:11px;color:#94a3b8">You can close this tab. No further action is required.</td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+}
+
+function htmlRes(res: VercelResponse, status: number, html: string) {
+  res.statusCode = status;
+  res.setHeader('content-type', 'text/html; charset=utf-8');
+  res.setHeader('cache-control', 'no-store');
+  res.end(html);
+}
+
+async function notifySender(
+  mailbox: Mailbox,
+  bookId: string,
+  opts: {
+    to: string;
+    subject: string;
+    kicker: string;
+    title: string;
+    intro: string;
+    rows?: Array<{ label: string; value: string }>;
+    note?: string;
+    extraHtml?: string;
+    ctaLabel?: string;
+    ctaHref?: string;
+    attachments?: Array<{ filename: string; content: Buffer; contentType?: string }>;
+    action: string;
+    inboundEventId?: string;
+  },
+) {
+  const html = wrapByjanEmail({
+    kicker: opts.kicker,
+    title: opts.title,
+    intro: opts.intro,
+    rows: opts.rows,
+    note: opts.note,
+    extraHtml: opts.extraHtml,
+    ctaLabel: opts.ctaLabel,
+    ctaHref: opts.ctaHref || `${APP_ORIGIN}/#/book/${bookId}`,
+    ledgerMail: mailbox.address,
+  });
+  try {
+    await sendMail(opts.to, opts.subject, html, opts.attachments);
+    await docSet(`books/${bookId}/email_events/${newId()}`, {
+      direction: 'outbound',
+      status: 'sent',
+      toEmail: opts.to,
+      subject: opts.subject,
+      action: opts.action,
+      detail: opts.intro,
+      createdAt: new Date().toISOString(),
+    }).catch(() => undefined);
+    if (opts.inboundEventId) {
+      const current = await docGet(`books/${bookId}/inbound_events/${opts.inboundEventId}`);
+      if (current) {
+        await docSet(`books/${bookId}/inbound_events/${opts.inboundEventId}`, {
+          ...current,
+          senderNotified: true,
+        }).catch(() => undefined);
+      }
+    }
+  } catch (err: any) {
+    await docSet(`books/${bookId}/email_events/${newId()}`, {
+      direction: 'outbound',
+      status: 'failed',
+      toEmail: opts.to,
+      subject: opts.subject,
+      action: opts.action,
+      detail: String(err?.message || err || 'Send failed'),
+      createdAt: new Date().toISOString(),
+    }).catch(() => undefined);
+  }
+}
+
+async function sendAmountMissingToSender(
+  mailbox: Mailbox,
+  bookId: string,
+  opts: {
+    sender: string;
+    subjectLine: string;
+    fileName?: string;
+    receipt?: { name: string; contentType: string; bytes: Buffer } | null;
+    inboundEventId?: string;
+    savedAsDraft: boolean;
+  },
+) {
+  await notifySender(mailbox, bookId, {
+    to: opts.sender,
+    subject: `Amount not found · ${mailbox.name}`,
+    kicker: 'Needs a clearer document',
+    title: 'Byjan could not read an amount on your attachment',
+    intro: opts.savedAsDraft
+      ? 'We saved a draft on the ledger for your team to review, but the amount field is empty. Please send the same receipt again with a clearer photo or PDF so Byjan can complete the entry.'
+      : 'No ledger entry was created because the attached file had no readable amount, merchant, or invoice data. Please send a clearer receipt, bill, or invoice.',
+    rows: [
+      { label: 'Ledger', value: mailbox.name },
+      { label: 'Send receipts to', value: mailbox.address || '' },
+      { label: 'Your file', value: opts.fileName || opts.receipt?.name || 'Attachment' },
+      { label: 'Error', value: 'Amount not found on the attached document' },
+    ],
+    note: 'Your original attachment is included on this email so you can see exactly what Byjan received.',
+    ctaLabel: 'Open ledger',
+    ctaHref: `${APP_ORIGIN}/#/book/${bookId}`,
+    attachments: opts.receipt?.bytes
+      ? [{ filename: opts.receipt.name || 'attachment', content: opts.receipt.bytes, contentType: opts.receipt.contentType }]
+      : undefined,
+    action: 'Sender notified: amount not found',
+    inboundEventId: opts.inboundEventId,
+  });
+}
+
+async function sendDuplicateConfirmToSender(
+  mailbox: Mailbox,
+  bookId: string,
+  pendingId: string,
+  opts: {
+    sender: string;
+    subjectLine: string;
+    existing: Record<string, unknown>;
+    parsedAmount: number;
+    parsedCategory: string;
+    fileName?: string;
+    inboundEventId?: string;
+  },
+) {
+  const addedBy = whoAdded(opts.existing, opts.sender);
+  const sameAmount = Number(opts.existing.amount || 0) > 0 && Number(opts.existing.amount) === Number(opts.parsedAmount || 0);
+  await notifySender(mailbox, bookId, {
+    to: opts.sender,
+    subject: `Please confirm this receipt · ${mailbox.name}`,
+    kicker: 'Possible duplicate',
+    title: 'This file looks like an entry already on the ledger',
+    intro: addedBy === 'you'
+      ? 'This attachment matches a receipt you already added. Confirm whether it is the same entry or a different one. Opening a button below records your choice immediately — Byjan will not ask again.'
+      : `This attachment matches a receipt already added by ${addedBy}. Confirm whether it is the same entry or a different one. Opening a button below records your choice immediately — Byjan will not ask again.`,
+    rows: [
+      { label: 'Ledger', value: mailbox.name },
+      { label: 'Already added by', value: addedBy === 'you' ? 'You' : addedBy },
+      { label: 'Existing category', value: String(opts.existing.category || 'Uncategorized') },
+      { label: 'Paid by', value: String(opts.existing.paidByName || opts.existing.enteredBy || '—') },
+      { label: 'Existing amount', value: moneyLabel(mailbox.currency, opts.existing.amount) },
+      { label: 'This file amount', value: moneyLabel(mailbox.currency, opts.parsedAmount) },
+      { label: 'This file category', value: opts.parsedCategory || '' },
+    ],
+    note: sameAmount
+      ? 'The amounts match. If this is the same receipt, choose Same receipt — nothing extra will be posted, and any extra line will be rolled back.'
+      : 'If you consider this a different purchase or invoice, choose Different entry and Byjan will save it without asking again.',
+    extraHtml: `
+      <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:24px">
+        <tr>
+          <td style="padding-right:10px">
+            <a href="${escapeHtml(confirmHref(pendingId, 'new'))}" style="display:inline-block;background:#0B1F3A;color:#ffffff;text-decoration:none;padding:12px 18px;font-family:Arial,Helvetica,sans-serif;font-size:13px">Different entry</a>
+          </td>
+          <td>
+            <a href="${escapeHtml(confirmHref(pendingId, 'same'))}" style="display:inline-block;background:#ffffff;color:#0B1F3A;text-decoration:none;padding:11px 18px;font-family:Arial,Helvetica,sans-serif;font-size:13px;border:1px solid #0B1F3A">Same receipt</a>
+          </td>
+        </tr>
+      </table>
+      <p style="margin:14px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.55;color:#64748b">Clicking a button opens your browser and completes the action automatically.</p>
+    `,
+    action: 'Sender asked to confirm possible duplicate',
+    inboundEventId: opts.inboundEventId,
+  });
+}
+
+async function handleConfirmDecision(req: VercelRequest, res: VercelResponse) {
+  if (req.method === 'HEAD') {
+    res.statusCode = 200;
+    res.end();
+    return;
+  }
+  const url = new URL(req.url || '/', APP_ORIGIN);
+  const pendingId = String(url.searchParams.get('confirm') || '').trim();
+  const sig = String(url.searchParams.get('sig') || '').trim();
+  const decision = String(url.searchParams.get('decision') || '').trim().toLowerCase();
+  if (!pendingId || !secretsMatch(sig, confirmSig(pendingId))) {
+    htmlRes(res, 400, decisionPage('This confirmation link is not valid', 'The link is missing or has been altered. Open the original email from Byjan and use one of the buttons there.', [], false));
+    return;
+  }
+  if (decision !== 'same' && decision !== 'new') {
+    htmlRes(res, 400, decisionPage('Choose Same or Different', 'Use one of the two buttons in the Byjan email.', [], false));
+    return;
+  }
+  const pending = await docGet(`inbound_pending/${pendingId}`);
+  if (!pending) {
+    htmlRes(res, 404, decisionPage('This request is no longer available', 'The confirmation record could not be found. It may have expired.', [], false));
+    return;
+  }
+  const bookId = String(pending.bookId || '');
+  const mailbox = await loadMailbox(bookId);
+  const existing = (pending.existing && typeof pending.existing === 'object') ? pending.existing as Record<string, unknown> : {};
+  const expense = (pending.expense && typeof pending.expense === 'object') ? pending.expense as Record<string, unknown> : {};
+  const sender = String(pending.fromEmail || '');
+  if (String(pending.status || '') !== 'pending') {
+    htmlRes(res, 200, decisionPage(
+      'This choice was already recorded',
+      `Byjan already processed this confirmation as “${String(pending.status)}”. No further change was made.`,
+      [
+        { label: 'Ledger', value: mailbox?.name || '' },
+        { label: 'Decision', value: String(pending.status) },
+      ],
+      true,
+    ));
+    return;
+  }
+
+  await docSet(`inbound_pending/${pendingId}`, { ...pending, status: decision, decidedAt: new Date().toISOString() });
+  const eventId = String(pending.inboundEventId || '');
+
+  if (decision === 'same') {
+    let rolledBack = false;
+    const extraId = String(pending.expenseId || '');
+    const existingAmount = Number(existing.amount || 0);
+    const newAmount = Number(expense.amount || 0);
+    if (extraId && extraId !== String(existing.id || pending.existingExpenseId || '')) {
+      if (!existingAmount || existingAmount === newAmount) {
+        rolledBack = await rollbackExpense(bookId, extraId, sender || 'email-confirm');
+      }
+    }
+    if (eventId) {
+      const current = await docGet(`books/${bookId}/inbound_events/${eventId}`);
+      if (current) {
+        await docSet(`books/${bookId}/inbound_events/${eventId}`, {
+          ...current,
+          status: 'duplicate_same',
+          decided: 'same',
+          rolledBack,
+          flow: [...(Array.isArray(current.flow) ? current.flow : []), 'sender_confirmed_same', rolledBack ? 'extra_entry_rolled_back' : 'nothing_posted'],
+        }).catch(() => undefined);
+      }
+    }
+    if (mailbox) {
+      await notifyMembers(mailbox, bookId, {
+        kind: 'duplicate_kept',
+        sender: sender || 'Sender',
+        subjectLine: String(pending.subject || ''),
+        amount: moneyLabel(mailbox.currency, existing.amount),
+        category: String(existing.category || ''),
+        paidBy: String(existing.paidByName || ''),
+        description: 'Sender confirmed the file is the same as an existing entry.',
+        inboundEventId: eventId || undefined,
+      }).catch(() => undefined);
+    }
+    htmlRes(res, 200, decisionPage(
+      'Same receipt — nothing extra was added',
+      rolledBack
+        ? 'You confirmed this is the same receipt. The extra ledger line has been rolled back.'
+        : 'You confirmed this is the same receipt. Byjan did not add another entry.',
+      [
+        { label: 'Ledger', value: mailbox?.name || '' },
+        { label: 'Existing category', value: String(existing.category || '') },
+        { label: 'Paid by', value: String(existing.paidByName || '') },
+        { label: 'Amount', value: mailbox ? moneyLabel(mailbox.currency, existing.amount) : '' },
+      ],
+      true,
+    ));
+    return;
+  }
+
+  const saved = await saveExpenseRecord(bookId, {
+    ...expense,
+    id: String(expense.id || newId()),
+    status: Number(expense.amount || 0) > 0 ? 'recorded' : 'draft',
+    duplicateOf: String(pending.existingExpenseId || existing.id || ''),
+    duplicateConfirmedDifferent: true,
+  });
+  const hash = String(pending.hash || '');
+  if (hash) await storeFileHash(bookId, hash, saved).catch(() => undefined);
+  await docSet(`inbound_pending/${pendingId}`, {
+    ...pending,
+    status: 'new',
+    decidedAt: new Date().toISOString(),
+    expenseId: saved.id,
+  });
+  if (eventId) {
+    const current = await docGet(`books/${bookId}/inbound_events/${eventId}`);
+    if (current) {
+      await docSet(`books/${bookId}/inbound_events/${eventId}`, {
+        ...current,
+        status: 'duplicate_new',
+        decided: 'new',
+        expenseId: saved.id,
+        flow: [...(Array.isArray(current.flow) ? current.flow : []), 'sender_confirmed_different', 'entry_saved'],
+      }).catch(() => undefined);
+    }
+  }
+  if (mailbox) {
+    await notifyMembers(mailbox, bookId, {
+      kind: 'duplicate_added',
+      sender: sender || 'Sender',
+      subjectLine: String(pending.subject || ''),
+      amount: moneyLabel(mailbox.currency, saved['amount']),
+      category: String(saved['category'] || ''),
+      paidBy: String(saved['paidByName'] || ''),
+      description: String(saved['description'] || ''),
+      inboundEventId: eventId || undefined,
+    }).catch(() => undefined);
+  }
+  htmlRes(res, 200, decisionPage(
+    'Different entry — saved to the ledger',
+    Number(saved['amount'] || 0) > 0
+      ? 'You confirmed this is a different entry. Byjan has recorded it. Your ledger team has been notified.'
+      : 'You confirmed this is a different entry. It was saved as a draft because no amount was found — the Needs review badge will clear after someone edits in the amount.',
+    [
+      { label: 'Ledger', value: mailbox?.name || '' },
+      { label: 'Category', value: String(saved['category'] || '') },
+      { label: 'Paid by', value: String(saved['paidByName'] || '') },
+      { label: 'Amount', value: mailbox ? moneyLabel(mailbox.currency, saved['amount']) : '' },
+    ],
+    true,
+  ));
 }
 
 function normalizeItem(raw: any) {
@@ -1245,6 +1724,7 @@ async function processItem(item: any) {
       reason: fromEmail ? 'Sender is not a member of this ledger' : 'No From address',
       fromEmail: fromEmail || '(missing)',
       subject: subject || '(no subject)',
+      flow: ['received', 'sender_not_a_member', 'not_posted', 'team_notified'],
     });
     await notifyMembers(mailbox, bookId, {
       kind: 'rejected',
@@ -1300,21 +1780,31 @@ async function processItem(item: any) {
       hasFile: Boolean(receipt?.path),
       receiptName: receipt?.name || null,
       parseEngine,
+      flow: ['received', 'member_ok', 'parse_failed', 'not_posted', 'sender_notified', 'team_notified'],
     });
+    await sendAmountMissingToSender(mailbox, bookId, {
+      sender: member.email,
+      subjectLine: subject,
+      fileName: receipt?.name,
+      receipt,
+      inboundEventId: eventId,
+      savedAsDraft: false,
+    }).catch(() => undefined);
     await notifyMembers(mailbox, bookId, {
       kind: 'unreadable',
       sender: member.email,
       subjectLine: subject,
       fileName: receipt?.name || '',
-      reason: 'The file had no usable amount, merchant, or invoice data. It was not posted.',
+      reason: 'The file had no usable amount, merchant, or invoice data. It was not posted. The sender was asked to resend a clearer document.',
       inboundEventId: eventId,
     }).catch(() => undefined);
     return { skipped: 'unreadable document', bookId, from: member.email };
   }
 
-  const id = newId();
+  const hash = receipt?.bytes ? fileHash(receipt.bytes) : '';
+  const match = hash ? await findMatchingReceipt(bookId, hash) : null;
   const expense = {
-    id,
+    id: newId(),
     amount: parsed.amount,
     description: parsed.description,
     category: parsed.category,
@@ -1340,55 +1830,129 @@ async function processItem(item: any) {
     emailMessageId: messageId,
     receiptPath: receipt?.path || null,
     receiptName: receipt?.name || null,
+    receiptHash: hash || null,
     ocrPreview: ocrPreview || null,
   };
-  await docSet(`books/${bookId}/expenses/${id}`, expense);
-  await docSet(seenKey, { id, bookId, at: new Date().toISOString(), status: 'accepted' });
-  if (parsed.category && parsed.category !== 'Uncategorized') {
-    try {
-      const bookDoc = await docGet(`books/${bookId}`);
-      if (bookDoc) {
-        const existing = Array.isArray(bookDoc.categories) ? bookDoc.categories.map(String) : [];
-        if (!existing.some((c) => c.toLowerCase() === parsed.category.toLowerCase())) {
-          await docSet(`books/${bookId}`, { ...bookDoc, categories: [...existing, parsed.category] });
-        }
-      }
-    } catch {
-      // category merge is best-effort
-    }
+
+  if (match) {
+    const pendingId = newId();
+    await docSet(`inbound_pending/${pendingId}`, {
+      id: pendingId,
+      status: 'pending',
+      bookId,
+      hash,
+      fromEmail: member.email,
+      subject: subject || '(no subject)',
+      existingExpenseId: match.expenseId,
+      existing: {
+        id: match.expenseId,
+        amount: match.expense.amount,
+        category: match.expense.category,
+        paidByName: match.expense.paidByName,
+        enteredBy: match.expense.enteredBy,
+        enteredByEmail: match.expense.enteredByEmail,
+        description: match.expense.description,
+      },
+      expense,
+      createdAt: new Date().toISOString(),
+    });
+    await docSet(seenKey, { bookId, at: new Date().toISOString(), status: 'duplicate_pending', pendingId });
+    const eventId = await logInboundEvent(bookId, {
+      status: 'duplicate_pending',
+      fromEmail: member.email,
+      subject: subject || '(no subject)',
+      amount: parsed.amount,
+      category: parsed.category,
+      description: parsed.description,
+      hasFile: Boolean(receipt?.path),
+      existingExpenseId: match.expenseId,
+      pendingId,
+      parseEngine,
+      flow: ['received', 'member_ok', 'parsed', 'duplicate_detected', 'awaiting_sender_confirm'],
+    });
+    await docSet(`inbound_pending/${pendingId}`, {
+      ...(await docGet(`inbound_pending/${pendingId}`) || {}),
+      inboundEventId: eventId,
+    });
+    await sendDuplicateConfirmToSender(mailbox, bookId, pendingId, {
+      sender: member.email,
+      subjectLine: subject,
+      existing: { id: match.expenseId, ...match.expense },
+      parsedAmount: parsed.amount,
+      parsedCategory: parsed.category,
+      fileName: receipt?.name,
+      inboundEventId: eventId,
+    }).catch(() => undefined);
+    await notifyMembers(mailbox, bookId, {
+      kind: 'duplicate_pending',
+      sender: member.email,
+      subjectLine: subject,
+      amount: moneyLabel(mailbox.currency, match.expense.amount),
+      category: String(match.expense.category || ''),
+      paidBy: String(match.expense.paidByName || ''),
+      description: 'Sender has been asked to confirm Same receipt or Different entry.',
+      fileName: receipt?.name || '',
+      inboundEventId: eventId,
+    }).catch(() => undefined);
+    return { pending: true, bookId, pendingId, existingExpenseId: match.expenseId };
   }
+
+  const saved = await saveExpenseRecord(bookId, expense);
+  if (hash) await storeFileHash(bookId, hash, saved).catch(() => undefined);
+  await docSet(seenKey, { id: saved.id, bookId, at: new Date().toISOString(), status: 'accepted' });
+  const amountMissing = !(Number(parsed.amount) > 0);
   const eventId = await logInboundEvent(bookId, {
-    status: 'accepted',
+    status: amountMissing ? 'amount_missing' : 'accepted',
     fromEmail: member.email,
     subject: subject || '(no subject)',
-    expenseId: id,
+    expenseId: saved.id,
     amount: parsed.amount,
     category: parsed.category,
     description: parsed.description,
     hasFile: Boolean(receipt?.path),
     parseEngine,
     parseError: expense.parseError || null,
+    flow: [
+      'received',
+      'member_ok',
+      'parsed',
+      amountMissing ? 'amount_not_found' : 'amount_found',
+      amountMissing ? 'saved_as_draft' : 'recorded',
+      amountMissing ? 'sender_notified' : 'team_notified',
+    ],
   });
+  if (amountMissing) {
+    await sendAmountMissingToSender(mailbox, bookId, {
+      sender: member.email,
+      subjectLine: subject,
+      fileName: receipt?.name,
+      receipt,
+      inboundEventId: eventId,
+      savedAsDraft: true,
+    }).catch(() => undefined);
+  }
   await notifyMembers(mailbox, bookId, {
     kind: 'added',
     sender: member.email,
     subjectLine: subject,
-    amount: parsed.amount ? `${mailbox.currency} ${parsed.amount.toFixed(2)}` : 'Not found — saved as draft',
+    amount: amountMissing ? 'Not found — saved as draft for review' : moneyLabel(mailbox.currency, parsed.amount),
     category: parsed.category,
     description: parsed.description,
+    paidBy: member.email,
     fileName: receipt?.name || '',
     inboundEventId: eventId,
   }).catch(() => undefined);
   return {
     ok: true,
     bookId,
-    expenseId: id,
+    expenseId: saved.id,
     amount: parsed.amount,
     category: parsed.category,
     date: parsed.date,
     parseEngine,
     parseError: expense.parseError || null,
     hasFile: Boolean(receipt?.path),
+    amountMissing,
   };
 }
 
@@ -1401,6 +1965,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     if (req.method === 'GET' || req.method === 'HEAD') {
       const url = new URL(req.url || '/', 'https://local.invalid');
+      if (url.searchParams.get('confirm')) {
+        await handleConfirmDecision(req, res);
+        return;
+      }
       const wantsProbe = url.searchParams.get('probe') === 'gemini';
       if (wantsProbe) {
         if (!authorized(req) && !secretsMatch(String(url.searchParams.get('secret') || ''), inboundSecret())) {
