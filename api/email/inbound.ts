@@ -4,7 +4,7 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 const R2_REGION = 'auto';
 const R2_SERVICE = 's3';
 const DOC_PREFIX = 'documents/';
-const INBOUND_DOMAIN = 'in.easypado.com';
+const INBOUND_DOMAIN = 'easypado.com';
 const APP_ORIGIN = 'https://www.easypado.com';
 const DEFAULT_FROM = 'byjanbooks@easypado.com';
 
@@ -245,7 +245,7 @@ function firstString(...values: unknown[]) {
 }
 
 function inboundLocals(text: string) {
-  return (String(text || '').match(/[A-Z0-9._+-]+@(?:in|inbound)\.easypado\.com/gi) || [])
+  return (String(text || '').match(/[A-Z0-9._+-]+@(?:(?:in|inbound)\.)?easypado\.com/gi) || [])
     .map((row) => row.split('@')[0].toLowerCase())
     .filter(Boolean);
 }

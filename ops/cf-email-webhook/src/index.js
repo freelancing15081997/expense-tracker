@@ -1,6 +1,7 @@
 import PostalMime from 'postal-mime';
 
-const INBOUND_SUFFIX = '@in.easypado.com';
+const APEX_SUFFIX = '@easypado.com';
+const LEGACY_INBOUND_SUFFIXES = ['@in.easypado.com', '@inbound.easypado.com'];
 
 function addrList(value) {
   if (!value) return [];
@@ -19,9 +20,9 @@ function addrList(value) {
     .filter((part) => part.includes('@'));
 }
 
-function isInboundRecipient(toHeader, messageTo) {
-  const recipients = [...addrList(toHeader), ...addrList(messageTo)];
-  return recipients.some((addr) => addr.endsWith(INBOUND_SUFFIX));
+function isByjanAddress(addr) {
+  const value = String(addr || '').toLowerCase();
+  return value.endsWith(APEX_SUFFIX) || LEGACY_INBOUND_SUFFIXES.some((suffix) => value.endsWith(suffix));
 }
 
 function pickTo(email, messageTo) {
@@ -30,13 +31,14 @@ function pickTo(email, messageTo) {
     ...addrList(email.cc),
     ...addrList(messageTo),
   ];
-  const inbound = fromParsed.find((addr) => addr.endsWith(INBOUND_SUFFIX));
-  return inbound || fromParsed[0] || String(messageTo || '');
+  const preferred = fromParsed.find((addr) => isByjanAddress(addr));
+  return preferred || fromParsed[0] || String(messageTo || '');
 }
 
 export default {
   async email(message, env, ctx) {
-    const fallback = String(env.FORWARD_FALLBACK || 'byjanbooks@gmail.com').trim();
+    // Catch-all only: specific rules (support@, info@, …) never reach here.
+    // POST every remaining @easypado.com address to Byjan for ledger routing.
     const webhookUrl = String(env.WEBHOOK_URL || '').trim();
     const webhookSecret = String(env.WEBHOOK_SECRET || '').trim();
 
@@ -45,15 +47,7 @@ export default {
       email = await PostalMime.parse(message.raw, { attachmentEncoding: 'base64' });
     } catch (err) {
       console.error('postal-mime parse failed', err);
-      if (fallback) await message.forward(fallback);
-      return;
-    }
-
-    const to = pickTo(email, message.to);
-    const forLedger = isInboundRecipient(email.to, message.to) || String(to).toLowerCase().endsWith(INBOUND_SUFFIX);
-
-    if (!forLedger) {
-      if (fallback) await message.forward(fallback);
+      message.setReject('Failed to parse inbound email');
       return;
     }
 
@@ -63,6 +57,7 @@ export default {
       return;
     }
 
+    const to = pickTo(email, message.to);
     const from =
       email.from?.address ||
       addrList(message.from)[0] ||

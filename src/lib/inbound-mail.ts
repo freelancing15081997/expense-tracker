@@ -1,7 +1,21 @@
 import { db } from './firebase';
 import { doc, getDoc, setDoc } from './store';
 
-export const INBOUND_MAIL_DOMAIN = 'in.easypado.com';
+export const INBOUND_MAIL_DOMAIN = 'easypado.com';
+
+const RESERVED_INBOUND_LOCALS = new Set([
+  'support',
+  'info',
+  'noreply',
+  'no-reply',
+  'admin',
+  'welcome',
+  'byjanbooks',
+  'hello',
+  'contact',
+  'mail',
+  'email',
+]);
 
 export function inboundMailboxSlug(name: string) {
   const slug = String(name || '')
@@ -71,11 +85,13 @@ export function inboundMailboxRecord(book: {
 
 export async function claimInboundSlug(book: { id: string; name?: string }) {
   const preferred = inboundMailboxSlug(book.name || 'ledger');
-  const candidates = [preferred];
-  for (let i = 2; i <= 20; i += 1) candidates.push(`${preferred}-${i}`);
-  candidates.push(`${preferred}-${shortId(book.id)}`);
+  const start = RESERVED_INBOUND_LOCALS.has(preferred) ? `${preferred}-ledger` : preferred;
+  const candidates = [start];
+  for (let i = 2; i <= 20; i += 1) candidates.push(`${start}-${i}`);
+  candidates.push(`${start}-${shortId(book.id)}`);
 
   for (const slug of candidates) {
+    if (RESERVED_INBOUND_LOCALS.has(slug)) continue;
     try {
       const snap = await getDoc(doc(db, 'inbound_aliases', slug));
       const owner = snap.exists() ? String(snap.data()?.bookId || '') : '';
@@ -84,7 +100,7 @@ export async function claimInboundSlug(book: { id: string; name?: string }) {
       return slug;
     }
   }
-  return `${preferred}-${shortId(book.id)}`;
+  return `${start}-${shortId(book.id)}`;
 }
 
 export async function syncInboundMailbox(book: {
