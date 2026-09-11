@@ -1,7 +1,7 @@
 import { db } from './firebase';
 import { doc, getDoc, setDoc } from './store';
 
-export const INBOUND_MAIL_DOMAIN = 'inbound.easypado.com';
+export const INBOUND_MAIL_DOMAIN = 'in.easypado.com';
 
 export function inboundMailboxSlug(name: string) {
   const slug = String(name || '')
