@@ -275,7 +275,7 @@ type ParsedReceipt = {
   category: string;
   entryType: 'in' | 'out';
   documentType: 'receipt' | 'bill' | 'invoice';
-  parseSource: 'text' | 'image' | 'mixed';
+  parseSource: 'text' | 'image' | 'mixed' | 'ocr';
 };
 
 const CATEGORY_RULES: Array<{ category: string; pattern: RegExp }> = [
@@ -329,16 +329,19 @@ function cleanSubject(subject: string) {
 }
 
 function parseAmount(text: string) {
-  const hay = String(text || '');
-  const labeled = hay.match(/(?:grand\s*total|net\s*(?:payable|amount|total)|amount\s*(?:paid|due)|total\s*amount|total|paid)\s*[:\-–]?\s*(?:₹|rs\.?|inr|usd|eur|gbp|\$)?\s*([0-9]{1,3}(?:,[0-9]{2,3})+(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)/i);
+  const hay = String(text || '')
+    .replace(/[|]/g, ' ')
+    .replace(/\b(totai|tota1|tota!)\b/gi, 'total')
+    .replace(/\b(arnount|arnout|arnunt)\b/gi, 'amount');
+  const labeled = hay.match(/(?:grand\s*total|net\s*(?:payable|amount|total)|amount\s*(?:paid|due)|total\s*amount|total|paid)\s*[:\-–]?\s*(?:₹|rs\.?|inr|usd|eur|gbp|\$)?\s*([0-9]{1,3}(?:[,\s][0-9]{2,3})+(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)/i);
   if (labeled) {
-    const amount = toNumber(labeled[1]);
+    const amount = toNumber(labeled[1].replace(/\s/g, ''));
     if (amount) return amount;
   }
-  const currency = hay.match(/(?:₹|rs\.?\s*|inr\s*)([0-9]{1,3}(?:,[0-9]{2,3})+(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)/i)
+  const currency = hay.match(/(?:₹|rs\.?\s*|inr\s*)([0-9]{1,3}(?:[,\s][0-9]{2,3})+(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)/i)
     || hay.match(/\$\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)/);
   if (currency) {
-    const amount = toNumber(currency[1]);
+    const amount = toNumber(currency[1].replace(/\s/g, ''));
     if (amount) return amount;
   }
   return 0;
@@ -407,17 +410,98 @@ export function parseReceiptFields(text: string, extras?: { subject?: string; fi
   };
 }
 
-function geminiKey() {
-  return String(process.env.GEMINI_API_KEY || process.env.GOOGLE_GENAI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
-}
-
-function mimeForGemini(contentType: string, fileName = '') {
+function mimeForDocument(contentType: string, fileName = '') {
   const type = String(contentType || '').toLowerCase();
   const ext = String(fileName || '').split('.').pop()?.toLowerCase() || '';
   if (type.startsWith('image/')) return type === 'image/jpg' ? 'image/jpeg' : type;
   if (type === 'application/pdf' || ext === 'pdf') return 'application/pdf';
   if (['png', 'jpg', 'jpeg', 'webp'].includes(ext)) return ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
   return '';
+}
+
+function withTimeoutMs<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), ms);
+    promise.then((value) => {
+      clearTimeout(timer);
+      resolve(value);
+    }).catch(() => {
+      clearTimeout(timer);
+      resolve(null);
+    });
+  });
+}
+
+async function extractPdfText(bytes: Buffer) {
+  const { PDFParse } = await import('pdf-parse');
+  const parser = new PDFParse({ data: bytes });
+  try {
+    const result = await parser.getText({ partial: [1, 2, 3] });
+    return String(result?.text || '').replace(/\s+/g, ' ').trim().slice(0, 12000);
+  } finally {
+    await parser.destroy().catch(() => undefined);
+  }
+}
+
+async function extractImageText(bytes: Buffer) {
+  const { createWorker } = await import('tesseract.js');
+  const worker = await createWorker('eng');
+  try {
+    const result = await worker.recognize(bytes);
+    return String(result?.data?.text || '').replace(/\s+/g, ' ').trim().slice(0, 12000);
+  } finally {
+    await worker.terminate().catch(() => undefined);
+  }
+}
+
+async function extractDocumentText(bytes: Buffer, contentType: string, fileName: string) {
+  const mime = mimeForDocument(contentType, fileName);
+  if (!mime || !bytes.length) return '';
+  try {
+    if (mime === 'application/pdf') {
+      return (await withTimeoutMs(extractPdfText(bytes), 20_000)) || '';
+    }
+    if (mime.startsWith('image/')) {
+      return (await withTimeoutMs(extractImageText(bytes), 40_000)) || '';
+    }
+  } catch (err) {
+    console.error('document text extract failed', err);
+  }
+  return '';
+}
+
+async function parseDocumentLocal(
+  bytes: Buffer,
+  contentType: string,
+  fileName: string,
+  body: string,
+  subject: string,
+  fallback: ParsedReceipt,
+) {
+  const extracted = await extractDocumentText(bytes, contentType, fileName);
+  if (!extracted) return { parsed: fallback, ocrText: '' };
+  const merged = parseReceiptFields(`${subject}\n${body}\n${extracted}`, { subject, fileName });
+  const parsed: ParsedReceipt = {
+    amount: merged.amount || fallback.amount,
+    date: merged.date || fallback.date,
+    merchant: merged.merchant || fallback.merchant,
+    description: merged.description || fallback.description,
+    category: merged.category !== 'Uncategorized' ? merged.category : fallback.category,
+    entryType: fallback.entryType === 'in' ? 'in' : merged.entryType,
+    documentType: merged.documentType || fallback.documentType,
+    parseSource: merged.amount
+      ? (fallback.amount || body ? 'mixed' : 'ocr')
+      : fallback.parseSource,
+  };
+  return { parsed, ocrText: extracted.slice(0, 500) };
+}
+
+function geminiKey() {
+  return String(process.env.GEMINI_API_KEY || process.env.GOOGLE_GENAI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
+}
+
+function mimeForGemini(contentType: string, fileName = '') {
+  return mimeForDocument(contentType, fileName);
 }
 
 function asParsed(value: any, fallback: ParsedReceipt): ParsedReceipt {
@@ -856,8 +940,22 @@ async function processItem(item: any) {
   }
 
   let parsed = parseReceiptFields(body, { subject, fileName: receipt?.name || attachments[0]?.Name || '' });
+  let ocrPreview = '';
   if (receipt?.bytes) {
-    parsed = await parseDocumentWithGemini(receipt.bytes, receipt.contentType, receipt.name, parsed);
+    const local = await parseDocumentLocal(
+      receipt.bytes,
+      receipt.contentType,
+      receipt.name,
+      body,
+      subject,
+      parsed,
+    );
+    parsed = local.parsed;
+    ocrPreview = local.ocrText;
+    // Optional upgrade only when open-source OCR still couldn't find an amount.
+    if (!parsed.amount) {
+      parsed = await parseDocumentWithGemini(receipt.bytes, receipt.contentType, receipt.name, parsed);
+    }
   }
 
   const id = newId();
@@ -881,6 +979,7 @@ async function processItem(item: any) {
     emailMessageId: messageId,
     receiptPath: receipt?.path || null,
     receiptName: receipt?.name || null,
+    ocrPreview: ocrPreview || null,
   };
   await docSet(`books/${bookId}/expenses/${id}`, expense);
   await docSet(seenKey, { id, bookId, at: new Date().toISOString(), status: 'accepted' });

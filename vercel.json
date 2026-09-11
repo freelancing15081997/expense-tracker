@@ -7,7 +7,7 @@
     "api/migrate.ts": { "maxDuration": 60 },
     "api/email/send.ts": { "maxDuration": 30 },
     "api/email/send-report.ts": { "maxDuration": 60 },
-    "api/email/inbound.ts": { "maxDuration": 60 }
+    "api/email/inbound.ts": { "maxDuration": 60, "memory": 1024 }
   },
   "headers": [
     {
