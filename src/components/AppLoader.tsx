@@ -17,9 +17,12 @@ export default function AppLoader({
         <span className="app-loader-orbit" />
         <span className="font-display text-lg font-semibold tracking-tight">B</span>
       </span>
-      <div className="space-y-1 max-w-xs">
+      <div className="space-y-2 max-w-xs">
         <p className="text-sm font-semibold text-[#0B1F3A]">{heading}</p>
         <p className="text-xs text-slate-500 leading-relaxed">{detail}</p>
+        <span className="app-loader-track" aria-hidden>
+          <span className="app-loader-bar" />
+        </span>
       </div>
     </div>
   );

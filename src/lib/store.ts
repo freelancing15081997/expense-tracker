@@ -416,8 +416,11 @@ export function onSnapshot(
       return;
     }
     const cached = fromCache(source.path, source.constraints);
-    if (cached && !force) next(cached);
-    getDocs(source, force || !cached ? { kvMs: mailLive ? 4000 : 8000 } : undefined).then((snap) => {
+    if (cached && !force) {
+      next(cached);
+      return;
+    }
+    getDocs(source, { kvMs: mailLive ? 4000 : 8000, force }).then((snap) => {
       if (!stopped) next(snap);
     }).catch((err) => {
       if (!stopped) error?.(err);

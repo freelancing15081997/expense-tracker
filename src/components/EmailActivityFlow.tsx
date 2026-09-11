@@ -43,17 +43,35 @@ function pipelineIndex(step: string) {
   return -1;
 }
 
-function elapsedLabel(fromIso?: string) {
-  if (!fromIso) return '';
-  const ms = Date.now() - Date.parse(fromIso);
+function prettyMs(ms: number) {
   if (!Number.isFinite(ms) || ms < 0) return '';
-  if (ms < 1000) return `${ms} ms`;
+  if (ms < 1000) return `${Math.max(1, Math.round(ms))}ms`;
   if (ms < 60_000) return `${Math.round(ms / 100) / 10}s`;
   return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
 }
 
+function elapsedLabel(fromIso?: string) {
+  if (!fromIso) return '';
+  return prettyMs(Date.now() - Date.parse(fromIso));
+}
+
+function durationsFor(steps: Array<{ step: string; at: string }>, live: boolean, now: number) {
+  const times = PIPELINE.map(() => 0);
+  for (let i = 0; i < steps.length; i++) {
+    const idx = pipelineIndex(steps[i].step);
+    if (idx < 0) continue;
+    const start = Date.parse(steps[i].at);
+    if (!Number.isFinite(start)) continue;
+    const nextAt = steps[i + 1]?.at ? Date.parse(steps[i + 1].at) : (live ? now : start);
+    if (!Number.isFinite(nextAt) || nextAt < start) continue;
+    times[idx] += nextAt - start;
+  }
+  return times;
+}
+
 export function EmailActivityFlow({ events }: { events: EventRow[] }) {
   const [, setTick] = useState(0);
+  const [playIdx, setPlayIdx] = useState(-1);
   const inbound = useMemo(
     () => events.filter((e) => e.direction !== 'outbound').sort((a, b) => Date.parse(String(b.createdAt || '')) - Date.parse(String(a.createdAt || ''))),
     [events],
@@ -61,27 +79,59 @@ export function EmailActivityFlow({ events }: { events: EventRow[] }) {
   const latest = inbound[0] || null;
   const steps = flowSteps(latest);
   const current = latest?.currentStep || (steps[steps.length - 1]?.step || '');
-  const activeIdx = pipelineIndex(current);
-    const live = Boolean(latest && (latest.status === 'processing' || latest.status === 'duplicate_pending'));
+  const realIdx = pipelineIndex(current);
+  const live = Boolean(latest && (latest.status === 'processing' || latest.status === 'duplicate_pending'));
+  const recent = Boolean(latest?.createdAt && Date.now() - Date.parse(String(latest.createdAt)) < 28_000);
+  const shownIdx = playIdx >= 0 ? playIdx : realIdx;
+  const now = Date.now();
+  const durations = durationsFor(steps, live, now);
+  const slowest = durations.reduce((best, ms, index) => (ms > durations[best] ? index : best), 0);
 
   useEffect(() => {
-    if (!live) return;
+    if (!live && !recent) return;
     const timer = window.setInterval(() => setTick((n) => n + 1), 250);
     return () => window.clearInterval(timer);
-  }, [live, latest?.id, current]);
+  }, [live, recent, latest?.id, current]);
+
+  useEffect(() => {
+    if (!latest) {
+      setPlayIdx(-1);
+      return;
+    }
+    if (live) {
+      setPlayIdx(Math.max(realIdx, 0));
+      return;
+    }
+    if (recent && realIdx >= 0) {
+      setPlayIdx(0);
+      let i = 0;
+      const timer = window.setInterval(() => {
+        i += 1;
+        if (i >= realIdx) {
+          setPlayIdx(realIdx);
+          window.clearInterval(timer);
+        } else {
+          setPlayIdx(i);
+        }
+      }, 320);
+      return () => window.clearInterval(timer);
+    }
+    setPlayIdx(realIdx);
+  }, [latest?.id, live, realIdx, recent]);
 
   const currentAt = steps.find((row) => row.step === current)?.at || latest?.createdAt;
   const wait = live ? elapsedLabel(currentAt) : '';
+  const slowLabel = !live && durations[slowest] >= 1500 ? PIPELINE[slowest].label : '';
 
   const outcome = !latest ? 'Waiting for mail'
     : latest.status === 'accepted' ? 'Saved to the ledger'
     : latest.status === 'amount_missing' ? 'Saved for review — amount missing'
-    : latest.status === 'duplicate_pending' ? 'Held — sender must confirm'
+    : latest.status === 'duplicate_pending' ? 'Held — waiting for the sender'
     : latest.status === 'duplicate_same' ? 'Same receipt, not added again'
     : latest.status === 'duplicate_new' ? 'Confirmed as a new entry'
     : latest.status === 'unreadable' ? 'File was not a receipt'
     : latest.status === 'rejected' ? 'Sender is not on this ledger'
-    : latest.status === 'processing' ? (wait ? `Working — ${PIPELINE[Math.max(activeIdx, 0)]?.label || 'in progress'} ${wait}` : 'Working now')
+    : latest.status === 'processing' ? (wait ? `Working on ${PIPELINE[Math.max(shownIdx, 0)]?.label || 'this mail'} · ${wait}` : 'Working now')
     : 'Latest mail';
 
   return (
@@ -93,30 +143,36 @@ export function EmailActivityFlow({ events }: { events: EventRow[] }) {
         </div>
         {wait && latest?.status === 'processing' ? (
           <span className="text-[11px] font-semibold text-teal-800 bg-teal-50 border border-teal-100 rounded-full px-2 py-1 shrink-0">
-            {PIPELINE[Math.max(activeIdx, 0)]?.label} · {wait}
+            {PIPELINE[Math.max(shownIdx, 0)]?.label} · {wait}
+          </span>
+        ) : slowLabel ? (
+          <span className="text-[11px] font-medium text-slate-600 bg-slate-50 border border-slate-200 rounded-full px-2 py-1 shrink-0">
+            Slowest · {slowLabel} {prettyMs(durations[slowest])}
           </span>
         ) : null}
       </div>
       <div className="p-4">
         <div className="flex items-center gap-1 overflow-x-auto pb-1">
           {PIPELINE.map((step, index) => {
-            const done = activeIdx > index || (!live && latest && activeIdx >= index);
-            const active = live && activeIdx === index;
+            const done = shownIdx > index || (!live && latest && shownIdx >= index && !recent) || (recent && shownIdx > index);
+            const active = (live || recent) && shownIdx === index && (live || shownIdx < realIdx || latest?.status === 'processing');
+            const settled = !live && shownIdx >= index && (!recent || index < shownIdx || shownIdx === realIdx);
+            const took = durations[index];
             return (
               <React.Fragment key={step.id}>
-                <div className={`min-w-[92px] flex-1 rounded-xl border px-2.5 py-2.5 transition-all duration-300 ${
-                  active ? 'border-teal-400 bg-teal-50 shadow-[0_0_0_3px_rgba(18,184,168,0.12)]' : done ? 'border-emerald-200 bg-emerald-50/70' : 'border-slate-200 bg-slate-50'
+                <div className={`mail-step min-w-[92px] flex-1 rounded-xl border px-2.5 py-2.5 transition-all duration-300 ${
+                  active ? 'mail-step-live border-teal-400 bg-teal-50' : settled || done ? 'border-emerald-200 bg-emerald-50/70' : 'border-slate-200 bg-slate-50'
                 }`}>
-                  <p className={`text-[10px] font-semibold uppercase tracking-wider ${active ? 'text-teal-700' : done ? 'text-emerald-700' : 'text-slate-400'}`}>
+                  <p className={`text-[10px] font-semibold uppercase tracking-wider ${active ? 'text-teal-700' : settled || done ? 'text-emerald-700' : 'text-slate-400'}`}>
                     {String(index + 1).padStart(2, '0')}
                   </p>
-                  <p className={`text-sm font-semibold mt-0.5 ${active ? 'text-[#0B1F3A]' : done ? 'text-emerald-900' : 'text-slate-500'}`}>{step.label}</p>
+                  <p className={`text-sm font-semibold mt-0.5 ${active ? 'text-[#0B1F3A]' : settled || done ? 'text-emerald-900' : 'text-slate-500'}`}>{step.label}</p>
                   <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
-                    {active && wait ? `Here · ${wait}` : done ? 'Done' : step.hint}
+                    {active && wait ? `Here · ${wait}` : took >= 80 ? prettyMs(took) : settled || done ? 'Done' : step.hint}
                   </p>
                 </div>
                 {index < PIPELINE.length - 1 && (
-                  <span className={`hidden sm:block w-4 h-0.5 shrink-0 rounded-full ${done || active ? 'bg-teal-400' : 'bg-slate-200'}`} />
+                  <span className={`hidden sm:block w-4 h-0.5 shrink-0 rounded-full transition-colors duration-300 ${settled || done || active ? 'bg-teal-400' : 'bg-slate-200'}`} />
                 )}
               </React.Fragment>
             );
@@ -149,7 +205,7 @@ export function emailStatusLabel(status: string) {
     case 'duplicate_new': return 'New entry';
     case 'sent': return 'Sent';
     case 'failed': return 'Failed';
-    default: return status || 'Unknown';
+    default: return status ? 'Updated' : 'Unknown';
   }
 }
 

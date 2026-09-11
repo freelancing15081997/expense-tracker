@@ -201,8 +201,8 @@ export default function BookView() {
     setInboundEventsLoading(true);
     try {
       const [inboundSnap, outboundSnap] = await Promise.all([
-        getDocs(query(collection(db, `books/${bookId}/inbound_events`))),
-        getDocs(query(collection(db, `books/${bookId}/email_events`))),
+        getDocs(query(collection(db, `books/${bookId}/inbound_events`)), { force: true }),
+        getDocs(query(collection(db, `books/${bookId}/email_events`)), { force: true }),
       ]);
       const inbound: any[] = [];
       inboundSnap.forEach((d) => inbound.push({ id: d.id, direction: 'inbound', ...d.data() }));
@@ -706,6 +706,7 @@ export default function BookView() {
   return (
     <>
       <div className="max-w-6xl mx-auto">
+      <Tabs.Root value={ledgerTab} onValueChange={setLedgerTab} className="space-y-4">
         <div className="sticky top-0 z-20 -mx-4 md:-mx-6 lg:-mx-8 px-4 md:px-6 lg:px-8 pt-1 pb-3 bg-[#F5F7FA]/95 backdrop-blur-md border-b border-slate-200/80">
       <div className="flex items-center justify-between gap-2 mb-3">
         <div className="flex items-center gap-2 min-w-0">
@@ -759,7 +760,6 @@ export default function BookView() {
           </div>
         </div>
 
-      <Tabs.Root value={ledgerTab} onValueChange={setLedgerTab} className="space-y-4">
         <Tabs.List className="flex gap-4 border-b border-slate-200/60 overflow-x-auto">
           <Tabs.Trigger value="ledger" className="pb-2 text-sm font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B1F3A] data-[state=active]:border-b-2 data-[state=active]:border-[#12B8A8] transition-colors whitespace-nowrap">
             Ledger Entries
@@ -772,31 +772,26 @@ export default function BookView() {
           </Tabs.Trigger>
         </Tabs.List>
 
-        {ledgerTab === 'ledger' && (
-          <div className="flex flex-col sm:flex-row items-center gap-3">
-            <div className="w-full sm:w-auto flex-1 flex flex-row items-center justify-between byjan-card p-3 px-5">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Net Balance</p>
-              <h2 className={cn("text-lg font-bold", balance >= 0 ? "text-emerald-600" : "text-rose-600")}>{balance < 0 ? '-' : ''}{getCurrencySymbol(book.currency)} {Math.abs(balance).toLocaleString(undefined, {minimumFractionDigits: 2})}</h2>
-            </div>
-            <div className="w-full sm:w-auto flex-1 flex flex-row items-center justify-between byjan-card p-3 px-5">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Money Out</p>
-              <h2 className="text-lg font-bold text-rose-600">{getCurrencySymbol(book.currency)} {totalOut.toLocaleString(undefined, {minimumFractionDigits: 2})}</h2>
-            </div>
-            <div className="w-full sm:w-auto flex-1 flex flex-row items-center justify-between byjan-card p-3 px-5">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Money In</p>
-              <h2 className="text-lg font-bold text-emerald-600">{getCurrencySymbol(book.currency)} {totalIn.toLocaleString(undefined, {minimumFractionDigits: 2})}</h2>
-            </div>
-            <div className="w-full sm:w-auto flex-1 flex flex-row items-center justify-between byjan-card p-3 px-5">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Transfer</p>
-              <h2 className="text-lg font-bold text-blue-600">{getCurrencySymbol(book.currency)} {totalTransfer.toLocaleString(undefined, {minimumFractionDigits: 2})}</h2>
-            </div>
-            {isAuditor && (
-              <div className="w-full sm:w-auto flex-1 bg-amber-50 p-3 px-5 rounded-lg border border-amber-200 shadow-sm flex flex-row items-center justify-between relative overflow-hidden">
-                <p className="text-xs font-bold text-amber-800 uppercase tracking-wider">Auditor</p>
-                <p className="text-[10px] text-amber-900/80 font-medium z-10">Read-only</p>
-              </div>
-            )}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+          <div className="byjan-card flex items-center justify-between gap-2 px-3 py-2">
+            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Net</p>
+            <p className={cn("text-sm font-bold tabular-nums", balance >= 0 ? "text-emerald-600" : "text-rose-600")}>{balance < 0 ? '-' : ''}{getCurrencySymbol(book.currency)}{Math.abs(balance).toLocaleString(undefined, {minimumFractionDigits: 2})}</p>
           </div>
+          <div className="byjan-card flex items-center justify-between gap-2 px-3 py-2">
+            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Out</p>
+            <p className="text-sm font-bold tabular-nums text-rose-600">{getCurrencySymbol(book.currency)}{totalOut.toLocaleString(undefined, {minimumFractionDigits: 2})}</p>
+          </div>
+          <div className="byjan-card flex items-center justify-between gap-2 px-3 py-2">
+            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">In</p>
+            <p className="text-sm font-bold tabular-nums text-emerald-600">{getCurrencySymbol(book.currency)}{totalIn.toLocaleString(undefined, {minimumFractionDigits: 2})}</p>
+          </div>
+          <div className="byjan-card flex items-center justify-between gap-2 px-3 py-2">
+            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Transfer</p>
+            <p className="text-sm font-bold tabular-nums text-blue-600">{getCurrencySymbol(book.currency)}{totalTransfer.toLocaleString(undefined, {minimumFractionDigits: 2})}</p>
+          </div>
+        </div>
+        {isAuditor && (
+          <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">Auditor view — read only</p>
         )}
         </div>
 
@@ -1038,8 +1033,8 @@ export default function BookView() {
           />
 
           <div className="byjan-table overflow-hidden">
-            {inboundEventsLoading ? (
-              <div className="p-8 text-center text-sm text-slate-500">Loading email activity…</div>
+            {inboundEventsLoading && emailList.filtered.length === 0 ? (
+              <AppLoader title="Email activity" message="Updating the live mail path." />
             ) : emailList.filtered.length === 0 ? (
               <div className="p-8 text-center text-sm text-slate-500">No email activity for this ledger yet. Forward a receipt to the inbound address or add an entry to notify the team.</div>
             ) : (

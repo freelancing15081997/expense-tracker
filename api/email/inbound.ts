@@ -1107,19 +1107,26 @@ async function sendMail(
   }
 }
 
+const inboundLive = new Map<string, Record<string, unknown>>();
+
 async function logInboundEvent(bookId: string, event: Record<string, unknown>) {
   const id = newId();
   const createdAt = new Date().toISOString();
   const { flow: incomingFlow, ...rest } = event;
   const step = String(rest.currentStep || 'received');
-  await docSet(`books/${bookId}/inbound_events/${id}`, {
+  const flow = Array.isArray(incomingFlow)
+    ? asFlowRows(incomingFlow)
+    : [{ step: 'received', at: createdAt, label: FLOW_LABELS.received }, ...(step === 'received' ? [] : [{ step, at: createdAt, label: FLOW_LABELS[step] || step }])];
+  const doc = {
     id,
     bookId,
     createdAt,
     currentStep: step,
-    flow: Array.isArray(incomingFlow) ? asFlowRows(incomingFlow) : [{ step: 'received', at: createdAt, label: FLOW_LABELS.received }, { step, at: createdAt, label: FLOW_LABELS[step] || step }],
+    flow,
     ...rest,
-  });
+  };
+  inboundLive.set(id, doc);
+  await docSet(`books/${bookId}/inbound_events/${id}`, doc);
   return id;
 }
 
@@ -1153,18 +1160,20 @@ function asFlowRows(value: unknown): Array<{ step: string; at: string; label: st
 
 async function markFlow(bookId: string, eventId: string, step: string, extra: Record<string, unknown> = {}) {
   if (!eventId) return;
-  const current = await docGet(`books/${bookId}/inbound_events/${eventId}`);
+  const current = inboundLive.get(eventId) || await docGet(`books/${bookId}/inbound_events/${eventId}`);
   if (!current) return;
   const flow = asFlowRows(current.flow);
   if (!flow.some((row) => row.step === step)) {
     flow.push({ step, at: new Date().toISOString(), label: FLOW_LABELS[step] || step });
   }
-  await docSet(`books/${bookId}/inbound_events/${eventId}`, {
+  const next = {
     ...current,
     ...extra,
     currentStep: step,
     flow,
-  }).catch(() => undefined);
+  };
+  inboundLive.set(eventId, next);
+  await docSet(`books/${bookId}/inbound_events/${eventId}`, next).catch(() => undefined);
 }
 
 async function notifyMembers(
@@ -1366,6 +1375,8 @@ async function storeFileHash(bookId: string, hash: string, expense: Record<strin
     paidByName: expense.paidByName || '',
     enteredBy: expense.enteredBy || '',
     enteredByEmail: expense.enteredByEmail || '',
+    description: expense.description || '',
+    date: expense.date || '',
     createdAt: expense.createdAt || new Date().toISOString(),
   });
 }
@@ -1403,6 +1414,7 @@ async function findMatchingReceipt(
       return { hash, expenseId: expenseId || String(row.expenseId || ''), expense: row, reason: 'same_file' as const };
     }
   }
+  if (!parsed) return null;
   const expenses = await listLedgerExpenses(bookId);
   if (hash) {
     const byHash = expenses.find((row) => String(row.receiptHash || '') === hash);
@@ -1641,12 +1653,16 @@ async function sendDuplicateConfirmToSender(
     rows: [
       { label: 'Ledger', value: mailbox.name },
       { label: 'Already added by', value: addedBy === 'you' ? 'You' : addedBy },
+      { label: 'Existing entry', value: String(opts.existing.description || '') },
+      { label: 'Existing date', value: String(opts.existing.date || '') },
       { label: 'Existing category', value: String(opts.existing.category || 'Uncategorized') },
       { label: 'Paid by', value: String(opts.existing.paidByName || opts.existing.enteredBy || '—') },
       { label: 'Existing amount', value: moneyLabel(mailbox.currency, opts.existing.amount) },
-      { label: 'This file amount', value: moneyLabel(mailbox.currency, opts.parsedAmount) },
-      { label: 'This file category', value: opts.parsedCategory || '' },
-    ],
+      ...(Number(opts.parsedAmount || 0) > 0 ? [
+        { label: 'This file amount', value: moneyLabel(mailbox.currency, opts.parsedAmount) },
+        { label: 'This file category', value: opts.parsedCategory || '' },
+      ] : []),
+    ].filter((row) => String(row.value || '').trim()),
     note: sameAmount
       ? 'The amounts match. If this is the same receipt, choose Same receipt — nothing extra will be posted, and any extra line will be rolled back.'
       : 'If you consider this a different purchase or invoice, choose Different entry and Byjan will save it without asking again.',
@@ -1973,7 +1989,7 @@ async function processItem(item: any) {
     status: 'processing',
     fromEmail: member.email,
     subject: subject || '(no subject)',
-    currentStep: 'member_ok',
+    currentStep: 'received',
   });
   await markFlow(bookId, eventId, 'member_ok');
 

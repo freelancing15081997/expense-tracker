@@ -433,6 +433,7 @@ svg.byjan-glyph {
   justify-content: center;
   position: relative;
   box-shadow: 0 10px 24px -14px rgba(11, 31, 58, 0.55);
+  animation: app-loader-breathe 1.8s ease-in-out infinite;
 }
 .app-loader-orbit {
   position: absolute;
@@ -445,6 +446,39 @@ svg.byjan-glyph {
 }
 @keyframes app-loader-spin {
   to { transform: rotate(360deg); }
+}
+@keyframes app-loader-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.04); }
+}
+.mail-step-live {
+  box-shadow: 0 0 0 3px rgba(18, 184, 168, 0.14);
+  animation: mail-step-pulse 1.15s ease-in-out infinite;
+}
+@keyframes mail-step-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(18, 184, 168, 0.12); }
+  50% { box-shadow: 0 0 0 6px rgba(18, 184, 168, 0.08); }
+}
+.app-loader-track {
+  display: block;
+  width: 7.5rem;
+  height: 3px;
+  margin: 0 auto;
+  border-radius: 999px;
+  background: #E5E7EB;
+  overflow: hidden;
+}
+.app-loader-bar {
+  display: block;
+  height: 100%;
+  width: 40%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #0B1F3A, #12B8A8);
+  animation: app-loader-slide 1.15s ease-in-out infinite;
+}
+@keyframes app-loader-slide {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(280%); }
 }
 .books-loader-stage {
   width: 112px;
