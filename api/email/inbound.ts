@@ -49,6 +49,7 @@ function authorized(req: VercelRequest) {
   const bearer = auth.toLowerCase().startsWith('bearer ') ? auth.slice(7).trim() : '';
   const candidates = [
     header(req, 'x-inbound-secret'),
+    header(req, 'x-webhook-secret'),
     header(req, 'x-brevo-secret'),
     bearer,
     String(url.searchParams.get('secret') || ''),
@@ -742,17 +743,22 @@ async function notifyMembers(
 
 function normalizeItem(raw: any) {
   if (!raw || typeof raw !== 'object') return null;
-  // Haraka plugin payload (preferred — attachments already inline).
-  if (raw.source === 'haraka' || raw.haraka || (!raw.From && (raw.from || raw.to))) {
+  // Haraka / Cloudflare Email Worker payload (attachments already inline).
+  if (
+    raw.source === 'haraka' ||
+    raw.source === 'cloudflare-email' ||
+    raw.haraka ||
+    (!raw.From && (raw.from || raw.to))
+  ) {
     const attachments = Array.isArray(raw.attachments)
       ? raw.attachments.map((att: any) => ({
           Name: att.filename || att.fileName || att.name || att.Name,
-          ContentType: att.contentType || att.type || att.ContentType,
+          ContentType: att.contentType || att.mimeType || att.type || att.ContentType,
           content: att.content || att.Content || att.contentBase64,
         }))
       : [];
     return {
-      Uuid: raw.messageId || raw.Uuid || raw.id,
+      Uuid: raw.messageId || raw.Uuid || raw.id || raw.receivedAt,
       MessageId: raw.messageId || raw.MessageId,
       From: raw.from || raw.From,
       To: raw.to || raw.To,

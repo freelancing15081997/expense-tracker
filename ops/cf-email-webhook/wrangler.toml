@@ -1,0 +1,10 @@
+name = "in-easypado-email-webhook"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+account_id = "8e7d49dfafd69eee09c8ee39e9b18c0e"
+
+# Secrets (set with wrangler secret put):
+#   WEBHOOK_URL      → https://www.easypado.com/api/email/inbound
+#   WEBHOOK_SECRET   → same as Vercel INBOUND_WEBHOOK_SECRET
+# Optional var:
+#   FORWARD_FALLBACK → byjanbooks@gmail.com (apex mail not for @in.)
