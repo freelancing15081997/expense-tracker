@@ -744,7 +744,6 @@ async function loadMailbox(bookId: string) {
 
 async function resolveBookId(item: any) {
   const locals = [
-    ...inboundLocals(JSON.stringify(item)),
     ...emailsFrom(item.To).flatMap(inboundLocals),
     ...emailsFrom(item.Cc).flatMap(inboundLocals),
     ...emailsFrom(item.Recipient).flatMap(inboundLocals),
@@ -760,6 +759,37 @@ async function resolveBookId(item: any) {
     if (bookId) return bookId;
   }
   return '';
+}
+
+async function recordUnmatchedMail(item: any, reason: string) {
+  const id = newId();
+  const fromEmail = emailsFrom(item.From)[0] || emailsFrom(item.Headers?.From)[0] || '';
+  const to = firstString(item.To, item.Recipient) || '';
+  const subject = firstString(item.Subject, item.Headers?.Subject) || '(no subject)';
+  await docSet(`inbound_unmatched/${id}`, {
+    id,
+    reason,
+    fromEmail,
+    to,
+    subject,
+    createdAt: new Date().toISOString(),
+  }).catch(() => undefined);
+  if (!fromEmail) return id;
+  await sendMail(
+    fromEmail,
+    'This Byjan address is not a ledger mailbox',
+    wrapByjanEmail({
+      kicker: 'Address notice',
+      title: 'This mail was not added to a ledger',
+      intro: 'The address you sent to is not an active ledger mailbox, so Byjan did not create an entry.',
+      rows: [
+        { label: 'Sent to', value: to || '(missing)' },
+        { label: 'Subject', value: subject },
+      ],
+      note: 'Open the ledger in Byjan and copy the exact receipt address shown on that book. Do not guess the address.',
+    }),
+  ).catch((err) => console.error('unmatched inbound notice failed', err));
+  return id;
 }
 
 function trustedInboundSenders() {
@@ -1091,7 +1121,12 @@ async function notifyMembers(
   },
 ) {
   const emails = Object.values(mailbox.roles).map((row) => String(row?.email || '').toLowerCase()).filter(Boolean);
-  const unique = [...new Set(emails)];
+  let unique = [...new Set(emails)];
+  if (!unique.length && mailbox.ownerId) {
+    const owner = await docGet(`users/${mailbox.ownerId}`).catch(() => null);
+    const ownerEmail = String(owner?.email || '').trim().toLowerCase();
+    if (ownerEmail) unique = [ownerEmail];
+  }
   const link = `${APP_ORIGIN}/#/book/${bookId}`;
   const copy = {
     added: {
@@ -1901,8 +1936,9 @@ async function holdAsDuplicate(opts: {
 async function processItem(item: any) {
   const bookId = await resolveBookId(item);
   if (!bookId) {
-    console.warn('inbound skipped, no ledger address', { to: item?.To, from: item?.From, subject: item?.Subject });
-    return { skipped: 'no ledger address', to: item?.To || '', from: item?.From || '' };
+    const unmatchedId = await recordUnmatchedMail(item, 'no ledger address');
+    console.warn('inbound skipped, no ledger address', { to: item?.To, from: item?.From, subject: item?.Subject, unmatchedId });
+    return { skipped: 'no ledger address', to: item?.To || '', from: item?.From || '', unmatchedId };
   }
 
   const messageId = firstString(item.Uuid, item.MessageId, item.Headers?.['Message-ID'], item.Headers?.['Message-Id']) || newId();
@@ -1910,7 +1946,10 @@ async function processItem(item: any) {
   if (await docGet(seenKey)) return { skipped: 'duplicate', bookId };
 
   const mailbox = await loadMailbox(bookId);
-  if (!mailbox) return { skipped: 'unknown ledger', bookId };
+  if (!mailbox) {
+    await recordUnmatchedMail(item, `unknown ledger ${bookId}`);
+    return { skipped: 'unknown ledger', bookId };
+  }
 
   const fromEmail = emailsFrom(item.From)[0] || emailsFrom(item.Headers?.From)[0] || '';
   const subject = firstString(item.Subject, item.Headers?.Subject);

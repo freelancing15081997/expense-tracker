@@ -174,31 +174,15 @@ async function ledgerResolveInboundSlug(local) {
   );
   const fromMailbox = text(mailboxes[0]?.book_id);
   if (fromMailbox) return fromMailbox;
-  const spaced = slug.replace(/-/g, " ");
-  const named = asRows(
+  const claimed = asRows(
     await sql`
-      SELECT id, name, data FROM books
+      SELECT id FROM books
       WHERE data->>'inboundSlug' = ${slug}
          OR lower(data->>'inboundAddress') = ${`${slug}@${INBOUND_DOMAIN}`}
-         OR lower(replace(name, ' ', '-')) = ${slug}
-         OR lower(name) = ${spaced}
-         OR lower(name) = ${slug}
-      ORDER BY updated_at ASC
-      LIMIT 20
+      LIMIT 1
     `
   );
-  const eligible = named.filter((row) => {
-    const data2 = asObject(row.data) || {};
-    const rawClaimed = String(data2.inboundSlug || String(data2.inboundAddress || "").split("@")[0] || "").trim();
-    const claimed = rawClaimed ? inboundMailboxSlug(rawClaimed) : "";
-    if (claimed && claimed !== slug) return false;
-    return inboundMailboxSlug(String(row.name || data2.name || "")) === slug || claimed === slug;
-  });
-  if (!eligible.length) return "";
-  const book = eligible[0];
-  const data = { ...asObject(book.data) || {}, name: book.name || asObject(book.data)?.name };
-  await ledgerEnsureMailbox(String(book.id), data).catch(() => void 0);
-  return String(book.id);
+  return text(claimed[0]?.id);
 }
 async function ensureLedgerSchema(sql) {
   await sql`CREATE TABLE IF NOT EXISTS documents (
