@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import AppLoader from '../components/AppLoader';
 import { ListControls, usePagedList } from '../components/ListControls';
 import { BOOKS_TREE } from '../books/catalog/modules';
-import { openLedgerButtonHtml, syncInboundMailbox } from '../lib/inbound-mail';
+import { openLedgerButtonHtml } from '../lib/inbound-mail';
 
 interface BookItem {
   id: string;
@@ -105,24 +105,13 @@ export default function Dashboard() {
     if (!currentUser || !userProfile || !newBookName.trim()) return;
     setCreating(true);
     try {
-      const created = await addDoc(collection(db, 'books'), {
+      await addDoc(collection(db, 'books'), {
         name: newBookName,
         ownerId: currentUser.uid,
         currency: newCurrency,
         createdAt: serverTimestamp(),
         roles: { [currentUser.uid]: { role: 'owner', email: userProfile.email } }
       });
-      try {
-        await syncInboundMailbox({
-          id: created.id,
-          name: newBookName,
-          currency: newCurrency,
-          ownerId: currentUser.uid,
-          roles: { [currentUser.uid]: { role: 'owner', email: userProfile.email } },
-        });
-      } catch (err) {
-        console.error('Inbound mailbox sync failed', err);
-      }
       setNewBookName('');
       setShowNewBook(false);
       fetchData();
@@ -145,13 +134,6 @@ export default function Dashboard() {
       const bookSnap = await getDoc(doc(db, 'books', invite.bookId));
       if (bookSnap.exists()) {
         const bookData = bookSnap.data();
-        void syncInboundMailbox({
-          id: invite.bookId,
-          name: String(bookData.name || invite.bookName),
-          currency: String(bookData.currency || 'INR'),
-          ownerId: String(bookData.ownerId || ''),
-          roles: (bookData.roles || {}) as Record<string, { role?: string; email?: string }>,
-        }).catch(() => undefined);
         const emails = Object.values(bookData.roles)
           .map((r: any) => r.email)
           .filter((email: string) => email !== userProfile.email);

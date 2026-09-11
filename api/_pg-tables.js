@@ -88,19 +88,42 @@ async function ledgerEnsureMailbox(bookId, data = {}) {
   if (!id) return null;
   const obj = asObject(data) || {};
   const current = asObject(await ledgerGet(`inbound_mailboxes/${id}`)) || {};
+  const existingSlug = inboundMailboxSlug(text(current.slug));
+  if (existingSlug && text(current.address)) {
+    const record = {
+      bookId: id,
+      name: text(obj.name || current.name) || "Ledger",
+      currency: text(obj.currency || current.currency) || "INR",
+      ownerId: text(obj.ownerId || current.ownerId),
+      roles: Object.keys(rolesOf(obj.roles)).length ? rolesOf(obj.roles) : rolesOf(current.roles),
+      slug: existingSlug,
+      address: text(current.address) || inboundAddressFor(existingSlug),
+      updatedAt: text(current.updatedAt) || (/* @__PURE__ */ new Date()).toISOString()
+    };
+    if (text(obj.inboundAddress) !== record.address || text(obj.inboundSlug) !== record.slug) {
+      await stampBookMailbox(id, record).catch(() => void 0);
+    }
+    return record;
+  }
   const name = text(obj.name || current.name) || "Ledger";
-  const preferred = inboundMailboxSlug(text(current.slug) || name);
+  const preferred = inboundMailboxSlug(name);
   const start = RESERVED_INBOUND_LOCALS.has(preferred) ? `${preferred}-ledger` : preferred;
-  const candidates = [start];
-  for (let i = 2; i <= 20; i += 1) candidates.push(`${start}-${i}`);
-  candidates.push(`${start}-${shortBookId(id)}`);
+  const candidates = [];
   const seen = /* @__PURE__ */ new Set();
-  for (const candidate of candidates) {
+  for (const candidate of [start, ...Array.from({ length: 19 }, (_, i) => `${start}-${i + 2}`), `${start}-${shortBookId(id)}`]) {
     const slug = inboundMailboxSlug(candidate);
     if (!slug || seen.has(slug) || RESERVED_INBOUND_LOCALS.has(slug)) continue;
     seen.add(slug);
-    const alias = asObject(await ledgerGet(`inbound_aliases/${slug}`));
-    const owner = text(alias?.bookId);
+    candidates.push(slug);
+  }
+  if (!candidates.length) return null;
+  const sql = await getLedgerSql();
+  const takenRows = asRows(
+    await sql`SELECT slug, data->>'bookId' AS book_id FROM inbound_aliases WHERE slug = ANY(${candidates})`
+  );
+  const taken = new Map(takenRows.map((row) => [text(row.slug), text(row.book_id)]));
+  for (const slug of candidates) {
+    const owner = taken.get(slug) || "";
     if (owner && owner !== id) continue;
     const record = {
       bookId: id,
@@ -119,14 +142,6 @@ async function ledgerEnsureMailbox(bookId, data = {}) {
       updatedAt: record.updatedAt
     });
     if (!claimed) continue;
-    if (owner === id) {
-      await ledgerSet(`inbound_aliases/${slug}`, {
-        bookId: id,
-        slug,
-        name,
-        updatedAt: record.updatedAt
-      });
-    }
     await ledgerSet(`inbound_mailboxes/${id}`, record);
     await stampBookMailbox(id, record).catch(() => void 0);
     return record;
@@ -147,54 +162,40 @@ async function ledgerResolveInboundSlug(local) {
   if (!slug || RESERVED_INBOUND_LOCALS.has(slug)) return "";
   const alias = asObject(await ledgerGet(`inbound_aliases/${slug}`));
   const fromAlias = text(alias?.bookId);
-  if (fromAlias) {
-    const book2 = asObject(await ledgerGet(`books/${fromAlias}`));
-    if (book2) await ledgerEnsureMailbox(fromAlias, book2).catch(() => void 0);
-    return fromAlias;
-  }
+  if (fromAlias) return fromAlias;
   const sql = await getLedgerSql();
   const mailboxes = asRows(
     await sql`
-      SELECT book_id, data FROM inbound_mailboxes
+      SELECT book_id FROM inbound_mailboxes
       WHERE data->>'slug' = ${slug}
          OR lower(data->>'address') = ${`${slug}@${INBOUND_DOMAIN}`}
-      LIMIT 5
+      LIMIT 1
     `
   );
-  for (const row of mailboxes) {
-    const bookId = text(row.book_id);
-    if (!bookId) continue;
-    const book2 = asObject(await ledgerGet(`books/${bookId}`)) || asObject(row.data) || {};
-    await ledgerEnsureMailbox(bookId, book2).catch(() => void 0);
-    return bookId;
-  }
+  const fromMailbox = text(mailboxes[0]?.book_id);
+  if (fromMailbox) return fromMailbox;
   const spaced = slug.replace(/-/g, " ");
   const named = asRows(
     await sql`
       SELECT id, name, data FROM books
-      WHERE lower(replace(name, ' ', '-')) = ${slug}
+      WHERE data->>'inboundSlug' = ${slug}
+         OR lower(data->>'inboundAddress') = ${`${slug}@${INBOUND_DOMAIN}`}
+         OR lower(replace(name, ' ', '-')) = ${slug}
          OR lower(name) = ${spaced}
          OR lower(name) = ${slug}
       ORDER BY updated_at ASC
       LIMIT 20
     `
   );
-  const eligible = (rows) => rows.filter((row) => {
+  const eligible = named.filter((row) => {
     const data2 = asObject(row.data) || {};
     const rawClaimed = String(data2.inboundSlug || String(data2.inboundAddress || "").split("@")[0] || "").trim();
     const claimed = rawClaimed ? inboundMailboxSlug(rawClaimed) : "";
     if (claimed && claimed !== slug) return false;
-    return inboundMailboxSlug(String(row.name || data2.name || "")) === slug;
+    return inboundMailboxSlug(String(row.name || data2.name || "")) === slug || claimed === slug;
   });
-  let matches = eligible(named);
-  if (!matches.length) {
-    const recent = asRows(
-      await sql`SELECT id, name, data FROM books ORDER BY updated_at ASC LIMIT 250`
-    );
-    matches = eligible(recent);
-  }
-  if (!matches.length) return "";
-  const book = matches[0];
+  if (!eligible.length) return "";
+  const book = eligible[0];
   const data = { ...asObject(book.data) || {}, name: book.name || asObject(book.data)?.name };
   await ledgerEnsureMailbox(String(book.id), data).catch(() => void 0);
   return String(book.id);
@@ -550,7 +551,9 @@ async function ledgerSet(path, data, insertOnly = false) {
       ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, owner_id = EXCLUDED.owner_id, currency = EXCLUDED.currency, data = EXCLUDED.data, updated_at = NOW()
     `;
     await syncBookMembers(sql, id, obj);
-    await ledgerEnsureMailbox(id, obj).catch(() => void 0);
+    if (!text(obj.inboundSlug) && !text(obj.inboundAddress)) {
+      await ledgerEnsureMailbox(id, obj).catch(() => void 0);
+    }
     return true;
   }
   if (parts[0] === "books" && parts[2] === "expenses" && parts.length === 4) {

@@ -142,7 +142,7 @@ export default function BookView() {
         delete nextRoles[uidToRemove];
         const nextBook = { ...book, roles: nextRoles };
         setBook(nextBook);
-        void syncInboundMailbox(nextBook).then((record) => setInboundAddress(record.address)).catch(() => undefined);
+        setInboundAddress(bookInboundAddress(nextBook));
         
         addToast(isSelf ? 'You have left the ledger.' : 'Member removed.', 'success');
         
@@ -167,7 +167,9 @@ export default function BookView() {
         const next = { id: docSnap.id, ...docSnap.data() };
         setBook(next);
         setInboundAddress(bookInboundAddress(next));
-        void syncInboundMailbox(next).then((record) => setInboundAddress(record.address)).catch(() => undefined);
+        if (!String(next.inboundAddress || next.inboundSlug || '').trim()) {
+          void syncInboundMailbox(next).then((record) => setInboundAddress(record.address)).catch(() => undefined);
+        }
       }
     };
     fetchBook();

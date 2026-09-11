@@ -112,20 +112,45 @@ export async function ledgerEnsureMailbox(bookId: string, data: Record<string, u
   if (!id) return null;
   const obj = asObject(data) || {};
   const current = asObject(await ledgerGet(`inbound_mailboxes/${id}`)) || {};
-  const name = text(obj.name || current.name) || 'Ledger';
-  const preferred = inboundMailboxSlug(text(current.slug) || name);
-  const start = RESERVED_INBOUND_LOCALS.has(preferred) ? `${preferred}-ledger` : preferred;
-  const candidates = [start];
-  for (let i = 2; i <= 20; i += 1) candidates.push(`${start}-${i}`);
-  candidates.push(`${start}-${shortBookId(id)}`);
-  const seen = new Set<string>();
+  const existingSlug = inboundMailboxSlug(text(current.slug));
+  if (existingSlug && text(current.address)) {
+    const record = {
+      bookId: id,
+      name: text(obj.name || current.name) || 'Ledger',
+      currency: text(obj.currency || current.currency) || 'INR',
+      ownerId: text(obj.ownerId || current.ownerId),
+      roles: Object.keys(rolesOf(obj.roles)).length ? rolesOf(obj.roles) : rolesOf(current.roles),
+      slug: existingSlug,
+      address: text(current.address) || inboundAddressFor(existingSlug),
+      updatedAt: text(current.updatedAt) || new Date().toISOString(),
+    };
+    if (text(obj.inboundAddress) !== record.address || text(obj.inboundSlug) !== record.slug) {
+      await stampBookMailbox(id, record).catch(() => undefined);
+    }
+    return record;
+  }
 
-  for (const candidate of candidates) {
+  const name = text(obj.name || current.name) || 'Ledger';
+  const preferred = inboundMailboxSlug(name);
+  const start = RESERVED_INBOUND_LOCALS.has(preferred) ? `${preferred}-ledger` : preferred;
+  const candidates: string[] = [];
+  const seen = new Set<string>();
+  for (const candidate of [start, ...Array.from({ length: 19 }, (_, i) => `${start}-${i + 2}`), `${start}-${shortBookId(id)}`]) {
     const slug = inboundMailboxSlug(candidate);
     if (!slug || seen.has(slug) || RESERVED_INBOUND_LOCALS.has(slug)) continue;
     seen.add(slug);
-    const alias = asObject(await ledgerGet(`inbound_aliases/${slug}`));
-    const owner = text(alias?.bookId);
+    candidates.push(slug);
+  }
+  if (!candidates.length) return null;
+
+  const sql = await getLedgerSql();
+  const takenRows = asRows<{ slug: string; book_id: string }>(
+    await sql`SELECT slug, data->>'bookId' AS book_id FROM inbound_aliases WHERE slug = ANY(${candidates})`,
+  );
+  const taken = new Map(takenRows.map((row) => [text(row.slug), text(row.book_id)]));
+
+  for (const slug of candidates) {
+    const owner = taken.get(slug) || '';
     if (owner && owner !== id) continue;
     const record = {
       bookId: id,
@@ -144,14 +169,6 @@ export async function ledgerEnsureMailbox(bookId: string, data: Record<string, u
       updatedAt: record.updatedAt,
     });
     if (!claimed) continue;
-    if (owner === id) {
-      await ledgerSet(`inbound_aliases/${slug}`, {
-        bookId: id,
-        slug,
-        name,
-        updatedAt: record.updatedAt,
-      });
-    }
     await ledgerSet(`inbound_mailboxes/${id}`, record);
     await stampBookMailbox(id, record).catch(() => undefined);
     return record;
@@ -175,56 +192,42 @@ export async function ledgerResolveInboundSlug(local: string) {
 
   const alias = asObject(await ledgerGet(`inbound_aliases/${slug}`));
   const fromAlias = text(alias?.bookId);
-  if (fromAlias) {
-    const book = asObject(await ledgerGet(`books/${fromAlias}`));
-    if (book) await ledgerEnsureMailbox(fromAlias, book).catch(() => undefined);
-    return fromAlias;
-  }
+  if (fromAlias) return fromAlias;
 
   const sql = await getLedgerSql();
-  const mailboxes = asRows<{ book_id: string; data: unknown }>(
+  const mailboxes = asRows<{ book_id: string }>(
     await sql`
-      SELECT book_id, data FROM inbound_mailboxes
+      SELECT book_id FROM inbound_mailboxes
       WHERE data->>'slug' = ${slug}
          OR lower(data->>'address') = ${`${slug}@${INBOUND_DOMAIN}`}
-      LIMIT 5
+      LIMIT 1
     `,
   );
-  for (const row of mailboxes) {
-    const bookId = text(row.book_id);
-    if (!bookId) continue;
-    const book = asObject(await ledgerGet(`books/${bookId}`)) || asObject(row.data) || {};
-    await ledgerEnsureMailbox(bookId, book).catch(() => undefined);
-    return bookId;
-  }
+  const fromMailbox = text(mailboxes[0]?.book_id);
+  if (fromMailbox) return fromMailbox;
 
   const spaced = slug.replace(/-/g, ' ');
   const named = asRows<{ id: string; name: string; data: unknown }>(
     await sql`
       SELECT id, name, data FROM books
-      WHERE lower(replace(name, ' ', '-')) = ${slug}
+      WHERE data->>'inboundSlug' = ${slug}
+         OR lower(data->>'inboundAddress') = ${`${slug}@${INBOUND_DOMAIN}`}
+         OR lower(replace(name, ' ', '-')) = ${slug}
          OR lower(name) = ${spaced}
          OR lower(name) = ${slug}
       ORDER BY updated_at ASC
       LIMIT 20
     `,
   );
-  const eligible = (rows: Array<{ id: string; name: string; data: unknown }>) => rows.filter((row) => {
+  const eligible = named.filter((row) => {
     const data = asObject(row.data) || {};
     const rawClaimed = String(data.inboundSlug || String(data.inboundAddress || '').split('@')[0] || '').trim();
     const claimed = rawClaimed ? inboundMailboxSlug(rawClaimed) : '';
     if (claimed && claimed !== slug) return false;
-    return inboundMailboxSlug(String(row.name || data.name || '')) === slug;
+    return inboundMailboxSlug(String(row.name || data.name || '')) === slug || claimed === slug;
   });
-  let matches = eligible(named);
-  if (!matches.length) {
-    const recent = asRows<{ id: string; name: string; data: unknown }>(
-      await sql`SELECT id, name, data FROM books ORDER BY updated_at ASC LIMIT 250`,
-    );
-    matches = eligible(recent);
-  }
-  if (!matches.length) return '';
-  const book = matches[0];
+  if (!eligible.length) return '';
+  const book = eligible[0];
   const data = { ...(asObject(book.data) || {}), name: book.name || asObject(book.data)?.name };
   await ledgerEnsureMailbox(String(book.id), data).catch(() => undefined);
   return String(book.id);
@@ -592,7 +595,9 @@ export async function ledgerSet(path: string, data: unknown, insertOnly = false)
       ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, owner_id = EXCLUDED.owner_id, currency = EXCLUDED.currency, data = EXCLUDED.data, updated_at = NOW()
     `;
     await syncBookMembers(sql, id, obj);
-    await ledgerEnsureMailbox(id, obj).catch(() => undefined);
+    if (!text(obj.inboundSlug) && !text(obj.inboundAddress)) {
+      await ledgerEnsureMailbox(id, obj).catch(() => undefined);
+    }
     return true;
   }
 
