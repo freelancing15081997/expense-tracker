@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { db } from '../lib/firebase';
-import { collection, query, where, getDocs, getDoc, addDoc, serverTimestamp, doc, updateDoc, deleteDoc, getDocsMany } from '../lib/store';
+import { collection, query, where, getDocs, addDoc, serverTimestamp, getDocsMany } from '../lib/store';
 import { Link, useLocation } from 'react-router-dom';
 import { isSoftDeleted } from '../lib/records';
 import { useBooksTenantMeta } from '../lib/tenant';
@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import AppLoader from '../components/AppLoader';
 import { ListControls, usePagedList } from '../components/ListControls';
 import { BOOKS_TREE } from '../books/catalog/modules';
-import { openLedgerButtonHtml } from '../lib/inbound-mail';
+import { acceptLedgerInvite, declineLedgerInvite, type LedgerInvite } from '../lib/invites';
 
 interface BookItem {
   id: string;
@@ -23,14 +23,7 @@ interface BookItem {
   roles: Record<string, { role: string; email: string }>;
 }
 
-interface InviteItem {
-  id: string;
-  bookId: string;
-  bookName: string;
-  role: string;
-  invitedBy: string;
-  email?: string;
-}
+type InviteItem = LedgerInvite;
 
 export default function Dashboard() {
   const { currentUser, userProfile } = useAuth();
@@ -133,80 +126,25 @@ export default function Dashboard() {
     if (!currentUser || !userProfile) return;
     setAcceptingId(invite.id);
     try {
-      await updateDoc(doc(db, 'books', invite.bookId), {
-        [`roles.${currentUser.uid}`]: { role: invite.role, email: userProfile.email }
+      const result = await acceptLedgerInvite({
+        invite,
+        uid: currentUser.uid,
+        email: userProfile.email,
+        displayName: userProfile.displayName,
       });
-      await deleteDoc(doc(db, 'invites', invite.id));
-      
-      // Notify team members about the new user joining
-      const bookSnap = await getDoc(doc(db, 'books', invite.bookId));
-      if (bookSnap.exists()) {
-        const bookData = bookSnap.data();
-        const emails = Object.values(bookData.roles)
-          .map((r: any) => r.email)
-          .filter((email: string) => email !== userProfile.email);
-          
-        if (emails.length > 0) {
-          const { getAccessToken } = await import('../lib/firebase');
-          const token = await getAccessToken();
-          if (token) {
-            const emailContent = [
-              `To: ${emails.join(', ')}`,
-              'Content-Type: text/html; charset=utf-8',
-              `Subject: New Member Joined Expense Tracker: ${invite.bookName}`,
-              '',
-              `<p>Hello,</p><p><b>${userProfile.displayName || userProfile.email}</b> has accepted the invitation and joined the ledger <b>${invite.bookName}</b>.</p>`
-            ].join('\n');
-            const encodedEmail = btoa(unescape(encodeURIComponent(emailContent))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-            const res = await fetch('/api/email/send', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${token}`,
-              },
-              body: JSON.stringify({
-                to: emails.join(", "),
-                subject: `${userProfile.displayName || userProfile.email} joined ${invite.bookName} expense book`,
-                message: `
-        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9fafb; border-radius: 12px; border: 1px solid #e5e7eb;">
-          <div style="text-align: center; margin-bottom: 24px;">
-            <div style="background-color: #0B1F3A; color: white; display: inline-block; padding: 8px 16px; border-radius: 8px; font-weight: bold; font-size: 18px; letter-spacing: 1px;">Byjan</div>
-            <h2 style="color: #111827; margin-top: 16px; margin-bottom: 4px; font-size: 20px;">New Member Joined</h2>
-            <p style="color: #6b7280; font-size: 14px; margin: 0;">Ledger: <strong>${invite.bookName}</strong></p>
-          </div>
-          
-          <div style="background-color: #ffffff; padding: 24px; border-radius: 8px; border: 1px solid #f3f4f6; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
-            <p style="color: #374151; font-size: 15px; line-height: 1.5; margin-top: 0;">Hello,</p>
-            <p style="color: #374151; font-size: 15px; line-height: 1.5;">Great news! <strong style="color: #10b981;">${userProfile.displayName || userProfile.email}</strong> has accepted your invitation and successfully joined your ledger.</p>
-            ${openLedgerButtonHtml(invite.bookId)}
-          </div>
-          
-          <div style="text-align: center; margin-top: 24px;">
-            <p style="color: #9ca3af; font-size: 12px; margin: 0;">This is an automated notification from Byjan.</p>
-          </div>
-        </div>
-      `
-              })
-            });
-            
-            if (!res.ok) {
-              const payload = await res.json().catch(() => ({}));
-              addToast(payload.error || 'Email sending failed on the server.', 'error');
-            }
-          }
-        }
-      }
-      
+      if (result.notifyError) addToast(result.notifyError, 'error');
       fetchData();
-    } catch (err: any) { 
-      console.error("Dashboard error:", err);
-      addToast("Error: " + err.message, 'error');
-    } finally { setAcceptingId(null); }
+    } catch (err: any) {
+      console.error('Dashboard error:', err);
+      addToast('Error: ' + err.message, 'error');
+    } finally {
+      setAcceptingId(null);
+    }
   };
 
   const handleDeclineInvite = async (inviteId: string) => {
     try {
-      await deleteDoc(doc(db, 'invites', inviteId));
+      await declineLedgerInvite(inviteId);
       fetchData();
     } catch (err) { console.error("Fetch API error:", err); }
   };

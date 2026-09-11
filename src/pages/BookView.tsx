@@ -4,7 +4,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { db } from '../lib/firebase';
-import { doc, getDoc, getDocs, collection, query, onSnapshot, addDoc, serverTimestamp, updateDoc, setDoc, deleteField } from '../lib/store';
+import { doc, getDoc, getDocs, collection, query, onSnapshot, addDoc, serverTimestamp, updateDoc, deleteField } from '../lib/store';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send, Copy, Paperclip, Mail, Megaphone } from 'lucide-react';
@@ -16,6 +16,7 @@ import { format } from 'date-fns';
 import { getCurrencySymbol } from '../lib/currency';
 import { isSoftDeleted, softDeletePatch } from '../lib/records';
 import { bookInboundAddress, ledgerAppLink, openLedgerButtonHtml, syncInboundMailbox } from '../lib/inbound-mail';
+import { createLedgerInvite, memberEmails } from '../lib/invites';
 import { authHeaders } from '../lib/auth-client';
 import { ReceiptModal } from '../components/ReceiptModal';
 import { EventMailTrack, emailStatusClass, emailStatusLabel, resolvedStatus } from '../components/EmailActivityFlow';
@@ -124,8 +125,8 @@ export default function BookView() {
     if (!currentUser || !book) return;
     
     // Prevent removing the last owner
-    if (book.roles[uidToRemove]?.role === 'owner') {
-      const ownerCount = Object.values(book.roles).filter((r: any) => r.role === 'owner').length;
+    if (book.roles?.[uidToRemove]?.role === 'owner') {
+      const ownerCount = Object.values(book.roles || {}).filter((r: any) => r.role === 'owner').length;
       if (ownerCount <= 1) {
         addToast('You cannot remove the last owner of the ledger.', 'error');
         return;
@@ -418,10 +419,7 @@ export default function BookView() {
     }
 
     // 2. Email notifications (Now sent reliably via our Node backend)
-    const emails = Object.values(book.roles)
-      .map((r: any) => r.email)
-      ; // Removed self-filter for testing so the user gets their own emails
-    
+    const emails = memberEmails(book.roles); 
     if (emails.length > 0) {
       const mailbox = inboundAddress || bookInboundAddress(book);
       const subject = customSubject || `${userProfile?.displayName || currentUser?.email} ${action.toLowerCase()} in ${book.name} expense book`;
@@ -618,14 +616,12 @@ export default function BookView() {
     if (!canManageUsers || !inviteEmail) return;
     setInviting(true);
     try {
-      const inviteId = `${book.id}_${inviteEmail.toLowerCase()}`;
-      await setDoc(doc(db, 'invites', inviteId), {
-        email: inviteEmail.toLowerCase(),
+      await createLedgerInvite({
         bookId: book.id,
         bookName: book.name,
+        email: inviteEmail,
         role: inviteRole,
         invitedBy: currentUser!.uid,
-        status: 'pending'
       });
       setInviteEmail('');
       addToast('Invitation added to their dashboard successfully!', 'success');

@@ -1120,7 +1120,7 @@ async function notifyMembers(
     inboundEventId?: string;
   },
 ) {
-  const emails = Object.values(mailbox.roles).map((row) => String(row?.email || '').toLowerCase()).filter(Boolean);
+  const emails = Object.values(mailbox.roles || {}).map((row) => String(row?.email || '').toLowerCase()).filter(Boolean);
   let unique = [...new Set(emails)];
   if (!unique.length && mailbox.ownerId) {
     const owner = await docGet(`users/${mailbox.ownerId}`).catch(() => null);
@@ -1238,7 +1238,7 @@ async function notifyMembers(
       createdAt: new Date().toISOString(),
     }).catch(() => undefined);
   }
-  for (const uid of Object.keys(mailbox.roles)) {
+  for (const uid of Object.keys(mailbox.roles || {})) {
     const id = newId();
     await docSet(`notifications/${id}`, {
       id,

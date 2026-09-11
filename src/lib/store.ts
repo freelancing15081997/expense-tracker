@@ -335,6 +335,26 @@ export async function getDoc(ref: DocRef) {
   return wrapDoc(ref.id, data, ref.path);
 }
 
+function applyPatch(current: Record<string, unknown>, patch: Record<string, unknown>) {
+  const next: Record<string, unknown> = { ...current };
+  for (const [key, value] of Object.entries(patch)) {
+    if (!key.includes('.')) {
+      next[key] = value;
+      continue;
+    }
+    const parts = key.split('.');
+    let cur: Record<string, unknown> = next;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const piece = cur[parts[i]];
+      const clone = piece && typeof piece === 'object' && !Array.isArray(piece) ? { ...(piece as Record<string, unknown>) } : {};
+      cur[parts[i]] = clone;
+      cur = clone;
+    }
+    cur[parts[parts.length - 1]] = value;
+  }
+  return next;
+}
+
 export async function setDoc(ref: DocRef, data: Record<string, unknown>, opts?: { merge?: boolean }) {
   const next = opts?.merge ? { ...(memory.get(ref.path)?.data || {}), ...data } : data;
   remember(ref.path, next, true);
@@ -343,10 +363,16 @@ export async function setDoc(ref: DocRef, data: Record<string, unknown>, opts?: 
 }
 
 export async function updateDoc(ref: DocRef, data: Record<string, unknown>) {
-  const next = { ...(memory.get(ref.path)?.data || {}), ...data };
-  remember(ref.path, next, true);
-  bumpColCache(ref.path, next);
-  await call({ op: 'update', path: ref.path, data });
+  const current = memory.get(ref.path)?.data || {};
+  const optimistic = applyPatch(current, data);
+  remember(ref.path, optimistic, true);
+  bumpColCache(ref.path, optimistic);
+  const payload = await call({ op: 'update', path: ref.path, data });
+  const saved = payload?.data && typeof payload.data === 'object'
+    ? payload.data as Record<string, unknown>
+    : optimistic;
+  remember(ref.path, saved, true);
+  bumpColCache(ref.path, saved);
 }
 
 export async function addDoc(col: { path: string }, data: Record<string, unknown>) {
@@ -515,8 +541,8 @@ export async function runTransaction<T>(_db: Firestore, fn: (tx: Transaction) =>
       writes.push({ op: 'set', path: ref.path, data });
     },
     update: (ref, data) => {
-      const current = overlay.get(ref.path) || {};
-      overlay.set(ref.path, { ...current, ...data });
+      const current = overlay.get(ref.path) || memory.get(ref.path)?.data || {};
+      overlay.set(ref.path, applyPatch(current, data));
       writes.push({ op: 'update', path: ref.path, data });
     },
   };
