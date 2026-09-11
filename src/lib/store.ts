@@ -165,6 +165,11 @@ const fsStamp = new Map<string, number>();
 
 function shouldReadFirestore(path: string) {
   if (isErp(path) || neonOnly(path)) return false;
+  // Ledgers and entries still live in Firestore for older rows; skip only briefly.
+  if (path === 'books' || /\/expenses$/.test(path)) {
+    const last = fsStamp.get(path) || 0;
+    return Date.now() - last > 20_000;
+  }
   const last = fsStamp.get(path) || 0;
   return Date.now() - last > 45_000;
 }
@@ -204,8 +209,13 @@ function overlayCollection(colPath: string, byId: Map<string, Record<string, unk
     if (!path.startsWith(prefix)) continue;
     const id = path.slice(prefix.length);
     if (!id || id.includes('/')) continue;
-    if (entry.data === null) byId.delete(id);
-    else if (entry.local) byId.set(id, entry.data);
+    if (entry.data === null) {
+      byId.delete(id);
+      continue;
+    }
+    // Local writes win. Previously seen rows fill gaps when a later list is incomplete.
+    // Never overwrite a row the server just returned — that hid live mail status.
+    if (entry.local || !byId.has(id)) byId.set(id, entry.data);
   }
 }
 
@@ -223,6 +233,15 @@ function asSnap(byId: Map<string, Record<string, unknown>>): QuerySnapshot {
 }
 
 function storeCollection(path: string, constraints: Constraint[] | undefined, byId: Map<string, Record<string, unknown>>) {
+  const unconstrained = !(constraints && constraints.length);
+  if (unconstrained) {
+    const prev = colCache.get(colKey(path, constraints));
+    if (prev && prev.rows.length > byId.size) {
+      for (const [id, data] of prev.rows) {
+        if (!byId.has(id)) byId.set(id, data);
+      }
+    }
+  }
   for (const [id, data] of byId) remember(`${path}/${id}`, data);
   colCache.set(colKey(path, constraints), { at: Date.now(), rows: [...byId.entries()] });
 }
@@ -344,7 +363,15 @@ export async function getDocs(source: { path: string; constraints?: Constraint[]
     if (row?.id && row.data) byId.set(row.id, row.data);
   }
   overlayCollection(source.path, byId);
-  // Do not cache empty results when KV timed out — that hides R2-only expenses for 120s.
+  if (payload == null) {
+    const stale = colCache.get(colKey(source.path, source.constraints));
+    if (stale) {
+      for (const [id, data] of stale.rows) {
+        if (!byId.has(id)) byId.set(id, data);
+      }
+    }
+  }
+  // Do not cache empty results when KV timed out — that hides R2-only expenses.
   if (payload != null || byId.size > 0) {
     storeCollection(source.path, source.constraints, byId);
   }

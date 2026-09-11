@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { db } from '../lib/firebase';
-import { collection, query, where, getDocs, getDoc, addDoc, serverTimestamp, doc, updateDoc, deleteDoc, limit, getDocsMany } from '../lib/store';
+import { collection, query, where, getDocs, getDoc, addDoc, serverTimestamp, doc, updateDoc, deleteDoc, getDocsMany } from '../lib/store';
 import { Link, useLocation } from 'react-router-dom';
 import { isSoftDeleted } from '../lib/records';
 import { useBooksTenantMeta } from '../lib/tenant';
@@ -65,7 +65,7 @@ export default function Dashboard() {
       let activity: Record<string, number> = {};
       if (fetchedBooks.length) {
         const expenseSnaps = await getDocsMany(
-          fetchedBooks.slice(0, 12).map((b) => query(collection(db, 'books', b.id, 'expenses'), limit(40))),
+          fetchedBooks.map((b) => query(collection(db, 'books', b.id, 'expenses'))),
         );
         expenseSnaps.forEach((expSnap) => {
           expSnap.forEach((e) => {
