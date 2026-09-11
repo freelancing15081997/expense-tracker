@@ -530,7 +530,12 @@ function asParsed(value: any, fallback: ParsedReceipt): ParsedReceipt {
 function geminiModels() {
   const preferred = String(process.env.GEMINI_MODEL || '').trim();
   // Keep this short — inbound must stay under Cloudflare/Vercel time budgets.
-  const defaults = ['gemini-2.5-flash', 'gemini-flash-latest', 'gemini-2.0-flash'];
+  const defaults = [
+    'gemini-3.6-flash',
+    'gemini-3.5-flash',
+    'gemini-flash-latest',
+    'gemini-2.5-flash',
+  ];
   return [...new Set([preferred, ...defaults].filter(Boolean))];
 }
 
@@ -639,7 +644,7 @@ Never invent amounts. Prefer grand total / amount paid / net payable.`;
 async function probeGemini() {
   const key = geminiKey();
   if (!key) return { ok: false, error: 'missing_key' };
-  const model = geminiModels()[0] || 'gemini-2.5-flash';
+  const model = geminiModels()[0] || 'gemini-3.6-flash';
   const started = Date.now();
   const result = await geminiGenerate(
     model,
