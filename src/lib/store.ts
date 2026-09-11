@@ -145,6 +145,19 @@ function wrapDoc(id: string, data: any, path: string) {
 
 const DOC_TTL = 120_000;
 const COL_TTL = 120_000;
+const LIVE_COL_TTL = 8_000;
+
+function collectionTtl(path: string) {
+  if (
+    /\/expenses$/.test(path) ||
+    /\/inbound_events$/.test(path) ||
+    /\/email_events$/.test(path) ||
+    path === 'notifications'
+  ) {
+    return LIVE_COL_TTL;
+  }
+  return COL_TTL;
+}
 const memory = new Map<string, { data: Record<string, unknown> | null; at: number }>();
 const colCache = new Map<string, { at: number; rows: Array<[string, Record<string, unknown>]> }>();
 
@@ -206,7 +219,7 @@ function storeCollection(path: string, constraints: Constraint[] | undefined, by
 
 function fromCache(path: string, constraints?: Constraint[]) {
   const hit = colCache.get(colKey(path, constraints));
-  if (!hit || Date.now() - hit.at >= COL_TTL) return null;
+  if (!hit || Date.now() - hit.at >= collectionTtl(path)) return null;
   const byId = new Map(hit.rows);
   overlayCollection(path, byId);
   return asSnap(byId);
@@ -378,6 +391,11 @@ export function onSnapshot(
   error?: (err: any) => void,
 ) {
   let stopped = false;
+  const livePath =
+    /\/expenses$/.test(source.path) ||
+    /\/inbound_events$/.test(source.path) ||
+    /\/email_events$/.test(source.path) ||
+    source.path === 'notifications';
   const tick = () => {
     if (typeof document !== 'undefined' && document.hidden) return;
     if (source.kind === 'doc') {
@@ -388,14 +406,14 @@ export function onSnapshot(
       });
       return;
     }
-    getDocs(source).then((snap) => {
+    getDocs(source, livePath ? { force: true, kvMs: 8000 } : undefined).then((snap) => {
       if (!stopped) next(snap);
     }).catch((err) => {
       if (!stopped) error?.(err);
     });
   };
   tick();
-  const timer = setInterval(tick, 25000);
+  const timer = setInterval(tick, livePath ? 8000 : 25000);
   return () => {
     stopped = true;
     clearInterval(timer);
