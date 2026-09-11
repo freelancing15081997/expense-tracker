@@ -55,6 +55,7 @@ export default function InviteAccept() {
         email: userProfile.email,
         displayName: userProfile.displayName,
       });
+      clearStoreCache();
       navigate(`/book/${peek.invite.bookId}`);
     } catch (err: any) {
       setError(err?.message || 'Could not accept this invitation.');

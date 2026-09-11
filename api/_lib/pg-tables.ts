@@ -1002,6 +1002,24 @@ export async function ledgerMember(bookId: string, uid: string): Promise<LedgerM
   return null;
 }
 
+export async function ledgerHasPendingInvite(bookId: string, email: string) {
+  const id = text(bookId);
+  const mail = text(email).trim().toLowerCase();
+  if (!id || !mail) return false;
+  const sql = await getLedgerSql();
+  const rows = asRows(
+    await sql`
+      SELECT id FROM invites
+      WHERE book_id = ${id}
+        AND lower(email) = ${mail}
+        AND COALESCE(data->>'deleted', '') NOT IN ('true', '1')
+        AND COALESCE(NULLIF(data->>'status', ''), 'pending') = 'pending'
+      LIMIT 1
+    `,
+  );
+  return rows.length > 0;
+}
+
 export async function ledgerRequireMember(bookId: string, uid: string) {
   const member = await ledgerMember(bookId, uid);
   if (!member) {

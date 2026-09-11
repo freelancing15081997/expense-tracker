@@ -10,6 +10,7 @@ import {
   ledgerList,
   ledgerListExpensesByBooks,
   cleanPath,
+  ledgerHasPendingInvite,
   ledgerMember,
 } from './_pg-tables.js';
 
@@ -124,12 +125,12 @@ const FIRESTORE_DB = 'ai-studio-sharedsheetexpen-15aa5fbb-9604-4c59-b4a3-aa99444
 const FIRESTORE_ROOT = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/${FIRESTORE_DB}/documents`;
 const DOC_PREFIX = 'documents/';
 
-const jwtMem = new Map<string, { uid: string; exp: number }>();
+const jwtMem = new Map<string, { uid: string; email: string; exp: number }>();
 let jwks: any = null;
 
-async function uidFromToken(token: string) {
+async function userFromToken(token: string) {
   const hit = jwtMem.get(token);
-  if (hit && hit.exp > Date.now() + 5000) return hit.uid;
+  if (hit && hit.exp > Date.now() + 5000) return hit;
   const { createRemoteJWKSet, jwtVerify } = await import('jose');
   if (!jwks) {
     jwks = createRemoteJWKSet(new URL('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com'));
@@ -139,10 +140,13 @@ async function uidFromToken(token: string) {
     audience: FIREBASE_PROJECT,
   });
   const uid = String(payload.user_id || payload.sub || '');
+  const email = String(payload.email || '').trim().toLowerCase();
   const exp = Number(payload.exp || 0) * 1000 || Date.now() + 50_000;
-  if (uid) jwtMem.set(token, { uid, exp });
+  if (!uid) return null;
+  const session = { uid, email, exp };
+  jwtMem.set(token, session);
   if (jwtMem.size > 300) jwtMem.clear();
-  return uid;
+  return session;
 }
 
 function json(res: VercelResponse, status: number, payload: unknown) {
@@ -710,20 +714,31 @@ function assertErpAccess(uid: string, path: string) {
   }
 }
 
-async function assertLedgerAccess(uid: string, path: string, writer = false) {
+async function resolveEmail(uid: string, email: string) {
+  if (email) return email;
+  const me = await ledgerGet(`users/${uid}`).catch(() => null);
+  return String(me?.email || '').trim().toLowerCase();
+}
+
+async function assertLedgerAccess(uid: string, email: string, path: string, writer = false, op = '') {
   const parts = path.split('/').filter(Boolean);
   if (parts[0] !== 'books' || parts.length < 2) return;
   const member = await ledgerMember(parts[1], uid);
-  if (!member) {
-    const err: Error & { status?: number } = new Error('You do not have access to this ledger');
-    err.status = 403;
-    throw err;
+  if (member) {
+    if (writer && !['owner', 'admin', 'contributor'].includes(member.role)) {
+      const err: Error & { status?: number } = new Error('Not allowed to change this ledger');
+      err.status = 403;
+      throw err;
+    }
+    return;
   }
-  if (writer && !['owner', 'admin', 'contributor'].includes(member.role)) {
-    const err: Error & { status?: number } = new Error('Not allowed to change this ledger');
-    err.status = 403;
-    throw err;
-  }
+  // Invite accept (old client) writes books/{id} before book_members exists.
+  const mail = await resolveEmail(uid, email);
+  const invited = Boolean(mail) && await ledgerHasPendingInvite(parts[1], mail);
+  if (invited && parts.length === 2 && (!writer || op === 'set' || op === 'update')) return;
+  const err: Error & { status?: number } = new Error('You do not have access to this ledger');
+  err.status = 403;
+  throw err;
 }
 
 async function readDoc(path: string, token: string, uid: string) {
@@ -812,11 +827,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       json(res, 401, { error: 'Sign in required' });
       return;
     }
-    const uid = await uidFromToken(token);
-    if (!uid) {
+    const session = await userFromToken(token);
+    if (!session) {
       json(res, 401, { error: 'Sign in required' });
       return;
     }
+    const uid = session.uid;
 
     const rawBody = req.body;
     const body = typeof rawBody === 'string'
@@ -829,7 +845,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
     if (path) assertErpAccess(uid, path);
-    if (path) await assertLedgerAccess(uid, path, ['set', 'update', 'delete', 'add'].includes(op));
+    if (path) await assertLedgerAccess(uid, session.email, path, ['set', 'update', 'delete', 'add'].includes(op), op);
 
     if (op === 'workspace') {
       const bits = path.split('/').filter(Boolean);
@@ -909,6 +925,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const writePath = String(write.path || '').replace(/^\/+|\/+$/g, '');
         if (!writePath) continue;
         assertErpAccess(uid, writePath);
+        await assertLedgerAccess(uid, session.email, writePath, true, writeOp);
         if (writeOp === 'set') {
           prepared.push({ path: writePath, data: (write.data || {}) as Record<string, unknown>, merge: Boolean(write.merge) });
         } else if (writeOp === 'update') {

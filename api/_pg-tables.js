@@ -915,6 +915,23 @@ async function ledgerMember(bookId, uid) {
   if (text(book.ownerId) === userId) return { role: "owner", email: "" };
   return null;
 }
+async function ledgerHasPendingInvite(bookId, email) {
+  const id = text(bookId);
+  const mail = text(email).trim().toLowerCase();
+  if (!id || !mail) return false;
+  const sql = await getLedgerSql();
+  const rows = asRows(
+    await sql`
+      SELECT id FROM invites
+      WHERE book_id = ${id}
+        AND lower(email) = ${mail}
+        AND COALESCE(data->>'deleted', '') NOT IN ('true', '1')
+        AND COALESCE(NULLIF(data->>'status', ''), 'pending') = 'pending'
+      LIMIT 1
+    `
+  );
+  return rows.length > 0;
+}
 async function ledgerRequireMember(bookId, uid) {
   const member = await ledgerMember(bookId, uid);
   if (!member) {
@@ -1276,6 +1293,7 @@ export {
   ledgerGetBookForUser,
   ledgerGetExpense,
   ledgerGetUser,
+  ledgerHasPendingInvite,
   ledgerInsertIfNew,
   ledgerList,
   ledgerListBooksForUser,

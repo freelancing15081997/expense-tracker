@@ -13,6 +13,7 @@ import AppLoader from '../components/AppLoader';
 import { ListControls, usePagedList } from '../components/ListControls';
 import { BOOKS_TREE } from '../books/catalog/modules';
 import { acceptLedgerInvite, declineLedgerInvite, listLedgerInvites, type LedgerInvite } from '../lib/invites';
+import { clearStoreCache } from '../lib/store';
 
 interface BookItem {
   id: string;
@@ -108,6 +109,7 @@ export default function Dashboard() {
         displayName: userProfile.displayName,
       });
       if (result.notifyError) addToast(result.notifyError, 'error');
+      clearStoreCache();
       fetchData();
     } catch (err: any) {
       console.error('Dashboard error:', err);
