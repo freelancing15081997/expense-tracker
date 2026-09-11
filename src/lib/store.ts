@@ -230,7 +230,7 @@ export async function getDoc(ref: DocRef) {
       // Expense Tracker ledgers still live in the named Firestore database.
     }
   }
-  const payload = await withTimeout(call({ op: 'get', path: ref.path }), data ? 400 : 2500);
+  const payload = await withTimeout(call({ op: 'get', path: ref.path }), data ? 1200 : defaultKvMs(ref.path));
   if (payload?.data) data = payload.data;
   if (payload) {
     remember(ref.path, data);
@@ -288,12 +288,22 @@ export type QuerySnapshot = {
   forEach: (fn: (doc: { id: string; data: () => any; exists: () => boolean }) => void) => void;
 };
 
+function defaultKvMs(path: string) {
+  // Ledger/books lists hit R2 key listing; 800ms often returned empty and hid real rows.
+  if (path.startsWith('books') || path === 'notifications' || path === 'invites' || path.startsWith('inbound_')) {
+    return 8000;
+  }
+  return 2500;
+}
+
 export async function getDocs(source: { path: string; constraints?: Constraint[] }, opts?: { kvMs?: number; force?: boolean }): Promise<QuerySnapshot> {
   if (!opts?.force) {
     const cached = fromCache(source.path, source.constraints);
     if (cached) return cached;
   }
   const byId = new Map<string, Record<string, unknown>>();
+  const kvMs = opts?.kvMs ?? defaultKvMs(source.path);
+  const kvPromise = withTimeout(call({ op: 'query', path: source.path, constraints: source.constraints || [] }), kvMs);
   if (!isErp(source.path)) {
     try {
       for (const row of await readFirestoreDocs(source.path, source.constraints || [])) {
@@ -304,12 +314,15 @@ export async function getDocs(source: { path: string; constraints?: Constraint[]
     }
   }
   overlayCollection(source.path, byId);
-  const payload = await withTimeout(call({ op: 'query', path: source.path, constraints: source.constraints || [] }), opts?.kvMs ?? 800);
+  const payload = await kvPromise;
   for (const row of payload?.docs || []) {
     if (row?.id && row.data) byId.set(row.id, row.data);
   }
   overlayCollection(source.path, byId);
-  storeCollection(source.path, source.constraints, byId);
+  // Do not cache empty results when KV timed out — that hides R2-only expenses for 120s.
+  if (payload != null || byId.size > 0) {
+    storeCollection(source.path, source.constraints, byId);
+  }
   return asSnap(byId);
 }
 

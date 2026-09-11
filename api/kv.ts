@@ -812,7 +812,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (op === 'update') {
-      const current = (await localGet(path).catch(() => null)) || {};
+      // Prefer local, but fall back to Firestore so updates never publish a sparse
+      // R2 shadow that overrides a full Firestore ledger/expense document.
+      const local = await localGet(path).catch(() => null);
+      const current = local || (await readDoc(path, token).catch(() => null)) || {};
       const next = applyPatch(current, (body.data || {}) as Record<string, unknown>);
       await localSet(path, next);
       json(res, 200, { ok: true, data: next });

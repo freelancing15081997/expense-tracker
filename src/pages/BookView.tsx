@@ -162,7 +162,11 @@ export default function BookView() {
 
     
     return () => unsubscribe();
-  }, [bookId, currentUser]);
+  }, [bookId, currentUser?.uid]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
 
   useEffect(() => {
     if (!isMembersModalOpen || !bookId) return;

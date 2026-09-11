@@ -111,17 +111,26 @@ export default function Layout() {
         onMouseEnter={() => setIsSidebarHovered(true)}
         onMouseLeave={() => setIsSidebarHovered(false)}
         className={cn(
-          'byjan-rail fixed inset-y-0 left-0 z-50 flex flex-col md:relative md:translate-x-0 md:z-auto transition-[width,transform] duration-200 overflow-visible bg-[#FBFCFD] border-r border-slate-200',
-          mobileMenuOpen ? 'translate-x-0 w-[280px]' : '-translate-x-full md:translate-x-0',
-          !mobileMenuOpen && (isSidebarHovered ? 'md:w-[280px] shadow-2xl md:shadow-none' : 'md:w-[76px]')
+          // Keep a fixed 76px rail on desktop so hover-expand does not reflow Search / Books content.
+          'byjan-rail fixed inset-y-0 left-0 z-50 flex flex-col md:relative md:translate-x-0 md:z-auto md:w-[76px] transition-[transform] duration-200 overflow-visible bg-[#FBFCFD] border-r border-slate-200',
+          mobileMenuOpen ? 'translate-x-0 w-[280px]' : '-translate-x-full md:translate-x-0'
         )}
       >
+        <div
+          className={cn(
+            'h-full w-full flex flex-col bg-[#FBFCFD] transition-[width,box-shadow] duration-200',
+            !mobileMenuOpen && isSidebarHovered
+              ? 'md:absolute md:inset-y-0 md:left-0 md:w-[280px] md:shadow-2xl md:border-r md:border-slate-200 md:z-[60]'
+              : 'md:w-[76px]'
+          )}
+        >
         <AppSidebar
           expanded={isExpanded}
           tenant={tenant}
           userProfile={userProfile}
           onLogout={logout}
         />
+        </div>
       </aside>
 
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">

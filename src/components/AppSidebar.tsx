@@ -46,7 +46,7 @@ export default function AppSidebar({ expanded, tenant, userProfile, onLogout }: 
   const showText = expanded;
 
   useEffect(() => {
-    if (onBooks) setMobileBooks(true);
+    setMobileBooks(onBooks);
   }, [onBooks]);
 
   useEffect(() => {
@@ -59,7 +59,8 @@ export default function AppSidebar({ expanded, tenant, userProfile, onLogout }: 
     const rect = booksWrapRef.current.getBoundingClientRect();
     const height = Math.min(window.innerHeight - 24, 640);
     const top = Math.min(Math.max(12, rect.top - 16), window.innerHeight - height - 12);
-    setFlyoutPos({ top, left: rect.right + 10 });
+    // Flush to the rail edge so the pointer never crosses a dead zone that closes the flyout.
+    setFlyoutPos({ top, left: Math.round(rect.right) });
   }, [booksFlyout, expanded]);
 
   useEffect(() => {
@@ -173,7 +174,7 @@ export default function AppSidebar({ expanded, tenant, userProfile, onLogout }: 
                   else setMobileBooks((open) => !open);
                 }}
               >
-                <ChevronRight className={cn('w-4 h-4 transition-transform', (booksFlyout || mobileBooks) && 'rotate-90')} />
+                <ChevronRight className={cn('w-4 h-4 transition-transform md:rotate-0', booksFlyout && 'md:rotate-90', mobileBooks && 'max-md:rotate-90')} />
               </button>
             )}
           </div>
@@ -260,7 +261,7 @@ export default function AppSidebar({ expanded, tenant, userProfile, onLogout }: 
       {booksFlyout && (
         <div
           id="books-nav-flyout"
-          className="hidden md:block fixed z-[80] w-[min(560px,calc(100vw-96px))] max-h-[min(640px,calc(100vh-24px))] overflow-y-auto byjan-flyout p-4"
+          className="hidden md:block fixed z-[80] w-[min(560px,calc(100vw-96px))] max-h-[min(640px,calc(100vh-24px))] overflow-y-auto byjan-flyout p-4 pl-5 before:content-[''] before:absolute before:inset-y-0 before:-left-3 before:w-3"
           style={{ top: flyoutPos.top, left: flyoutPos.left }}
           onMouseEnter={openBooksFlyout}
           onMouseLeave={scheduleCloseBooks}
