@@ -29,6 +29,7 @@ interface InviteItem {
   bookName: string;
   role: string;
   invitedBy: string;
+  email?: string;
 }
 
 export default function Dashboard() {
@@ -80,10 +81,17 @@ export default function Dashboard() {
       }
       setGlobalStats({ totalIn: tIn, totalOut: tOut, userActivity: activity });
 
-      const qInvites = query(collection(db, 'invites'), where('email', '==', userProfile.email));
+      const myEmail = String(userProfile.email || '').trim().toLowerCase();
+      const qInvites = query(collection(db, 'invites'), where('email', '==', myEmail));
       const inviteSnaps = await getDocs(qInvites);
       const fetchedInvites: InviteItem[] = [];
-      inviteSnaps.forEach((doc) => fetchedInvites.push({ id: doc.id, ...doc.data() } as InviteItem));
+      inviteSnaps.forEach((docSnap) => {
+        const invite = { id: docSnap.id, ...docSnap.data() } as InviteItem;
+        const inviteEmail = String(invite.email || '').trim().toLowerCase();
+        if (inviteEmail !== myEmail) return;
+        if (String(invite.invitedBy || '') === currentUser.uid) return;
+        fetchedInvites.push(invite);
+      });
       setInvites(fetchedInvites);
     } catch (err) { console.error("Fetch API error:", err); } finally {
       setLoading(false);

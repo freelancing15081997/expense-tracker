@@ -201,10 +201,51 @@ function bumpColCache(docPath: string, data: Record<string, unknown> | null) {
     if (key !== colPath && !key.startsWith(`${colPath}::`)) continue;
     const rows = new Map(entry.rows);
     if (data === null) rows.delete(id);
-    else rows.set(id, data);
+    else if (rowMatchesConstraints(id, data, constraintsFromColKey(key))) rows.set(id, data);
+    else rows.delete(id);
     colCache.set(key, { at: Date.now(), rows: [...rows.entries()] });
   }
   persistCache();
+}
+
+function getAt(obj: any, field: string) {
+  return field.split('.').reduce((acc: any, key: string) => (acc == null ? acc : acc[key]), obj);
+}
+
+function rowMatchesConstraints(id: string, data: Record<string, unknown>, constraints?: Constraint[]) {
+  if (!constraints?.length) return true;
+  const rec = { id, ...data };
+  for (const c of constraints) {
+    if (c.type === 'where' && c.op === '==') {
+      if (getAt(rec, c.field) !== c.value) return false;
+    } else if (c.type === 'where' && c.op === 'in') {
+      const allowed = Array.isArray(c.value) ? c.value : [];
+      if (!allowed.includes(getAt(rec, c.field))) return false;
+    }
+  }
+  return true;
+}
+
+function constraintsFromColKey(key: string): Constraint[] {
+  const idx = key.indexOf('::');
+  if (idx < 0) return [];
+  try {
+    const parsed = JSON.parse(key.slice(idx + 2));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function filterMapByConstraints(
+  byId: Map<string, Record<string, unknown>>,
+  constraints?: Constraint[],
+) {
+  if (!constraints?.length) return byId;
+  for (const [id, data] of [...byId]) {
+    if (!rowMatchesConstraints(id, data, constraints)) byId.delete(id);
+  }
+  return byId;
 }
 
 function overlayCollection(colPath: string, byId: Map<string, Record<string, unknown>>) {
@@ -266,6 +307,7 @@ function fromCache(path: string, constraints?: Constraint[], allowStale = false)
   if (!allowStale && Date.now() - hit.at >= collectionTtl(path)) return null;
   const byId = new Map(hit.rows);
   overlayCollection(path, byId);
+  filterMapByConstraints(byId, constraints);
   return asSnap(byId);
 }
 
@@ -361,6 +403,7 @@ export async function getDocs(source: { path: string; constraints?: Constraint[]
       }
     }
   }
+  filterMapByConstraints(byId, source.constraints);
   if (payload != null || byId.size > 0) {
     storeCollection(source.path, source.constraints, byId);
   }
@@ -407,6 +450,7 @@ export async function getDocsMany(sources: Array<{ path: string; constraints?: C
       if (docRow?.id && docRow.data) byId.set(docRow.id, docRow.data);
     }
     overlayCollection(row.source.path, byId);
+    filterMapByConstraints(byId, row.source.constraints);
     storeCollection(row.source.path, row.source.constraints, byId);
     byMissing.set(row.index, asSnap(byId));
   });
