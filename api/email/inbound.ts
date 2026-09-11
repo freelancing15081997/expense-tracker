@@ -921,6 +921,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       res.end();
       return;
     }
+    if (req.method === 'GET' || req.method === 'HEAD') {
+      json(res, 200, {
+        ok: true,
+        service: 'inbound-email',
+        accepts: 'POST',
+        secretConfigured: Boolean(inboundSecret()),
+      });
+      return;
+    }
     if (req.method !== 'POST') {
       json(res, 405, { error: 'POST required' });
       return;
