@@ -20,6 +20,7 @@ import { authHeaders } from '../lib/auth-client';
 import { ReceiptModal } from '../components/ReceiptModal';
 import { EmailActivityFlow, emailStatusClass, emailStatusLabel } from '../components/EmailActivityFlow';
 import { ListControls, usePagedList } from '../components/ListControls';
+import AppLoader from '../components/AppLoader';
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -108,6 +109,8 @@ export default function BookView() {
   const [announceTitle, setAnnounceTitle] = useState('');
   const [announceBody, setAnnounceBody] = useState('');
   const [announcing, setAnnouncing] = useState(false);
+  const [isAnnounceOpen, setIsAnnounceOpen] = useState(false);
+  const [deletingLedger, setDeletingLedger] = useState(false);
   const { addToast } = useToast();
   const [copiedInbound, setCopiedInbound] = useState(false);
   const [inboundEvents, setInboundEvents] = useState<any[]>([]);
@@ -198,8 +201,8 @@ export default function BookView() {
     setInboundEventsLoading(true);
     try {
       const [inboundSnap, outboundSnap] = await Promise.all([
-        getDocs(query(collection(db, `books/${bookId}/inbound_events`)), { force: true, kvMs: 8000 }),
-        getDocs(query(collection(db, `books/${bookId}/email_events`)), { force: true, kvMs: 8000 }),
+        getDocs(query(collection(db, `books/${bookId}/inbound_events`))),
+        getDocs(query(collection(db, `books/${bookId}/email_events`))),
       ]);
       const inbound: any[] = [];
       inboundSnap.forEach((d) => inbound.push({ id: d.id, direction: 'inbound', ...d.data() }));
@@ -218,11 +221,26 @@ export default function BookView() {
   };
 
   useEffect(() => {
-    if (!bookId) return;
-    if (ledgerTab === 'email' || isMembersModalOpen) {
-      void loadEmailActivity();
-    }
-  }, [ledgerTab, isMembersModalOpen, bookId]);
+    if (!bookId || ledgerTab !== 'email') return;
+    setInboundEventsLoading(true);
+    const unsubIn = onSnapshot(query(collection(db, `books/${bookId}/inbound_events`)), (snap) => {
+      const inbound: any[] = [];
+      snap.forEach((d) => inbound.push({ id: d.id, direction: 'inbound', ...d.data() }));
+      inbound.sort((a, b) => Date.parse(String(b.createdAt || '')) - Date.parse(String(a.createdAt || '')));
+      setInboundEvents(inbound.slice(0, 250));
+      setInboundEventsLoading(false);
+    }, () => setInboundEventsLoading(false));
+    const unsubOut = onSnapshot(query(collection(db, `books/${bookId}/email_events`)), (snap) => {
+      const outbound: any[] = [];
+      snap.forEach((d) => outbound.push({ id: d.id, direction: 'outbound', ...d.data() }));
+      outbound.sort((a, b) => Date.parse(String(b.createdAt || '')) - Date.parse(String(a.createdAt || '')));
+      setOutboundEvents(outbound.slice(0, 250));
+    });
+    return () => {
+      unsubIn();
+      unsubOut();
+    };
+  }, [ledgerTab, bookId]);
 
   const emailActivityAll = useMemo(() => (
     [...inboundEvents, ...outboundEvents]
@@ -234,7 +252,7 @@ export default function BookView() {
   ), []);
   const emailList = usePagedList(emailActivityAll, emailFilter, 10);
 
-  if (loading) return <div className="p-8 flex justify-center"><div className="w-6 h-6 border-2 border-slate-200 border-t-zinc-600 rounded-full animate-spin" /></div>;
+  if (loading) return <AppLoader title="Ledger" message="Opening entries and balances." />;
   if (!book) return <div className="p-8 text-center text-sm text-slate-500">Book not found or access denied.</div>;
 
   const myRole = book.roles[currentUser!.uid]?.role || 'viewer';
@@ -639,6 +657,7 @@ export default function BookView() {
       setAnnounceTitle('');
       setAnnounceBody('');
       addToast('Announcement sent to the ledger team.', 'success');
+      setIsAnnounceOpen(false);
     } catch (err: any) {
       addToast(err?.message || 'Could not send announcement', 'error');
     } finally {
@@ -646,11 +665,27 @@ export default function BookView() {
     }
   };
 
-  const totalIn = expenses.filter(e => e.entryType === 'in' || e.entryType === 'in').reduce((sum, exp) => sum + (exp.amount || 0), 0);
-  const totalOut = expenses.filter(e => e.entryType !== 'in' && e.entryType !== 'in').reduce((sum, exp) => sum + (exp.amount || 0), 0);
+  const handleDeleteLedger = async () => {
+    if (!currentUser || !bookId || !book) return;
+    if (!confirm(`Delete ledger “${book.name}”? It leaves everyone’s list. Entries are kept for audit.`)) return;
+    setDeletingLedger(true);
+    try {
+      await updateDoc(doc(db, 'books', bookId), softDeletePatch(currentUser.uid));
+      addToast('Ledger deleted.', 'success');
+      navigate('/expenses');
+    } catch (err: any) {
+      addToast(err?.message || 'Could not delete this ledger', 'error');
+    } finally {
+      setDeletingLedger(false);
+    }
+  };
+
+  const totalIn = expenses.filter(e => e.entryType === 'in').reduce((sum, exp) => sum + (exp.amount || 0), 0);
+  const totalTransfer = expenses.filter(e => e.entryType === 'transfer').reduce((sum, exp) => sum + (exp.amount || 0), 0);
+  const totalOut = expenses.filter(e => e.entryType !== 'in' && e.entryType !== 'transfer').reduce((sum, exp) => sum + (exp.amount || 0), 0);
   const balance = totalIn - totalOut;
   
-  const chartData = expenses.filter(e => e.entryType !== 'in' && e.entryType !== 'in').reduce((acc: any[], exp) => {
+  const chartData = expenses.filter(e => e.entryType !== 'in' && e.entryType !== 'transfer').reduce((acc: any[], exp) => {
     const existing = acc.find(a => a.name === exp.category);
     if (existing) existing.total += exp.amount;
     else acc.push({ name: exp.category, total: exp.amount });
@@ -670,8 +705,8 @@ export default function BookView() {
 
   return (
     <>
-      <div className="max-w-6xl mx-auto space-y-5">
-        {/* Compact Modern Header */}
+      <div className="max-w-6xl mx-auto">
+        <div className="sticky top-0 z-20 -mx-4 md:-mx-6 lg:-mx-8 px-4 md:px-6 lg:px-8 pt-1 pb-3 bg-[#F5F7FA]/95 backdrop-blur-md border-b border-slate-200/80">
       <div className="flex items-center justify-between gap-2 mb-3">
         <div className="flex items-center gap-2 min-w-0">
           <Link to="/expenses" className="p-1 text-slate-400 hover:text-slate-700" title="Back">
@@ -683,6 +718,15 @@ export default function BookView() {
           </span>
         </div>
           <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => setIsAnnounceOpen(true)}
+            className="byjan-btn-ghost !px-3 !py-1.5"
+            title="Send an announcement to this ledger team"
+          >
+            <Megaphone className="w-4 h-4 text-slate-400" />
+            <span className="hidden sm:inline">Announce</span>
+          </button>
           <button 
             onClick={() => setIsMembersModalOpen(true)}
             className="byjan-btn-ghost !px-3 !py-1.5"
@@ -690,6 +734,18 @@ export default function BookView() {
             <Users className="w-4 h-4 text-slate-400" />
             <span className="hidden sm:inline">Team</span>
           </button>
+          {myRole === 'owner' && (
+            <button
+              type="button"
+              onClick={() => void handleDeleteLedger()}
+              disabled={deletingLedger}
+              className="byjan-btn-ghost !px-3 !py-1.5 text-rose-700"
+              title="Delete this ledger"
+            >
+              {deletingLedger ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+              <span className="hidden sm:inline">Delete</span>
+            </button>
+          )}
           {canWrite && (
             <button 
               onClick={openNewExpense}
@@ -703,7 +759,7 @@ export default function BookView() {
           </div>
         </div>
 
-      <Tabs.Root value={ledgerTab} onValueChange={setLedgerTab} className="space-y-5">
+      <Tabs.Root value={ledgerTab} onValueChange={setLedgerTab} className="space-y-4">
         <Tabs.List className="flex gap-4 border-b border-slate-200/60 overflow-x-auto">
           <Tabs.Trigger value="ledger" className="pb-2 text-sm font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B1F3A] data-[state=active]:border-b-2 data-[state=active]:border-[#12B8A8] transition-colors whitespace-nowrap">
             Ledger Entries
@@ -716,9 +772,8 @@ export default function BookView() {
           </Tabs.Trigger>
         </Tabs.List>
 
-        <Tabs.Content value="ledger" className="space-y-4 outline-none">
-          {/* Summary Cards */}
-          <div className="flex flex-col sm:flex-row items-center gap-4">
+        {ledgerTab === 'ledger' && (
+          <div className="flex flex-col sm:flex-row items-center gap-3">
             <div className="w-full sm:w-auto flex-1 flex flex-row items-center justify-between byjan-card p-3 px-5">
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Net Balance</p>
               <h2 className={cn("text-lg font-bold", balance >= 0 ? "text-emerald-600" : "text-rose-600")}>{balance < 0 ? '-' : ''}{getCurrencySymbol(book.currency)} {Math.abs(balance).toLocaleString(undefined, {minimumFractionDigits: 2})}</h2>
@@ -731,6 +786,10 @@ export default function BookView() {
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Money In</p>
               <h2 className="text-lg font-bold text-emerald-600">{getCurrencySymbol(book.currency)} {totalIn.toLocaleString(undefined, {minimumFractionDigits: 2})}</h2>
             </div>
+            <div className="w-full sm:w-auto flex-1 flex flex-row items-center justify-between byjan-card p-3 px-5">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Transfer</p>
+              <h2 className="text-lg font-bold text-blue-600">{getCurrencySymbol(book.currency)} {totalTransfer.toLocaleString(undefined, {minimumFractionDigits: 2})}</h2>
+            </div>
             {isAuditor && (
               <div className="w-full sm:w-auto flex-1 bg-amber-50 p-3 px-5 rounded-lg border border-amber-200 shadow-sm flex flex-row items-center justify-between relative overflow-hidden">
                 <p className="text-xs font-bold text-amber-800 uppercase tracking-wider">Auditor</p>
@@ -738,8 +797,10 @@ export default function BookView() {
               </div>
             )}
           </div>
+        )}
+        </div>
 
-          
+        <Tabs.Content value="ledger" className="space-y-4 outline-none pt-4">
           {/* Enhanced Action Bar */}
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
             <div className="relative w-full sm:w-72">
@@ -946,7 +1007,7 @@ export default function BookView() {
                 <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
                   <Mail className="w-4 h-4 text-slate-500" /> Email activity
                 </h3>
-                <p className="text-xs text-slate-500 mt-1">Every inbound receipt and outbound team notice for this ledger. Send documents to the unique mailbox and Byjan records them for the team.</p>
+                <p className="text-xs text-slate-500 mt-1">Inbound receipts and team mail for this ledger. The path above updates while Byjan works.</p>
               </div>
               <div className="flex items-center gap-2">
                 <code className="text-[11px] bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 max-w-[220px] truncate">{inboundAddress || inboundMailboxAddress(book.name)}</code>
@@ -959,7 +1020,7 @@ export default function BookView() {
                 </button>
               </div>
             </div>
-            <p className="text-[11px] text-slate-500">Ledger mailbox: send any expense or receipt to this address and Byjan will take care of recording it. The ledger team is notified once the entry is added.</p>
+            <p className="text-[11px] text-slate-500">Send receipts to this address. The team is notified when an entry is saved.</p>
           </div>
 
           <EmailActivityFlow events={emailActivityAll} />
@@ -998,7 +1059,6 @@ export default function BookView() {
                       const when = event.createdAt ? new Date(event.createdAt).toLocaleString() : '—';
                       const isInbound = event.direction !== 'outbound';
                       const status = String(event.status || '');
-                      const flow = Array.isArray(event.flow) ? event.flow.join(' → ') : '';
                       return (
                         <tr key={`${event.direction}-${event.id}`} className="align-top">
                           <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{when}</td>
@@ -1019,7 +1079,6 @@ export default function BookView() {
                             {event.detail ? <p className="mt-0.5">{event.detail}</p> : null}
                             {event.amount != null && event.amount !== '' ? <p className="mt-0.5">{event.category || 'Uncategorized'} · {event.amount}</p> : null}
                             {event.description ? <p className="mt-0.5 text-slate-500">{event.description}</p> : null}
-                            {flow ? <p className="mt-1 text-[10px] uppercase tracking-wide text-slate-400">{flow}</p> : null}
                           </td>
                         </tr>
                       );
@@ -1167,6 +1226,51 @@ export default function BookView() {
         </Dialog.Portal>
       </Dialog.Root>
 
+      <Dialog.Root open={isAnnounceOpen} onOpenChange={setIsAnnounceOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-slate-900/40 z-50 backdrop-blur-sm" />
+          <Dialog.Content className="byjan-panel fixed left-[50%] top-[50%] z-50 grid w-full max-w-md translate-x-[-50%] translate-y-[-50%] gap-4 p-5">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <Dialog.Title className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <Megaphone className="w-4 h-4 text-slate-500" /> Announce to the team
+              </Dialog.Title>
+              <Dialog.Close className="rounded-md p-1 text-slate-400 hover:bg-slate-100">
+                <X className="h-4 w-4" />
+              </Dialog.Close>
+            </div>
+            <form onSubmit={sendAnnouncement} className="space-y-3">
+              <p className="text-sm text-slate-500">Every member of this ledger receives the same letter, including the unique mailbox.</p>
+              <input
+                type="text"
+                required
+                maxLength={120}
+                value={announceTitle}
+                onChange={(e) => setAnnounceTitle(e.target.value)}
+                placeholder="Subject"
+                className="byjan-input"
+              />
+              <textarea
+                required
+                rows={5}
+                value={announceBody}
+                onChange={(e) => setAnnounceBody(e.target.value)}
+                placeholder="Write the announcement"
+                className="byjan-input min-h-[120px]"
+              />
+              <div className="flex justify-end gap-2">
+                <Dialog.Close asChild>
+                  <button type="button" className="byjan-btn-ghost">Cancel</button>
+                </Dialog.Close>
+                <button type="submit" disabled={announcing} className="byjan-btn">
+                  {announcing && <span className="app-loader-ring app-loader-ring-sm" />}
+                  Send announcement
+                </button>
+              </div>
+            </form>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
       {/* Members Modal */}
       <Dialog.Root open={isMembersModalOpen} onOpenChange={setIsMembersModalOpen}>
         <Dialog.Portal>
@@ -1206,33 +1310,16 @@ export default function BookView() {
                 </button>
               </div>
 
-              <form onSubmit={sendAnnouncement} className="mb-4 rounded-xl border border-slate-200 bg-white p-3 space-y-2">
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                  <Megaphone className="w-3.5 h-3.5" /> Team announcement
-                </p>
-                <p className="text-xs text-slate-500">Any member can send a professional notice to everyone on this ledger.</p>
-                <input
-                  type="text"
-                  required
-                  maxLength={120}
-                  value={announceTitle}
-                  onChange={(e) => setAnnounceTitle(e.target.value)}
-                  placeholder="Subject, e.g. Month-end close tomorrow"
-                  className="byjan-input"
-                />
-                <textarea
-                  required
-                  rows={4}
-                  value={announceBody}
-                  onChange={(e) => setAnnounceBody(e.target.value)}
-                  placeholder="Write the announcement. It is emailed to every teammate with the ledger mailbox at the foot of the letter."
-                  className="byjan-input min-h-[96px]"
-                />
-                <button type="submit" disabled={announcing} className="byjan-btn !w-full !justify-center">
-                  {announcing && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  Send to all members
-                </button>
-              </form>
+              <button
+                type="button"
+                className="mb-4 byjan-btn-ghost !w-full !justify-center text-xs"
+                onClick={() => {
+                  setIsMembersModalOpen(false);
+                  setIsAnnounceOpen(true);
+                }}
+              >
+                <Megaphone className="w-3.5 h-3.5" /> Write a team announcement
+              </button>
               <div className="space-y-2">
                 {Object.entries(book.roles).map(([uid, data]: [string, any]) => (
                   <div key={uid} className="flex items-center justify-between p-3 border border-slate-200 rounded-md bg-white hover:bg-slate-50 transition-colors">

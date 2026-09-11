@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { db } from '../lib/firebase';
-import { collection, query, where, getDocs, getDoc, addDoc, serverTimestamp, doc, updateDoc, deleteDoc, limit } from '../lib/store';
+import { collection, query, where, getDocs, getDoc, addDoc, serverTimestamp, doc, updateDoc, deleteDoc, limit, getDocsMany } from '../lib/store';
 import { Link, useLocation } from 'react-router-dom';
 import { isSoftDeleted } from '../lib/records';
 import { useBooksTenantMeta } from '../lib/tenant';
@@ -63,10 +63,12 @@ export default function Dashboard() {
 
       let tIn = 0; let tOut = 0;
       let activity: Record<string, number> = {};
-      await Promise.all(fetchedBooks.slice(0, 12).map(async (b) => {
-        try {
-          const expSnap = await getDocs(query(collection(db, 'books', b.id, 'expenses'), limit(40)));
-          expSnap.forEach(e => {
+      if (fetchedBooks.length) {
+        const expenseSnaps = await getDocsMany(
+          fetchedBooks.slice(0, 12).map((b) => query(collection(db, 'books', b.id, 'expenses'), limit(40))),
+        );
+        expenseSnaps.forEach((expSnap) => {
+          expSnap.forEach((e) => {
             const data = e.data();
             if (isSoftDeleted(data)) return;
             if (data.entryType === 'in' || data.type === 'in') tIn += (data.amount || 0);
@@ -74,8 +76,8 @@ export default function Dashboard() {
             const user = data.enteredBy || data.paidByName || data.createdBy || 'Unknown';
             activity[user] = (activity[user] || 0) + 1;
           });
-        } catch { /* ledger may be empty */ }
-      }));
+        });
+      }
       setGlobalStats({ totalIn: tIn, totalOut: tOut, userActivity: activity });
 
       const qInvites = query(collection(db, 'invites'), where('email', '==', userProfile.email));

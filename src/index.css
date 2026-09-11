@@ -423,22 +423,24 @@ svg.byjan-glyph {
   vertical-align: middle;
 }
 .app-loader-mark {
-  width: 52px;
-  height: 52px;
-  border-radius: 16px;
-  background: #0B1F3A;
+  width: 56px;
+  height: 56px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #12284a 0%, #0B1F3A 100%);
   color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
+  box-shadow: 0 10px 24px -14px rgba(11, 31, 58, 0.55);
 }
 .app-loader-orbit {
   position: absolute;
-  inset: -7px;
-  border-radius: 20px;
+  inset: -8px;
+  border-radius: 22px;
   border: 2px solid #E5E7EB;
   border-top-color: #12B8A8;
+  border-right-color: rgba(18, 184, 168, 0.35);
   animation: app-loader-spin 0.85s linear infinite;
 }
 @keyframes app-loader-spin {

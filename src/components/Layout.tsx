@@ -33,7 +33,7 @@ export default function Layout() {
   const loadNotifications = () => {
     if (!currentUser) return;
     const q = query(collection(db, 'notifications'), where('userId', '==', currentUser.uid));
-    getDocs(q, { force: true, kvMs: 5000 }).then((snap) => {
+    getDocs(q).then((snap) => {
       const notifs: any[] = [];
       snap.forEach((d) => notifs.push({ id: d.id, ...d.data() }));
       const millis = (value: any) => {

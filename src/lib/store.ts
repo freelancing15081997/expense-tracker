@@ -145,18 +145,28 @@ function wrapDoc(id: string, data: any, path: string) {
 
 const DOC_TTL = 120_000;
 const COL_TTL = 120_000;
-const LIVE_COL_TTL = 8_000;
 
-function collectionTtl(path: string) {
-  if (
-    /\/expenses$/.test(path) ||
+function neonOnly(path: string) {
+  return (
+    path.startsWith('inbound_') ||
     /\/inbound_events$/.test(path) ||
     /\/email_events$/.test(path) ||
     path === 'notifications'
-  ) {
-    return LIVE_COL_TTL;
-  }
+  );
+}
+
+function collectionTtl(path: string) {
+  if (/\/inbound_events$/.test(path) || /\/email_events$/.test(path)) return 2500;
+  if (/\/expenses$/.test(path) || path === 'notifications') return 12_000;
   return COL_TTL;
+}
+
+const fsStamp = new Map<string, number>();
+
+function shouldReadFirestore(path: string) {
+  if (isErp(path) || neonOnly(path)) return false;
+  const last = fsStamp.get(path) || 0;
+  return Date.now() - last > 45_000;
 }
 const memory = new Map<string, { data: Record<string, unknown> | null; at: number }>();
 const colCache = new Map<string, { at: number; rows: Array<[string, Record<string, unknown>]> }>();
@@ -235,9 +245,10 @@ export async function getDoc(ref: DocRef) {
     return wrapDoc(ref.id, null, ref.path);
   }
   let data: Record<string, unknown> | null = cached?.data ?? null;
-  if (!isErp(ref.path)) {
+  if (shouldReadFirestore(ref.path)) {
     try {
       const fromFs = await readFirestoreDoc(ref.path);
+      fsStamp.set(ref.path, Date.now());
       if (fromFs) data = fromFs;
     } catch {
       // Expense Tracker ledgers still live in the named Firestore database.
@@ -317,11 +328,12 @@ export async function getDocs(source: { path: string; constraints?: Constraint[]
   const byId = new Map<string, Record<string, unknown>>();
   const kvMs = opts?.kvMs ?? defaultKvMs(source.path);
   const kvPromise = withTimeout(call({ op: 'query', path: source.path, constraints: source.constraints || [] }), kvMs);
-  if (!isErp(source.path)) {
+  if (shouldReadFirestore(source.path)) {
     try {
       for (const row of await readFirestoreDocs(source.path, source.constraints || [])) {
         byId.set(row.id, row.data);
       }
+      fsStamp.set(source.path, Date.now());
     } catch {
       // Rules require a roles.{uid} query on books; Firestore client sends it.
     }
@@ -391,12 +403,9 @@ export function onSnapshot(
   error?: (err: any) => void,
 ) {
   let stopped = false;
-  const livePath =
-    /\/expenses$/.test(source.path) ||
-    /\/inbound_events$/.test(source.path) ||
-    /\/email_events$/.test(source.path) ||
-    source.path === 'notifications';
-  const tick = () => {
+  const mailLive = /\/inbound_events$/.test(source.path) || /\/email_events$/.test(source.path);
+  const livePath = mailLive || /\/expenses$/.test(source.path) || source.path === 'notifications';
+  const tick = (force = false) => {
     if (typeof document !== 'undefined' && document.hidden) return;
     if (source.kind === 'doc') {
       getDoc(source as DocRef).then((snap) => {
@@ -406,14 +415,16 @@ export function onSnapshot(
       });
       return;
     }
-    getDocs(source, livePath ? { force: true, kvMs: 8000 } : undefined).then((snap) => {
+    const cached = fromCache(source.path, source.constraints);
+    if (cached && !force) next(cached);
+    getDocs(source, force || !cached ? { kvMs: mailLive ? 4000 : 8000 } : undefined).then((snap) => {
       if (!stopped) next(snap);
     }).catch((err) => {
       if (!stopped) error?.(err);
     });
   };
-  tick();
-  const timer = setInterval(tick, livePath ? 8000 : 25000);
+  tick(true);
+  const timer = setInterval(() => tick(false), mailLive ? 2500 : livePath ? 15000 : 30000);
   return () => {
     stopped = true;
     clearInterval(timer);

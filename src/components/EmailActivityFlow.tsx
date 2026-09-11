@@ -1,111 +1,136 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 type EventRow = {
+  id?: string;
   direction?: string;
   status?: string;
-  flow?: string[];
+  currentStep?: string;
+  flow?: Array<string | { step?: string; at?: string; label?: string }>;
   teamNotified?: boolean;
   senderNotified?: boolean;
+  createdAt?: string;
+  fromEmail?: string;
+  amount?: unknown;
+  category?: string;
+  description?: string;
+  reason?: string;
 };
 
-const STEPS: Array<{ id: string; label: string; hint: string; match: (events: EventRow[]) => number }> = [
-  {
-    id: 'received',
-    label: 'Mail received',
-    hint: 'Catch-all delivered to Byjan',
-    match: (events) => events.filter((e) => e.direction !== 'outbound').length,
-  },
-  {
-    id: 'member',
-    label: 'Sender check',
-    hint: 'Must be a ledger member',
-    match: (events) => events.filter((e) => e.direction !== 'outbound' && e.status !== 'rejected').length,
-  },
-  {
-    id: 'parse',
-    label: 'Document read',
-    hint: 'Amount, merchant, category',
-    match: (events) => events.filter((e) => ['accepted', 'amount_missing', 'duplicate_pending', 'duplicate_same', 'duplicate_new'].includes(String(e.status))).length,
-  },
-  {
-    id: 'duplicate',
-    label: 'Duplicate check',
-    hint: 'Same image waits for Same / Different',
-    match: (events) => events.filter((e) => String(e.status).startsWith('duplicate')).length,
-  },
-  {
-    id: 'ledger',
-    label: 'Ledger result',
-    hint: 'Recorded, draft, or not posted',
-    match: (events) => events.filter((e) => ['accepted', 'amount_missing', 'duplicate_new'].includes(String(e.status))).length,
-  },
-  {
-    id: 'notices',
-    label: 'Notices sent',
-    hint: 'Sender and ledger team',
-    match: (events) => events.filter((e) => e.direction === 'outbound' && e.status === 'sent').length,
-  },
-];
+const PIPELINE = [
+  { id: 'received', label: 'Received', hint: 'Mail arrived' },
+  { id: 'member_ok', label: 'Member', hint: 'Sender allowed' },
+  { id: 'parsed', label: 'Reading', hint: 'File being read' },
+  { id: 'amount', label: 'Amount', hint: 'Figures checked' },
+  { id: 'ledger', label: 'Ledger', hint: 'Saved or held' },
+  { id: 'notice', label: 'Notice', hint: 'People emailed' },
+] as const;
 
-function statusCounts(events: EventRow[]) {
-  const inbound = events.filter((e) => e.direction !== 'outbound');
-  const count = (status: string) => inbound.filter((e) => e.status === status).length;
-  return {
-    received: inbound.length,
-    accepted: count('accepted') + count('duplicate_new'),
-    draft: count('amount_missing'),
-    rejected: count('rejected'),
-    unreadable: count('unreadable'),
-    duplicatePending: count('duplicate_pending'),
-    duplicateSame: count('duplicate_same'),
-    outboundSent: events.filter((e) => e.direction === 'outbound' && e.status === 'sent').length,
-    outboundFailed: events.filter((e) => e.direction === 'outbound' && e.status === 'failed').length,
-  };
+function flowSteps(event?: EventRow | null) {
+  if (!event) return [] as Array<{ step: string; at: string; label: string }>;
+  return (event.flow || []).map((row) => {
+    if (typeof row === 'string') return { step: row, at: '', label: row };
+    return { step: String(row.step || ''), at: String(row.at || ''), label: String(row.label || row.step || '') };
+  });
+}
+
+function pipelineIndex(step: string) {
+  if (step === 'received') return 0;
+  if (step === 'member_ok') return 1;
+  if (step === 'reading' || step === 'parsed') return 2;
+  if (step === 'amount_found' || step === 'amount_missing') return 3;
+  if (['recorded', 'draft', 'duplicate_detected', 'not_posted', 'accepted'].includes(step)) return 4;
+  if (['team_notified', 'sender_notified', 'awaiting_sender_confirm'].includes(step)) return 5;
+  return -1;
+}
+
+function elapsedLabel(fromIso?: string) {
+  if (!fromIso) return '';
+  const ms = Date.now() - Date.parse(fromIso);
+  if (!Number.isFinite(ms) || ms < 0) return '';
+  if (ms < 1000) return `${ms} ms`;
+  if (ms < 60_000) return `${Math.round(ms / 100) / 10}s`;
+  return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
 }
 
 export function EmailActivityFlow({ events }: { events: EventRow[] }) {
-  const counts = statusCounts(events);
+  const [, setTick] = useState(0);
+  const inbound = useMemo(
+    () => events.filter((e) => e.direction !== 'outbound').sort((a, b) => Date.parse(String(b.createdAt || '')) - Date.parse(String(a.createdAt || ''))),
+    [events],
+  );
+  const latest = inbound[0] || null;
+  const steps = flowSteps(latest);
+  const current = latest?.currentStep || (steps[steps.length - 1]?.step || '');
+  const activeIdx = pipelineIndex(current);
+    const live = Boolean(latest && (latest.status === 'processing' || latest.status === 'duplicate_pending'));
+
+  useEffect(() => {
+    if (!live) return;
+    const timer = window.setInterval(() => setTick((n) => n + 1), 250);
+    return () => window.clearInterval(timer);
+  }, [live, latest?.id, current]);
+
+  const currentAt = steps.find((row) => row.step === current)?.at || latest?.createdAt;
+  const wait = live ? elapsedLabel(currentAt) : '';
+
+  const outcome = !latest ? 'Waiting for mail'
+    : latest.status === 'accepted' ? 'Saved to the ledger'
+    : latest.status === 'amount_missing' ? 'Saved for review — amount missing'
+    : latest.status === 'duplicate_pending' ? 'Held — sender must confirm'
+    : latest.status === 'duplicate_same' ? 'Same receipt, not added again'
+    : latest.status === 'duplicate_new' ? 'Confirmed as a new entry'
+    : latest.status === 'unreadable' ? 'File was not a receipt'
+    : latest.status === 'rejected' ? 'Sender is not on this ledger'
+    : latest.status === 'processing' ? (wait ? `Working — ${PIPELINE[Math.max(activeIdx, 0)]?.label || 'in progress'} ${wait}` : 'Working now')
+    : 'Latest mail';
+
   return (
-    <div className="byjan-card p-4 space-y-4">
-      <div>
-        <h3 className="text-sm font-semibold text-slate-900">Email activity flow</h3>
-        <p className="text-xs text-slate-500 mt-1">Every inbound receipt and outbound notice for this ledger, shown as the live path Byjan follows.</p>
-      </div>
-      <div className="grid grid-cols-2 lg:grid-cols-6 gap-2">
-        {STEPS.map((step, index) => {
-          const n = step.match(events);
-          return (
-            <div key={step.id} className="relative rounded-xl border border-slate-200 bg-[#F8FAFC] px-3 py-3">
-              {index < STEPS.length - 1 && (
-                <span className="hidden lg:block absolute top-1/2 -right-2 w-4 h-px bg-slate-300" aria-hidden />
-              )}
-              <p className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">{String(index + 1).padStart(2, '0')}</p>
-              <p className="text-sm font-semibold text-[#0B1F3A] mt-1 leading-tight">{step.label}</p>
-              <p className="text-[11px] text-slate-500 mt-1 leading-snug">{step.hint}</p>
-              <p className="text-lg font-bold text-[#0B1F3A] mt-2 tabular-nums">{n}</p>
-            </div>
-          );
-        })}
-      </div>
-      <div className="grid sm:grid-cols-2 gap-3 text-xs text-slate-600">
-        <div className="rounded-lg border border-slate-200 p-3 space-y-1.5">
-          <p className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">Inbound outcomes</p>
-          <p>Recorded on ledger · <span className="font-semibold text-slate-900">{counts.accepted}</span></p>
-          <p>Needs review (amount missing) · <span className="font-semibold text-slate-900">{counts.draft}</span></p>
-          <p>Sender not a member · <span className="font-semibold text-slate-900">{counts.rejected}</span></p>
-          <p>Unreadable / not a receipt · <span className="font-semibold text-slate-900">{counts.unreadable}</span></p>
-          <p>Awaiting Same / Different · <span className="font-semibold text-slate-900">{counts.duplicatePending}</span></p>
-          <p>Confirmed same (not posted) · <span className="font-semibold text-slate-900">{counts.duplicateSame}</span></p>
+    <div className="byjan-card overflow-hidden">
+      <div className="px-4 py-3 border-b border-slate-100 flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-900">Live mail path</h3>
+          <p className="text-xs text-slate-500 mt-0.5">{outcome}</p>
         </div>
-        <div className="rounded-lg border border-slate-200 p-3 space-y-1.5">
-          <p className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">How status moves</p>
-          <p>1. Mail arrives at the ledger address.</p>
-          <p>2. Sender must belong to the team, or the mail is not added.</p>
-          <p>3. Byjan reads the attachment. No amount → sender gets the file back with the error; a draft may be saved.</p>
-          <p>4. Same image as an existing entry → sender chooses Same receipt or Different entry in the email.</p>
-          <p>5. Recorded entries notify the ledger team. Editing a draft clears Needs review.</p>
-          <p>Outbound sent {counts.outboundSent} · failed {counts.outboundFailed}</p>
+        {wait && latest?.status === 'processing' ? (
+          <span className="text-[11px] font-semibold text-teal-800 bg-teal-50 border border-teal-100 rounded-full px-2 py-1 shrink-0">
+            {PIPELINE[Math.max(activeIdx, 0)]?.label} · {wait}
+          </span>
+        ) : null}
+      </div>
+      <div className="p-4">
+        <div className="flex items-center gap-1 overflow-x-auto pb-1">
+          {PIPELINE.map((step, index) => {
+            const done = activeIdx > index || (!live && latest && activeIdx >= index);
+            const active = live && activeIdx === index;
+            return (
+              <React.Fragment key={step.id}>
+                <div className={`min-w-[92px] flex-1 rounded-xl border px-2.5 py-2.5 transition-all duration-300 ${
+                  active ? 'border-teal-400 bg-teal-50 shadow-[0_0_0_3px_rgba(18,184,168,0.12)]' : done ? 'border-emerald-200 bg-emerald-50/70' : 'border-slate-200 bg-slate-50'
+                }`}>
+                  <p className={`text-[10px] font-semibold uppercase tracking-wider ${active ? 'text-teal-700' : done ? 'text-emerald-700' : 'text-slate-400'}`}>
+                    {String(index + 1).padStart(2, '0')}
+                  </p>
+                  <p className={`text-sm font-semibold mt-0.5 ${active ? 'text-[#0B1F3A]' : done ? 'text-emerald-900' : 'text-slate-500'}`}>{step.label}</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+                    {active && wait ? `Here · ${wait}` : done ? 'Done' : step.hint}
+                  </p>
+                </div>
+                {index < PIPELINE.length - 1 && (
+                  <span className={`hidden sm:block w-4 h-0.5 shrink-0 rounded-full ${done || active ? 'bg-teal-400' : 'bg-slate-200'}`} />
+                )}
+              </React.Fragment>
+            );
+          })}
         </div>
+        {latest ? (
+          <p className="text-xs text-slate-500 mt-3">
+            Latest from <span className="font-medium text-slate-700">{latest.fromEmail || 'unknown'}</span>
+            {latest.category ? ` · ${latest.category}` : ''}
+            {latest.description ? ` · ${latest.description}` : ''}
+          </p>
+        ) : (
+          <p className="text-xs text-slate-500 mt-3">Send a receipt to this ledger address. This path updates as Byjan works.</p>
+        )}
       </div>
     </div>
   );
@@ -113,13 +138,15 @@ export function EmailActivityFlow({ events }: { events: EventRow[] }) {
 
 export function emailStatusLabel(status: string) {
   switch (status) {
-    case 'accepted': return 'Entry added';
-    case 'amount_missing': return 'Amount missing';
+    case 'accepted':
+    case 'recorded': return 'Saved';
+    case 'processing': return 'Working';
+    case 'amount_missing': return 'Needs amount';
     case 'rejected': return 'Not added';
-    case 'unreadable': return 'Unreadable';
-    case 'duplicate_pending': return 'Awaiting confirm';
-    case 'duplicate_same': return 'Duplicate declined';
-    case 'duplicate_new': return 'Confirmed new';
+    case 'unreadable': return 'Not a receipt';
+    case 'duplicate_pending': return 'Waiting on sender';
+    case 'duplicate_same': return 'Same receipt';
+    case 'duplicate_new': return 'New entry';
     case 'sent': return 'Sent';
     case 'failed': return 'Failed';
     default: return status || 'Unknown';
@@ -127,8 +154,8 @@ export function emailStatusLabel(status: string) {
 }
 
 export function emailStatusClass(status: string) {
-  if (['accepted', 'sent', 'duplicate_new'].includes(status)) return 'bg-emerald-50 text-emerald-800 border-emerald-200';
+  if (['accepted', 'sent', 'duplicate_new', 'recorded'].includes(status)) return 'bg-emerald-50 text-emerald-800 border-emerald-200';
   if (['rejected', 'failed', 'unreadable', 'duplicate_same'].includes(status)) return 'bg-amber-50 text-amber-800 border-amber-200';
-  if (['amount_missing', 'duplicate_pending'].includes(status)) return 'bg-sky-50 text-sky-800 border-sky-200';
+  if (['amount_missing', 'duplicate_pending', 'processing'].includes(status)) return 'bg-sky-50 text-sky-800 border-sky-200';
   return 'bg-slate-50 text-slate-700 border-slate-200';
 }

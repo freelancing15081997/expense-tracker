@@ -204,6 +204,52 @@ async function pgSet(path: string, data: unknown) {
   `;
 }
 
+async function pgInsertIfNew(path: string, data: unknown): Promise<boolean> {
+  const { neon } = await import('@neondatabase/serverless');
+  const sql = neon(postgresUrl());
+  if (!pgReady) {
+    await sql`CREATE TABLE IF NOT EXISTS documents (
+      path TEXT PRIMARY KEY,
+      data JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`;
+    pgReady = true;
+  }
+  const p = cleanPath(path);
+  const payload = JSON.stringify(data ?? {});
+  const rows = await sql`
+    INSERT INTO documents (path, data, updated_at)
+    VALUES (${p}, ${payload}::jsonb, NOW())
+    ON CONFLICT (path) DO NOTHING
+    RETURNING path
+  `;
+  return rows.length > 0;
+}
+
+async function pgList(prefix: string): Promise<Array<{ path: string; data: Record<string, unknown> }>> {
+  const { neon } = await import('@neondatabase/serverless');
+  const sql = neon(postgresUrl());
+  if (!pgReady) {
+    await sql`CREATE TABLE IF NOT EXISTS documents (
+      path TEXT PRIMARY KEY,
+      data JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`;
+    pgReady = true;
+  }
+  const p = `${cleanPath(prefix.replace(/\/+$/, ''))}/`;
+  const rows = await sql`SELECT path, data FROM documents WHERE path LIKE ${p + '%'} LIMIT 400`;
+  return rows.map((row: any) => ({ path: String(row.path), data: asObject(row.data) || {} }));
+}
+
+async function docInsertIfNew(path: string, data: unknown): Promise<boolean> {
+  if (postgresUrl()) return pgInsertIfNew(path, data);
+  const existing = await r2GetJson(blobKey(path));
+  if (existing) return false;
+  await r2PutJson(blobKey(path), data);
+  return true;
+}
+
 async function docGet(path: string) {
   if (postgresUrl()) {
     const row = await pgGet(path);
@@ -1063,13 +1109,62 @@ async function sendMail(
 
 async function logInboundEvent(bookId: string, event: Record<string, unknown>) {
   const id = newId();
+  const createdAt = new Date().toISOString();
+  const { flow: incomingFlow, ...rest } = event;
+  const step = String(rest.currentStep || 'received');
   await docSet(`books/${bookId}/inbound_events/${id}`, {
     id,
     bookId,
-    createdAt: new Date().toISOString(),
-    ...event,
+    createdAt,
+    currentStep: step,
+    flow: Array.isArray(incomingFlow) ? asFlowRows(incomingFlow) : [{ step: 'received', at: createdAt, label: FLOW_LABELS.received }, { step, at: createdAt, label: FLOW_LABELS[step] || step }],
+    ...rest,
   });
   return id;
+}
+
+const FLOW_LABELS: Record<string, string> = {
+  received: 'Mail received',
+  member_ok: 'Sender checked',
+  reading: 'Reading the file',
+  parsed: 'Details read',
+  amount_found: 'Amount found',
+  amount_missing: 'Amount missing',
+  duplicate_detected: 'Already on the ledger',
+  awaiting_sender_confirm: 'Waiting for sender',
+  recorded: 'Saved to ledger',
+  draft: 'Saved for review',
+  not_posted: 'Not added',
+  sender_notified: 'Sender emailed',
+  team_notified: 'Team notified',
+};
+
+function asFlowRows(value: unknown): Array<{ step: string; at: string; label: string }> {
+  if (!Array.isArray(value)) return [];
+  return value.map((row) => {
+    if (typeof row === 'string') {
+      return { step: row, at: '', label: FLOW_LABELS[row] || row };
+    }
+    const rec = row && typeof row === 'object' ? row as Record<string, unknown> : {};
+    const step = String(rec.step || '');
+    return { step, at: String(rec.at || ''), label: String(rec.label || FLOW_LABELS[step] || step) };
+  });
+}
+
+async function markFlow(bookId: string, eventId: string, step: string, extra: Record<string, unknown> = {}) {
+  if (!eventId) return;
+  const current = await docGet(`books/${bookId}/inbound_events/${eventId}`);
+  if (!current) return;
+  const flow = asFlowRows(current.flow);
+  if (!flow.some((row) => row.step === step)) {
+    flow.push({ step, at: new Date().toISOString(), label: FLOW_LABELS[step] || step });
+  }
+  await docSet(`books/${bookId}/inbound_events/${eventId}`, {
+    ...current,
+    ...extra,
+    currentStep: step,
+    flow,
+  }).catch(() => undefined);
 }
 
 async function notifyMembers(
@@ -1264,6 +1359,7 @@ async function storeFileHash(bookId: string, hash: string, expense: Record<strin
   await docSet(`inbound_hashes/${bookId}/${hash}`, {
     bookId,
     hash,
+    reserved: false,
     expenseId: expense.id,
     amount: expense.amount || 0,
     category: expense.category || '',
@@ -1274,13 +1370,72 @@ async function storeFileHash(bookId: string, hash: string, expense: Record<strin
   });
 }
 
-async function findMatchingReceipt(bookId: string, hash: string) {
-  const row = await docGet(`inbound_hashes/${bookId}/${hash}`);
-  const expenseId = String(row?.expenseId || '').trim();
-  if (!expenseId) return null;
-  const expense = await docGet(`books/${bookId}/expenses/${expenseId}`);
-  if (!expense || expense.deleted === true || expense.status === 'deleted' || expense.deletedAt) return null;
-  return { hash, expenseId, expense, record: row };
+function normText(value: unknown) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+async function listLedgerExpenses(bookId: string): Promise<Array<Record<string, unknown>>> {
+  if (!postgresUrl()) return [];
+  const rows = await pgList(`books/${bookId}/expenses`);
+  return rows
+    .map((row) => {
+      const id = row.path.split('/').pop() || '';
+      return { id, ...row.data } as Record<string, unknown>;
+    })
+    .filter((row) => row.id && row.deleted !== true && row.status !== 'deleted' && !row.deletedAt);
+}
+
+async function findMatchingReceipt(
+  bookId: string,
+  hash: string,
+  parsed?: { amount?: number; merchant?: string; date?: string; description?: string },
+) {
+  if (hash) {
+    const row = await docGet(`inbound_hashes/${bookId}/${hash}`);
+    const expenseId = String(row?.expenseId || '').trim();
+    if (expenseId) {
+      const expense = await docGet(`books/${bookId}/expenses/${expenseId}`);
+      if (expense && expense.deleted !== true && expense.status !== 'deleted' && !expense.deletedAt) {
+        return { hash, expenseId, expense, reason: 'same_file' as const };
+      }
+    }
+    if (row?.reserved) {
+      return { hash, expenseId: expenseId || String(row.expenseId || ''), expense: row, reason: 'same_file' as const };
+    }
+  }
+  const expenses = await listLedgerExpenses(bookId);
+  if (hash) {
+    const byHash = expenses.find((row) => String(row.receiptHash || '') === hash);
+    if (byHash) return { hash, expenseId: String(byHash.id), expense: byHash, reason: 'same_file' as const };
+  }
+  const amount = Number(parsed?.amount || 0);
+  const merchant = normText(parsed?.merchant);
+  const description = normText(parsed?.description);
+  if (amount > 0) {
+    const byBill = expenses.find((row) => {
+      if (Number(row.amount || 0) !== amount) return false;
+      const otherMerchant = normText(row.merchant);
+      if (merchant && otherMerchant && merchant === otherMerchant) return true;
+      if (parsed?.date && String(row.date || '') === parsed.date) {
+        const otherDesc = normText(row.description);
+        if (description && otherDesc && (description.includes(otherDesc) || otherDesc.includes(description))) return true;
+      }
+      return false;
+    });
+    if (byBill) return { hash, expenseId: String(byBill.id), expense: byBill, reason: 'same_bill' as const };
+  }
+  return null;
+}
+
+async function reserveReceiptHash(bookId: string, hash: string, meta: Record<string, unknown>) {
+  if (!hash) return true;
+  return docInsertIfNew(`inbound_hashes/${bookId}/${hash}`, {
+    bookId,
+    hash,
+    reserved: true,
+    at: new Date().toISOString(),
+    ...meta,
+  });
 }
 
 async function mergeCategory(bookId: string, category: string) {
@@ -1703,6 +1858,80 @@ function itemsFrom(body: any): any[] {
   return [];
 }
 
+async function holdAsDuplicate(opts: {
+  mailbox: Mailbox;
+  bookId: string;
+  seenKey: string;
+  eventId: string;
+  hash: string;
+  member: { uid: string; email: string };
+  subject: string;
+  match: { expenseId: string; expense: Record<string, unknown> };
+  parsed: { amount?: number; category?: string; description?: string; entryType?: string; date?: string };
+  receipt: { path: string; name: string; contentType: string; bytes: Buffer } | null;
+  messageId: string;
+}) {
+  const pendingId = newId();
+  const expense = {
+    id: newId(),
+    amount: opts.parsed.amount || 0,
+    description: opts.parsed.description || opts.match.expense.description || 'Receipt',
+    category: opts.parsed.category || opts.match.expense.category || 'Uncategorized',
+    entryType: opts.parsed.entryType || 'out',
+    date: opts.parsed.date || new Date().toISOString().slice(0, 10),
+    paidByName: opts.member.email,
+    enteredBy: opts.member.email,
+    enteredByUid: opts.member.uid,
+    enteredByEmail: opts.member.email,
+    createdAt: new Date().toISOString(),
+    status: Number(opts.parsed.amount || 0) > 0 ? 'recorded' : 'draft',
+    source: 'email',
+    emailMessageId: opts.messageId,
+    receiptPath: opts.receipt?.path || null,
+    receiptName: opts.receipt?.name || null,
+    receiptHash: opts.hash || null,
+  };
+  await docSet(`inbound_pending/${pendingId}`, {
+    id: pendingId,
+    status: 'pending',
+    bookId: opts.bookId,
+    hash: opts.hash,
+    fromEmail: opts.member.email,
+    subject: opts.subject || '(no subject)',
+    existingExpenseId: opts.match.expenseId,
+    existing: {
+      id: opts.match.expenseId,
+      amount: opts.match.expense.amount,
+      category: opts.match.expense.category,
+      paidByName: opts.match.expense.paidByName,
+      enteredBy: opts.match.expense.enteredBy,
+      enteredByEmail: opts.match.expense.enteredByEmail,
+      description: opts.match.expense.description,
+      date: opts.match.expense.date,
+    },
+    expense,
+    inboundEventId: opts.eventId,
+    createdAt: new Date().toISOString(),
+  });
+  await docSet(opts.seenKey, { bookId: opts.bookId, at: new Date().toISOString(), status: 'duplicate_pending', pendingId });
+  await markFlow(opts.bookId, opts.eventId, 'duplicate_detected', {
+    status: 'duplicate_pending',
+    pendingId,
+    existingExpenseId: opts.match.expenseId,
+  });
+  await sendDuplicateConfirmToSender(opts.mailbox, opts.bookId, pendingId, {
+    sender: opts.member.email,
+    subjectLine: opts.subject,
+    existing: { id: opts.match.expenseId, ...opts.match.expense },
+    parsedAmount: Number(opts.parsed.amount || 0),
+    parsedCategory: String(opts.parsed.category || opts.match.expense.category || ''),
+    fileName: opts.receipt?.name,
+    inboundEventId: opts.eventId,
+  }).catch(() => undefined);
+  await markFlow(opts.bookId, opts.eventId, 'awaiting_sender_confirm', { senderNotified: true });
+  return { pending: true, bookId: opts.bookId, pendingId, existingExpenseId: opts.match.expenseId };
+}
+
 async function processItem(item: any) {
   const bookId = await resolveBookId(item);
   if (!bookId) return { skipped: 'no ledger address' };
@@ -1724,8 +1953,9 @@ async function processItem(item: any) {
       reason: fromEmail ? 'Sender is not a member of this ledger' : 'No From address',
       fromEmail: fromEmail || '(missing)',
       subject: subject || '(no subject)',
-      flow: ['received', 'sender_not_a_member', 'not_posted', 'team_notified'],
+      currentStep: 'not_posted',
     });
+    await markFlow(bookId, eventId, 'not_posted');
     await notifyMembers(mailbox, bookId, {
       kind: 'rejected',
       sender: fromEmail || 'Unknown sender',
@@ -1735,8 +1965,18 @@ async function processItem(item: any) {
         : 'The message had no From address, so no entry was created.',
       inboundEventId: eventId,
     }).catch(() => undefined);
+    await markFlow(bookId, eventId, 'team_notified', { teamNotified: true });
     return { skipped: 'sender is not a member', bookId, from: fromEmail };
   }
+
+  const eventId = await logInboundEvent(bookId, {
+    status: 'processing',
+    fromEmail: member.email,
+    subject: subject || '(no subject)',
+    currentStep: 'member_ok',
+  });
+  await markFlow(bookId, eventId, 'member_ok');
+
   const body = clipQuoted(firstString(
     item.ExtractedMarkdownMessage,
     item.RawTextBody,
@@ -1751,6 +1991,41 @@ async function processItem(item: any) {
     } catch (err) {
       console.error('inbound receipt store failed', err);
     }
+  }
+
+  await markFlow(bookId, eventId, 'reading', { hasFile: Boolean(receipt?.path), receiptName: receipt?.name || null });
+  const hash = receipt?.bytes ? fileHash(receipt.bytes) : '';
+  let match = await findMatchingReceipt(bookId, hash);
+  if (!match && hash) {
+    const reserved = await reserveReceiptHash(bookId, hash, {
+      fromEmail: member.email,
+      inboundEventId: eventId,
+    });
+    if (!reserved) match = await findMatchingReceipt(bookId, hash);
+  }
+  if (match) {
+    if (match.expenseId) {
+      return holdAsDuplicate({
+        mailbox, bookId, seenKey, eventId, hash, member, subject, match, parsed: {}, receipt, messageId,
+      });
+    }
+    await docSet(seenKey, { bookId, at: new Date().toISOString(), status: 'duplicate_pending' });
+    await markFlow(bookId, eventId, 'duplicate_detected', { status: 'duplicate_pending' });
+    await notifySender(mailbox, bookId, {
+      to: member.email,
+      subject: `This receipt is already being recorded · ${mailbox.name}`,
+      kicker: 'Already in progress',
+      title: 'Byjan is already recording this file',
+      intro: 'The same attachment is already being processed for this ledger. No second entry will be created. You will receive the usual notice when it is saved.',
+      rows: [
+        { label: 'Ledger', value: mailbox.name },
+        { label: 'File', value: receipt?.name || 'Attachment' },
+      ],
+      action: 'Sender told duplicate is already in progress',
+      inboundEventId: eventId,
+    }).catch(() => undefined);
+    await markFlow(bookId, eventId, 'sender_notified', { senderNotified: true });
+    return { skipped: 'duplicate in flight', bookId };
   }
 
   let parsed = parseReceiptFields(body, { subject, fileName: receipt?.name || attachments[0]?.Name || '' });
@@ -1769,18 +2044,13 @@ async function processItem(item: any) {
     ocrPreview = enriched.preview;
     parseEngine = enriched.engine || parseEngine;
   }
+  await markFlow(bookId, eventId, 'parsed', { parseEngine });
 
   if (isUnusableDocument(parsed, body, ocrPreview, parseEngine, Boolean(receipt?.path))) {
     await docSet(seenKey, { bookId, at: new Date().toISOString(), status: 'unreadable' });
-    const eventId = await logInboundEvent(bookId, {
+    await markFlow(bookId, eventId, 'not_posted', {
       status: 'unreadable',
       reason: 'Attachment was not a readable receipt, bill, or invoice',
-      fromEmail: member.email,
-      subject: subject || '(no subject)',
-      hasFile: Boolean(receipt?.path),
-      receiptName: receipt?.name || null,
-      parseEngine,
-      flow: ['received', 'member_ok', 'parse_failed', 'not_posted', 'sender_notified', 'team_notified'],
     });
     await sendAmountMissingToSender(mailbox, bookId, {
       sender: member.email,
@@ -1790,6 +2060,7 @@ async function processItem(item: any) {
       inboundEventId: eventId,
       savedAsDraft: false,
     }).catch(() => undefined);
+    await markFlow(bookId, eventId, 'sender_notified', { senderNotified: true });
     await notifyMembers(mailbox, bookId, {
       kind: 'unreadable',
       sender: member.email,
@@ -1798,11 +2069,25 @@ async function processItem(item: any) {
       reason: 'The file had no usable amount, merchant, or invoice data. It was not posted. The sender was asked to resend a clearer document.',
       inboundEventId: eventId,
     }).catch(() => undefined);
+    await markFlow(bookId, eventId, 'team_notified', { teamNotified: true });
     return { skipped: 'unreadable document', bookId, from: member.email };
   }
 
-  const hash = receipt?.bytes ? fileHash(receipt.bytes) : '';
-  const match = hash ? await findMatchingReceipt(bookId, hash) : null;
+  match = await findMatchingReceipt(bookId, hash, parsed);
+  if (match) {
+    if (match.expenseId) {
+      return holdAsDuplicate({
+        mailbox, bookId, seenKey, eventId, hash, member, subject, match, parsed, receipt, messageId,
+      });
+    }
+    await docSet(seenKey, { bookId, at: new Date().toISOString(), status: 'duplicate_pending' });
+    await markFlow(bookId, eventId, 'duplicate_detected', { status: 'duplicate_pending' });
+    return { skipped: 'duplicate in flight', bookId };
+  }
+
+  const amountMissing = !(Number(parsed.amount) > 0);
+  await markFlow(bookId, eventId, amountMissing ? 'amount_missing' : 'amount_found', { amount: parsed.amount, category: parsed.category });
+
   const expense = {
     id: newId(),
     amount: parsed.amount,
@@ -1834,92 +2119,16 @@ async function processItem(item: any) {
     ocrPreview: ocrPreview || null,
   };
 
-  if (match) {
-    const pendingId = newId();
-    await docSet(`inbound_pending/${pendingId}`, {
-      id: pendingId,
-      status: 'pending',
-      bookId,
-      hash,
-      fromEmail: member.email,
-      subject: subject || '(no subject)',
-      existingExpenseId: match.expenseId,
-      existing: {
-        id: match.expenseId,
-        amount: match.expense.amount,
-        category: match.expense.category,
-        paidByName: match.expense.paidByName,
-        enteredBy: match.expense.enteredBy,
-        enteredByEmail: match.expense.enteredByEmail,
-        description: match.expense.description,
-      },
-      expense,
-      createdAt: new Date().toISOString(),
-    });
-    await docSet(seenKey, { bookId, at: new Date().toISOString(), status: 'duplicate_pending', pendingId });
-    const eventId = await logInboundEvent(bookId, {
-      status: 'duplicate_pending',
-      fromEmail: member.email,
-      subject: subject || '(no subject)',
-      amount: parsed.amount,
-      category: parsed.category,
-      description: parsed.description,
-      hasFile: Boolean(receipt?.path),
-      existingExpenseId: match.expenseId,
-      pendingId,
-      parseEngine,
-      flow: ['received', 'member_ok', 'parsed', 'duplicate_detected', 'awaiting_sender_confirm'],
-    });
-    await docSet(`inbound_pending/${pendingId}`, {
-      ...(await docGet(`inbound_pending/${pendingId}`) || {}),
-      inboundEventId: eventId,
-    });
-    await sendDuplicateConfirmToSender(mailbox, bookId, pendingId, {
-      sender: member.email,
-      subjectLine: subject,
-      existing: { id: match.expenseId, ...match.expense },
-      parsedAmount: parsed.amount,
-      parsedCategory: parsed.category,
-      fileName: receipt?.name,
-      inboundEventId: eventId,
-    }).catch(() => undefined);
-    await notifyMembers(mailbox, bookId, {
-      kind: 'duplicate_pending',
-      sender: member.email,
-      subjectLine: subject,
-      amount: moneyLabel(mailbox.currency, match.expense.amount),
-      category: String(match.expense.category || ''),
-      paidBy: String(match.expense.paidByName || ''),
-      description: 'Sender has been asked to confirm Same receipt or Different entry.',
-      fileName: receipt?.name || '',
-      inboundEventId: eventId,
-    }).catch(() => undefined);
-    return { pending: true, bookId, pendingId, existingExpenseId: match.expenseId };
-  }
-
   const saved = await saveExpenseRecord(bookId, expense);
   if (hash) await storeFileHash(bookId, hash, saved).catch(() => undefined);
   await docSet(seenKey, { id: saved.id, bookId, at: new Date().toISOString(), status: 'accepted' });
-  const amountMissing = !(Number(parsed.amount) > 0);
-  const eventId = await logInboundEvent(bookId, {
+  await markFlow(bookId, eventId, amountMissing ? 'draft' : 'recorded', {
     status: amountMissing ? 'amount_missing' : 'accepted',
-    fromEmail: member.email,
-    subject: subject || '(no subject)',
     expenseId: saved.id,
     amount: parsed.amount,
     category: parsed.category,
     description: parsed.description,
-    hasFile: Boolean(receipt?.path),
-    parseEngine,
     parseError: expense.parseError || null,
-    flow: [
-      'received',
-      'member_ok',
-      'parsed',
-      amountMissing ? 'amount_not_found' : 'amount_found',
-      amountMissing ? 'saved_as_draft' : 'recorded',
-      amountMissing ? 'sender_notified' : 'team_notified',
-    ],
   });
   if (amountMissing) {
     await sendAmountMissingToSender(mailbox, bookId, {
@@ -1930,6 +2139,7 @@ async function processItem(item: any) {
       inboundEventId: eventId,
       savedAsDraft: true,
     }).catch(() => undefined);
+    await markFlow(bookId, eventId, 'sender_notified', { senderNotified: true });
   }
   await notifyMembers(mailbox, bookId, {
     kind: 'added',
@@ -1942,6 +2152,7 @@ async function processItem(item: any) {
     fileName: receipt?.name || '',
     inboundEventId: eventId,
   }).catch(() => undefined);
+  await markFlow(bookId, eventId, 'team_notified', { teamNotified: true });
   return {
     ok: true,
     bookId,
