@@ -35,25 +35,43 @@ function pickTo(email, messageTo) {
   return preferred || fromParsed[0] || String(messageTo || '');
 }
 
+async function postWebhook(env, payload) {
+  const webhookUrl = String(env.WEBHOOK_URL || '').trim();
+  const webhookSecret = String(env.WEBHOOK_SECRET || '').trim();
+  if (!webhookUrl) {
+    console.error('WEBHOOK_URL secret is not set');
+    return;
+  }
+  const headers = { 'content-type': 'application/json' };
+  if (webhookSecret) {
+    headers['x-webhook-secret'] = webhookSecret;
+    headers['x-inbound-secret'] = webhookSecret;
+  }
+  const res = await fetch(webhookUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    console.error('Webhook failed', res.status, body.slice(0, 500));
+    return;
+  }
+  console.log('Forwarded inbound mail to webhook', {
+    to: payload.to,
+    from: payload.from,
+    status: res.status,
+  });
+}
+
 export default {
   async email(message, env, ctx) {
-    // Catch-all only: specific rules (support@, info@, …) never reach here.
-    // POST every remaining @easypado.com address to Byjan for ledger routing.
-    const webhookUrl = String(env.WEBHOOK_URL || '').trim();
-    const webhookSecret = String(env.WEBHOOK_SECRET || '').trim();
-
     let email;
     try {
       email = await PostalMime.parse(message.raw, { attachmentEncoding: 'base64' });
     } catch (err) {
       console.error('postal-mime parse failed', err);
-      message.setReject('Failed to parse inbound email');
-      return;
-    }
-
-    if (!webhookUrl) {
-      console.error('WEBHOOK_URL secret is not set');
-      message.setReject('Inbound webhook is not configured');
+      // Accept the message anyway so Gmail does not bounce "address not found".
       return;
     }
 
@@ -80,25 +98,8 @@ export default {
       })),
     };
 
-    const headers = { 'content-type': 'application/json' };
-    if (webhookSecret) {
-      headers['x-webhook-secret'] = webhookSecret;
-      headers['x-inbound-secret'] = webhookSecret;
-    }
-
-    const res = await fetch(webhookUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload),
-    });
-
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      console.error('Webhook failed', res.status, body.slice(0, 500));
-      message.setReject(`Webhook failed (${res.status})`);
-      return;
-    }
-
-    console.log('Forwarded inbound mail to webhook', { to, from, status: res.status });
+    // Return immediately so Cloudflare accepts the mailbox. Do not setReject —
+    // that makes Gmail show "address not found".
+    ctx.waitUntil(postWebhook(env, payload));
   },
 };
