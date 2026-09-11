@@ -3,11 +3,11 @@
   "buildCommand": "npx vite build",
   "outputDirectory": "dist",
   "functions": {
-    "api/kv.ts": { "maxDuration": 30 },
-    "api/migrate.ts": { "maxDuration": 60 },
+    "api/kv.ts": { "maxDuration": 30, "includeFiles": "api/_pg-tables.js" },
+    "api/migrate.ts": { "maxDuration": 60, "includeFiles": "api/_pg-tables.js" },
     "api/email/send.ts": { "maxDuration": 30 },
     "api/email/send-report.ts": { "maxDuration": 60 },
-    "api/email/inbound.ts": { "maxDuration": 60, "memory": 1536 }
+    "api/email/inbound.ts": { "maxDuration": 60, "memory": 1536, "includeFiles": "api/_pg-tables.js" }
   },
   "headers": [
     {

@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { postgresUrl, cleanPath, ledgerGet, ledgerSet, ledgerInsertIfNew, ledgerList } from '../_lib/pg-tables';
+import { postgresUrl, cleanPath, ledgerGet, ledgerSet, ledgerInsertIfNew, ledgerList } from '../_pg-tables.js';
 
 const R2_REGION = 'auto';
 const R2_SERVICE = 's3';

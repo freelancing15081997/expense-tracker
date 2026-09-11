@@ -9,7 +9,7 @@ import {
   ledgerDel,
   ledgerList,
   ledgerListExpensesByBooks,
-} from './_lib/pg-tables';
+} from './_pg-tables.js';
 
 const R2_REGION = 'auto';
 const R2_SERVICE = 's3';

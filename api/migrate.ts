@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { postgresUrl, ledgerGet, ledgerSet, ledgerInsertIfNew } from './_lib/pg-tables';
+import { postgresUrl, ledgerGet, ledgerSet, ledgerInsertIfNew } from './_pg-tables.js';
 
 const PROJECT = 'gen-lang-client-0616065043';
 const NAMED_DB = 'ai-studio-sharedsheetexpen-15aa5fbb-9604-4c59-b4a3-aa994442cb50';
