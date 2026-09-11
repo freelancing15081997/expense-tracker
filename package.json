@@ -13,6 +13,8 @@
     "test:books": "tsx scripts/books-flow-test.ts",
     "start": "node --dns-result-order=ipv4first dist/server.cjs",
     "migrate:firestore": "node scripts/migrate-firestore-to-postgres.mjs",
+    "neon:export": "node scripts/export-neon-import.mjs",
+    "neon:export-firestore": "node scripts/export-neon-import.mjs --firestore",
     "validate:migration": "node scripts/validate-migration.mjs",
     "preflight:check": "node scripts/preflight-check.mjs"
   },

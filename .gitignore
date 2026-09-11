@@ -6,6 +6,10 @@ coverage/
 *.log
 .env*
 !.env.example
+ops/neon/import.sql
+ops/neon/import-firestore.sql
+ops/neon/*.dump
 storage_requirements.txt
 vercel.env
 error.txt
+.vercel
