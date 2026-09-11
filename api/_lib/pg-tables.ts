@@ -359,7 +359,26 @@ async function ensureLedgerSchema(sql: Sql) {
     data JSONB NOT NULL DEFAULT '{}'::jsonb,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`;
+  await sql`CREATE TABLE IF NOT EXISTS erp_workspaces (
+    id TEXT PRIMARY KEY,
+    owner_uid TEXT NOT NULL DEFAULT '',
+    name TEXT NOT NULL DEFAULT '',
+    data JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`;
+  await sql`CREATE INDEX IF NOT EXISTS erp_workspaces_owner_idx ON erp_workspaces (owner_uid)`;
+  await sql`CREATE TABLE IF NOT EXISTS erp_records (
+    workspace_id TEXT NOT NULL,
+    collection TEXT NOT NULL,
+    id TEXT NOT NULL,
+    data JSONB NOT NULL DEFAULT '{}'::jsonb,
+    deleted BOOLEAN NOT NULL DEFAULT FALSE,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (workspace_id, collection, id)
+  )`;
+  await sql`CREATE INDEX IF NOT EXISTS erp_records_ws_col_idx ON erp_records (workspace_id, collection, deleted, updated_at DESC)`;
   await copyLegacyDocuments(sql);
+  await copyLegacyErp(sql);
 }
 
 async function copyLegacyDocuments(sql: Sql) {
@@ -485,6 +504,241 @@ async function copyLegacyDocuments(sql: Sql) {
   }
 }
 
+type ErpRef =
+  | { kind: 'none' }
+  | { kind: 'skip' }
+  | { kind: 'workspace'; ws: string }
+  | { kind: 'tenant'; ws: string }
+  | { kind: 'record'; ws: string; collection: string; id: string };
+
+function parseErpPath(path: string): ErpRef {
+  let parts: string[] = [];
+  try {
+    parts = cleanPath(path).split('/').filter(Boolean);
+  } catch {
+    return { kind: 'none' };
+  }
+  if (parts[0] !== 'erp_workspaces' || parts.length < 2) return { kind: 'none' };
+  const ws = parts[1];
+  const rel = parts.slice(2);
+  if (!rel.length) return { kind: 'workspace', ws };
+  const relPath = rel.join('/');
+  if (relPath === 'meta/pack' || relPath === '_snapshot') return { kind: 'skip' };
+  if (relPath === 'meta/tenant') return { kind: 'tenant', ws };
+  if (rel.length < 2) return { kind: 'skip' };
+  return { kind: 'record', ws, collection: rel.slice(0, -1).join('/'), id: rel[rel.length - 1] };
+}
+
+async function copyLegacyErp(sql: Sql) {
+  try {
+    const marker = asRows(await sql`SELECT 1 FROM documents WHERE path = ${'meta/erp_tables'} LIMIT 1`);
+    if (marker.length) return;
+    const rows = asRows<{ path: string; data: unknown }>(
+      await sql`SELECT path, data FROM documents WHERE path LIKE ${'erp_workspaces/%'}`,
+    );
+    for (const row of rows) {
+      const parsed = parseErpPath(String(row.path || ''));
+      const data = asObject(row.data);
+      if (!data) continue;
+      const payload = JSON.stringify(data);
+      if (parsed.kind === 'tenant') {
+        await sql`
+          INSERT INTO erp_workspaces (id, owner_uid, name, data, updated_at)
+          VALUES (
+            ${parsed.ws},
+            ${text(data.ownerId || data.rootOwnerId || parsed.ws)},
+            ${text(data.name) || 'Books workspace'},
+            ${payload}::jsonb,
+            NOW()
+          )
+          ON CONFLICT (id) DO NOTHING
+        `;
+      } else if (parsed.kind === 'record') {
+        await sql`
+          INSERT INTO erp_records (workspace_id, collection, id, data, deleted, updated_at)
+          VALUES (
+            ${parsed.ws},
+            ${parsed.collection},
+            ${parsed.id},
+            ${payload}::jsonb,
+            ${flag(data)},
+            NOW()
+          )
+          ON CONFLICT (workspace_id, collection, id) DO NOTHING
+        `;
+      }
+    }
+    const payload = JSON.stringify({ at: new Date().toISOString() });
+    await sql`
+      INSERT INTO documents (path, data, updated_at)
+      VALUES (${'meta/erp_tables'}, ${payload}::jsonb, NOW())
+      ON CONFLICT (path) DO NOTHING
+    `;
+  } catch {
+    // Books still loads from documents until the copy can run
+  }
+}
+
+async function erpGet(path: string) {
+  const parsed = parseErpPath(path);
+  if (parsed.kind === 'none' || parsed.kind === 'skip') return null;
+  const sql = await getLedgerSql();
+  const pick = (result: unknown) => {
+    const list = asRows<{ data: unknown }>(result);
+    return list[0] ? asObject(list[0].data) : null;
+  };
+  if (parsed.kind === 'tenant' || parsed.kind === 'workspace') {
+    const row = pick(await sql`SELECT data FROM erp_workspaces WHERE id = ${parsed.ws} LIMIT 1`);
+    if (row) return row;
+  } else {
+    const row = pick(await sql`
+      SELECT data FROM erp_records
+      WHERE workspace_id = ${parsed.ws} AND collection = ${parsed.collection} AND id = ${parsed.id}
+      LIMIT 1
+    `);
+    if (row) return row;
+  }
+  const legacy = pick(await sql`SELECT data FROM documents WHERE path = ${cleanPath(path)} LIMIT 1`);
+  if (legacy) await erpSet(path, legacy).catch(() => undefined);
+  return legacy;
+}
+
+async function erpSet(path: string, data: unknown, insertOnly = false) {
+  const parsed = parseErpPath(path);
+  if (parsed.kind === 'none' || parsed.kind === 'skip') return false;
+  const sql = await getLedgerSql();
+  const obj = asObject(data) || {};
+  const payload = JSON.stringify(obj);
+  if (parsed.kind === 'tenant' || parsed.kind === 'workspace') {
+    if (insertOnly) {
+      const rows = await sql`
+        INSERT INTO erp_workspaces (id, owner_uid, name, data, updated_at)
+        VALUES (
+          ${parsed.ws},
+          ${text(obj.ownerId || obj.rootOwnerId || parsed.ws)},
+          ${text(obj.name) || 'Books workspace'},
+          ${payload}::jsonb,
+          NOW()
+        )
+        ON CONFLICT (id) DO NOTHING RETURNING id
+      `;
+      return asRows(rows).length > 0;
+    }
+    await sql`
+      INSERT INTO erp_workspaces (id, owner_uid, name, data, updated_at)
+      VALUES (
+        ${parsed.ws},
+        ${text(obj.ownerId || obj.rootOwnerId || parsed.ws)},
+        ${text(obj.name) || 'Books workspace'},
+        ${payload}::jsonb,
+        NOW()
+      )
+      ON CONFLICT (id) DO UPDATE SET
+        owner_uid = EXCLUDED.owner_uid,
+        name = EXCLUDED.name,
+        data = EXCLUDED.data,
+        updated_at = NOW()
+    `;
+    return true;
+  }
+  if (insertOnly) {
+    const rows = await sql`
+      INSERT INTO erp_records (workspace_id, collection, id, data, deleted, updated_at)
+      VALUES (${parsed.ws}, ${parsed.collection}, ${parsed.id}, ${payload}::jsonb, ${flag(obj)}, NOW())
+      ON CONFLICT (workspace_id, collection, id) DO NOTHING RETURNING id
+    `;
+    return asRows(rows).length > 0;
+  }
+  await sql`
+    INSERT INTO erp_records (workspace_id, collection, id, data, deleted, updated_at)
+    VALUES (${parsed.ws}, ${parsed.collection}, ${parsed.id}, ${payload}::jsonb, ${flag(obj)}, NOW())
+    ON CONFLICT (workspace_id, collection, id) DO UPDATE SET
+      data = EXCLUDED.data,
+      deleted = EXCLUDED.deleted,
+      updated_at = NOW()
+  `;
+  return true;
+}
+
+async function erpDel(path: string) {
+  const parsed = parseErpPath(path);
+  if (parsed.kind !== 'record') return false;
+  const sql = await getLedgerSql();
+  const stamp = JSON.stringify({ deleted: true, deletedAt: new Date().toISOString() });
+  await sql`
+    UPDATE erp_records
+    SET deleted = TRUE,
+        data = COALESCE(data, '{}'::jsonb) || ${stamp}::jsonb,
+        updated_at = NOW()
+    WHERE workspace_id = ${parsed.ws} AND collection = ${parsed.collection} AND id = ${parsed.id}
+  `;
+  return true;
+}
+
+async function erpList(prefix: string) {
+  const parts = cleanPath(prefix).split('/').filter(Boolean);
+  if (parts[0] !== 'erp_workspaces' || parts.length < 3) return null;
+  const ws = parts[1];
+  const collection = parts.slice(2).join('/');
+  const sql = await getLedgerSql();
+  const rows = rowsOf(
+    await sql`
+      SELECT id, data FROM erp_records
+      WHERE workspace_id = ${ws} AND collection = ${collection} AND deleted = FALSE
+      ORDER BY updated_at DESC
+    `,
+  );
+  if (rows.length) return rows;
+  const base = `${cleanPath(prefix)}/`;
+  const legacy = asRows<{ path: string; data: unknown }>(
+    await sql`SELECT path, data FROM documents WHERE path LIKE ${base + '%'}`,
+  );
+  const out: { id: string; data: Record<string, unknown> }[] = [];
+  for (const row of legacy) {
+    const rest = String(row.path).slice(base.length);
+    const data = asObject(row.data);
+    if (!rest || rest.includes('/') || !data || flag(data)) continue;
+    out.push({ id: rest, data });
+    await erpSet(`${base}${rest}`, data).catch(() => undefined);
+  }
+  return out;
+}
+
+export async function erpLoadWorkspace(ws: string) {
+  const id = text(ws);
+  const sql = await getLedgerSql();
+  const tenantRows = asRows<{ data: unknown }>(await sql`SELECT data FROM erp_workspaces WHERE id = ${id} LIMIT 1`);
+  const recs = asRows<{ collection: string; id: string; data: unknown }>(
+    await sql`
+      SELECT collection, id, data FROM erp_records
+      WHERE workspace_id = ${id} AND deleted = FALSE
+    `,
+  );
+  const docs: Record<string, Record<string, unknown>> = {};
+  let tenant = tenantRows[0] ? asObject(tenantRows[0].data) : null;
+  if (tenant) docs['meta/tenant'] = tenant;
+  for (const rec of recs) {
+    const data = asObject(rec.data);
+    if (!data) continue;
+    docs[`${rec.collection}/${rec.id}`] = data;
+  }
+  if (tenant || recs.length) return { tenant, docs };
+
+  const prefix = `erp_workspaces/${id}/`;
+  const legacy = asRows<{ path: string; data: unknown }>(
+    await sql`SELECT path, data FROM documents WHERE path LIKE ${prefix + '%'}`,
+  );
+  for (const row of legacy) {
+    const rel = String(row.path).slice(prefix.length);
+    const data = asObject(row.data);
+    if (!rel || !data || rel === 'meta/pack' || rel === '_snapshot') continue;
+    if (rel === 'meta/tenant') tenant = data;
+    docs[rel] = data;
+    await erpSet(`${prefix}${rel}`, data).catch(() => undefined);
+  }
+  return { tenant, docs };
+}
+
 async function syncBookMembers(sql: Sql, bookId: string, data: Record<string, unknown>) {
   const roles = data.roles && typeof data.roles === 'object' && !Array.isArray(data.roles)
     ? data.roles as Record<string, { role?: string; email?: string }>
@@ -530,6 +784,7 @@ export async function ledgerGet(path: string): Promise<Record<string, unknown> |
     return list[0] ? asObject(list[0].data) : null;
   };
 
+  if (parts[0] === 'erp_workspaces') return erpGet(p);
   if (parts[0] === 'users' && parts.length === 2) return pick(await sql`SELECT data FROM users WHERE id = ${parts[1]} LIMIT 1`);
   if (parts[0] === 'books' && parts.length === 2) return pick(await sql`SELECT data FROM books WHERE id = ${parts[1]} LIMIT 1`);
   if (parts[0] === 'books' && parts[2] === 'expenses' && parts.length === 4) {
@@ -572,6 +827,7 @@ export async function ledgerSet(path: string, data: unknown, insertOnly = false)
   const payload = JSON.stringify(obj);
   const id = parts[parts.length - 1];
 
+  if (parts[0] === 'erp_workspaces') return erpSet(p, obj, insertOnly);
   if (parts[0] === 'users' && parts.length === 2) {
     if (insertOnly) {
       const rows = await sql`
@@ -845,6 +1101,10 @@ export async function ledgerDel(path: string) {
   const sql = await getLedgerSql();
   const p = cleanPath(path);
   const parts = p.split('/').filter(Boolean);
+  if (parts[0] === 'erp_workspaces') {
+    await erpDel(p);
+    return;
+  }
   if (parts[0] === 'users' && parts.length === 2) await sql`DELETE FROM users WHERE id = ${parts[1]}`;
   else if (parts[0] === 'books' && parts.length === 2) {
     await sql`DELETE FROM book_members WHERE book_id = ${parts[1]}`;
@@ -872,6 +1132,11 @@ function rowsOf(result: unknown) {
 export async function ledgerList(prefix: string, constraints: any[] = []) {
   const sql = await getLedgerSql();
   const parts = cleanPath(prefix).split('/').filter(Boolean);
+
+  if (parts[0] === 'erp_workspaces') {
+    const rows = await erpList(prefix);
+    return rows || [];
+  }
 
   if (parts[0] === 'books' && parts.length === 1) {
     const roleFilter = constraints.find((c) => c?.type === 'where' && String(c.field || '').startsWith('roles.') && String(c.field).endsWith('.role'));

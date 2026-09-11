@@ -13,6 +13,7 @@ import {
   ledgerHasPendingInvite,
   ledgerListBooksForUser,
   ledgerMember,
+  erpLoadWorkspace,
 } from './_pg-tables.js';
 
 const R2_REGION = 'auto';
@@ -479,6 +480,10 @@ function listFromSnap(snap: WorkspaceSnap, colPath: string) {
 }
 
 async function pgLoadWorkspace(ws: string): Promise<WorkspaceSnap> {
+  const loaded = await erpLoadWorkspace(ws);
+  if (loaded.tenant || Object.keys(loaded.docs).length) {
+    return { v: 1, tenant: loaded.tenant, docs: loaded.docs };
+  }
   const sql = await ensurePg();
   const prefix = `erp_workspaces/${ws}/`;
   const rows = (await sql`SELECT path, data FROM documents WHERE path LIKE ${prefix + '%'}`) as { path: string; data: unknown }[];
