@@ -604,13 +604,21 @@ Rules: never invent an amount; prefer printed grand total/net payable; handle me
         console.error('gemini model failed', model, msg);
         continue;
       }
-      const raw = String(payload?.candidates?.[0]?.content?.parts?.[0]?.text || '').replace(/^```json\s*|\s*```$/g, '');
+      const parts = payload?.candidates?.[0]?.content?.parts;
+      const raw = (Array.isArray(parts) ? parts : [])
+        .map((part: any) => String(part?.text || ''))
+        .join('\n')
+        .replace(/^```json\s*|\s*```$/g, '')
+        .trim();
       if (!raw) {
-        errors.push(`${model}: empty_response`);
+        const block = payload?.candidates?.[0]?.finishReason || payload?.promptFeedback?.blockReason || 'empty_response';
+        errors.push(`${model}: ${block}`);
         continue;
       }
+      // Model may wrap JSON in prose; extract the first object.
+      const jsonSlice = raw.includes('{') ? raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1) : raw;
       try {
-        const parsed = asParsed(JSON.parse(raw), fallback);
+        const parsed = asParsed(JSON.parse(jsonSlice), fallback);
         return { parsed, model };
       } catch (err: any) {
         errors.push(`${model}: bad_json`);
@@ -1178,12 +1186,24 @@ async function processItem(item: any) {
     category: parsed.category,
     description: parsed.description,
     hasFile: Boolean(receipt?.path),
+    parseEngine,
+    parseError: expense.parseError || null,
   });
   const detail = parsed.amount
     ? `${mailbox.currency} ${parsed.amount.toFixed(2)} · ${parsed.category} · ${parsed.description} · from ${member.email}`
     : `Entry from ${member.email}. Amount was not found on the document — open the ledger and fill it in.`;
   await notifyMembers(mailbox, detail, bookId, member.email, 'sent inbound mail. Byjan added an entry', eventId).catch(() => undefined);
-  return { ok: true, bookId, expenseId: id, amount: parsed.amount, category: parsed.category, date: parsed.date };
+  return {
+    ok: true,
+    bookId,
+    expenseId: id,
+    amount: parsed.amount,
+    category: parsed.category,
+    date: parsed.date,
+    parseEngine,
+    parseError: expense.parseError || null,
+    hasFile: Boolean(receipt?.path),
+  };
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
