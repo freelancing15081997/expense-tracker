@@ -1,6 +1,5 @@
-import { db } from './firebase';
+import { apiPost } from './api';
 import { openLedgerButtonHtml } from './inbound-mail';
-import { deleteDoc, doc, getDoc, setDoc, updateDoc } from './store';
 
 export type LedgerInvite = {
   id: string;
@@ -23,8 +22,9 @@ export function memberEmails(roles: unknown, exceptEmail?: string): string[] {
   return out;
 }
 
-export function inviteDocId(bookId: string, email: string) {
-  return `${String(bookId || '').trim()}_${String(email || '').trim().toLowerCase()}`;
+export async function listLedgerInvites() {
+  const payload = await apiPost<{ invites?: LedgerInvite[] }>('/api/invites', { op: 'list' });
+  return Array.isArray(payload.invites) ? payload.invites : [];
 }
 
 export async function createLedgerInvite(input: {
@@ -34,21 +34,18 @@ export async function createLedgerInvite(input: {
   role: string;
   invitedBy: string;
 }) {
-  const email = String(input.email || '').trim().toLowerCase();
-  const id = inviteDocId(input.bookId, email);
-  await setDoc(doc(db, 'invites', id), {
-    email,
+  const payload = await apiPost<{ id: string }>('/api/invites', {
+    op: 'create',
     bookId: input.bookId,
     bookName: input.bookName,
+    email: input.email,
     role: input.role,
-    invitedBy: input.invitedBy,
-    status: 'pending',
   });
-  return id;
+  return payload.id;
 }
 
 export async function declineLedgerInvite(inviteId: string) {
-  await deleteDoc(doc(db, 'invites', inviteId));
+  await apiPost('/api/invites', { op: 'decline', id: inviteId });
 }
 
 export async function acceptLedgerInvite(opts: {
@@ -57,20 +54,19 @@ export async function acceptLedgerInvite(opts: {
   email: string;
   displayName?: string;
 }): Promise<{ notifyError?: string }> {
-  const email = String(opts.email || '').trim().toLowerCase();
-  await updateDoc(doc(db, 'books', opts.invite.bookId), {
-    [`roles.${opts.uid}`]: { role: opts.invite.role, email },
+  const payload = await apiPost<{ notifyEmails?: string[]; bookName?: string; bookId?: string }>('/api/invites', {
+    op: 'accept',
+    id: opts.invite.id,
   });
-  await deleteDoc(doc(db, 'invites', opts.invite.id));
-
+  const to = Array.isArray(payload.notifyEmails) ? payload.notifyEmails : [];
+  if (!to.length) return {};
   try {
-    const bookSnap = await getDoc(doc(db, 'books', opts.invite.bookId));
-    const to = memberEmails(bookSnap.exists() ? bookSnap.data()?.roles : undefined, email);
-    if (!to.length) return {};
     const { getAccessToken } = await import('./firebase');
     const token = await getAccessToken();
     if (!token) return {};
-    const who = opts.displayName || email;
+    const who = opts.displayName || opts.email;
+    const bookName = payload.bookName || opts.invite.bookName;
+    const bookId = payload.bookId || opts.invite.bookId;
     const res = await fetch('/api/email/send', {
       method: 'POST',
       headers: {
@@ -79,13 +75,13 @@ export async function acceptLedgerInvite(opts: {
       },
       body: JSON.stringify({
         to: to.join(', '),
-        subject: `${who} joined ${opts.invite.bookName} expense book`,
-        message: `<p>Hello,</p><p><b>${who}</b> has accepted the invitation and joined the ledger <b>${opts.invite.bookName}</b>.</p>${openLedgerButtonHtml(opts.invite.bookId)}`,
+        subject: `${who} joined ${bookName} expense book`,
+        message: `<p>Hello,</p><p><b>${who}</b> has accepted the invitation and joined the ledger <b>${bookName}</b>.</p>${openLedgerButtonHtml(bookId)}`,
       }),
     });
     if (!res.ok) {
-      const payload = await res.json().catch(() => ({}));
-      return { notifyError: String(payload.error || 'Email sending failed on the server.') };
+      const errBody = await res.json().catch(() => ({}));
+      return { notifyError: String(errBody.error || 'Email sending failed on the server.') };
     }
   } catch (err: any) {
     return { notifyError: err?.message || 'Could not notify the team.' };

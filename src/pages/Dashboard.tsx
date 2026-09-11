@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import AppLoader from '../components/AppLoader';
 import { ListControls, usePagedList } from '../components/ListControls';
 import { BOOKS_TREE } from '../books/catalog/modules';
-import { acceptLedgerInvite, declineLedgerInvite, type LedgerInvite } from '../lib/invites';
+import { acceptLedgerInvite, declineLedgerInvite, listLedgerInvites, type LedgerInvite } from '../lib/invites';
 
 interface BookItem {
   id: string;
@@ -45,7 +45,7 @@ export default function Dashboard() {
     try {
       setLoading(true);
       const qBooks = query(collection(db, 'books'), where(`roles.${currentUser.uid}.role`, 'in', ['owner', 'admin', 'contributor', 'viewer', 'auditor']));
-      const bookSnaps = await getDocs(qBooks);
+      const bookSnaps = await getDocs(qBooks, { force: true });
       const fetchedBooks: BookItem[] = [];
       bookSnaps.forEach((doc) => {
         const data = doc.data() as BookItem & { deleted?: boolean; deletedAt?: unknown };
@@ -74,18 +74,7 @@ export default function Dashboard() {
       }
       setGlobalStats({ totalIn: tIn, totalOut: tOut, userActivity: activity });
 
-      const myEmail = String(userProfile.email || '').trim().toLowerCase();
-      const qInvites = query(collection(db, 'invites'), where('email', '==', myEmail));
-      const inviteSnaps = await getDocs(qInvites);
-      const fetchedInvites: InviteItem[] = [];
-      inviteSnaps.forEach((docSnap) => {
-        const invite = { id: docSnap.id, ...docSnap.data() } as InviteItem;
-        const inviteEmail = String(invite.email || '').trim().toLowerCase();
-        if (inviteEmail !== myEmail) return;
-        if (String(invite.invitedBy || '') === currentUser.uid) return;
-        fetchedInvites.push(invite);
-      });
-      setInvites(fetchedInvites);
+      setInvites(await listLedgerInvites());
     } catch (err) { console.error("Fetch API error:", err); } finally {
       setLoading(false);
     }

@@ -57,6 +57,10 @@ app.all("/api/kv", async (req, res) => {
   const { default: kv } = await import("./api/kv");
   await kv(req as any, res as any);
 });
+app.all("/api/invites", async (req, res) => {
+  const { default: invites } = await import("./api/invites");
+  await invites(req as any, res as any);
+});
 app.post("/api/email/inbound", async (req, res) => {
   const { default: inbound } = await import("./api/email/inbound");
   await inbound(req as any, res as any);
