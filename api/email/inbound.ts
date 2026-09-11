@@ -1283,6 +1283,17 @@ function normText(value: unknown) {
   return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+function isGenericBillLabel(value: string) {
+  return !value || /^(receipt|bill|invoice|expense|payment|purchase|unnamed|attachment|image|photo|scan)$/.test(value);
+}
+
+function sameMerchant(a: string, b: string) {
+  if (!a || !b || isGenericBillLabel(a) || isGenericBillLabel(b)) return false;
+  if (a === b) return a.length >= 3;
+  if (a.length < 6 || b.length < 6) return false;
+  return a.includes(b) || b.includes(a);
+}
+
 async function listLedgerExpenses(bookId: string): Promise<Array<Record<string, unknown>>> {
   const rows = postgresUrl() ? await ledgerList(`books/${bookId}/expenses`) : [];
   return rows
@@ -1319,22 +1330,24 @@ async function findMatchingReceipt(
   const merchant = normText(parsed?.merchant);
   const description = normText(parsed?.description);
   const inv = normText(parsed?.invoiceNumber);
-  const sender = String(senderEmail || '').toLowerCase();
   if (amount > 0) {
     const byBill = expenses.find((row) => {
       if (Number(row.amount || 0) !== amount) return false;
       const otherInv = normText(row.invoiceNumber);
       if (inv && otherInv && inv === otherInv) return true;
-      const otherMerchant = normText(row.merchant);
-      if (merchant && otherMerchant && (merchant === otherMerchant || merchant.includes(otherMerchant) || otherMerchant.includes(merchant))) {
-        if (!parsed?.date || !row.date || String(row.date) === parsed.date) return true;
-      }
-      if (parsed?.date && String(row.date || '') === parsed.date) {
-        const otherDesc = normText(row.description);
-        if (description && otherDesc && (description === otherDesc || description.includes(otherDesc) || otherDesc.includes(description))) return true;
-        const rowSender = String(row.enteredByEmail || row.enteredBy || '').toLowerCase();
-        if (sender && rowSender === sender) return true;
-      }
+      const dateOk = Boolean(parsed?.date && String(row.date || '') === parsed.date);
+      if (!dateOk) return false;
+      if (sameMerchant(merchant, normText(row.merchant))) return true;
+      const otherDesc = normText(row.description);
+      if (
+        description
+        && otherDesc
+        && !isGenericBillLabel(description)
+        && !isGenericBillLabel(otherDesc)
+        && description === otherDesc
+        && description.length >= 8
+        && sameMerchant(merchant, normText(row.merchant) || otherDesc)
+      ) return true;
       return false;
     });
     if (byBill) return { hash, expenseId: String(byBill.id), expense: byBill, reason: 'same_bill' as const };
@@ -1352,12 +1365,13 @@ function billFingerprint(
   const merchant = normText(parsed?.merchant);
   const desc = normText(parsed?.description);
   const date = String(parsed?.date || '');
-  const who = String(senderEmail || '').toLowerCase();
-  const parts = inv
-    ? [amount.toFixed(2), inv]
-    : [amount.toFixed(2), date, merchant || desc, who];
-  if (!inv && (!date || !(merchant || desc || who))) return '';
-  return createHash('sha256').update(parts.join('|')).digest('hex').slice(0, 40);
+  if (inv) {
+    return createHash('sha256').update([amount.toFixed(2), inv].join('|')).digest('hex').slice(0, 40);
+  }
+  const distinctive = (merchant && !isGenericBillLabel(merchant) && merchant.length >= 3)
+    || (desc && !isGenericBillLabel(desc) && desc.length >= 8);
+  if (!date || !distinctive) return '';
+  return createHash('sha256').update([amount.toFixed(2), date, merchant || desc].join('|')).digest('hex').slice(0, 40);
 }
 
 async function reserveReceiptHash(bookId: string, hash: string, meta: Record<string, unknown>) {

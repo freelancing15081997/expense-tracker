@@ -182,8 +182,15 @@ export default function BookView() {
         if (isSoftDeleted(data)) return;
         exps.push({ id: d.id, ...data });
       });
-      exps.sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt));
-      setExpenses(exps);
+      setExpenses((prev) => {
+        const byId = new Map(exps.map((row) => [row.id, row]));
+        const recent = Date.now() - 30_000;
+        for (const row of prev) {
+          if (byId.has(row.id) || isSoftDeleted(row)) continue;
+          if (expenseMillis(row.createdAt) >= recent) byId.set(row.id, row);
+        }
+        return [...byId.values()].sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt));
+      });
       setLoading(false);
     }, (err) => {
       console.error('Snapshot error on', q, err);
