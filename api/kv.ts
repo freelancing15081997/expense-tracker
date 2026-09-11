@@ -326,6 +326,52 @@ async function pgSet(path: string, data: unknown) {
   `;
 }
 
+async function pgCopyIfNew(path: string, data: unknown) {
+  const sql = await ensurePg();
+  const p = cleanPath(path);
+  const payload = JSON.stringify(data ?? {});
+  await sql`
+    INSERT INTO documents (path, data, updated_at)
+    VALUES (${p}, ${payload}::jsonb, NOW())
+    ON CONFLICT (path) DO NOTHING
+  `;
+}
+
+function skipFirestore(path: string) {
+  return (
+    path.startsWith('erp_workspaces/') ||
+    path.startsWith('inbound_') ||
+    path.startsWith('meta/') ||
+    /\/inbound_events$/.test(path) ||
+    /\/email_events$/.test(path)
+  );
+}
+
+function hydratePath(uid: string, colPath: string) {
+  return `meta/hydrated/${cleanPath(`${uid}/${colPath}`)}`;
+}
+
+const hydratedMem = new Set<string>();
+
+async function isHydrated(uid: string, colPath: string) {
+  const key = hydratePath(uid, colPath);
+  if (hydratedMem.has(key)) return true;
+  if (!postgresUrl()) return false;
+  const row = await pgGet(key);
+  if (row) {
+    hydratedMem.add(key);
+    return true;
+  }
+  return false;
+}
+
+async function markHydrated(uid: string, colPath: string) {
+  if (!postgresUrl()) return;
+  const key = hydratePath(uid, colPath);
+  hydratedMem.add(key);
+  await pgSet(key, { at: new Date().toISOString() });
+}
+
 async function pgDel(path: string) {
   const { neon } = await import('@neondatabase/serverless');
   const sql = neon(postgresUrl());
@@ -691,27 +737,43 @@ function assertErpAccess(uid: string, path: string) {
   }
 }
 
-async function readDoc(path: string, token: string) {
+async function readDoc(path: string, token: string, uid: string) {
   try {
     const local = await localGet(path);
     if (local) return local;
   } catch {
     // Production often has no DATABASE_URL; object store may also be empty.
   }
-  if (isErpPath(path)) return null;
-  return firestoreGet(token, path);
+  if (skipFirestore(path) || isErpPath(path)) return null;
+  const parent = path.split('/').filter(Boolean).slice(0, -1).join('/');
+  if (parent && postgresUrl() && await isHydrated(uid, parent)) return null;
+  const fromFs = await firestoreGet(token, path);
+  if (fromFs && postgresUrl()) await pgCopyIfNew(path, fromFs).catch(() => undefined);
+  return fromFs;
 }
 
-async function readList(path: string, token: string, constraints: any[] = []) {
-  if (isErpPath(path)) {
+async function readList(path: string, token: string, constraints: any[] = [], uid = '') {
+  if (skipFirestore(path) || isErpPath(path)) {
     return localList(path).catch(() => [] as { id: string; data: Record<string, unknown> }[]);
   }
-  const byId = new Map<string, { id: string; data: Record<string, unknown> }>();
   const localP = localList(path).catch(() => [] as { id: string; data: Record<string, unknown> }[]);
+  if (uid && postgresUrl() && await isHydrated(uid, path)) {
+    return localP;
+  }
   const fsP = firestoreQuery(token, path, constraints).catch(() => [] as { id: string; data: Record<string, unknown> }[]);
   const [localRows, fsRows] = await Promise.all([localP, fsP]);
+  const byId = new Map<string, { id: string; data: Record<string, unknown> }>();
   for (const row of fsRows) byId.set(row.id, row);
   for (const row of localRows) byId.set(row.id, row);
+  if (uid && postgresUrl()) {
+    const have = new Set(localRows.map((row) => row.id));
+    const missing = fsRows.filter((row) => !have.has(row.id));
+    if (missing.length) {
+      const base = cleanPath(path);
+      await Promise.all(missing.map((row) => pgCopyIfNew(`${base}/${row.id}`, row.data).catch(() => undefined)));
+    }
+    await markHydrated(uid, path).catch(() => undefined);
+  }
   return [...byId.values()];
 }
 
@@ -796,7 +858,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (op === 'get') {
-      const data = await readDoc(path, token);
+      const data = await readDoc(path, token, uid);
       json(res, 200, { exists: Boolean(data), id: path.split('/').pop(), data });
       return;
     }
@@ -815,7 +877,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // Prefer local, but fall back to Firestore so updates never publish a sparse
       // R2 shadow that overrides a full Firestore ledger/expense document.
       const local = await localGet(path).catch(() => null);
-      const current = local || (await readDoc(path, token).catch(() => null)) || {};
+      const current = local || (await readDoc(path, token, uid).catch(() => null)) || {};
       const next = applyPatch(current, (body.data || {}) as Record<string, unknown>);
       await localSet(path, next);
       json(res, 200, { ok: true, data: next });
@@ -839,7 +901,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (op === 'list' || op === 'query') {
       const constraints = Array.isArray(body.constraints) ? body.constraints : [];
-      const docs = applyConstraints(await readList(path, token, constraints), constraints);
+      const docs = applyConstraints(await readList(path, token, constraints, uid), constraints);
       json(res, 200, { docs });
       return;
     }
@@ -889,10 +951,35 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         json(res, 200, { results });
         return;
       }
+      const expenseOnly = parsed.length > 0 && parsed.every((row: { qPath: string; constraints: any[] }) => (
+        /^books\/[^/]+\/expenses$/.test(row.qPath) && !row.constraints.length
+      ));
+      if (expenseOnly && postgresUrl()) {
+        const hydrated = await Promise.all(parsed.map((row: { qPath: string }) => isHydrated(uid, row.qPath)));
+        if (hydrated.every(Boolean)) {
+          const sql = await ensurePg();
+          const rows = (await sql`SELECT path, data FROM documents WHERE path LIKE ${'books/%/expenses/%'}`) as { path: string; data: unknown }[];
+          const grouped = new Map<string, { id: string; data: Record<string, unknown> }[]>();
+          for (const row of rows) {
+            const parts = String(row.path).split('/').filter(Boolean);
+            if (parts.length !== 4 || parts[0] !== 'books' || parts[2] !== 'expenses') continue;
+            const data = asObject(row.data);
+            if (!data) continue;
+            const col = `books/${parts[1]}/expenses`;
+            const list = grouped.get(col) || [];
+            list.push({ id: parts[3], data });
+            grouped.set(col, list);
+          }
+          json(res, 200, {
+            results: parsed.map((row: { qPath: string }) => ({ path: row.qPath, docs: grouped.get(row.qPath) || [] })),
+          });
+          return;
+        }
+      }
       const results = await Promise.all(parsed.map(async (row: { qPath: string; constraints: any[] }) => {
         if (!row.qPath) return { path: row.qPath, docs: [] };
         assertErpAccess(uid, row.qPath);
-        const docs = applyConstraints(await readList(row.qPath, token, row.constraints), row.constraints);
+        const docs = applyConstraints(await readList(row.qPath, token, row.constraints, uid), row.constraints);
         return { path: row.qPath, docs };
       }));
       json(res, 200, { results });

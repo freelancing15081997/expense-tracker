@@ -39,52 +39,53 @@ export function newDocId() {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-const FIRESTORE_DB = 'ai-studio-sharedsheetexpen-15aa5fbb-9604-4c59-b4a3-aa994442cb50';
-let namedDb: any = null;
+const DOC_TTL = 180_000;
+const COL_TTL = 180_000;
+const SESSION_KEY = 'byjan.store.v1';
 
-function pathParts(path: string) {
-  return path.split('/').filter(Boolean);
+function collectionTtl(path: string) {
+  if (/\/inbound_events$/.test(path) || /\/email_events$/.test(path)) return 900;
+  if (/\/expenses$/.test(path) || path === 'notifications') return 45_000;
+  if (path === 'books' || path === 'invites') return 120_000;
+  return COL_TTL;
 }
 
-async function firestoreDb() {
-  if (namedDb) return namedDb;
-  const { getFirestore } = await import('firebase/firestore');
-  const { app } = await import('./firebase');
-  namedDb = getFirestore(app, FIRESTORE_DB);
-  return namedDb;
+const memory = new Map<string, { data: Record<string, unknown> | null; at: number; local?: boolean }>();
+const colCache = new Map<string, { at: number; rows: Array<[string, Record<string, unknown>]> }>();
+let cacheUid = '';
+
+function persistCache() {
+  if (typeof sessionStorage === 'undefined') return;
+  try {
+    const cols = [...colCache.entries()].slice(0, 48).map(([key, entry]) => [
+      key,
+      { at: entry.at, rows: entry.rows.slice(0, 400) },
+    ]);
+    const payload = JSON.stringify({ at: Date.now(), uid: cacheUid, cols });
+    if (payload.length > 1_800_000) return;
+    sessionStorage.setItem(SESSION_KEY, payload);
+  } catch {
+    // quota / private mode
+  }
 }
 
-async function readFirestoreDoc(path: string) {
-  const { doc, getDoc } = await import('firebase/firestore');
-  const snap = await getDoc(doc(await firestoreDb(), ...pathParts(path)));
-  return snap.exists() ? (snap.data() as Record<string, unknown>) : null;
-}
-
-async function readFirestoreDocs(path: string, constraints: Constraint[] = []) {
-  const { collection, getDocs, query, where, limit, orderBy } = await import('firebase/firestore');
-  const dbFs = await firestoreDb();
-  const parts = pathParts(path);
-  const col = (collection as any)(dbFs, ...parts);
-  const parsed = constraints.map((c) => {
-    if (c.type === 'where') return where(c.field, c.op as any, c.value);
-    if (c.type === 'limit') return limit(c.n);
-    return orderBy(c.field, (c.dir as 'asc' | 'desc') || 'asc');
-  });
-  const snap = parsed.length ? await getDocs((query as any)(col, ...parsed)) : await getDocs(col);
-  return snap.docs.map((row) => ({ id: row.id, data: row.data() as Record<string, unknown> }));
-}
-
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve(null), ms);
-    promise.then((value) => {
-      clearTimeout(timer);
-      resolve(value);
-    }).catch(() => {
-      clearTimeout(timer);
-      resolve(null);
-    });
-  });
+function restoreCache() {
+  if (typeof sessionStorage === 'undefined') return;
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as { at?: number; uid?: string; cols?: Array<[string, { at: number; rows: Array<[string, Record<string, unknown>]> }]> };
+    if (!parsed?.cols || Date.now() - Number(parsed.at || 0) > 30 * 60_000) return;
+    cacheUid = String(parsed.uid || '');
+    for (const [key, entry] of parsed.cols) {
+      if (!entry?.rows) continue;
+      colCache.set(key, { at: Number(entry.at) || Date.now(), rows: entry.rows });
+      const colPath = String(key).split('::')[0];
+      for (const [id, data] of entry.rows) remember(`${colPath}/${id}`, data);
+    }
+  } catch {
+    // ignore corrupt cache
+  }
 }
 
 export function collection(_db: Firestore, ...segments: string[]): ColRef {
@@ -143,38 +144,18 @@ function wrapDoc(id: string, data: any, path: string) {
   };
 }
 
-const DOC_TTL = 120_000;
-const COL_TTL = 120_000;
-
-function neonOnly(path: string) {
-  return (
-    path.startsWith('inbound_') ||
-    /\/inbound_events$/.test(path) ||
-    /\/email_events$/.test(path) ||
-    path === 'notifications'
-  );
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), ms);
+    promise.then((value) => {
+      clearTimeout(timer);
+      resolve(value);
+    }).catch(() => {
+      clearTimeout(timer);
+      resolve(null);
+    });
+  });
 }
-
-function collectionTtl(path: string) {
-  if (/\/inbound_events$/.test(path) || /\/email_events$/.test(path)) return 800;
-  if (/\/expenses$/.test(path) || path === 'notifications') return 12_000;
-  return COL_TTL;
-}
-
-const fsStamp = new Map<string, number>();
-
-function shouldReadFirestore(path: string) {
-  if (isErp(path) || neonOnly(path)) return false;
-  // Ledgers and entries still live in Firestore for older rows; skip only briefly.
-  if (path === 'books' || /\/expenses$/.test(path)) {
-    const last = fsStamp.get(path) || 0;
-    return Date.now() - last > 20_000;
-  }
-  const last = fsStamp.get(path) || 0;
-  return Date.now() - last > 45_000;
-}
-const memory = new Map<string, { data: Record<string, unknown> | null; at: number; local?: boolean }>();
-const colCache = new Map<string, { at: number; rows: Array<[string, Record<string, unknown>]> }>();
 
 function isErp(path: string) {
   return path.startsWith('erp_workspaces/');
@@ -186,6 +167,26 @@ function colKey(path: string, constraints?: Constraint[]) {
 
 function remember(path: string, data: Record<string, unknown> | null, local = false) {
   memory.set(path, { data, at: Date.now(), local });
+}
+
+restoreCache();
+
+export function clearStoreCache() {
+  memory.clear();
+  colCache.clear();
+  cacheUid = '';
+  if (typeof sessionStorage !== 'undefined') {
+    try { sessionStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
+  }
+}
+
+export function setStoreUser(uid: string) {
+  if (!uid) {
+    clearStoreCache();
+    return;
+  }
+  if (cacheUid && cacheUid !== uid) clearStoreCache();
+  cacheUid = uid;
 }
 
 function bumpColCache(docPath: string, data: Record<string, unknown> | null) {
@@ -201,6 +202,7 @@ function bumpColCache(docPath: string, data: Record<string, unknown> | null) {
     else rows.set(id, data);
     colCache.set(key, { at: Date.now(), rows: [...rows.entries()] });
   }
+  persistCache();
 }
 
 function overlayCollection(colPath: string, byId: Map<string, Record<string, unknown>>) {
@@ -218,6 +220,12 @@ function overlayCollection(colPath: string, byId: Map<string, Record<string, unk
     if (entry.local || !byId.has(id)) byId.set(id, entry.data);
   }
 }
+
+export type QuerySnapshot = {
+  docs: { id: string; data: () => any; exists: () => boolean }[];
+  empty: boolean;
+  forEach: (fn: (doc: { id: string; data: () => any; exists: () => boolean }) => void) => void;
+};
 
 function asSnap(byId: Map<string, Record<string, unknown>>): QuerySnapshot {
   const docs = [...byId.entries()].map(([id, data]) => ({
@@ -244,11 +252,13 @@ function storeCollection(path: string, constraints: Constraint[] | undefined, by
   }
   for (const [id, data] of byId) remember(`${path}/${id}`, data);
   colCache.set(colKey(path, constraints), { at: Date.now(), rows: [...byId.entries()] });
+  persistCache();
 }
 
-function fromCache(path: string, constraints?: Constraint[]) {
+function fromCache(path: string, constraints?: Constraint[], allowStale = false) {
   const hit = colCache.get(colKey(path, constraints));
-  if (!hit || Date.now() - hit.at >= collectionTtl(path)) return null;
+  if (!hit) return null;
+  if (!allowStale && Date.now() - hit.at >= collectionTtl(path)) return null;
   const byId = new Map(hit.rows);
   overlayCollection(path, byId);
   return asSnap(byId);
@@ -264,15 +274,6 @@ export async function getDoc(ref: DocRef) {
     return wrapDoc(ref.id, null, ref.path);
   }
   let data: Record<string, unknown> | null = cached?.data ?? null;
-  if (shouldReadFirestore(ref.path)) {
-    try {
-      const fromFs = await readFirestoreDoc(ref.path);
-      fsStamp.set(ref.path, Date.now());
-      if (fromFs) data = fromFs;
-    } catch {
-      // Expense Tracker ledgers still live in the named Firestore database.
-    }
-  }
   const payload = await withTimeout(call({ op: 'get', path: ref.path }), data ? 1200 : defaultKvMs(ref.path));
   if (payload?.data) data = payload.data;
   if (payload) {
@@ -325,14 +326,8 @@ export async function deleteDoc(ref: DocRef) {
   await call({ op: 'delete', path: ref.path });
 }
 
-export type QuerySnapshot = {
-  docs: { id: string; data: () => any; exists: () => boolean }[];
-  empty: boolean;
-  forEach: (fn: (doc: { id: string; data: () => any; exists: () => boolean }) => void) => void;
-};
-
 function defaultKvMs(path: string) {
-  // Ledger/books lists hit R2 key listing; 800ms often returned empty and hid real rows.
+  if (/\/inbound_events$/.test(path) || /\/email_events$/.test(path)) return 2500;
   if (path.startsWith('books') || path === 'notifications' || path === 'invites' || path.startsWith('inbound_')) {
     return 8000;
   }
@@ -346,19 +341,7 @@ export async function getDocs(source: { path: string; constraints?: Constraint[]
   }
   const byId = new Map<string, Record<string, unknown>>();
   const kvMs = opts?.kvMs ?? defaultKvMs(source.path);
-  const kvPromise = withTimeout(call({ op: 'query', path: source.path, constraints: source.constraints || [] }), kvMs);
-  if (shouldReadFirestore(source.path)) {
-    try {
-      for (const row of await readFirestoreDocs(source.path, source.constraints || [])) {
-        byId.set(row.id, row.data);
-      }
-      fsStamp.set(source.path, Date.now());
-    } catch {
-      // Rules require a roles.{uid} query on books; Firestore client sends it.
-    }
-  }
-  overlayCollection(source.path, byId);
-  const payload = await kvPromise;
+  const payload = await withTimeout(call({ op: 'query', path: source.path, constraints: source.constraints || [] }), kvMs);
   for (const row of payload?.docs || []) {
     if (row?.id && row.data) byId.set(row.id, row.data);
   }
@@ -371,7 +354,6 @@ export async function getDocs(source: { path: string; constraints?: Constraint[]
       }
     }
   }
-  // Do not cache empty results when KV timed out — that hides R2-only expenses.
   if (payload != null || byId.size > 0) {
     storeCollection(source.path, source.constraints, byId);
   }
@@ -442,21 +424,18 @@ export function onSnapshot(
       });
       return;
     }
-    if (!mailLive) {
-      const cached = fromCache(source.path, source.constraints);
-      if (cached && !force) {
-        next(cached);
-        return;
-      }
-    }
-    getDocs(source, { kvMs: mailLive ? 4000 : 8000, force: mailLive || force }).then((snap) => {
+    const cached = fromCache(source.path, source.constraints, true);
+    if (cached) next(cached);
+    const fresh = fromCache(source.path, source.constraints, false);
+    if (fresh && !force && !mailLive) return;
+    getDocs(source, { kvMs: mailLive ? 2500 : 8000, force: force || mailLive }).then((snap) => {
       if (!stopped) next(snap);
     }).catch((err) => {
       if (!stopped) error?.(err);
     });
   };
   tick(true);
-  const timer = setInterval(() => tick(false), mailLive ? 1500 : livePath ? 15000 : 30000);
+  const timer = setInterval(() => tick(false), mailLive ? 2500 : livePath ? 45_000 : 60_000);
   return () => {
     stopped = true;
     clearInterval(timer);

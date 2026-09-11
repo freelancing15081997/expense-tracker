@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, onAuthStateChanged } from 'firebase/auth';
 import { auth, googleRedirectReady } from '../lib/firebase';
 import { db } from '../lib/store';
-import { doc, getDoc, setDoc, serverTimestamp } from '../lib/store';
+import { doc, getDoc, setDoc, serverTimestamp, setStoreUser } from '../lib/store';
 import { authHeaders } from '../lib/auth-client';
 import AppLoader from '../components/AppLoader';
 
@@ -82,10 +82,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
         setCurrentUser(user);
         if (!user) {
+          setStoreUser('');
           setUserProfile(null);
           setLoading(false);
           return;
         }
+        setStoreUser(user.uid);
         try {
           void copyLegacyBooks();
           const userRef = doc(db, 'users', user.uid);

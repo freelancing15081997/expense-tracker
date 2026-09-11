@@ -108,19 +108,23 @@ async function runQuery(token: string, parentPath: string, collectionId: string,
   else if (filters.length > 1) structuredQuery.where = { compositeFilter: { op: 'AND', filters } };
   const out: { path: string; data: Record<string, unknown> }[] = [];
   for (const root of firestoreRoots()) {
-    const url = parentPath ? `${root}/${parentPath}:runQuery` : `${root}:runQuery`;
-    const res = await fsFetch(token, url, {
-      method: 'POST',
-      body: JSON.stringify({ structuredQuery }),
-    });
-    if (!res.ok) continue;
-    const rows = await res.json();
-    for (const row of Array.isArray(rows) ? rows : []) {
-      if (!row?.document) continue;
-      const doc = decodeDoc(row.document);
-      if (doc.path) out.push(doc);
+    try {
+      const url = parentPath ? `${root}/${parentPath}:runQuery` : `${root}:runQuery`;
+      const res = await fsFetch(token, url, {
+        method: 'POST',
+        body: JSON.stringify({ structuredQuery }),
+      });
+      if (!res.ok) continue;
+      const rows = await res.json();
+      for (const row of Array.isArray(rows) ? rows : []) {
+        if (!row?.document) continue;
+        const doc = decodeDoc(row.document);
+        if (doc.path) out.push(doc);
+      }
+      if (out.length) return out;
+    } catch {
+      // try the other Firestore database
     }
-    if (out.length) return out;
   }
   return out;
 }
@@ -200,7 +204,7 @@ async function collect(token: string, uid: string, email: string) {
   return rows;
 }
 
-async function upsertNeon(rows: { path: string; data: Record<string, unknown> }[]) {
+async function upsertNeon(uid: string, rows: { path: string; data: Record<string, unknown> }[]) {
   const url = postgresUrl();
   if (!url) throw new Error('DATABASE_URL / POSTGRES_URL is not set on the server');
   const sql = neon(url);
@@ -227,6 +231,24 @@ async function upsertNeon(rows: { path: string; data: Record<string, unknown> }[
       copied += 1;
     } catch (err: any) {
       failed.push(`${path}: ${err?.message || 'write failed'}`);
+    }
+  }
+  const cols = new Set<string>();
+  for (const row of rows) {
+    const path = String(row.path || '').replace(/^\/+|\/+$/g, '');
+    const slash = path.lastIndexOf('/');
+    if (slash > 0) cols.add(path.slice(0, slash));
+  }
+  for (const col of cols) {
+    const marker = `meta/hydrated/${uid}/${col}`;
+    try {
+      await sql`
+        INSERT INTO documents (path, data, updated_at)
+        VALUES (${marker}, ${JSON.stringify({ at: new Date().toISOString() })}::jsonb, NOW())
+        ON CONFLICT (path) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
+      `;
+    } catch {
+      // listing still works without the marker
     }
   }
   return { copied, failed };
@@ -271,7 +293,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const rows = await collect(token, uid, email);
-    const result = await upsertNeon(rows);
+    const result = await upsertNeon(uid, rows);
     json(res, 200, {
       copied: result.copied,
       skipped: false,

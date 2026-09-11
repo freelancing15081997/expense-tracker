@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../lib/firebase';
-import { collection, query, getDocs, orderBy, where } from '../lib/store';
+import { collection, query, getDocs, getDocsMany, where } from '../lib/store';
 import { Receipt, ArrowUpRight, ArrowDownRight, Loader2, ArrowLeftRight, BookOpen } from 'lucide-react';
 import { isSoftDeleted } from '../lib/records';
 import { ListControls, usePagedList } from '../components/ListControls';
@@ -18,27 +18,28 @@ export default function AllExpenses() {
       try {
         const qBooks = query(collection(db, 'books'), where(`roles.${currentUser.uid}.role`, 'in', ['owner', 'admin', 'contributor', 'viewer', 'auditor']));
         const bookSnaps = await getDocs(qBooks);
-        
-        let allExps: any[] = [];
-        
-        for (const b of bookSnaps.docs) {
+        const visibleBooks = bookSnaps.docs.filter((b) => {
           const bookData = b.data();
-          if (isSoftDeleted(bookData)) continue;
-          if (bookData.roles && bookData.roles[currentUser.uid] && ['owner', 'admin', 'contributor', 'viewer', 'auditor'].includes(bookData.roles[currentUser.uid].role)) {
-            const expSnap = await getDocs(collection(db, 'books', b.id, 'expenses'));
-            expSnap.forEach(expDoc => {
-              const data = expDoc.data();
-              if (isSoftDeleted(data)) return;
-              allExps.push({
-                id: expDoc.id,
-                bookId: b.id,
-                bookName: b.data().name,
-                currency: b.data().currency,
-                ...data
-              });
+          if (isSoftDeleted(bookData)) return false;
+          return bookData.roles && bookData.roles[currentUser.uid] && ['owner', 'admin', 'contributor', 'viewer', 'auditor'].includes(bookData.roles[currentUser.uid].role);
+        });
+        const expenseSnaps = visibleBooks.length
+          ? await getDocsMany(visibleBooks.map((b) => query(collection(db, 'books', b.id, 'expenses'))))
+          : [];
+        const allExps: any[] = [];
+        visibleBooks.forEach((b, index) => {
+          expenseSnaps[index]?.forEach((expDoc) => {
+            const data = expDoc.data();
+            if (isSoftDeleted(data)) return;
+            allExps.push({
+              id: expDoc.id,
+              bookId: b.id,
+              bookName: b.data().name,
+              currency: b.data().currency,
+              ...data,
             });
-          }
-        }
+          });
+        });
         
         const millis = (value: any) => {
           try {
