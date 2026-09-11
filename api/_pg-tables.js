@@ -128,9 +128,19 @@ async function ledgerEnsureMailbox(bookId, data = {}) {
       });
     }
     await ledgerSet(`inbound_mailboxes/${id}`, record);
+    await stampBookMailbox(id, record).catch(() => void 0);
     return record;
   }
   return null;
+}
+async function stampBookMailbox(bookId, record) {
+  const sql = await getLedgerSql();
+  const current = asObject(await ledgerGet(`books/${bookId}`));
+  if (!current) return;
+  if (text(current.inboundAddress) === record.address && text(current.inboundSlug) === record.slug) return;
+  const next = { ...current, inboundAddress: record.address, inboundSlug: record.slug };
+  const payload = JSON.stringify(next);
+  await sql`UPDATE books SET data = ${payload}::jsonb, updated_at = NOW() WHERE id = ${bookId}`;
 }
 async function ledgerResolveInboundSlug(local) {
   const slug = inboundMailboxSlug(local);
@@ -165,16 +175,23 @@ async function ledgerResolveInboundSlug(local) {
       WHERE lower(replace(name, ' ', '-')) = ${slug}
          OR lower(name) = ${spaced}
          OR lower(name) = ${slug}
-      ORDER BY updated_at DESC
+      ORDER BY updated_at ASC
       LIMIT 20
     `
   );
-  let matches = named.filter((row) => inboundMailboxSlug(String(row.name || asObject(row.data)?.name || "")) === slug);
+  const eligible = (rows) => rows.filter((row) => {
+    const data2 = asObject(row.data) || {};
+    const rawClaimed = String(data2.inboundSlug || String(data2.inboundAddress || "").split("@")[0] || "").trim();
+    const claimed = rawClaimed ? inboundMailboxSlug(rawClaimed) : "";
+    if (claimed && claimed !== slug) return false;
+    return inboundMailboxSlug(String(row.name || data2.name || "")) === slug;
+  });
+  let matches = eligible(named);
   if (!matches.length) {
     const recent = asRows(
-      await sql`SELECT id, name, data FROM books ORDER BY updated_at DESC LIMIT 250`
+      await sql`SELECT id, name, data FROM books ORDER BY updated_at ASC LIMIT 250`
     );
-    matches = recent.filter((row) => inboundMailboxSlug(String(row.name || asObject(row.data)?.name || "")) === slug);
+    matches = eligible(recent);
   }
   if (!matches.length) return "";
   const book = matches[0];
@@ -683,6 +700,10 @@ async function ledgerSet(path, data, insertOnly = false) {
       `;
       return asRows(rows).length > 0;
     }
+    const existing = asObject(await ledgerGet(`inbound_aliases/${parts[1]}`));
+    const owner = text(existing?.bookId);
+    const incoming = text(obj.bookId);
+    if (owner && incoming && owner !== incoming) return false;
     await sql`
       INSERT INTO inbound_aliases (slug, data, updated_at)
       VALUES (${parts[1]}, ${payload}::jsonb, NOW())

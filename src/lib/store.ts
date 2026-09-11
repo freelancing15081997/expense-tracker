@@ -309,10 +309,12 @@ export async function addDoc(col: { path: string }, data: Record<string, unknown
   try {
     const payload = await call({ op: 'add', path: col.path, data: next, id });
     const realId = String(payload.id || id);
-    if (realId !== id) {
-      memory.delete(`${col.path}/${id}`);
-      remember(`${col.path}/${realId}`, { ...data, id: realId }, true);
-    }
+    const saved = payload?.data && typeof payload.data === 'object'
+      ? { ...(payload.data as Record<string, unknown>), id: realId }
+      : { ...data, id: realId };
+    if (realId !== id) memory.delete(`${col.path}/${id}`);
+    remember(`${col.path}/${realId}`, saved, true);
+    bumpColCache(`${col.path}/${realId}`, saved);
     return { id: realId };
   } catch (err) {
     memory.delete(`${col.path}/${id}`);

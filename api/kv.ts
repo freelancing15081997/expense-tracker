@@ -867,7 +867,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const id = requested || Array.from({ length: 24 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
       const data = { ...(body.data || {}), id };
       await localSet(`${path}/${id}`, data);
-      json(res, 200, { id, data });
+      let saved = data;
+      if (path === 'books' && postgresUrl()) {
+        const stamped = await ledgerGet(`books/${id}`).catch(() => null);
+        if (stamped) saved = { ...stamped, id };
+      }
+      json(res, 200, { id, data: saved });
       return;
     }
 

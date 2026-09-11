@@ -15,7 +15,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 import { format } from 'date-fns';
 import { getCurrencySymbol } from '../lib/currency';
 import { isSoftDeleted, softDeletePatch } from '../lib/records';
-import { inboundMailboxAddress, ledgerAppLink, openLedgerButtonHtml, syncInboundMailbox } from '../lib/inbound-mail';
+import { bookInboundAddress, ledgerAppLink, openLedgerButtonHtml, syncInboundMailbox } from '../lib/inbound-mail';
 import { authHeaders } from '../lib/auth-client';
 import { ReceiptModal } from '../components/ReceiptModal';
 import { EventMailTrack, emailStatusClass, emailStatusLabel, resolvedStatus } from '../components/EmailActivityFlow';
@@ -166,7 +166,7 @@ export default function BookView() {
       if (docSnap.exists()) {
         const next = { id: docSnap.id, ...docSnap.data() };
         setBook(next);
-        setInboundAddress(inboundMailboxAddress(String(next.name || 'ledger')));
+        setInboundAddress(bookInboundAddress(next));
         void syncInboundMailbox(next).then((record) => setInboundAddress(record.address)).catch(() => undefined);
       }
     };
@@ -288,7 +288,7 @@ export default function BookView() {
   };
 
   const copyInboundAddress = async () => {
-    const address = inboundAddress || inboundMailboxAddress(book?.name || 'ledger');
+    const address = inboundAddress || bookInboundAddress(book);
     try {
       await navigator.clipboard.writeText(address);
       setCopiedInbound(true);
@@ -398,7 +398,7 @@ export default function BookView() {
           action,
           detail,
           senderName: userProfile?.displayName || currentUser?.email,
-          ledgerMail: inboundAddress || inboundMailboxAddress(book.name),
+          ledgerMail: inboundAddress || bookInboundAddress(book),
           link: ledgerAppLink(bookId || book.id),
           createdAt: serverTimestamp(),
           read: false
@@ -414,7 +414,7 @@ export default function BookView() {
       ; // Removed self-filter for testing so the user gets their own emails
     
     if (emails.length > 0) {
-      const mailbox = inboundAddress || inboundMailboxAddress(book.name);
+      const mailbox = inboundAddress || bookInboundAddress(book);
       const subject = customSubject || `${userProfile?.displayName || currentUser?.email} ${action.toLowerCase()} in ${book.name} expense book`;
       const message = htmlOverride || `
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9fafb; border-radius: 12px; border: 1px solid #e5e7eb;">
@@ -564,7 +564,7 @@ export default function BookView() {
           to: toEmail,
           subject,
           message,
-          ledgerMail: inboundAddress || inboundMailboxAddress(book?.name || 'ledger'),
+          ledgerMail: inboundAddress || bookInboundAddress(book),
           kind: meta?.action?.toLowerCase().includes('announcement') ? 'announcement' : 'notice',
         })
       });
@@ -643,7 +643,7 @@ export default function BookView() {
     if (!title || !body || !book) return;
     setAnnouncing(true);
     try {
-      const mailbox = inboundAddress || inboundMailboxAddress(book.name);
+      const mailbox = inboundAddress || bookInboundAddress(book);
       const sender = userProfile?.displayName || currentUser?.email || 'A teammate';
       const html = `
         <p style="margin:0 0 8px;font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:#8a8070">Team announcement</p>
@@ -1014,7 +1014,7 @@ export default function BookView() {
                 <p className="text-xs text-slate-500 mt-1">Each inbound receipt shows its own path. It updates while Byjan works, then settles when the entry is saved.</p>
               </div>
               <div className="flex items-center gap-2">
-                <code className="text-[11px] bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 max-w-[220px] truncate">{inboundAddress || inboundMailboxAddress(book.name)}</code>
+                <code className="text-[11px] bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 max-w-[220px] truncate">{inboundAddress || bookInboundAddress(book)}</code>
                 <button type="button" className="byjan-btn-ghost !px-2.5 !py-1.5" onClick={() => void copyInboundAddress()}>
                   <Copy className="w-3.5 h-3.5" />
                   {copiedInbound ? 'Copied' : 'Copy'}
@@ -1284,7 +1284,7 @@ export default function BookView() {
                 </p>
                 <p className="text-sm text-slate-600 leading-relaxed">Any member can send a receipt or entry to this unique ledger address. Byjan records it automatically and notifies this team. Full receive/send status is on the Email Activity tab.</p>
                 <div className="flex items-center gap-2">
-                  <code className="flex-1 text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 truncate">{inboundAddress || inboundMailboxAddress(book.name)}</code>
+                  <code className="flex-1 text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 truncate">{inboundAddress || bookInboundAddress(book)}</code>
                   <button type="button" className="byjan-btn-ghost !px-2.5" onClick={() => void copyInboundAddress()}>
                     <Copy className="w-3.5 h-3.5" />
                     {copiedInbound ? 'Copied' : 'Copy'}

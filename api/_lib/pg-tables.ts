@@ -153,9 +153,20 @@ export async function ledgerEnsureMailbox(bookId: string, data: Record<string, u
       });
     }
     await ledgerSet(`inbound_mailboxes/${id}`, record);
+    await stampBookMailbox(id, record).catch(() => undefined);
     return record;
   }
   return null;
+}
+
+async function stampBookMailbox(bookId: string, record: { slug: string; address: string }) {
+  const sql = await getLedgerSql();
+  const current = asObject(await ledgerGet(`books/${bookId}`));
+  if (!current) return;
+  if (text(current.inboundAddress) === record.address && text(current.inboundSlug) === record.slug) return;
+  const next = { ...current, inboundAddress: record.address, inboundSlug: record.slug };
+  const payload = JSON.stringify(next);
+  await sql`UPDATE books SET data = ${payload}::jsonb, updated_at = NOW() WHERE id = ${bookId}`;
 }
 
 export async function ledgerResolveInboundSlug(local: string) {
@@ -194,16 +205,23 @@ export async function ledgerResolveInboundSlug(local: string) {
       WHERE lower(replace(name, ' ', '-')) = ${slug}
          OR lower(name) = ${spaced}
          OR lower(name) = ${slug}
-      ORDER BY updated_at DESC
+      ORDER BY updated_at ASC
       LIMIT 20
     `,
   );
-  let matches = named.filter((row) => inboundMailboxSlug(String(row.name || asObject(row.data)?.name || '')) === slug);
+  const eligible = (rows: Array<{ id: string; name: string; data: unknown }>) => rows.filter((row) => {
+    const data = asObject(row.data) || {};
+    const rawClaimed = String(data.inboundSlug || String(data.inboundAddress || '').split('@')[0] || '').trim();
+    const claimed = rawClaimed ? inboundMailboxSlug(rawClaimed) : '';
+    if (claimed && claimed !== slug) return false;
+    return inboundMailboxSlug(String(row.name || data.name || '')) === slug;
+  });
+  let matches = eligible(named);
   if (!matches.length) {
     const recent = asRows<{ id: string; name: string; data: unknown }>(
-      await sql`SELECT id, name, data FROM books ORDER BY updated_at DESC LIMIT 250`,
+      await sql`SELECT id, name, data FROM books ORDER BY updated_at ASC LIMIT 250`,
     );
-    matches = recent.filter((row) => inboundMailboxSlug(String(row.name || asObject(row.data)?.name || '')) === slug);
+    matches = eligible(recent);
   }
   if (!matches.length) return '';
   const book = matches[0];
@@ -732,6 +750,10 @@ export async function ledgerSet(path: string, data: unknown, insertOnly = false)
       `;
       return asRows(rows).length > 0;
     }
+    const existing = asObject(await ledgerGet(`inbound_aliases/${parts[1]}`));
+    const owner = text(existing?.bookId);
+    const incoming = text(obj.bookId);
+    if (owner && incoming && owner !== incoming) return false;
     await sql`
       INSERT INTO inbound_aliases (slug, data, updated_at)
       VALUES (${parts[1]}, ${payload}::jsonb, NOW())

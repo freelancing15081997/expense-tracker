@@ -34,6 +34,18 @@ export function inboundMailboxAddress(slugOrName: string) {
   return `${slug}@${INBOUND_MAIL_DOMAIN}`;
 }
 
+export function bookInboundAddress(book?: {
+  name?: string;
+  inboundAddress?: string;
+  inboundSlug?: string;
+} | null) {
+  const claimed = String(book?.inboundAddress || '').trim();
+  if (claimed) return claimed;
+  const slug = String(book?.inboundSlug || '').trim();
+  if (slug) return inboundMailboxAddress(slug);
+  return inboundMailboxAddress(book?.name || 'ledger');
+}
+
 export function inboundMailboxPath(bookId: string) {
   return `inbound_mailboxes/${String(bookId || '').trim()}`;
 }
