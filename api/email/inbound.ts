@@ -529,54 +529,46 @@ function asParsed(value: any, fallback: ParsedReceipt): ParsedReceipt {
 
 function geminiModels() {
   const preferred = String(process.env.GEMINI_MODEL || '').trim();
-  const defaults = [
-    'gemini-2.5-flash',
-    'gemini-2.5-flash-lite',
-    'gemini-flash-latest',
-    'gemini-2.0-flash',
-    'gemini-1.5-flash',
-  ];
+  // Keep this short — inbound must stay under Cloudflare/Vercel time budgets.
+  const defaults = ['gemini-2.5-flash', 'gemini-flash-latest', 'gemini-2.0-flash'];
   return [...new Set([preferred, ...defaults].filter(Boolean))];
 }
 
-function extractGeminiText(response: any) {
-  if (!response) return '';
-  if (typeof response.text === 'string' && response.text.trim()) return response.text.trim();
-  if (typeof response.text === 'function') {
-    try {
-      const value = response.text();
-      if (typeof value === 'string' && value.trim()) return value.trim();
-    } catch {
-      // ignore
-    }
-  }
-  const parts = response?.candidates?.[0]?.content?.parts;
+function extractGeminiText(payload: any) {
+  if (!payload) return '';
+  if (typeof payload.text === 'string' && payload.text.trim()) return payload.text.trim();
+  const parts = payload?.candidates?.[0]?.content?.parts;
   return (Array.isArray(parts) ? parts : [])
     .map((part: any) => String(part?.text || ''))
     .join('\n')
     .trim();
 }
 
-async function listUsableGeminiModels(ai: any) {
+async function geminiGenerate(model: string, key: string, body: Record<string, unknown>, timeoutMs = 20_000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const pager = ai.models.list({ config: { pageSize: 50 } });
-    const names: string[] = [];
-    if (pager && typeof pager[Symbol.asyncIterator] === 'function') {
-      for await (const model of pager) {
-        const name = String(model?.name || model?.model || '').replace(/^models\//, '');
-        if (name && /flash|pro/i.test(name)) names.push(name);
-      }
-    } else if (Array.isArray(pager?.models)) {
-      for (const model of pager.models) {
-        const name = String(model?.name || '').replace(/^models\//, '');
-        if (name && /flash|pro/i.test(name)) names.push(name);
-      }
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify(body),
+      },
+    );
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { ok: false as const, error: String(payload?.error?.message || `http_${res.status}`), payload };
     }
-    const flashFirst = names.filter((n) => /flash/i.test(n));
-    return [...new Set([...(flashFirst.length ? flashFirst : names), ...geminiModels()])];
+    return { ok: true as const, payload };
   } catch (err: any) {
-    console.error('gemini list models failed', err?.message || err);
-    return geminiModels();
+    return {
+      ok: false as const,
+      error: err?.name === 'AbortError' ? 'timeout' : String(err?.message || 'request_failed'),
+    };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -593,114 +585,80 @@ async function parseDocumentWithGemini(
     return { parsed: fallback, error: !key ? 'missing_key' : !mime ? 'unsupported_mime' : 'empty_file' };
   }
 
-  const maxBytes = 4 * 1024 * 1024;
+  const maxBytes = 3 * 1024 * 1024;
   const payloadBytes = bytes.length > maxBytes ? bytes.subarray(0, maxBytes) : bytes;
   const prompt = `You are a professional accounts-payable document parser for Byjan.
 Read this receipt, bill, invoice, tax invoice, UPI screenshot, bank slip, or photo of a document.
-Email context (may be empty): ${emailContext.slice(0, 1200)}
-Return JSON only with:
-amount (number, grand total payable; 0 if unknown),
-taxAmount (number or 0),
-currency (INR/USD/EUR/GBP or empty),
-date (YYYY-MM-DD),
-merchant (store/vendor),
-description (short human summary for an expense form),
-category (Fuel, Groceries, Meals, Travel, Utilities, Health, Shopping, Software Subscriptions, or Uncategorized),
-entryType ("out" for spend, "in" only if money received),
-documentType (receipt|bill|invoice),
-invoiceNumber (string),
-paymentMethod (cash|upi|card|bank|other or empty),
-notes (one short line of useful extras; empty if none),
-lineItems (optional array of {name, amount}).
-Rules: never invent an amount; prefer printed grand total/net payable; handle messy photos, skewed scans, multi-column invoices, and Indian GST layouts.`;
+Email context (may be empty): ${emailContext.slice(0, 800)}
+Return JSON only with keys:
+amount (number), taxAmount (number), currency, date (YYYY-MM-DD), merchant, description, category
+(Fuel, Groceries, Meals, Travel, Utilities, Health, Shopping, Software Subscriptions, or Uncategorized),
+entryType (out|in), documentType (receipt|bill|invoice), invoiceNumber, paymentMethod, notes.
+Never invent amounts. Prefer grand total / amount paid / net payable.`;
 
-  let ai: any;
-  try {
-    const mod: any = await import('@google/genai');
-    const GoogleGenAI = mod.GoogleGenAI || mod.default?.GoogleGenAI;
-    if (!GoogleGenAI) return { parsed: fallback, error: 'sdk_missing' };
-    ai = new GoogleGenAI({ apiKey: key });
-  } catch (err: any) {
-    return { parsed: fallback, error: `sdk_import: ${err?.message || err}` };
-  }
+  const requestBody = {
+    contents: [{
+      parts: [
+        { text: prompt },
+        { inline_data: { mime_type: mime, data: payloadBytes.toString('base64') } },
+      ],
+    }],
+    generationConfig: {
+      temperature: 0,
+      responseMimeType: 'application/json',
+    },
+  };
 
-  const models = await listUsableGeminiModels(ai);
   const errors: string[] = [];
-
-  for (const model of models.slice(0, 5)) {
-    for (const useJsonMime of [true, false]) {
-      try {
-        const response = await withTimeoutMs(
-          ai.models.generateContent({
-            model,
-            contents: [{
-              role: 'user',
-              parts: [
-                { text: prompt },
-                { inlineData: { mimeType: mime, data: payloadBytes.toString('base64') } },
-              ],
-            }],
-            config: {
-              temperature: 0,
-              ...(useJsonMime ? { responseMimeType: 'application/json' } : {}),
-            },
-          }),
-          18_000,
-        );
-        if (!response) {
-          errors.push(`${model}: timeout`);
-          continue;
-        }
-        const raw = extractGeminiText(response).replace(/^```json\s*|\s*```$/g, '').trim();
-        if (!raw) {
-          const block = response?.candidates?.[0]?.finishReason || response?.promptFeedback?.blockReason || 'empty_response';
-          errors.push(`${model}: ${block}`);
-          continue;
-        }
-        const jsonSlice = raw.includes('{') ? raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1) : raw;
-        try {
-          const parsed = asParsed(JSON.parse(jsonSlice), fallback);
-          return { parsed, model };
-        } catch (err: any) {
-          errors.push(`${model}: bad_json`);
-          console.error('gemini json parse failed', model, err?.message || err, raw.slice(0, 220));
-        }
-      } catch (err: any) {
-        errors.push(`${model}: ${err?.message || 'request_failed'}`);
-        console.error('gemini sdk failed', model, err?.message || err);
-      }
+  for (const model of geminiModels().slice(0, 3)) {
+    const result = await geminiGenerate(model, key, requestBody, 22_000);
+    if (!result.ok) {
+      errors.push(`${model}: ${result.error}`);
+      console.error('gemini generate failed', model, result.error);
+      continue;
+    }
+    const raw = extractGeminiText(result.payload).replace(/^```json\s*|\s*```$/g, '').trim();
+    if (!raw) {
+      const block = result.payload?.candidates?.[0]?.finishReason || result.payload?.promptFeedback?.blockReason || 'empty_response';
+      errors.push(`${model}: ${block}`);
+      continue;
+    }
+    const jsonSlice = raw.includes('{') ? raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1) : raw;
+    try {
+      const parsed = asParsed(JSON.parse(jsonSlice), fallback);
+      return { parsed, model };
+    } catch (err: any) {
+      errors.push(`${model}: bad_json`);
+      console.error('gemini json parse failed', model, err?.message || err, raw.slice(0, 220));
     }
   }
 
-  return { parsed: fallback, error: errors.slice(0, 6).join(' | ') || 'all_models_failed' };
+  return { parsed: fallback, error: errors.slice(0, 4).join(' | ') || 'all_models_failed' };
 }
 
 async function probeGemini() {
   const key = geminiKey();
   if (!key) return { ok: false, error: 'missing_key' };
-  try {
-    const mod: any = await import('@google/genai');
-    const GoogleGenAI = mod.GoogleGenAI || mod.default?.GoogleGenAI;
-    const ai = new GoogleGenAI({ apiKey: key });
-    const models = await listUsableGeminiModels(ai);
-    const model = models[0] || 'gemini-2.5-flash';
-    const response = await withTimeoutMs(
-      ai.models.generateContent({
-        model,
-        contents: 'Reply with JSON only: {"ok":true,"amount":12.5}',
-        config: { temperature: 0, responseMimeType: 'application/json' },
-      }),
-      12_000,
-    );
-    return {
-      ok: Boolean(response),
-      model,
-      modelsTried: models.slice(0, 8),
-      sample: extractGeminiText(response).slice(0, 200),
-    };
-  } catch (err: any) {
-    return { ok: false, error: err?.message || String(err) };
+  const model = geminiModels()[0] || 'gemini-2.5-flash';
+  const started = Date.now();
+  const result = await geminiGenerate(
+    model,
+    key,
+    {
+      contents: [{ parts: [{ text: 'Return JSON only: {"ok":true,"amount":12.5}' }] }],
+      generationConfig: { temperature: 0, responseMimeType: 'application/json' },
+    },
+    15_000,
+  );
+  if (!result.ok) {
+    return { ok: false, model, ms: Date.now() - started, error: result.error };
   }
+  return {
+    ok: true,
+    model,
+    ms: Date.now() - started,
+    sample: extractGeminiText(result.payload).slice(0, 200),
+  };
 }
 
 /**
@@ -728,7 +686,9 @@ async function enrichFromDocument(
       parseDocumentWithGemini(bytes, contentType, fileName, fallback, emailContext).then((result) => ({
         parsed: result.parsed,
         preview: result.error ? `gemini_error: ${result.error}` : '',
-        engine: result.parsed.amount || result.parsed.merchant ? `gemini:${result.model || 'ok'}` : (result.error ? 'gemini-failed' : 'gemini'),
+        engine: result.model
+          ? `gemini:${result.model}`
+          : (result.error ? 'gemini-failed' : 'gemini'),
       })),
     );
   }
