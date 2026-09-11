@@ -1329,11 +1329,18 @@ function sameMerchant(a: string, b: string) {
   return a.includes(b) || b.includes(a);
 }
 
+function isLiveExpense(expense: Record<string, unknown> | null | undefined) {
+  if (!expense) return false;
+  if (expense.deleted === true || expense.deleted === 'true' || expense.deleted === 1) return false;
+  if (expense.deletedAt) return false;
+  return expense.status !== 'deleted';
+}
+
 async function listLedgerExpenses(bookId: string): Promise<Array<Record<string, unknown>>> {
   const rows = postgresUrl() ? await ledgerList(`books/${bookId}/expenses`) : [];
   return rows
     .map((row) => ({ id: row.id, ...row.data } as Record<string, unknown>))
-    .filter((row) => row.id && row.deleted !== true && row.status !== 'deleted' && !row.deletedAt);
+    .filter((row) => row.id && isLiveExpense(row));
 }
 
 async function findMatchingReceipt(
@@ -1347,12 +1354,11 @@ async function findMatchingReceipt(
     const expenseId = String(row?.expenseId || '').trim();
     if (expenseId) {
       const expense = await docGet(`books/${bookId}/expenses/${expenseId}`);
-      if (expense && expense.deleted !== true && expense.status !== 'deleted' && !expense.deletedAt) {
+      if (isLiveExpense(expense)) {
         return { hash, expenseId, expense: { id: expenseId, ...expense }, reason: 'same_file' as const };
       }
-    }
-    if (row?.reserved) {
-      return { hash, expenseId: expenseId || String(row.expenseId || ''), expense: row, reason: 'same_file' as const };
+    } else if (row?.reserved) {
+      return { hash, expenseId: '', expense: row, reason: 'same_file' as const };
     }
   }
   if (!parsed) return null;
@@ -1943,7 +1949,21 @@ async function processItem(item: any) {
 
   const messageId = firstString(item.Uuid, item.MessageId, item.Headers?.['Message-ID'], item.Headers?.['Message-Id']) || newId();
   const seenKey = `inbound_seen/${createHash('sha256').update(messageId).digest('hex').slice(0, 32)}`;
-  if (await docGet(seenKey)) return { skipped: 'duplicate', bookId };
+  const seen = await docGet(seenKey);
+  if (seen) {
+    const seenExpenseId = String(seen.id || seen.expenseId || '').trim();
+    const seenExpense = seenExpenseId ? await docGet(`books/${bookId}/expenses/${seenExpenseId}`) : null;
+    if (isLiveExpense(seenExpense) || seen.status === 'rejected') {
+      return { skipped: 'duplicate', bookId };
+    }
+    if (seen.status === 'duplicate_pending') {
+      const pendingId = String(seen.pendingId || '').trim();
+      const pending = pendingId ? await docGet(`inbound_pending/${pendingId}`) : null;
+      const existingId = String(pending?.existingExpenseId || pending?.existing?.id || '').trim();
+      const existing = existingId ? await docGet(`books/${bookId}/expenses/${existingId}`) : null;
+      if (isLiveExpense(existing)) return { skipped: 'duplicate', bookId };
+    }
+  }
 
   const mailbox = await loadMailbox(bookId);
   if (!mailbox) {
@@ -2099,7 +2119,7 @@ async function processItem(item: any) {
           const expenseId = String(bill?.expenseId || '').trim();
           if (expenseId) {
             const expense = await docGet(`books/${bookId}/expenses/${expenseId}`);
-            if (expense) match = { hash, expenseId, expense: { id: expenseId, ...expense }, reason: 'same_bill' as const };
+            if (isLiveExpense(expense)) match = { hash, expenseId, expense: { id: expenseId, ...expense }, reason: 'same_bill' as const };
           }
         }
         if (!match?.expenseId) {
