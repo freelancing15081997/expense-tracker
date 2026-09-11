@@ -4,6 +4,7 @@ import { auth, googleRedirectReady } from '../lib/firebase';
 import { db } from '../lib/store';
 import { doc, getDoc, setDoc, serverTimestamp, setStoreUser } from '../lib/store';
 import { authHeaders } from '../lib/auth-client';
+import { startSessionGuard } from '../lib/session';
 import AppLoader from '../components/AppLoader';
 
 export interface UserProfile {
@@ -77,9 +78,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     let cancelled = false;
     let unsubscribeAuth = () => {};
+    let stopSession = () => {};
     void googleRedirectReady.finally(() => {
       if (cancelled) return;
       unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+        stopSession();
         setCurrentUser(user);
         if (!user) {
           setStoreUser('');
@@ -88,6 +91,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return;
         }
         setStoreUser(user.uid);
+        stopSession = startSessionGuard();
         try {
           void copyLegacyBooks();
           const userRef = doc(db, 'users', user.uid);
@@ -108,6 +112,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
     return () => {
       cancelled = true;
+      stopSession();
       unsubscribeAuth();
     };
   }, []);

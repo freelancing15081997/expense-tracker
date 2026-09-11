@@ -54,6 +54,23 @@ export function inboundAliasPath(slug: string) {
   return `inbound_aliases/${inboundMailboxSlug(slug)}`;
 }
 
+export function inviteAppLink(inviteId: string) {
+  const origin = typeof window !== 'undefined' && window.location?.origin
+    ? window.location.origin
+    : 'https://www.easypado.com';
+  return `${origin}/#/invite/${String(inviteId || '').trim()}`;
+}
+
+export function openInviteButtonHtml(inviteId: string, label = 'Open invitation in Byjan') {
+  const href = inviteAppLink(inviteId);
+  return `
+    <p style="text-align:center;margin:28px 0 8px">
+      <a href="${href}" style="display:inline-block;background:#0B1F3A;color:#ffffff;text-decoration:none;padding:12px 18px;font-family:Arial,Helvetica,sans-serif;font-size:13px">${label}</a>
+    </p>
+    <p style="margin:14px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.55;color:#64748b">This link only works for the invited email. Sign out first if another account is already open on this device.</p>
+  `;
+}
+
 export function ledgerAppLink(bookId: string) {
   const origin = typeof window !== 'undefined' && window.location?.origin
     ? window.location.origin

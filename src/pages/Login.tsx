@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { signInWithEmailAndPassword, signInWithGoogle, auth } from '../lib/firebase';
 import { Mail, Lock, AlertCircle } from 'lucide-react';
 import AuthScene from '../components/AuthScene';
+import { consumeReturnTo } from '../lib/return-to';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -17,7 +18,7 @@ export default function Login() {
       setError('');
       setLoading(true);
       await signInWithEmailAndPassword(auth, email, password);
-      navigate('/');
+      navigate(consumeReturnTo());
     } catch (err: any) {
       setError(err.message || 'Failed to sign in');
     } finally {
@@ -30,7 +31,7 @@ export default function Login() {
       setError('');
       setLoading(true);
       const result = await signInWithGoogle();
-      if (result) navigate('/');
+      if (result) navigate(consumeReturnTo());
     } catch (err: any) {
       setError(err.message || 'Failed to sign in with Google');
       setLoading(false);

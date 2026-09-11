@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { ledgerDel, ledgerGet, ledgerList, ledgerSet } from './_pg-tables.js';
+import { ledgerAudit, ledgerGet, ledgerList, ledgerSet } from './_pg-tables.js';
 
 const FIREBASE_PROJECT = 'gen-lang-client-0616065043';
 const jwtMem = new Map<string, { uid: string; email: string; exp: number }>();
@@ -59,6 +59,23 @@ function inviteId(bookId: string, email: string) {
   return `${bookId}_${email}`;
 }
 
+function isPending(invite: Record<string, unknown> | null) {
+  if (!invite) return false;
+  if (invite.deleted === true || invite.deleted === 'true') return false;
+  const status = String(invite.status || 'pending');
+  return status === 'pending';
+}
+
+async function closeInvite(id: string, invite: Record<string, unknown>, status: string, actorUid: string) {
+  await ledgerSet(`invites/${id}`, {
+    ...invite,
+    status,
+    deleted: true,
+    deletedAt: new Date().toISOString(),
+    closedBy: actorUid,
+  });
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const origin = String(req.headers.origin || '');
@@ -78,17 +95,71 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const header = String(req.headers.authorization || '');
     const token = header.toLowerCase().startsWith('bearer ') ? header.slice(7).trim() : '';
-    const user = token ? await userFromToken(token) : null;
-    if (!user) {
-      json(res, 401, { error: 'Sign in required' });
-      return;
+    let user = null;
+    try {
+      user = token ? await userFromToken(token) : null;
+    } catch {
+      user = null;
     }
-
     const rawBody = req.body;
     const body = typeof rawBody === 'string'
       ? JSON.parse(rawBody || '{}')
       : (rawBody && typeof rawBody === 'object' ? rawBody : {});
     const op = String(body.op || '');
+
+    if (op === 'peek') {
+      const id = String(body.id || '').trim();
+      if (!id) {
+        json(res, 400, { error: 'Missing invite' });
+        return;
+      }
+      if (!user) {
+        json(res, 200, { status: 'auth_required' });
+        return;
+      }
+      const invite = await ledgerGet(`invites/${id}`);
+      if (!invite) {
+        json(res, 200, { status: 'missing' });
+        return;
+      }
+      const invitedEmail = String(invite.email || '').trim().toLowerCase();
+      if (invitedEmail !== user.email) {
+        json(res, 200, {
+          status: 'wrong_account',
+          invitedEmail,
+          currentEmail: user.email,
+        });
+        return;
+      }
+      const bookId = String(invite.bookId || '').trim();
+      const book = bookId ? await ledgerGet(`books/${bookId}`) : null;
+      const roles = asRoles(book?.roles);
+      if (roles[user.uid]) {
+        json(res, 200, { status: 'already_member', bookId });
+        return;
+      }
+      if (!isPending(invite)) {
+        json(res, 200, { status: 'closed', bookId });
+        return;
+      }
+      json(res, 200, {
+        status: 'ok',
+        invite: {
+          id,
+          bookId,
+          bookName: String(invite.bookName || book?.name || 'Ledger'),
+          role: String(invite.role || 'contributor'),
+          invitedBy: String(invite.invitedBy || ''),
+          email: invitedEmail,
+        },
+      });
+      return;
+    }
+
+    if (!user) {
+      json(res, 401, { error: 'Sign in required' });
+      return;
+    }
 
     if (op === 'list') {
       const rows = await ledgerList('invites', [{ type: 'where', field: 'email', op: '==', value: user.email }]);
@@ -105,6 +176,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const role = String(body.role || 'contributor').trim() || 'contributor';
       if (!bookId || !email) {
         json(res, 400, { error: 'Ledger and email are required' });
+        return;
+      }
+      if (email === user.email) {
+        json(res, 400, { error: 'You already have access to this ledger' });
         return;
       }
       const book = await ledgerGet(`books/${bookId}`);
@@ -124,9 +199,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         bookName: String(book.name || body.bookName || 'Ledger'),
         role,
         invitedBy: user.uid,
+        invitedByEmail: user.email,
         status: 'pending',
+        deleted: false,
+        createdAt: new Date().toISOString(),
       };
       await ledgerSet(`invites/${id}`, data);
+      await ledgerAudit({
+        bookId,
+        actorUid: user.uid,
+        actorEmail: user.email,
+        action: 'invite_created',
+        entityType: 'invite',
+        entityId: id,
+        detail: { email, role },
+      }).catch(() => undefined);
       json(res, 200, { id, invite: { id, ...data } });
       return;
     }
@@ -138,7 +225,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return;
       }
       const invite = await ledgerGet(`invites/${id}`);
-      if (!invite) {
+      if (!invite || !isPending(invite)) {
         json(res, 404, { error: 'Invite not found' });
         return;
       }
@@ -157,7 +244,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         [user.uid]: { role: String(invite.role || 'contributor'), email: user.email },
       };
       await ledgerSet(`books/${bookId}`, { ...book, roles });
-      await ledgerDel(`invites/${id}`);
+      await closeInvite(id, invite, 'accepted', user.uid);
+      await ledgerAudit({
+        bookId,
+        actorUid: user.uid,
+        actorEmail: user.email,
+        action: 'invite_accepted',
+        entityType: 'invite',
+        entityId: id,
+        detail: { role: invite.role },
+      }).catch(() => undefined);
       json(res, 200, {
         ok: true,
         bookId,
@@ -178,7 +274,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         json(res, 403, { error: 'This invite is not for your account' });
         return;
       }
-      await ledgerDel(`invites/${id}`);
+      if (invite) await closeInvite(id, invite, 'declined', user.uid);
+      await ledgerAudit({
+        bookId: String(invite?.bookId || ''),
+        actorUid: user.uid,
+        actorEmail: user.email,
+        action: 'invite_declined',
+        entityType: 'invite',
+        entityId: id,
+      }).catch(() => undefined);
       json(res, 200, { ok: true });
       return;
     }

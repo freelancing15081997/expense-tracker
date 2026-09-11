@@ -10,6 +10,14 @@ export type LedgerInvite = {
   email?: string;
 };
 
+export type InvitePeek = {
+  status: 'auth_required' | 'wrong_account' | 'already_member' | 'closed' | 'missing' | 'ok';
+  invitedEmail?: string;
+  currentEmail?: string;
+  bookId?: string;
+  invite?: LedgerInvite;
+};
+
 export function memberEmails(roles: unknown, exceptEmail?: string): string[] {
   if (!roles || typeof roles !== 'object' || Array.isArray(roles)) return [];
   const skip = String(exceptEmail || '').trim().toLowerCase();
@@ -20,6 +28,10 @@ export function memberEmails(roles: unknown, exceptEmail?: string): string[] {
     out.push(email);
   }
   return out;
+}
+
+export async function peekLedgerInvite(inviteId: string) {
+  return apiPost<InvitePeek>('/api/invites', { op: 'peek', id: inviteId });
 }
 
 export async function listLedgerInvites() {

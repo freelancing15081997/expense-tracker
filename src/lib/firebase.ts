@@ -34,7 +34,7 @@ export const googleRedirectReady = getRedirectResult(auth).catch(() => null);
 
 export async function signInWithGoogle() {
   try {
-    sessionStorage.setItem('byjan.returnTo', '/');
+    if (!sessionStorage.getItem('byjan.returnTo')) sessionStorage.setItem('byjan.returnTo', '/');
   } catch { /* private mode */ }
   try {
     return await signInWithPopup(auth, googleProvider);

@@ -15,7 +15,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 import { format } from 'date-fns';
 import { getCurrencySymbol } from '../lib/currency';
 import { isSoftDeleted, softDeletePatch } from '../lib/records';
-import { bookInboundAddress, ledgerAppLink, openLedgerButtonHtml, syncInboundMailbox } from '../lib/inbound-mail';
+import { bookInboundAddress, ledgerAppLink, openInviteButtonHtml, openLedgerButtonHtml, syncInboundMailbox } from '../lib/inbound-mail';
 import { createLedgerInvite, memberEmails } from '../lib/invites';
 import { authHeaders } from '../lib/auth-client';
 import { ReceiptModal } from '../components/ReceiptModal';
@@ -162,44 +162,58 @@ export default function BookView() {
 
   useEffect(() => {
     if (!bookId || !currentUser) return;
-    const fetchBook = async () => {
+    let alive = true;
+    let unsubscribe = () => {};
+    const start = async () => {
       const docSnap = await getDoc(doc(db, 'books', bookId));
-      if (docSnap.exists()) {
-        const next = { id: docSnap.id, ...docSnap.data() };
-        setBook(next);
-        setInboundAddress(bookInboundAddress(next));
-        if (!String(next.inboundAddress || next.inboundSlug || '').trim()) {
-          void syncInboundMailbox(next).then((record) => setInboundAddress(record.address)).catch(() => undefined);
-        }
+      if (!alive) return;
+      if (!docSnap.exists()) {
+        addToast('Ledger not found.', 'error');
+        navigate('/');
+        setLoading(false);
+        return;
       }
+      const next = { id: docSnap.id, ...docSnap.data() };
+      const roles = next.roles && typeof next.roles === 'object' ? next.roles as Record<string, { role?: string }> : {};
+      if (!roles[currentUser.uid] && next.ownerId !== currentUser.uid) {
+        addToast('You do not have access to this ledger.', 'error');
+        navigate('/');
+        setLoading(false);
+        return;
+      }
+      setBook(next);
+      setInboundAddress(bookInboundAddress(next));
+      if (!String(next.inboundAddress || next.inboundSlug || '').trim()) {
+        void syncInboundMailbox(next).then((record) => setInboundAddress(record.address)).catch(() => undefined);
+      }
+      const q = query(collection(db, `books/${bookId}/expenses`));
+      unsubscribe = onSnapshot(q, (snapshot) => {
+        const exps: any[] = [];
+        snapshot.forEach((d) => {
+          const data = d.data();
+          if (isSoftDeleted(data)) return;
+          exps.push({ id: d.id, ...data });
+        });
+        setExpenses((prev) => {
+          const byId = new Map(exps.map((row) => [row.id, row]));
+          const recent = Date.now() - 30_000;
+          for (const row of prev) {
+            if (byId.has(row.id) || isSoftDeleted(row)) continue;
+            if (expenseMillis(row.createdAt) >= recent) byId.set(row.id, row);
+          }
+          return [...byId.values()].sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt));
+        });
+        setLoading(false);
+      }, (err) => {
+        console.error('Snapshot error on', q, err);
+        if ((err as { code?: string }).code === 'resource-exhausted') unsubscribe();
+      });
     };
-    fetchBook();
-
-    const q = query(collection(db, `books/${bookId}/expenses`));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const exps: any[] = [];
-      snapshot.forEach(d => {
-        const data = d.data();
-        if (isSoftDeleted(data)) return;
-        exps.push({ id: d.id, ...data });
-      });
-      setExpenses((prev) => {
-        const byId = new Map(exps.map((row) => [row.id, row]));
-        const recent = Date.now() - 30_000;
-        for (const row of prev) {
-          if (byId.has(row.id) || isSoftDeleted(row)) continue;
-          if (expenseMillis(row.createdAt) >= recent) byId.set(row.id, row);
-        }
-        return [...byId.values()].sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt));
-      });
-      setLoading(false);
-    }, (err) => {
-      console.error('Snapshot error on', q, err);
-      if ((err as { code?: string }).code === 'resource-exhausted') unsubscribe();
-    });
-
-    
-    return () => unsubscribe();
+    void start();
+    return () => {
+      alive = false;
+      unsubscribe();
+    };
   }, [bookId, currentUser?.uid]);
 
   useEffect(() => {
@@ -616,7 +630,7 @@ export default function BookView() {
     if (!canManageUsers || !inviteEmail) return;
     setInviting(true);
     try {
-      await createLedgerInvite({
+      const inviteId = await createLedgerInvite({
         bookId: book.id,
         bookName: book.name,
         email: inviteEmail,
@@ -629,7 +643,7 @@ export default function BookView() {
       const sent = await sendEmailNotification(
         inviteEmail.toLowerCase(),
         `Invitation to ledger: ${book.name}`,
-        `<p>Hello,</p><p>You have been invited to join the ledger <b>${book.name}</b> on Byjan.</p><p>Open the app, sign in, and accept the invitation from your dashboard.</p>${openLedgerButtonHtml(book.id, 'Open Byjan')}`
+        `<p>Hello,</p><p>You have been invited to join the ledger <b>${book.name}</b> on Byjan.</p><p>Open the invitation while signed in as <b>${inviteEmail.toLowerCase()}</b>. If another account is already signed in on this device, sign out first.</p>${openInviteButtonHtml(inviteId)}`
       );
       if (sent) {
         addToast('Invitation added and email notification sent!', 'success');

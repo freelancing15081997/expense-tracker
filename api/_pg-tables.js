@@ -1,4 +1,5 @@
 import { neon } from "@neondatabase/serverless";
+import { randomBytes } from "node:crypto";
 function asRows(result) {
   return Array.isArray(result) ? result : [];
 }
@@ -214,6 +215,18 @@ async function ensureLedgerSchema(sql) {
     PRIMARY KEY (book_id, uid)
   )`;
   await sql`CREATE INDEX IF NOT EXISTS book_members_uid_idx ON book_members (uid)`;
+  await sql`CREATE TABLE IF NOT EXISTS audit_events (
+    id TEXT PRIMARY KEY,
+    book_id TEXT,
+    actor_uid TEXT,
+    actor_email TEXT,
+    action TEXT NOT NULL,
+    entity_type TEXT,
+    entity_id TEXT,
+    detail JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`;
+  await sql`CREATE INDEX IF NOT EXISTS audit_events_book_idx ON audit_events (book_id, created_at DESC)`;
   await sql`CREATE TABLE IF NOT EXISTS expenses (
     id TEXT PRIMARY KEY,
     book_id TEXT NOT NULL,
@@ -728,6 +741,25 @@ async function ledgerSet(path, data, insertOnly = false) {
 async function ledgerInsertIfNew(path, data) {
   return ledgerSet(path, data, true);
 }
+async function ledgerAudit(event) {
+  const sql = await getLedgerSql();
+  const id = randomBytes(12).toString("hex");
+  const detail = JSON.stringify(event.detail || {});
+  await sql`
+    INSERT INTO audit_events (id, book_id, actor_uid, actor_email, action, entity_type, entity_id, detail, created_at)
+    VALUES (
+      ${id},
+      ${text(event.bookId) || null},
+      ${text(event.actorUid) || null},
+      ${text(event.actorEmail) || null},
+      ${text(event.action)},
+      ${text(event.entityType) || null},
+      ${text(event.entityId) || null},
+      ${detail}::jsonb,
+      NOW()
+    )
+  `;
+}
 async function ledgerDel(path) {
   const sql = await getLedgerSql();
   const p = cleanPath(path);
@@ -797,12 +829,8 @@ async function ledgerList(prefix, constraints = []) {
   }
   if (parts[0] === "invites" && parts.length === 1) {
     const emailFilter = constraints.find((c) => c?.type === "where" && c.field === "email" && c.op === "==");
-    if (emailFilter) {
-      const rows2 = await sql`SELECT id, data FROM invites WHERE email = ${String(emailFilter.value)}`;
-      return rowsOf(rows2);
-    }
-    const rows = await sql`SELECT id, data FROM invites`;
-    return rowsOf(rows);
+    const rows = emailFilter ? await sql`SELECT id, data FROM invites WHERE email = ${String(emailFilter.value)}` : await sql`SELECT id, data FROM invites`;
+    return rowsOf(rows).filter((row) => !flag(row.data) && String(row.data.status || "pending") === "pending");
   }
   if (parts[0] === "inbound_hashes" && parts.length === 2) {
     const rows = await sql`SELECT hash AS id, data FROM inbound_hashes WHERE book_id = ${parts[1]}`;
@@ -843,6 +871,7 @@ export {
   cleanPath,
   getLedgerSql,
   inboundMailboxSlug,
+  ledgerAudit,
   ledgerDel,
   ledgerEnsureMailbox,
   ledgerGet,

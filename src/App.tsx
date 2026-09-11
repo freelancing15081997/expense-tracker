@@ -8,18 +8,13 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import BookView from './pages/BookView';
+import InviteAccept from './pages/InviteAccept';
 import Settings from './pages/Settings';
 import Layout from './components/Layout';
 
-const BooksApp = lazy(() => import('./books/app/BooksApp'));
+import { peekReturnTo } from './lib/return-to';
 
-function returnTo() {
-  try {
-    return sessionStorage.getItem('byjan.returnTo') || '/';
-  } catch {
-    return '/';
-  }
-}
+const BooksApp = lazy(() => import('./books/app/BooksApp'));
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentUser, loading } = useAuth();
@@ -31,7 +26,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 const GuestRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentUser, loading } = useAuth();
   if (loading) return <AppLoader title="Byjan" message="Checking your session." />;
-  if (currentUser) return <Navigate to={returnTo()} replace />;
+  if (currentUser) return <Navigate to={peekReturnTo()} replace />;
   return <>{children}</>;
 };
 
@@ -44,6 +39,7 @@ export default function App() {
             <Routes>
               <Route path="/login" element={<GuestRoute><Login /></GuestRoute>} />
               <Route path="/register" element={<GuestRoute><Register /></GuestRoute>} />
+              <Route path="/invite/:inviteId" element={<InviteAccept />} />
               <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
                 <Route index element={<Dashboard />} />
                 <Route path="expenses" element={<Dashboard />} />
