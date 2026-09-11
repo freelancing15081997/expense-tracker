@@ -529,13 +529,8 @@ function asParsed(value: any, fallback: ParsedReceipt): ParsedReceipt {
 
 function geminiModels() {
   const preferred = String(process.env.GEMINI_MODEL || '').trim();
-  // Keep this short — inbound must stay under Cloudflare/Vercel time budgets.
-  const defaults = [
-    'gemini-3.6-flash',
-    'gemini-3.5-flash',
-    'gemini-flash-latest',
-    'gemini-2.5-flash',
-  ];
+  // New Google AI Studio keys require 3.x Flash (2.5 is blocked for new users).
+  const defaults = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-flash-latest'];
   return [...new Set([preferred, ...defaults].filter(Boolean))];
 }
 
