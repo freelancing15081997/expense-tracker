@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { postgresUrl, cleanPath, ledgerGet, ledgerSet, ledgerInsertIfNew, ledgerList } from '../_lib/pg-tables';
 
 const R2_REGION = 'auto';
 const R2_SERVICE = 's3';
@@ -130,144 +131,31 @@ async function r2PutBytes(key: string, body: Buffer, contentType: string) {
   if (!res.ok) throw new Error(`R2 write failed (${res.status})`);
 }
 
-function postgresUrl() {
-  const raw =
-    process.env.DATABASE_URL ||
-    process.env.POSTGRES_URL ||
-    process.env.DATABASE_URL_UNPOOLED ||
-    process.env.POSTGRES_URL_NON_POOLING ||
-    process.env.POSTGRES_PRISMA_URL ||
-    process.env.BYJAN_NEON_DATABASE_URL ||
-    process.env.BYJAN_NEON_POSTGRES_URL ||
-    process.env.BYJAN_NEON_DATABASE_URL_UNPOOLED ||
-    process.env.BYJAN_NEON_POSTGRES_URL_NON_POOLING ||
-    '';
-  if (!raw) return '';
-  try {
-    const url = new URL(raw);
-    url.searchParams.delete('channel_binding');
-    return url.toString();
-  } catch {
-    return raw;
-  }
-}
-
-function cleanPath(path: string) {
-  const clean = path.replace(/^\/+|\/+$/g, '').replace(/\.\./g, '');
-  if (!clean || !/^[a-zA-Z0-9_./-]+$/.test(clean)) throw new Error('Invalid path');
-  return clean;
-}
-
 function blobKey(path: string) {
   return `${DOC_PREFIX}${cleanPath(path)}.json`;
 }
 
-function asObject(value: unknown): Record<string, unknown> | null {
-  if (typeof value === 'string') {
-    try { value = JSON.parse(value); } catch { return null; }
-  }
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  return value as Record<string, unknown>;
-}
-
-let pgReady = false;
-
-async function pgGet(path: string) {
-  const { neon } = await import('@neondatabase/serverless');
-  const sql = neon(postgresUrl());
-  if (!pgReady) {
-    await sql`CREATE TABLE IF NOT EXISTS documents (
-      path TEXT PRIMARY KEY,
-      data JSONB NOT NULL,
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )`;
-    pgReady = true;
-  }
-  const p = cleanPath(path);
-  const rows = await sql`SELECT data FROM documents WHERE path = ${p} LIMIT 1`;
-  return rows[0] ? asObject(rows[0].data) : null;
-}
-
-async function pgSet(path: string, data: unknown) {
-  const { neon } = await import('@neondatabase/serverless');
-  const sql = neon(postgresUrl());
-  if (!pgReady) {
-    await sql`CREATE TABLE IF NOT EXISTS documents (
-      path TEXT PRIMARY KEY,
-      data JSONB NOT NULL,
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )`;
-    pgReady = true;
-  }
-  const p = cleanPath(path);
-  const payload = JSON.stringify(data ?? {});
-  await sql`
-    INSERT INTO documents (path, data, updated_at)
-    VALUES (${p}, ${payload}::jsonb, NOW())
-    ON CONFLICT (path) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
-  `;
-}
-
-async function pgInsertIfNew(path: string, data: unknown): Promise<boolean> {
-  const { neon } = await import('@neondatabase/serverless');
-  const sql = neon(postgresUrl());
-  if (!pgReady) {
-    await sql`CREATE TABLE IF NOT EXISTS documents (
-      path TEXT PRIMARY KEY,
-      data JSONB NOT NULL,
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )`;
-    pgReady = true;
-  }
-  const p = cleanPath(path);
-  const payload = JSON.stringify(data ?? {});
-  const rows = await sql`
-    INSERT INTO documents (path, data, updated_at)
-    VALUES (${p}, ${payload}::jsonb, NOW())
-    ON CONFLICT (path) DO NOTHING
-    RETURNING path
-  `;
-  return rows.length > 0;
-}
-
-async function pgList(prefix: string): Promise<Array<{ path: string; data: Record<string, unknown> }>> {
-  const { neon } = await import('@neondatabase/serverless');
-  const sql = neon(postgresUrl());
-  if (!pgReady) {
-    await sql`CREATE TABLE IF NOT EXISTS documents (
-      path TEXT PRIMARY KEY,
-      data JSONB NOT NULL,
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )`;
-    pgReady = true;
-  }
-  const p = `${cleanPath(prefix.replace(/\/+$/, ''))}/`;
-  const rows = await sql`SELECT path, data FROM documents WHERE path LIKE ${p + '%'} LIMIT 400`;
-  return rows.map((row: any) => ({ path: String(row.path), data: asObject(row.data) || {} }));
-}
-
 async function docInsertIfNew(path: string, data: unknown): Promise<boolean> {
-  if (postgresUrl()) return pgInsertIfNew(path, data);
-  const existing = await r2GetJson(blobKey(path));
-  if (existing) return false;
-  await r2PutJson(blobKey(path), data);
-  return true;
+  if (!postgresUrl()) throw new Error('Postgres is not configured');
+  return ledgerInsertIfNew(path, data);
 }
 
 async function docGet(path: string) {
-  if (postgresUrl()) {
-    const row = await pgGet(path);
-    if (row) return row;
+  if (!postgresUrl()) throw new Error('Postgres is not configured');
+  const row = await ledgerGet(path);
+  if (row) return row;
+  try {
+    const blob = await r2GetJson(blobKey(path));
+    if (blob) await ledgerSet(path, blob).catch(() => undefined);
+    return blob;
+  } catch {
+    return null;
   }
-  return r2GetJson(blobKey(path));
 }
 
 async function docSet(path: string, data: unknown) {
-  if (postgresUrl()) {
-    await pgSet(path, data);
-    return;
-  }
-  await r2PutJson(blobKey(path), data);
+  if (!postgresUrl()) throw new Error('Postgres is not configured');
+  await ledgerSet(path, data);
 }
 
 function newId() {
@@ -1390,13 +1278,9 @@ function normText(value: unknown) {
 }
 
 async function listLedgerExpenses(bookId: string): Promise<Array<Record<string, unknown>>> {
-  let rows: Array<{ path: string; data: Record<string, unknown> }> = [];
-  if (postgresUrl()) rows = await pgList(`books/${bookId}/expenses`);
+  const rows = postgresUrl() ? await ledgerList(`books/${bookId}/expenses`) : [];
   return rows
-    .map((row) => {
-      const id = row.path.split('/').pop() || '';
-      return { id, ...row.data } as Record<string, unknown>;
-    })
+    .map((row) => ({ id: row.id, ...row.data } as Record<string, unknown>))
     .filter((row) => row.id && row.deleted !== true && row.status !== 'deleted' && !row.deletedAt);
 }
 

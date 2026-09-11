@@ -1,5 +1,15 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createHash, createHmac } from 'node:crypto';
+import {
+  postgresUrl,
+  getLedgerSql,
+  ledgerGet,
+  ledgerSet,
+  ledgerInsertIfNew,
+  ledgerDel,
+  ledgerList,
+  ledgerListExpensesByBooks,
+} from './_lib/pg-tables';
 
 const R2_REGION = 'auto';
 const R2_SERVICE = 's3';
@@ -139,28 +149,6 @@ function json(res: VercelResponse, status: number, payload: unknown) {
   res.end(JSON.stringify(payload));
 }
 
-function postgresUrl() {
-  const raw =
-    process.env.DATABASE_URL ||
-    process.env.POSTGRES_URL ||
-    process.env.DATABASE_URL_UNPOOLED ||
-    process.env.POSTGRES_URL_NON_POOLING ||
-    process.env.POSTGRES_PRISMA_URL ||
-    process.env.BYJAN_NEON_DATABASE_URL ||
-    process.env.BYJAN_NEON_POSTGRES_URL ||
-    process.env.BYJAN_NEON_DATABASE_URL_UNPOOLED ||
-    process.env.BYJAN_NEON_POSTGRES_URL_NON_POOLING ||
-    '';
-  if (!raw) return '';
-  try {
-    const url = new URL(raw);
-    url.searchParams.delete('channel_binding');
-    return url.toString();
-  } catch {
-    return raw;
-  }
-}
-
 function cleanPath(path: string) {
   const clean = path.replace(/^\/+|\/+$/g, '').replace(/\.\./g, '');
   if (!clean || !/^[a-zA-Z0-9_./-]+$/.test(clean)) throw new Error('Invalid path');
@@ -296,49 +284,28 @@ async function firestoreQuery(token: string, colPath: string, constraints: any[]
   return [];
 }
 
-let pgReady = false;
-
 async function ensurePg() {
-  const { neon } = await import('@neondatabase/serverless');
-  const sql = neon(postgresUrl());
-  if (!pgReady) {
-    await sql`CREATE TABLE IF NOT EXISTS documents (
-      path TEXT PRIMARY KEY,
-      data JSONB NOT NULL,
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )`;
-    pgReady = true;
-  }
-  return sql;
+  return getLedgerSql();
 }
 
 async function pgGet(path: string) {
-  const sql = await ensurePg();
-  const p = cleanPath(path);
-  const rows = await sql`SELECT data FROM documents WHERE path = ${p} LIMIT 1`;
-  return rows[0] ? asObject(rows[0].data) : null;
+  return ledgerGet(path);
 }
 
 async function pgSet(path: string, data: unknown) {
-  const sql = await ensurePg();
-  const p = cleanPath(path);
-  const payload = JSON.stringify(data ?? {});
-  await sql`
-    INSERT INTO documents (path, data, updated_at)
-    VALUES (${p}, ${payload}::jsonb, NOW())
-    ON CONFLICT (path) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
-  `;
+  await ledgerSet(path, data);
 }
 
 async function pgCopyIfNew(path: string, data: unknown) {
-  const sql = await ensurePg();
-  const p = cleanPath(path);
-  const payload = JSON.stringify(data ?? {});
-  await sql`
-    INSERT INTO documents (path, data, updated_at)
-    VALUES (${p}, ${payload}::jsonb, NOW())
-    ON CONFLICT (path) DO NOTHING
-  `;
+  return ledgerInsertIfNew(path, data);
+}
+
+async function pgDel(path: string) {
+  await ledgerDel(path);
+}
+
+async function pgList(prefix: string, constraints: any[] = []) {
+  return ledgerList(prefix, constraints);
 }
 
 function skipFirestore(path: string) {
@@ -374,27 +341,6 @@ async function markHydrated(uid: string, colPath: string) {
   const key = hydratePath(uid, colPath);
   hydratedMem.add(key);
   await pgSet(key, { at: new Date().toISOString() });
-}
-
-async function pgDel(path: string) {
-  const { neon } = await import('@neondatabase/serverless');
-  const sql = neon(postgresUrl());
-  const p = cleanPath(path);
-  await sql`DELETE FROM documents WHERE path = ${p}`;
-}
-
-async function pgList(prefix: string) {
-  const sql = await ensurePg();
-  const base = `${cleanPath(prefix)}/`;
-  const rows = (await sql`SELECT path, data FROM documents WHERE path LIKE ${base + '%'}`) as { path: string; data: unknown }[];
-  return rows
-    .map((row) => {
-      const rest = String(row.path).slice(base.length);
-      const data = asObject(row.data);
-      if (!rest || rest.includes('/') || !data) return null;
-      return { id: rest, data };
-    })
-    .filter(Boolean) as { id: string; data: Record<string, unknown> }[];
 }
 
 const blobListCache = new Map<string, { at: number; rows: { id: string; data: Record<string, unknown> }[] }>();
@@ -474,13 +420,13 @@ async function rawGet(path: string) {
 }
 
 async function rawSet(path: string, data: unknown) {
-  if (postgresUrl()) return pgSet(path, data);
-  return blobSet(path, data);
+  if (!postgresUrl()) throw new Error('Postgres is not configured. Ledger rows are stored in Neon, not R2.');
+  return pgSet(path, data);
 }
 
 async function rawDel(path: string) {
-  if (postgresUrl()) return pgDel(path);
-  return blobDel(path);
+  if (!postgresUrl()) throw new Error('Postgres is not configured. Ledger rows are stored in Neon, not R2.');
+  return pgDel(path);
 }
 
 type WorkspaceSnap = {
@@ -689,14 +635,14 @@ async function localDel(path: string) {
   await rawDel(path);
 }
 
-async function localList(prefix: string) {
+async function localList(prefix: string, constraints: any[] = []) {
   const bits = prefix.split('/').filter(Boolean);
   if (bits[0] === 'erp_workspaces' && bits[1]) {
     const snap = await loadSnap(bits[1]);
     return listFromSnap(snap, prefix);
   }
   if (postgresUrl()) {
-    const rows = await pgList(prefix);
+    const rows = await pgList(prefix, constraints);
     if (rows.length) return rows;
     try {
       const blobRows = await blobList(prefix);
@@ -709,7 +655,7 @@ async function localList(prefix: string) {
       return rows;
     }
   }
-  return blobList(prefix);
+  throw new Error('Postgres is not configured. Ledger rows are stored in Neon, not R2.');
 }
 
 function applyConstraints(docs: { id: string; data: Record<string, unknown> }[], constraints: any[] = []) {
@@ -780,9 +726,9 @@ async function readDoc(path: string, token: string, uid: string) {
 
 async function readList(path: string, token: string, constraints: any[] = [], uid = '') {
   if (skipFirestore(path) || isErpPath(path)) {
-    return localList(path).catch(() => [] as { id: string; data: Record<string, unknown> }[]);
+    return localList(path, constraints).catch(() => [] as { id: string; data: Record<string, unknown> }[]);
   }
-  const localP = localList(path).catch(() => [] as { id: string; data: Record<string, unknown> }[]);
+  const localP = localList(path, constraints).catch(() => [] as { id: string; data: Record<string, unknown> }[]);
   if (uid && postgresUrl() && await isHydrated(uid, path)) {
     return localP;
   }
@@ -981,21 +927,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         /^books\/[^/]+\/expenses$/.test(row.qPath) && !row.constraints.length
       ));
       if (expenseOnly && postgresUrl()) {
-        const hydrated = await Promise.all(parsed.map((row: { qPath: string }) => isHydrated(uid, row.qPath)));
-        if (hydrated.every(Boolean)) {
-          const sql = await ensurePg();
-          const rows = (await sql`SELECT path, data FROM documents WHERE path LIKE ${'books/%/expenses/%'}`) as { path: string; data: unknown }[];
-          const grouped = new Map<string, { id: string; data: Record<string, unknown> }[]>();
-          for (const row of rows) {
-            const parts = String(row.path).split('/').filter(Boolean);
-            if (parts.length !== 4 || parts[0] !== 'books' || parts[2] !== 'expenses') continue;
-            const data = asObject(row.data);
-            if (!data) continue;
-            const col = `books/${parts[1]}/expenses`;
-            const list = grouped.get(col) || [];
-            list.push({ id: parts[3], data });
-            grouped.set(col, list);
-          }
+        const bookIds = parsed.map((row: { qPath: string }) => row.qPath.split('/')[1]).filter(Boolean);
+        const grouped = await ledgerListExpensesByBooks(bookIds);
+        const haveAny = [...grouped.values()].some((rows) => rows.length);
+        if (haveAny) {
           json(res, 200, {
             results: parsed.map((row: { qPath: string }) => ({ path: row.qPath, docs: grouped.get(row.qPath) || [] })),
           });

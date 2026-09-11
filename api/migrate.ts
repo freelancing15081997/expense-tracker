@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { neon } from '@neondatabase/serverless';
+import { postgresUrl, ledgerGet, ledgerSet, ledgerInsertIfNew } from './_lib/pg-tables';
 
 const PROJECT = 'gen-lang-client-0616065043';
 const NAMED_DB = 'ai-studio-sharedsheetexpen-15aa5fbb-9604-4c59-b4a3-aa994442cb50';
@@ -9,27 +9,6 @@ function json(res: VercelResponse, status: number, payload: unknown) {
   res.statusCode = status;
   res.setHeader('content-type', 'application/json');
   res.end(JSON.stringify(payload));
-}
-
-function postgresUrl() {
-  const raw =
-    process.env.DATABASE_URL ||
-    process.env.POSTGRES_URL ||
-    process.env.DATABASE_URL_UNPOOLED ||
-    process.env.POSTGRES_URL_NON_POOLING ||
-    process.env.BYJAN_NEON_DATABASE_URL ||
-    process.env.BYJAN_NEON_POSTGRES_URL ||
-    process.env.BYJAN_NEON_DATABASE_URL_UNPOOLED ||
-    process.env.BYJAN_NEON_POSTGRES_URL_NON_POOLING ||
-    '';
-  if (!raw) return '';
-  try {
-    const url = new URL(raw);
-    url.searchParams.delete('channel_binding');
-    return url.toString();
-  } catch {
-    return raw;
-  }
 }
 
 function firestoreRoots() {
@@ -209,29 +188,18 @@ async function collect(token: string, uid: string, email: string) {
 }
 
 async function upsertNeon(uid: string, rows: { path: string; data: Record<string, unknown> }[]) {
-  const url = postgresUrl();
-  if (!url) throw new Error('DATABASE_URL / POSTGRES_URL is not set on the server');
-  const sql = neon(url);
-  await sql`CREATE TABLE IF NOT EXISTS documents (
-    path TEXT PRIMARY KEY,
-    data JSONB NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )`;
-  await sql`CREATE INDEX IF NOT EXISTS documents_path_idx ON documents (path)`;
+  if (!postgresUrl()) throw new Error('DATABASE_URL / POSTGRES_URL is not set on the server');
   let copied = 0;
   const failed: string[] = [];
   for (const row of rows) {
     const path = String(row.path || '').replace(/^\/+|\/+$/g, '');
     if (!path || !/^[a-zA-Z0-9_./-]+$/.test(path)) continue;
-    const payload = JSON.stringify(row.data ?? {});
     try {
-      await sql`
-        INSERT INTO documents (path, data, updated_at)
-        VALUES (${path}, ${payload}::jsonb, NOW())
-        ON CONFLICT (path) DO UPDATE SET
-          data = EXCLUDED.data || documents.data,
-          updated_at = NOW()
-      `;
+      const inserted = await ledgerInsertIfNew(path, row.data ?? {});
+      if (!inserted) {
+        const current = await ledgerGet(path);
+        await ledgerSet(path, { ...(row.data || {}), ...(current || {}) });
+      }
       copied += 1;
     } catch (err: any) {
       failed.push(`${path}: ${err?.message || 'write failed'}`);
@@ -244,13 +212,8 @@ async function upsertNeon(uid: string, rows: { path: string; data: Record<string
     if (slash > 0) cols.add(path.slice(0, slash));
   }
   for (const col of cols) {
-    const marker = `meta/hydrated/${uid}/${col}`;
     try {
-      await sql`
-        INSERT INTO documents (path, data, updated_at)
-        VALUES (${marker}, ${JSON.stringify({ at: new Date().toISOString() })}::jsonb, NOW())
-        ON CONFLICT (path) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
-      `;
+      await ledgerSet(`meta/hydrated/${uid}/${col}`, { at: new Date().toISOString() });
     } catch {
       // listing still works without the marker
     }
