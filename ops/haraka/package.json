@@ -1,0 +1,10 @@
+{
+  "name": "byjan-haraka-inbound",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Haraka inbound receiver for Byjan expense receipts on in.easypado.com",
+  "dependencies": {
+    "Haraka": "^3.0.5",
+    "mailparser": "^3.7.2"
+  }
+}

@@ -21,7 +21,11 @@ function mailFrom() {
 }
 
 function inboundSecret() {
-  return String(process.env.BREVO_INBOUND_SECRET || '').trim();
+  return String(
+    process.env.INBOUND_WEBHOOK_SECRET ||
+    process.env.BREVO_INBOUND_SECRET ||
+    '',
+  ).trim();
 }
 
 function header(req: VercelRequest, name: string) {
@@ -542,6 +546,26 @@ function fileExt(name: string, contentType: string) {
   return '';
 }
 
+function attachmentBytes(attachment: Record<string, unknown>) {
+  const raw =
+    attachment.content ??
+    attachment.Content ??
+    attachment.contentBase64 ??
+    attachment.ContentBase64 ??
+    attachment.data ??
+    attachment.Data;
+  if (typeof raw === 'string' && raw.trim()) {
+    try {
+      const bytes = Buffer.from(raw.replace(/^data:[^;]+;base64,/, ''), 'base64');
+      if (bytes.length && bytes.length <= 8 * 1024 * 1024) return bytes;
+    } catch {
+      return null;
+    }
+  }
+  if (Buffer.isBuffer(raw) && raw.length && raw.length <= 8 * 1024 * 1024) return raw;
+  return null;
+}
+
 async function fetchAttachment(token: string) {
   const apiKey = String(process.env.BREVO_API_KEY || '').trim();
   if (!apiKey || !token) return null;
@@ -554,19 +578,31 @@ async function fetchAttachment(token: string) {
   return { bytes, contentType: res.headers.get('content-type') || 'application/octet-stream' };
 }
 
-async function storeReceipt(bookId: string, attachment: { Name?: string; ContentType?: string; DownloadToken?: string }) {
-  const ext = fileExt(String(attachment.Name || ''), String(attachment.ContentType || ''));
+async function storeReceipt(bookId: string, attachment: Record<string, unknown>) {
+  const name = String(attachment.Name || attachment.filename || attachment.fileName || attachment.name || 'receipt');
+  const contentType = String(attachment.ContentType || attachment.contentType || attachment.type || 'application/octet-stream');
+  const ext = fileExt(name, contentType);
   if (!ext) return null;
-  const downloaded = await fetchAttachment(String(attachment.DownloadToken || ''));
-  if (!downloaded) return null;
+
+  // Prefer inline bytes from Haraka (fast, no third-party download).
+  let bytes = attachmentBytes(attachment);
+  let resolvedType = contentType;
+  if (!bytes) {
+    const token = String(attachment.DownloadToken || attachment.downloadToken || '');
+    const downloaded = token ? await fetchAttachment(token) : null;
+    if (!downloaded) return null;
+    bytes = downloaded.bytes;
+    resolvedType = downloaded.contentType || contentType;
+  }
+
   const id = newId();
   const path = `books/${bookId}/files/${id}.${ext}`;
-  await r2PutBytes(path, downloaded.bytes, downloaded.contentType || attachment.ContentType || 'application/octet-stream');
+  await r2PutBytes(path, bytes, resolvedType || `image/${ext}`);
   return {
     path,
-    name: String(attachment.Name || `receipt.${ext}`),
-    contentType: downloaded.contentType || attachment.ContentType || 'application/octet-stream',
-    bytes: downloaded.bytes,
+    name: name.includes('.') ? name : `receipt.${ext}`,
+    contentType: resolvedType || `image/${ext}`,
+    bytes,
   };
 }
 
@@ -641,10 +677,9 @@ async function notifyMembers(
   `;
   let sent = 0;
   let failed = 0;
-  for (const email of unique) {
-    try {
+  const mailResults = await Promise.allSettled(
+    unique.map(async (email) => {
       await sendMail(email, `Inbound mail in ${mailbox.name}`, html);
-      sent += 1;
       await docSet(`books/${bookId}/email_events/${newId()}`, {
         direction: 'outbound',
         status: 'sent',
@@ -654,19 +689,27 @@ async function notifyMembers(
         detail,
         createdAt: new Date().toISOString(),
       }).catch(() => undefined);
-    } catch (err) {
-      failed += 1;
-      console.error('inbound notify failed', email, err);
-      await docSet(`books/${bookId}/email_events/${newId()}`, {
-        direction: 'outbound',
-        status: 'failed',
-        toEmail: email,
-        subject: `Inbound mail in ${mailbox.name}`,
-        action,
-        detail: String((err as Error)?.message || 'Send failed'),
-        createdAt: new Date().toISOString(),
-      }).catch(() => undefined);
+      return email;
+    }),
+  );
+  for (let i = 0; i < mailResults.length; i += 1) {
+    const result = mailResults[i];
+    const email = unique[i];
+    if (result.status === 'fulfilled') {
+      sent += 1;
+      continue;
     }
+    failed += 1;
+    console.error('inbound notify failed', email, result.reason);
+    await docSet(`books/${bookId}/email_events/${newId()}`, {
+      direction: 'outbound',
+      status: 'failed',
+      toEmail: email,
+      subject: `Inbound mail in ${mailbox.name}`,
+      action,
+      detail: String(result.reason?.message || result.reason || 'Send failed'),
+      createdAt: new Date().toISOString(),
+    }).catch(() => undefined);
   }
   for (const uid of Object.keys(mailbox.roles)) {
     const id = newId();
@@ -697,9 +740,40 @@ async function notifyMembers(
   }
 }
 
+function normalizeItem(raw: any) {
+  if (!raw || typeof raw !== 'object') return null;
+  // Haraka plugin payload (preferred — attachments already inline).
+  if (raw.source === 'haraka' || raw.haraka || (!raw.From && (raw.from || raw.to))) {
+    const attachments = Array.isArray(raw.attachments)
+      ? raw.attachments.map((att: any) => ({
+          Name: att.filename || att.fileName || att.name || att.Name,
+          ContentType: att.contentType || att.type || att.ContentType,
+          content: att.content || att.Content || att.contentBase64,
+        }))
+      : [];
+    return {
+      Uuid: raw.messageId || raw.Uuid || raw.id,
+      MessageId: raw.messageId || raw.MessageId,
+      From: raw.from || raw.From,
+      To: raw.to || raw.To,
+      Cc: raw.cc || raw.Cc,
+      Subject: raw.subject || raw.Subject,
+      RawTextBody: raw.text || raw.RawTextBody || '',
+      RawHtmlBody: raw.html || raw.RawHtmlBody || '',
+      ExtractedMarkdownMessage: raw.text || '',
+      Attachments: attachments,
+      Headers: raw.headers || raw.Headers || {},
+    };
+  }
+  return raw;
+}
+
 function itemsFrom(body: any): any[] {
-  if (Array.isArray(body?.items)) return body.items;
-  if (body && typeof body === 'object' && (body.From || body.To || body.Subject)) return [body];
+  if (Array.isArray(body?.items)) return body.items.map(normalizeItem).filter(Boolean);
+  if (body && typeof body === 'object') {
+    const one = normalizeItem(body);
+    if (one && (one.From || one.To || one.Subject || one.RawTextBody || one.Attachments?.length)) return [one];
+  }
   return [];
 }
 
@@ -734,7 +808,7 @@ async function processItem(item: any) {
       fromEmail || 'Unknown sender',
       'Inbound mail was not added',
       eventId,
-    );
+    ).catch(() => undefined);
     return { skipped: 'sender is not a member', bookId, from: fromEmail };
   }
   const body = clipQuoted(firstString(
@@ -808,7 +882,7 @@ async function processItem(item: any) {
   const detail = parsed.amount
     ? `${mailbox.currency} ${parsed.amount.toFixed(2)} · ${parsed.category} · ${parsed.description} · from ${member.email}`
     : `Entry from ${member.email}. Amount was not found on the document — open the ledger and fill it in.`;
-  await notifyMembers(mailbox, detail, bookId, member.email, 'sent inbound mail. Byjan added an entry', eventId);
+  await notifyMembers(mailbox, detail, bookId, member.email, 'sent inbound mail. Byjan added an entry', eventId).catch(() => undefined);
   return { ok: true, bookId, expenseId: id, amount: parsed.amount, category: parsed.category, date: parsed.date };
 }
 
@@ -824,7 +898,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
     if (!inboundSecret()) {
-      json(res, 503, { error: 'Set BREVO_INBOUND_SECRET on the server.' });
+      json(res, 503, { error: 'Set INBOUND_WEBHOOK_SECRET on the server.' });
       return;
     }
     if (!authorized(req)) {
