@@ -527,31 +527,34 @@ function asParsed(value: any, fallback: ParsedReceipt): ParsedReceipt {
   };
 }
 
+function geminiModels() {
+  const preferred = String(process.env.GEMINI_MODEL || '').trim();
+  const defaults = [
+    'gemini-2.5-flash',
+    'gemini-flash-latest',
+    'gemini-2.5-flash-lite',
+    'gemini-3.5-flash',
+    'gemini-1.5-flash',
+  ];
+  return [...new Set([preferred, ...defaults].filter(Boolean))];
+}
+
 async function parseDocumentWithGemini(
   bytes: Buffer,
   contentType: string,
   fileName: string,
   fallback: ParsedReceipt,
   emailContext = '',
-) {
+): Promise<{ parsed: ParsedReceipt; model?: string; error?: string }> {
   const key = geminiKey();
   const mime = mimeForDocument(contentType, fileName);
-  if (!key || !mime || !bytes.length) return fallback;
+  if (!key || !mime || !bytes.length) {
+    return { parsed: fallback, error: !key ? 'missing_key' : !mime ? 'unsupported_mime' : 'empty_file' };
+  }
   // Keep payloads lean for speed (complex docs still work; very large scans are truncated).
   const maxBytes = 4 * 1024 * 1024;
   const payloadBytes = bytes.length > maxBytes ? bytes.subarray(0, maxBytes) : bytes;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 12_000);
-  try {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(key)}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      signal: controller.signal,
-      body: JSON.stringify({
-        contents: [{
-          parts: [
-            {
-              text: `You are a professional accounts-payable document parser for Byjan.
+  const prompt = `You are a professional accounts-payable document parser for Byjan.
 Read this receipt, bill, invoice, tax invoice, UPI screenshot, bank slip, or photo of a document.
 Email context (may be empty): ${emailContext.slice(0, 1200)}
 Return JSON only with:
@@ -568,23 +571,59 @@ invoiceNumber (string),
 paymentMethod (cash|upi|card|bank|other or empty),
 notes (one short line of useful extras; empty if none),
 lineItems (optional array of {name, amount}).
-Rules: never invent an amount; prefer printed grand total/net payable; handle messy photos, skewed scans, multi-column invoices, and Indian GST layouts.`,
-            },
-            { inline_data: { mime_type: mime, data: payloadBytes.toString('base64') } },
-          ],
-        }],
-        generationConfig: { temperature: 0, responseMimeType: 'application/json' },
-      }),
-    });
-    if (!res.ok) return fallback;
-    const payload = await res.json();
-    const raw = String(payload?.candidates?.[0]?.content?.parts?.[0]?.text || '').replace(/^```json\s*|\s*```$/g, '');
-    return asParsed(JSON.parse(raw), fallback);
-  } catch {
-    return fallback;
-  } finally {
-    clearTimeout(timer);
+Rules: never invent an amount; prefer printed grand total/net payable; handle messy photos, skewed scans, multi-column invoices, and Indian GST layouts.`;
+
+  const body = {
+    contents: [{
+      parts: [
+        { text: prompt },
+        { inline_data: { mime_type: mime, data: payloadBytes.toString('base64') } },
+      ],
+    }],
+    generationConfig: { temperature: 0, responseMimeType: 'application/json' },
+  };
+
+  const errors: string[] = [];
+  for (const model of geminiModels()) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 14_000);
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify(body),
+        },
+      );
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg = String(payload?.error?.message || `http_${res.status}`);
+        errors.push(`${model}: ${msg}`);
+        console.error('gemini model failed', model, msg);
+        continue;
+      }
+      const raw = String(payload?.candidates?.[0]?.content?.parts?.[0]?.text || '').replace(/^```json\s*|\s*```$/g, '');
+      if (!raw) {
+        errors.push(`${model}: empty_response`);
+        continue;
+      }
+      try {
+        const parsed = asParsed(JSON.parse(raw), fallback);
+        return { parsed, model };
+      } catch (err: any) {
+        errors.push(`${model}: bad_json`);
+        console.error('gemini json parse failed', model, err?.message || err, raw.slice(0, 200));
+      }
+    } catch (err: any) {
+      errors.push(`${model}: ${err?.name === 'AbortError' ? 'timeout' : (err?.message || 'request_failed')}`);
+      console.error('gemini request failed', model, err?.message || err);
+    } finally {
+      clearTimeout(timer);
+    }
   }
+  return { parsed: fallback, error: errors.slice(0, 4).join(' | ') || 'all_models_failed' };
 }
 
 /**
@@ -609,10 +648,10 @@ async function enrichFromDocument(
 
   if (geminiKey()) {
     jobs.push(
-      parseDocumentWithGemini(bytes, contentType, fileName, fallback, emailContext).then((parsed) => ({
-        parsed,
-        preview: '',
-        engine: 'gemini',
+      parseDocumentWithGemini(bytes, contentType, fileName, fallback, emailContext).then((result) => ({
+        parsed: result.parsed,
+        preview: result.error ? `gemini_error: ${result.error}` : '',
+        engine: result.parsed.amount || result.parsed.merchant ? `gemini:${result.model || 'ok'}` : (result.error ? 'gemini-failed' : 'gemini'),
       })),
     );
   }
@@ -666,11 +705,14 @@ async function enrichFromDocument(
   for (const row of settled) {
     if (!row) continue;
     // Prefer AI / higher-confidence amount results.
-    if (row.engine === 'gemini' && (row.parsed.amount || row.parsed.merchant)) {
+    if (String(row.engine).startsWith('gemini') && row.engine !== 'gemini-failed' && (row.parsed.amount || row.parsed.merchant)) {
       best = preferParsed(row.parsed, best);
-      engine = 'gemini';
+      engine = row.engine;
       if (row.preview) preview = row.preview;
       continue;
+    }
+    if (row.engine === 'gemini-failed' && !preview) {
+      preview = row.preview;
     }
     if (row.parsed.amount && !best.amount) {
       best = preferParsed(row.parsed, best);
@@ -1106,6 +1148,7 @@ async function processItem(item: any) {
     currencyHint: parsed.currency || null,
     parseSource: parsed.parseSource,
     parseEngine,
+    parseError: ocrPreview.startsWith('gemini_error:') ? ocrPreview.slice(0, 400) : null,
     emailMessageId: messageId,
     receiptPath: receipt?.path || null,
     receiptName: receipt?.name || null,
