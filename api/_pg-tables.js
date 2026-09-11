@@ -15,7 +15,7 @@ function postgresUrl() {
 }
 function cleanPath(path) {
   const clean = path.replace(/^\/+|\/+$/g, "").replace(/\.\./g, "");
-  if (!clean || !/^[a-zA-Z0-9_./-]+$/.test(clean)) throw new Error("Invalid path");
+  if (!clean || !/^[a-zA-Z0-9_./@+-]+$/.test(clean)) throw new Error("Invalid path");
   return clean;
 }
 function asObject(value) {

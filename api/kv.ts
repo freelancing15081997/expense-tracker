@@ -9,6 +9,7 @@ import {
   ledgerDel,
   ledgerList,
   ledgerListExpensesByBooks,
+  cleanPath,
 } from './_pg-tables.js';
 
 const R2_REGION = 'auto';
@@ -147,12 +148,6 @@ function json(res: VercelResponse, status: number, payload: unknown) {
   res.statusCode = status;
   res.setHeader('content-type', 'application/json');
   res.end(JSON.stringify(payload));
-}
-
-function cleanPath(path: string) {
-  const clean = path.replace(/^\/+|\/+$/g, '').replace(/\.\./g, '');
-  if (!clean || !/^[a-zA-Z0-9_./-]+$/.test(clean)) throw new Error('Invalid path');
-  return clean;
 }
 
 function blobKey(path: string) {
@@ -954,6 +949,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     json(res, 400, { error: 'Unknown op' });
   } catch (err: any) {
-    json(res, err?.status === 403 ? 403 : 500, { error: err?.message || 'Data request failed' });
+    const message = String(err?.message || 'Data request failed');
+    const status = err?.status === 403 ? 403 : message === 'Invalid path' ? 400 : 500;
+    json(res, status, { error: message });
   }
 }

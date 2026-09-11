@@ -32,7 +32,8 @@ export function postgresUrl() {
 
 export function cleanPath(path: string) {
   const clean = path.replace(/^\/+|\/+$/g, '').replace(/\.\./g, '');
-  if (!clean || !/^[a-zA-Z0-9_./-]+$/.test(clean)) throw new Error('Invalid path');
+  // Invite docs are stored as invites/{bookId}_{email}, so @ and + must be allowed.
+  if (!clean || !/^[a-zA-Z0-9_./@+-]+$/.test(clean)) throw new Error('Invalid path');
   return clean;
 }
 
