@@ -55,6 +55,133 @@ function ts(value) {
 function flag(data) {
   return data.deleted === true || Boolean(data.deletedAt) || data.status === "deleted";
 }
+const INBOUND_DOMAIN = "easypado.com";
+const RESERVED_INBOUND_LOCALS = /* @__PURE__ */ new Set([
+  "support",
+  "info",
+  "noreply",
+  "no-reply",
+  "admin",
+  "welcome",
+  "byjanbooks",
+  "hello",
+  "contact",
+  "mail",
+  "email"
+]);
+function inboundMailboxSlug(name) {
+  const slug = String(name || "").toLowerCase().normalize("NFKD").replace(/[^\w\s-]/g, "").replace(/[_\s]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
+  return slug || "ledger";
+}
+function inboundAddressFor(slug) {
+  return `${inboundMailboxSlug(slug)}@${INBOUND_DOMAIN}`;
+}
+function shortBookId(bookId) {
+  return String(bookId || "").replace(/[^a-zA-Z0-9]/g, "").slice(-6).toLowerCase() || "book";
+}
+function rolesOf(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return value;
+}
+async function ledgerEnsureMailbox(bookId, data = {}) {
+  const id = String(bookId || "").trim();
+  if (!id) return null;
+  const obj = asObject(data) || {};
+  const current = asObject(await ledgerGet(`inbound_mailboxes/${id}`)) || {};
+  const name = text(obj.name || current.name) || "Ledger";
+  const preferred = inboundMailboxSlug(text(current.slug) || name);
+  const start = RESERVED_INBOUND_LOCALS.has(preferred) ? `${preferred}-ledger` : preferred;
+  const candidates = [start];
+  for (let i = 2; i <= 20; i += 1) candidates.push(`${start}-${i}`);
+  candidates.push(`${start}-${shortBookId(id)}`);
+  const seen = /* @__PURE__ */ new Set();
+  for (const candidate of candidates) {
+    const slug = inboundMailboxSlug(candidate);
+    if (!slug || seen.has(slug) || RESERVED_INBOUND_LOCALS.has(slug)) continue;
+    seen.add(slug);
+    const alias = asObject(await ledgerGet(`inbound_aliases/${slug}`));
+    const owner = text(alias?.bookId);
+    if (owner && owner !== id) continue;
+    const record = {
+      bookId: id,
+      name,
+      currency: text(obj.currency || current.currency) || "INR",
+      ownerId: text(obj.ownerId || current.ownerId),
+      roles: Object.keys(rolesOf(obj.roles)).length ? rolesOf(obj.roles) : rolesOf(current.roles),
+      slug,
+      address: inboundAddressFor(slug),
+      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    const claimed = owner === id || await ledgerInsertIfNew(`inbound_aliases/${slug}`, {
+      bookId: id,
+      slug,
+      name,
+      updatedAt: record.updatedAt
+    });
+    if (!claimed) continue;
+    if (owner === id) {
+      await ledgerSet(`inbound_aliases/${slug}`, {
+        bookId: id,
+        slug,
+        name,
+        updatedAt: record.updatedAt
+      });
+    }
+    await ledgerSet(`inbound_mailboxes/${id}`, record);
+    return record;
+  }
+  return null;
+}
+async function ledgerResolveInboundSlug(local) {
+  const slug = inboundMailboxSlug(local);
+  if (!slug || RESERVED_INBOUND_LOCALS.has(slug)) return "";
+  const alias = asObject(await ledgerGet(`inbound_aliases/${slug}`));
+  const fromAlias = text(alias?.bookId);
+  if (fromAlias) {
+    const book2 = asObject(await ledgerGet(`books/${fromAlias}`));
+    if (book2) await ledgerEnsureMailbox(fromAlias, book2).catch(() => void 0);
+    return fromAlias;
+  }
+  const sql = await getLedgerSql();
+  const mailboxes = asRows(
+    await sql`
+      SELECT book_id, data FROM inbound_mailboxes
+      WHERE data->>'slug' = ${slug}
+         OR lower(data->>'address') = ${`${slug}@${INBOUND_DOMAIN}`}
+      LIMIT 5
+    `
+  );
+  for (const row of mailboxes) {
+    const bookId = text(row.book_id);
+    if (!bookId) continue;
+    const book2 = asObject(await ledgerGet(`books/${bookId}`)) || asObject(row.data) || {};
+    await ledgerEnsureMailbox(bookId, book2).catch(() => void 0);
+    return bookId;
+  }
+  const spaced = slug.replace(/-/g, " ");
+  const named = asRows(
+    await sql`
+      SELECT id, name, data FROM books
+      WHERE lower(replace(name, ' ', '-')) = ${slug}
+         OR lower(name) = ${spaced}
+         OR lower(name) = ${slug}
+      ORDER BY updated_at DESC
+      LIMIT 20
+    `
+  );
+  let matches = named.filter((row) => inboundMailboxSlug(String(row.name || asObject(row.data)?.name || "")) === slug);
+  if (!matches.length) {
+    const recent = asRows(
+      await sql`SELECT id, name, data FROM books ORDER BY updated_at DESC LIMIT 250`
+    );
+    matches = recent.filter((row) => inboundMailboxSlug(String(row.name || asObject(row.data)?.name || "")) === slug);
+  }
+  if (!matches.length) return "";
+  const book = matches[0];
+  const data = { ...asObject(book.data) || {}, name: book.name || asObject(book.data)?.name };
+  await ledgerEnsureMailbox(String(book.id), data).catch(() => void 0);
+  return String(book.id);
+}
 async function ensureLedgerSchema(sql) {
   await sql`CREATE TABLE IF NOT EXISTS documents (
     path TEXT PRIMARY KEY,
@@ -394,7 +521,10 @@ async function ledgerSet(path, data, insertOnly = false) {
         VALUES (${id}, ${text(obj.name)}, ${text(obj.ownerId)}, ${text(obj.currency) || "INR"}, ${payload}::jsonb, NOW())
         ON CONFLICT (id) DO NOTHING RETURNING id
       `;
-      if (asRows(rows).length) await syncBookMembers(sql, id, obj);
+      if (asRows(rows).length) {
+        await syncBookMembers(sql, id, obj);
+        await ledgerEnsureMailbox(id, obj).catch(() => void 0);
+      }
       return asRows(rows).length > 0;
     }
     await sql`
@@ -403,6 +533,7 @@ async function ledgerSet(path, data, insertOnly = false) {
       ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, owner_id = EXCLUDED.owner_id, currency = EXCLUDED.currency, data = EXCLUDED.data, updated_at = NOW()
     `;
     await syncBookMembers(sql, id, obj);
+    await ledgerEnsureMailbox(id, obj).catch(() => void 0);
     return true;
   }
   if (parts[0] === "books" && parts[2] === "expenses" && parts.length === 4) {
@@ -544,6 +675,14 @@ async function ledgerSet(path, data, insertOnly = false) {
     return true;
   }
   if (parts[0] === "inbound_aliases" && parts.length === 2) {
+    if (insertOnly) {
+      const rows = await sql`
+        INSERT INTO inbound_aliases (slug, data, updated_at)
+        VALUES (${parts[1]}, ${payload}::jsonb, NOW())
+        ON CONFLICT (slug) DO NOTHING RETURNING slug
+      `;
+      return asRows(rows).length > 0;
+    }
     await sql`
       INSERT INTO inbound_aliases (slug, data, updated_at)
       VALUES (${parts[1]}, ${payload}::jsonb, NOW())
@@ -690,11 +829,14 @@ export {
   asObject,
   cleanPath,
   getLedgerSql,
+  inboundMailboxSlug,
   ledgerDel,
+  ledgerEnsureMailbox,
   ledgerGet,
   ledgerInsertIfNew,
   ledgerList,
   ledgerListExpensesByBooks,
+  ledgerResolveInboundSlug,
   ledgerSet,
   postgresUrl
 };

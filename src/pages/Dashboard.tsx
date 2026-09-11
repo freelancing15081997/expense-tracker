@@ -112,13 +112,17 @@ export default function Dashboard() {
         createdAt: serverTimestamp(),
         roles: { [currentUser.uid]: { role: 'owner', email: userProfile.email } }
       });
-      void syncInboundMailbox({
-        id: created.id,
-        name: newBookName,
-        currency: newCurrency,
-        ownerId: currentUser.uid,
-        roles: { [currentUser.uid]: { role: 'owner', email: userProfile.email } },
-      }).catch(() => undefined);
+      try {
+        await syncInboundMailbox({
+          id: created.id,
+          name: newBookName,
+          currency: newCurrency,
+          ownerId: currentUser.uid,
+          roles: { [currentUser.uid]: { role: 'owner', email: userProfile.email } },
+        });
+      } catch (err) {
+        console.error('Inbound mailbox sync failed', err);
+      }
       setNewBookName('');
       setShowNewBook(false);
       fetchData();

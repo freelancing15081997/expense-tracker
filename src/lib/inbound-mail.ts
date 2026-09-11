@@ -97,7 +97,7 @@ export async function claimInboundSlug(book: { id: string; name?: string }) {
       const owner = snap.exists() ? String(snap.data()?.bookId || '') : '';
       if (!owner || owner === book.id) return slug;
     } catch {
-      return slug;
+      continue;
     }
   }
   return `${start}-${shortId(book.id)}`;
@@ -110,6 +110,23 @@ export async function syncInboundMailbox(book: {
   ownerId?: string;
   roles?: Record<string, { role?: string; email?: string }>;
 }) {
+  try {
+    const snap = await getDoc(doc(db, 'inbound_mailboxes', book.id));
+    const existingSlug = snap.exists() ? inboundMailboxSlug(String(snap.data()?.slug || '')) : '';
+    if (existingSlug) {
+      const record = inboundMailboxRecord(book, existingSlug);
+      await setDoc(doc(db, 'inbound_mailboxes', book.id), record);
+      await setDoc(doc(db, 'inbound_aliases', existingSlug), {
+        bookId: book.id,
+        slug: existingSlug,
+        name: record.name,
+        updatedAt: record.updatedAt,
+      });
+      return record;
+    }
+  } catch {
+    // Claim a new slug below.
+  }
   const slug = await claimInboundSlug(book);
   const record = inboundMailboxRecord(book, slug);
   await setDoc(doc(db, 'inbound_mailboxes', book.id), record);

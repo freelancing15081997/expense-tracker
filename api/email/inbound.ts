@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { postgresUrl, cleanPath, ledgerGet, ledgerSet, ledgerInsertIfNew, ledgerList } from '../_pg-tables.js';
+import { postgresUrl, cleanPath, ledgerGet, ledgerSet, ledgerInsertIfNew, ledgerList, ledgerResolveInboundSlug } from '../_pg-tables.js';
 
 const R2_REGION = 'auto';
 const R2_SERVICE = 's3';
@@ -729,9 +729,17 @@ function asMailbox(bookId: string, data: Record<string, unknown> | null): Mailbo
 }
 
 async function loadMailbox(bookId: string) {
+  const book = asMailbox(bookId, await docGet(`books/${bookId}`));
   const fromIndex = asMailbox(bookId, await docGet(`inbound_mailboxes/${bookId}`));
-  if (fromIndex && Object.keys(fromIndex.roles).length) return fromIndex;
-  return asMailbox(bookId, await docGet(`books/${bookId}`));
+  if (!book && !fromIndex) return null;
+  return {
+    bookId,
+    name: book?.name || fromIndex?.name || 'Ledger',
+    currency: book?.currency || fromIndex?.currency || 'INR',
+    ownerId: book?.ownerId || fromIndex?.ownerId,
+    address: fromIndex?.address || book?.address || `${inboundMailboxSlug(book?.name || fromIndex?.name || 'ledger')}@${INBOUND_DOMAIN}`,
+    roles: { ...(fromIndex?.roles || {}), ...(book?.roles || {}) },
+  };
 }
 
 async function resolveBookId(item: any) {
@@ -748,9 +756,7 @@ async function resolveBookId(item: any) {
     if (fromId) return fromId;
   }
   for (const local of unique) {
-    const slug = inboundMailboxSlug(local);
-    const alias = await docGet(`inbound_aliases/${slug}`);
-    const bookId = String(alias?.bookId || '').trim();
+    const bookId = await ledgerResolveInboundSlug(local);
     if (bookId) return bookId;
   }
   return '';
@@ -1880,7 +1886,10 @@ async function holdAsDuplicate(opts: {
 
 async function processItem(item: any) {
   const bookId = await resolveBookId(item);
-  if (!bookId) return { skipped: 'no ledger address' };
+  if (!bookId) {
+    console.warn('inbound skipped, no ledger address', { to: item?.To, from: item?.From, subject: item?.Subject });
+    return { skipped: 'no ledger address', to: item?.To || '', from: item?.From || '' };
+  }
 
   const messageId = firstString(item.Uuid, item.MessageId, item.Headers?.['Message-ID'], item.Headers?.['Message-Id']) || newId();
   const seenKey = `inbound_seen/${createHash('sha256').update(messageId).digest('hex').slice(0, 32)}`;
