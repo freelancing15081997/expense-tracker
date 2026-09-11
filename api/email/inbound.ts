@@ -526,6 +526,19 @@ async function resolveBookId(item: any) {
   return '';
 }
 
+function trustedInboundSenders() {
+  const raw = String(
+    process.env.INBOUND_TRUSTED_SENDERS ||
+    'byjanbooks@gmail.com',
+  ).trim();
+  return new Set(
+    raw
+      .split(/[,;\s]+/)
+      .map((row) => row.trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
 function matchMember(mailbox: Mailbox, fromEmail: string) {
   const needle = fromEmail.toLowerCase();
   if (!needle) return null;
@@ -534,7 +547,16 @@ function matchMember(mailbox: Mailbox, fromEmail: string) {
       return { uid, email: String(row.email), role: String(row.role || 'contributor') };
     }
   }
-  return null;
+  // Global operators (e.g. main Byjan Gmail) can post to any ledger without joining each team.
+  if (!trustedInboundSenders().has(needle)) return null;
+  const owner =
+    Object.entries(mailbox.roles || {}).find(([, row]) => String(row?.role || '') === 'owner') ||
+    Object.entries(mailbox.roles || {})[0];
+  return {
+    uid: owner?.[0] || String(mailbox.ownerId || 'trusted-sender'),
+    email: needle,
+    role: 'contributor',
+  };
 }
 
 function fileExt(name: string, contentType: string) {
