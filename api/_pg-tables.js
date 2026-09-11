@@ -1,4 +1,7 @@
 import { neon } from "@neondatabase/serverless";
+function asRows(result) {
+  return Array.isArray(result) ? result : [];
+}
 function postgresUrl() {
   const raw = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.DATABASE_URL_UNPOOLED || process.env.POSTGRES_URL_NON_POOLING || process.env.POSTGRES_PRISMA_URL || process.env.BYJAN_NEON_DATABASE_URL || process.env.BYJAN_NEON_POSTGRES_URL || process.env.BYJAN_NEON_DATABASE_URL_UNPOOLED || process.env.BYJAN_NEON_POSTGRES_URL_NON_POOLING || "";
   if (!raw) return "";
@@ -169,7 +172,7 @@ async function ensureLedgerSchema(sql) {
 }
 async function copyLegacyDocuments(sql) {
   try {
-    const marker = await sql`SELECT 1 FROM documents WHERE path = ${"meta/ledger_tables"} LIMIT 1`;
+    const marker = asRows(await sql`SELECT 1 FROM documents WHERE path = ${"meta/ledger_tables"} LIMIT 1`);
     if (marker.length) return;
     await sql`
       INSERT INTO users (id, email, display_name, data, updated_at)
@@ -311,7 +314,7 @@ async function putDocument(sql, path, data, insertOnly = false) {
       ON CONFLICT (path) DO NOTHING
       RETURNING path
     `;
-    return rows.length > 0;
+    return asRows(rows).length > 0;
   }
   await sql`
     INSERT INTO documents (path, data, updated_at)
@@ -324,7 +327,10 @@ async function ledgerGet(path) {
   const sql = await getLedgerSql();
   const p = cleanPath(path);
   const parts = p.split("/").filter(Boolean);
-  const pick = (rows) => rows[0] ? asObject(rows[0].data) : null;
+  const pick = (result) => {
+    const list = asRows(result);
+    return list[0] ? asObject(list[0].data) : null;
+  };
   if (parts[0] === "users" && parts.length === 2) return pick(await sql`SELECT data FROM users WHERE id = ${parts[1]} LIMIT 1`);
   if (parts[0] === "books" && parts.length === 2) return pick(await sql`SELECT data FROM books WHERE id = ${parts[1]} LIMIT 1`);
   if (parts[0] === "books" && parts[2] === "expenses" && parts.length === 4) {
@@ -372,7 +378,7 @@ async function ledgerSet(path, data, insertOnly = false) {
         VALUES (${id}, ${text(obj.email)}, ${text(obj.displayName)}, ${payload}::jsonb, NOW())
         ON CONFLICT (id) DO NOTHING RETURNING id
       `;
-      return rows.length > 0;
+      return asRows(rows).length > 0;
     }
     await sql`
       INSERT INTO users (id, email, display_name, data, updated_at)
@@ -388,8 +394,8 @@ async function ledgerSet(path, data, insertOnly = false) {
         VALUES (${id}, ${text(obj.name)}, ${text(obj.ownerId)}, ${text(obj.currency) || "INR"}, ${payload}::jsonb, NOW())
         ON CONFLICT (id) DO NOTHING RETURNING id
       `;
-      if (rows.length) await syncBookMembers(sql, id, obj);
-      return rows.length > 0;
+      if (asRows(rows).length) await syncBookMembers(sql, id, obj);
+      return asRows(rows).length > 0;
     }
     await sql`
       INSERT INTO books (id, name, owner_id, currency, data, updated_at)
@@ -412,7 +418,7 @@ async function ledgerSet(path, data, insertOnly = false) {
         )
         ON CONFLICT (id) DO NOTHING RETURNING id
       `;
-      return rows.length > 0;
+      return asRows(rows).length > 0;
     }
     await sql`
       INSERT INTO expenses (id, book_id, amount, description, category, entry_type, entry_date, paid_by_name, status, deleted, data, created_at, updated_at)
@@ -438,7 +444,7 @@ async function ledgerSet(path, data, insertOnly = false) {
         VALUES (${id}, ${bookId}, ${text(obj.status)}, ${text(obj.fromEmail || obj.from)}, ${payload}::jsonb, ${created}::timestamptz, NOW())
         ON CONFLICT (id) DO NOTHING RETURNING id
       `;
-      return rows.length > 0;
+      return asRows(rows).length > 0;
     }
     await sql`
       INSERT INTO inbound_events (id, book_id, status, from_email, data, created_at, updated_at)
@@ -456,7 +462,7 @@ async function ledgerSet(path, data, insertOnly = false) {
         VALUES (${id}, ${bookId}, ${payload}::jsonb, ${created}::timestamptz, NOW())
         ON CONFLICT (id) DO NOTHING RETURNING id
       `;
-      return rows.length > 0;
+      return asRows(rows).length > 0;
     }
     await sql`
       INSERT INTO email_events (id, book_id, data, created_at, updated_at)
@@ -472,7 +478,7 @@ async function ledgerSet(path, data, insertOnly = false) {
         VALUES (${id}, ${text(obj.userId)}, ${payload}::jsonb, NOW())
         ON CONFLICT (id) DO NOTHING RETURNING id
       `;
-      return rows.length > 0;
+      return asRows(rows).length > 0;
     }
     await sql`
       INSERT INTO notifications (id, user_id, data, updated_at)
@@ -488,7 +494,7 @@ async function ledgerSet(path, data, insertOnly = false) {
         VALUES (${id}, ${text(obj.email)}, ${text(obj.bookId)}, ${payload}::jsonb, NOW())
         ON CONFLICT (id) DO NOTHING RETURNING id
       `;
-      return rows.length > 0;
+      return asRows(rows).length > 0;
     }
     await sql`
       INSERT INTO invites (id, email, book_id, data, updated_at)
@@ -504,7 +510,7 @@ async function ledgerSet(path, data, insertOnly = false) {
         VALUES (${parts[1]}, ${parts[2]}, ${payload}::jsonb, NOW())
         ON CONFLICT (book_id, hash) DO NOTHING RETURNING hash
       `;
-      return rows.length > 0;
+      return asRows(rows).length > 0;
     }
     await sql`
       INSERT INTO inbound_hashes (book_id, hash, data, updated_at)
@@ -520,7 +526,7 @@ async function ledgerSet(path, data, insertOnly = false) {
         VALUES (${parts[1]}, ${parts[2]}, ${payload}::jsonb, NOW())
         ON CONFLICT (book_id, fingerprint) DO NOTHING RETURNING fingerprint
       `;
-      return rows.length > 0;
+      return asRows(rows).length > 0;
     }
     await sql`
       INSERT INTO inbound_bills (book_id, fingerprint, data, updated_at)
@@ -560,7 +566,7 @@ async function ledgerSet(path, data, insertOnly = false) {
         VALUES (${parts[1]}, ${payload}::jsonb, NOW())
         ON CONFLICT (id) DO NOTHING RETURNING id
       `;
-      return rows.length > 0;
+      return asRows(rows).length > 0;
     }
     await sql`
       INSERT INTO inbound_seen (id, data, updated_at)
@@ -592,8 +598,8 @@ async function ledgerDel(path) {
   else if (parts[0] === "invites" && parts.length === 2) await sql`DELETE FROM invites WHERE id = ${parts[1]}`;
   else await sql`DELETE FROM documents WHERE path = ${p}`;
 }
-function rowsOf(rows) {
-  return rows.map((row) => {
+function rowsOf(result) {
+  return asRows(result).map((row) => {
     const data = asObject(row.data);
     return data ? { id: String(row.id), data } : null;
   }).filter(Boolean);
@@ -655,7 +661,9 @@ async function ledgerList(prefix, constraints = []) {
     return rowsOf(rows);
   }
   const base = `${cleanPath(prefix)}/`;
-  const docs = await sql`SELECT path, data FROM documents WHERE path LIKE ${base + "%"}`;
+  const docs = asRows(
+    await sql`SELECT path, data FROM documents WHERE path LIKE ${base + "%"}`
+  );
   return docs.map((row) => {
     const rest = String(row.path).slice(base.length);
     const data = asObject(row.data);
@@ -668,7 +676,7 @@ async function ledgerListExpensesByBooks(bookIds) {
   const sql = await getLedgerSql();
   const rows = await sql`SELECT id, book_id, data FROM expenses WHERE book_id = ANY(${bookIds})`;
   const grouped = /* @__PURE__ */ new Map();
-  for (const row of rows) {
+  for (const row of asRows(rows)) {
     const data = asObject(row.data);
     if (!data) continue;
     const col = `books/${row.book_id}/expenses`;

@@ -1,6 +1,12 @@
 import { neon } from '@neondatabase/serverless';
 
-type Sql = ReturnType<typeof neon>;
+type Sql = {
+  (strings: TemplateStringsArray, ...values: unknown[]): Promise<Record<string, unknown>[]>;
+};
+
+function asRows<T extends Record<string, unknown> = Record<string, unknown>>(result: unknown): T[] {
+  return Array.isArray(result) ? (result as T[]) : [];
+}
 
 export function postgresUrl() {
   const raw =
@@ -44,7 +50,7 @@ let schemaReady = false;
 export async function getLedgerSql() {
   const url = postgresUrl();
   if (!url) throw new Error('Postgres is not configured');
-  if (!sqlMem) sqlMem = neon(url);
+  if (!sqlMem) sqlMem = neon(url) as unknown as Sql;
   if (!schemaReady) {
     await ensureLedgerSchema(sqlMem);
     schemaReady = true;
@@ -188,7 +194,7 @@ async function ensureLedgerSchema(sql: Sql) {
 
 async function copyLegacyDocuments(sql: Sql) {
   try {
-    const marker = await sql`SELECT 1 FROM documents WHERE path = ${'meta/ledger_tables'} LIMIT 1`;
+    const marker = asRows(await sql`SELECT 1 FROM documents WHERE path = ${'meta/ledger_tables'} LIMIT 1`);
     if (marker.length) return;
     await sql`
       INSERT INTO users (id, email, display_name, data, updated_at)
@@ -335,7 +341,7 @@ async function putDocument(sql: Sql, path: string, data: unknown, insertOnly = f
       ON CONFLICT (path) DO NOTHING
       RETURNING path
     `;
-    return rows.length > 0;
+    return asRows(rows).length > 0;
   }
   await sql`
     INSERT INTO documents (path, data, updated_at)
@@ -349,7 +355,10 @@ export async function ledgerGet(path: string): Promise<Record<string, unknown> |
   const sql = await getLedgerSql();
   const p = cleanPath(path);
   const parts = p.split('/').filter(Boolean);
-  const pick = (rows: Array<{ data: unknown }>) => (rows[0] ? asObject(rows[0].data) : null);
+  const pick = (result: unknown) => {
+    const list = asRows<{ data: unknown }>(result);
+    return list[0] ? asObject(list[0].data) : null;
+  };
 
   if (parts[0] === 'users' && parts.length === 2) return pick(await sql`SELECT data FROM users WHERE id = ${parts[1]} LIMIT 1`);
   if (parts[0] === 'books' && parts.length === 2) return pick(await sql`SELECT data FROM books WHERE id = ${parts[1]} LIMIT 1`);
@@ -400,7 +409,7 @@ export async function ledgerSet(path: string, data: unknown, insertOnly = false)
         VALUES (${id}, ${text(obj.email)}, ${text(obj.displayName)}, ${payload}::jsonb, NOW())
         ON CONFLICT (id) DO NOTHING RETURNING id
       `;
-      return rows.length > 0;
+      return asRows(rows).length > 0;
     }
     await sql`
       INSERT INTO users (id, email, display_name, data, updated_at)
@@ -417,8 +426,8 @@ export async function ledgerSet(path: string, data: unknown, insertOnly = false)
         VALUES (${id}, ${text(obj.name)}, ${text(obj.ownerId)}, ${text(obj.currency) || 'INR'}, ${payload}::jsonb, NOW())
         ON CONFLICT (id) DO NOTHING RETURNING id
       `;
-      if (rows.length) await syncBookMembers(sql, id, obj);
-      return rows.length > 0;
+      if (asRows(rows).length) await syncBookMembers(sql, id, obj);
+      return asRows(rows).length > 0;
     }
     await sql`
       INSERT INTO books (id, name, owner_id, currency, data, updated_at)
@@ -442,7 +451,7 @@ export async function ledgerSet(path: string, data: unknown, insertOnly = false)
         )
         ON CONFLICT (id) DO NOTHING RETURNING id
       `;
-      return rows.length > 0;
+      return asRows(rows).length > 0;
     }
     await sql`
       INSERT INTO expenses (id, book_id, amount, description, category, entry_type, entry_date, paid_by_name, status, deleted, data, created_at, updated_at)
@@ -469,7 +478,7 @@ export async function ledgerSet(path: string, data: unknown, insertOnly = false)
         VALUES (${id}, ${bookId}, ${text(obj.status)}, ${text(obj.fromEmail || obj.from)}, ${payload}::jsonb, ${created}::timestamptz, NOW())
         ON CONFLICT (id) DO NOTHING RETURNING id
       `;
-      return rows.length > 0;
+      return asRows(rows).length > 0;
     }
     await sql`
       INSERT INTO inbound_events (id, book_id, status, from_email, data, created_at, updated_at)
@@ -488,7 +497,7 @@ export async function ledgerSet(path: string, data: unknown, insertOnly = false)
         VALUES (${id}, ${bookId}, ${payload}::jsonb, ${created}::timestamptz, NOW())
         ON CONFLICT (id) DO NOTHING RETURNING id
       `;
-      return rows.length > 0;
+      return asRows(rows).length > 0;
     }
     await sql`
       INSERT INTO email_events (id, book_id, data, created_at, updated_at)
@@ -505,7 +514,7 @@ export async function ledgerSet(path: string, data: unknown, insertOnly = false)
         VALUES (${id}, ${text(obj.userId)}, ${payload}::jsonb, NOW())
         ON CONFLICT (id) DO NOTHING RETURNING id
       `;
-      return rows.length > 0;
+      return asRows(rows).length > 0;
     }
     await sql`
       INSERT INTO notifications (id, user_id, data, updated_at)
@@ -522,7 +531,7 @@ export async function ledgerSet(path: string, data: unknown, insertOnly = false)
         VALUES (${id}, ${text(obj.email)}, ${text(obj.bookId)}, ${payload}::jsonb, NOW())
         ON CONFLICT (id) DO NOTHING RETURNING id
       `;
-      return rows.length > 0;
+      return asRows(rows).length > 0;
     }
     await sql`
       INSERT INTO invites (id, email, book_id, data, updated_at)
@@ -539,7 +548,7 @@ export async function ledgerSet(path: string, data: unknown, insertOnly = false)
         VALUES (${parts[1]}, ${parts[2]}, ${payload}::jsonb, NOW())
         ON CONFLICT (book_id, hash) DO NOTHING RETURNING hash
       `;
-      return rows.length > 0;
+      return asRows(rows).length > 0;
     }
     await sql`
       INSERT INTO inbound_hashes (book_id, hash, data, updated_at)
@@ -556,7 +565,7 @@ export async function ledgerSet(path: string, data: unknown, insertOnly = false)
         VALUES (${parts[1]}, ${parts[2]}, ${payload}::jsonb, NOW())
         ON CONFLICT (book_id, fingerprint) DO NOTHING RETURNING fingerprint
       `;
-      return rows.length > 0;
+      return asRows(rows).length > 0;
     }
     await sql`
       INSERT INTO inbound_bills (book_id, fingerprint, data, updated_at)
@@ -597,7 +606,7 @@ export async function ledgerSet(path: string, data: unknown, insertOnly = false)
         VALUES (${parts[1]}, ${payload}::jsonb, NOW())
         ON CONFLICT (id) DO NOTHING RETURNING id
       `;
-      return rows.length > 0;
+      return asRows(rows).length > 0;
     }
     await sql`
       INSERT INTO inbound_seen (id, data, updated_at)
@@ -633,8 +642,8 @@ export async function ledgerDel(path: string) {
   else await sql`DELETE FROM documents WHERE path = ${p}`;
 }
 
-function rowsOf(rows: Array<{ id: string; data: unknown }>) {
-  return rows
+function rowsOf(result: unknown) {
+  return asRows<{ id: string; data: unknown }>(result)
     .map((row) => {
       const data = asObject(row.data);
       return data ? { id: String(row.id), data } : null;
@@ -656,53 +665,55 @@ export async function ledgerList(prefix: string, constraints: any[] = []) {
         INNER JOIN book_members m ON m.book_id = b.id
         WHERE m.uid = ${uid}
       `;
-      return rowsOf(rows as Array<{ id: string; data: unknown }>);
+      return rowsOf(rows);
     }
     const rows = await sql`SELECT id, data FROM books`;
-    return rowsOf(rows as Array<{ id: string; data: unknown }>);
+    return rowsOf(rows);
   }
 
   if (parts[0] === 'books' && parts[2] === 'expenses' && parts.length === 3) {
     const rows = await sql`SELECT id, data FROM expenses WHERE book_id = ${parts[1]} ORDER BY updated_at DESC`;
-    return rowsOf(rows as Array<{ id: string; data: unknown }>);
+    return rowsOf(rows);
   }
   if (parts[0] === 'books' && parts[2] === 'inbound_events' && parts.length === 3) {
     const rows = await sql`SELECT id, data FROM inbound_events WHERE book_id = ${parts[1]} ORDER BY created_at DESC NULLS LAST, updated_at DESC`;
-    return rowsOf(rows as Array<{ id: string; data: unknown }>);
+    return rowsOf(rows);
   }
   if (parts[0] === 'books' && parts[2] === 'email_events' && parts.length === 3) {
     const rows = await sql`SELECT id, data FROM email_events WHERE book_id = ${parts[1]} ORDER BY created_at DESC NULLS LAST, updated_at DESC`;
-    return rowsOf(rows as Array<{ id: string; data: unknown }>);
+    return rowsOf(rows);
   }
   if (parts[0] === 'notifications' && parts.length === 1) {
     const userFilter = constraints.find((c) => c?.type === 'where' && c.field === 'userId' && c.op === '==');
     if (userFilter) {
       const rows = await sql`SELECT id, data FROM notifications WHERE user_id = ${String(userFilter.value)}`;
-      return rowsOf(rows as Array<{ id: string; data: unknown }>);
+      return rowsOf(rows);
     }
     const rows = await sql`SELECT id, data FROM notifications`;
-    return rowsOf(rows as Array<{ id: string; data: unknown }>);
+    return rowsOf(rows);
   }
   if (parts[0] === 'invites' && parts.length === 1) {
     const emailFilter = constraints.find((c) => c?.type === 'where' && c.field === 'email' && c.op === '==');
     if (emailFilter) {
       const rows = await sql`SELECT id, data FROM invites WHERE email = ${String(emailFilter.value)}`;
-      return rowsOf(rows as Array<{ id: string; data: unknown }>);
+      return rowsOf(rows);
     }
     const rows = await sql`SELECT id, data FROM invites`;
-    return rowsOf(rows as Array<{ id: string; data: unknown }>);
+    return rowsOf(rows);
   }
   if (parts[0] === 'inbound_hashes' && parts.length === 2) {
     const rows = await sql`SELECT hash AS id, data FROM inbound_hashes WHERE book_id = ${parts[1]}`;
-    return rowsOf(rows as Array<{ id: string; data: unknown }>);
+    return rowsOf(rows);
   }
   if (parts[0] === 'inbound_bills' && parts.length === 2) {
     const rows = await sql`SELECT fingerprint AS id, data FROM inbound_bills WHERE book_id = ${parts[1]}`;
-    return rowsOf(rows as Array<{ id: string; data: unknown }>);
+    return rowsOf(rows);
   }
 
   const base = `${cleanPath(prefix)}/`;
-  const docs = (await sql`SELECT path, data FROM documents WHERE path LIKE ${base + '%'}`) as { path: string; data: unknown }[];
+  const docs = asRows<{ path: string; data: unknown }>(
+    await sql`SELECT path, data FROM documents WHERE path LIKE ${base + '%'}`,
+  );
   return docs
     .map((row) => {
       const rest = String(row.path).slice(base.length);
@@ -718,7 +729,7 @@ export async function ledgerListExpensesByBooks(bookIds: string[]) {
   const sql = await getLedgerSql();
   const rows = await sql`SELECT id, book_id, data FROM expenses WHERE book_id = ANY(${bookIds})`;
   const grouped = new Map<string, { id: string; data: Record<string, unknown> }[]>();
-  for (const row of rows as Array<{ id: string; book_id: string; data: unknown }>) {
+  for (const row of asRows<{ id: string; book_id: string; data: unknown }>(rows)) {
     const data = asObject(row.data);
     if (!data) continue;
     const col = `books/${row.book_id}/expenses`;
