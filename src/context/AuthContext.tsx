@@ -20,12 +20,14 @@ interface AuthContextType {
   currentUser: User | null;
   userProfile: UserProfile | null;
   loading: boolean;
+  refreshUserProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
   currentUser: null,
   userProfile: null,
   loading: true,
+  refreshUserProfile: async () => undefined,
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -35,10 +37,42 @@ async function copyLegacyBooks() {
   await fetch('/api/migrate', { method: 'POST', headers }).catch(() => undefined);
 }
 
+function profileFromSnap(user: User, data: Record<string, unknown> | null | undefined): UserProfile {
+  const base: UserProfile = {
+    uid: user.uid,
+    email: user.email || '',
+    displayName: user.displayName || user.email?.split('@')[0] || 'User',
+    defaultCurrency: 'INR',
+  };
+  if (!data) return base;
+  return {
+    ...base,
+    displayName: String(data.displayName || base.displayName),
+    defaultCurrency: String(data.defaultCurrency || 'INR'),
+    customCategories: Array.isArray(data.customCategories) ? data.customCategories.map(String) : [],
+    createdAt: data.createdAt,
+    photoURL: data.photoURL ? String(data.photoURL) : undefined,
+  };
+}
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const refreshUserProfile = async () => {
+    const user = auth.currentUser;
+    if (!user) {
+      setUserProfile(null);
+      return;
+    }
+    try {
+      const snap = await getDoc(doc(db, 'users', user.uid));
+      setUserProfile(profileFromSnap(user, snap.exists() ? snap.data() : null));
+    } catch {
+      // keep existing profile on refresh failure
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -52,32 +86,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setLoading(false);
           return;
         }
-        const base: UserProfile = {
-          uid: user.uid,
-          email: user.email || '',
-          displayName: user.displayName || user.email?.split('@')[0] || 'User',
-          defaultCurrency: 'INR',
-        };
         try {
           await copyLegacyBooks();
           const userRef = doc(db, 'users', user.uid);
           const snap = await getDoc(userRef);
           if (!snap.exists()) {
+            const base = profileFromSnap(user, null);
             await setDoc(userRef, { ...base, customCategories: [], createdAt: serverTimestamp() });
             setUserProfile(base);
           } else {
-            const data = snap.data() || {};
-            setUserProfile({
-              ...base,
-              displayName: String(data.displayName || base.displayName),
-              defaultCurrency: String(data.defaultCurrency || 'INR'),
-              customCategories: Array.isArray(data.customCategories) ? data.customCategories : [],
-              createdAt: data.createdAt,
-              photoURL: data.photoURL,
-            });
+            setUserProfile(profileFromSnap(user, snap.data()));
           }
         } catch {
-          setUserProfile(base);
+          setUserProfile(profileFromSnap(user, null));
         } finally {
           setLoading(false);
         }
@@ -90,7 +111,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   return (
-    <AuthContext.Provider value={{ currentUser, userProfile, loading }}>
+    <AuthContext.Provider value={{ currentUser, userProfile, loading, refreshUserProfile }}>
       {loading ? <AppLoader title="Byjan" message="Checking your session." /> : children}
     </AuthContext.Provider>
   );

@@ -622,6 +622,7 @@ async function notifyMembers(
   bookId: string,
   senderName: string,
   action: string,
+  inboundEventId?: string,
 ) {
   const emails = Object.values(mailbox.roles).map((row) => String(row?.email || '').toLowerCase()).filter(Boolean);
   const unique = [...new Set(emails)];
@@ -638,11 +639,33 @@ async function notifyMembers(
       <p style="text-align:center;color:#64748b;font-size:12px;margin:0">Or paste this link:<br/><a href="${link}" style="color:#0B1F3A">${link}</a></p>
     </div>
   `;
+  let sent = 0;
+  let failed = 0;
   for (const email of unique) {
     try {
       await sendMail(email, `Inbound mail in ${mailbox.name}`, html);
+      sent += 1;
+      await docSet(`books/${bookId}/email_events/${newId()}`, {
+        direction: 'outbound',
+        status: 'sent',
+        toEmail: email,
+        subject: `Inbound mail in ${mailbox.name}`,
+        action,
+        detail,
+        createdAt: new Date().toISOString(),
+      }).catch(() => undefined);
     } catch (err) {
+      failed += 1;
       console.error('inbound notify failed', email, err);
+      await docSet(`books/${bookId}/email_events/${newId()}`, {
+        direction: 'outbound',
+        status: 'failed',
+        toEmail: email,
+        subject: `Inbound mail in ${mailbox.name}`,
+        action,
+        detail: String((err as Error)?.message || 'Send failed'),
+        createdAt: new Date().toISOString(),
+      }).catch(() => undefined);
     }
   }
   for (const uid of Object.keys(mailbox.roles)) {
@@ -660,6 +683,17 @@ async function notifyMembers(
       createdAt: new Date().toISOString(),
       read: false,
     }).catch(() => undefined);
+  }
+  if (inboundEventId) {
+    const current = await docGet(`books/${bookId}/inbound_events/${inboundEventId}`);
+    if (current) {
+      await docSet(`books/${bookId}/inbound_events/${inboundEventId}`, {
+        ...current,
+        teamNotified: sent > 0,
+        notifySent: sent,
+        notifyFailed: failed,
+      }).catch(() => undefined);
+    }
   }
 }
 
@@ -685,7 +719,7 @@ async function processItem(item: any) {
   const member = matchMember(mailbox, fromEmail);
   if (!member) {
     await docSet(seenKey, { bookId, at: new Date().toISOString(), status: 'rejected' });
-    await logInboundEvent(bookId, {
+    const eventId = await logInboundEvent(bookId, {
       status: 'rejected',
       reason: fromEmail ? 'Sender is not a member of this ledger' : 'No From address',
       fromEmail: fromEmail || '(missing)',
@@ -699,6 +733,7 @@ async function processItem(item: any) {
       bookId,
       fromEmail || 'Unknown sender',
       'Inbound mail was not added',
+      eventId,
     );
     return { skipped: 'sender is not a member', bookId, from: fromEmail };
   }
@@ -747,7 +782,20 @@ async function processItem(item: any) {
   };
   await docSet(`books/${bookId}/expenses/${id}`, expense);
   await docSet(seenKey, { id, bookId, at: new Date().toISOString(), status: 'accepted' });
-  await logInboundEvent(bookId, {
+  if (parsed.category && parsed.category !== 'Uncategorized') {
+    try {
+      const bookDoc = await docGet(`books/${bookId}`);
+      if (bookDoc) {
+        const existing = Array.isArray(bookDoc.categories) ? bookDoc.categories.map(String) : [];
+        if (!existing.some((c) => c.toLowerCase() === parsed.category.toLowerCase())) {
+          await docSet(`books/${bookId}`, { ...bookDoc, categories: [...existing, parsed.category] });
+        }
+      }
+    } catch {
+      // category merge is best-effort
+    }
+  }
+  const eventId = await logInboundEvent(bookId, {
     status: 'accepted',
     fromEmail: member.email,
     subject: subject || '(no subject)',
@@ -760,7 +808,7 @@ async function processItem(item: any) {
   const detail = parsed.amount
     ? `${mailbox.currency} ${parsed.amount.toFixed(2)} · ${parsed.category} · ${parsed.description} · from ${member.email}`
     : `Entry from ${member.email}. Amount was not found on the document — open the ledger and fill it in.`;
-  await notifyMembers(mailbox, detail, bookId, member.email, 'sent inbound mail. Byjan added an entry');
+  await notifyMembers(mailbox, detail, bookId, member.email, 'sent inbound mail. Byjan added an entry', eventId);
   return { ok: true, bookId, expenseId: id, amount: parsed.amount, category: parsed.category, date: parsed.date };
 }
 

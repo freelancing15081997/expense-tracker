@@ -38,7 +38,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 }
 
 export default function Settings() {
-  const { userProfile } = useAuth();
+  const { userProfile, refreshUserProfile } = useAuth();
   const tenant = useBooksTenantMeta();
   const { prefs, setPref, savePrefs } = useAppPrefs();
   const { addToast } = useToast();
@@ -61,14 +61,17 @@ export default function Settings() {
     setMessage('');
     setError('');
     try {
+      const cleaned = [...new Set(categories.map((c) => c.trim()).filter(Boolean))];
       await savePrefs(prefs);
       await updateDoc(doc(db, 'users', userProfile.uid), {
         displayName,
         defaultCurrency: prefs.defaultCurrency,
-        customCategories: categories,
+        customCategories: cleaned,
         appPrefs: prefs,
       });
-      setMessage('Settings saved for every workspace and tool on this account.');
+      setCategories(cleaned);
+      await refreshUserProfile();
+      setMessage('Settings saved. Global categories now appear in every ledger entry form.');
       addToast('Settings saved', 'success');
     } catch (err: any) {
       setError(err?.message || 'Failed to update settings.');
@@ -274,7 +277,7 @@ export default function Settings() {
       <section className="byjan-card overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-200 bg-[#F8FAFC]">
           <h2 className="text-base font-semibold text-slate-900">Expense Tracker categories</h2>
-          <p className="text-xs text-slate-500 mt-1">Custom tags when recording expense-ledger entries. Books expenses use their own accounts.</p>
+          <p className="text-xs text-slate-500 mt-1">Saved on your account and shown in every ledger’s entry dropdown. Categories created inside one ledger stay on that ledger only.</p>
         </div>
         <div className="p-5">
           <div className="flex gap-2 mb-4">

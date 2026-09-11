@@ -37,6 +37,24 @@ function expenseMillis(value: any) {
   return 0;
 }
 
+const BASE_CATEGORIES = ['Office Supplies', 'Software Subscriptions', 'Travel', 'Meals', 'Fuel', 'Groceries', 'Utilities', 'Health', 'Shopping'];
+
+function uniqueCategories(...lists: Array<string[] | undefined | null>) {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const list of lists) {
+    for (const raw of list || []) {
+      const value = String(raw || '').trim();
+      if (!value) continue;
+      const key = value.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(value);
+    }
+  }
+  return out;
+}
+
 function expenseDateLabel(exp: any) {
   try {
     if (exp?.createdAt && typeof exp.createdAt.toDate === 'function') {
@@ -88,7 +106,9 @@ export default function BookView() {
   const { addToast } = useToast();
   const [copiedInbound, setCopiedInbound] = useState(false);
   const [inboundEvents, setInboundEvents] = useState<any[]>([]);
+  const [outboundEvents, setOutboundEvents] = useState<any[]>([]);
   const [inboundEventsLoading, setInboundEventsLoading] = useState(false);
+  const [ledgerTab, setLedgerTab] = useState('ledger');
   const [receiptPreview, setReceiptPreview] = useState<{ url: string; title: string } | null>(null);
   const [unsentEmailChange, setUnsentEmailChange] = useState<{action: string, detail: string} | null>(null);  const navigate = useNavigate();
 
@@ -168,26 +188,36 @@ export default function BookView() {
     setCurrentPage(1);
   }, [searchQuery]);
 
-  useEffect(() => {
-    if (!isMembersModalOpen || !bookId) return;
-    let cancelled = false;
+  const loadEmailActivity = async () => {
+    if (!bookId) return;
     setInboundEventsLoading(true);
-    getDocs(query(collection(db, `books/${bookId}/inbound_events`)), { force: true, kvMs: 5000 })
-      .then((snap) => {
-        if (cancelled) return;
-        const rows: any[] = [];
-        snap.forEach((d) => rows.push({ id: d.id, ...d.data() }));
-        rows.sort((a, b) => Date.parse(String(b.createdAt || '')) - Date.parse(String(a.createdAt || '')));
-        setInboundEvents(rows.slice(0, 30));
-      })
-      .catch(() => {
-        if (!cancelled) setInboundEvents([]);
-      })
-      .finally(() => {
-        if (!cancelled) setInboundEventsLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [isMembersModalOpen, bookId]);
+    try {
+      const [inboundSnap, outboundSnap] = await Promise.all([
+        getDocs(query(collection(db, `books/${bookId}/inbound_events`)), { force: true, kvMs: 8000 }),
+        getDocs(query(collection(db, `books/${bookId}/email_events`)), { force: true, kvMs: 8000 }),
+      ]);
+      const inbound: any[] = [];
+      inboundSnap.forEach((d) => inbound.push({ id: d.id, direction: 'inbound', ...d.data() }));
+      inbound.sort((a, b) => Date.parse(String(b.createdAt || '')) - Date.parse(String(a.createdAt || '')));
+      const outbound: any[] = [];
+      outboundSnap.forEach((d) => outbound.push({ id: d.id, direction: 'outbound', ...d.data() }));
+      outbound.sort((a, b) => Date.parse(String(b.createdAt || '')) - Date.parse(String(a.createdAt || '')));
+      setInboundEvents(inbound.slice(0, 100));
+      setOutboundEvents(outbound.slice(0, 100));
+    } catch {
+      setInboundEvents([]);
+      setOutboundEvents([]);
+    } finally {
+      setInboundEventsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!bookId) return;
+    if (ledgerTab === 'email' || isMembersModalOpen) {
+      void loadEmailActivity();
+    }
+  }, [ledgerTab, isMembersModalOpen, bookId]);
 
   if (loading) return <div className="p-8 flex justify-center"><div className="w-6 h-6 border-2 border-slate-200 border-t-zinc-600 rounded-full animate-spin" /></div>;
   if (!book) return <div className="p-8 text-center text-sm text-slate-500">Book not found or access denied.</div>;
@@ -197,14 +227,33 @@ export default function BookView() {
   const canManageUsers = ['owner', 'admin'].includes(myRole);
   const isAuditor = myRole === 'auditor';
 
-  const defaultCategories = userProfile?.customCategories?.length ? userProfile.customCategories : ['Office Supplies', 'Software Subscriptions', 'Travel', 'Meals'];
+  const expenseCategories = expenses.map((exp) => String(exp.category || '')).filter(Boolean);
+  const ledgerCategories = Array.isArray(book.categories) ? book.categories.map(String) : [];
+  const categoryOptions = uniqueCategories(
+    BASE_CATEGORIES,
+    userProfile?.customCategories,
+    ledgerCategories,
+    expenseCategories,
+  );
+
+  const emailActivityRows = [...inboundEvents, ...outboundEvents]
+    .sort((a, b) => Date.parse(String(b.createdAt || '')) - Date.parse(String(a.createdAt || '')))
+    .slice(0, 120);
+
+  const persistLedgerCategory = async (name: string) => {
+    if (!bookId || !name) return;
+    const next = uniqueCategories(ledgerCategories, [name]);
+    if (next.length === ledgerCategories.length && ledgerCategories.some((c) => c.toLowerCase() === name.toLowerCase())) return;
+    await updateDoc(doc(db, 'books', bookId), { categories: next });
+    setBook((prev: any) => prev ? { ...prev, categories: next } : prev);
+  };
 
   const openNewExpense = () => {
     setEditingExpense(null);
     setEntryType('out');
     setAmount('');
     setDescription('');
-    setCategory(defaultCategories[0] || '');
+    setCategory(categoryOptions[0] || '');
     setCustomCatInput('');
     setIsExpenseModalOpen(true);
   };
@@ -297,7 +346,7 @@ export default function BookView() {
     setEntryType(exp.entryType || exp.entryType || 'out');
     setAmount(exp.amount.toString());
     setDescription(exp.description);
-    if (defaultCategories.includes(exp.category)) {
+    if (categoryOptions.includes(exp.category)) {
       setCategory(exp.category);
       setCustomCatInput('');
     } else {
@@ -369,7 +418,7 @@ export default function BookView() {
       
       for (const email of emails) {
         // This hits our reliable Express backend which doesn't lose credentials
-        sendEmailNotification(email, subject, message).catch(console.error);
+        sendEmailNotification(email, subject, message, { action }).catch(console.error);
       }
     }
   };
@@ -397,6 +446,7 @@ export default function BookView() {
           lastEditedByUid: currentUser?.uid || '',
           lastEditedAt: serverTimestamp()
         });
+        await persistLedgerCategory(finalCategory);
         setExpenses((prev) => prev.map((row) => row.id === editingExpense.id ? {
           ...row,
           amount: Number(amount),
@@ -423,6 +473,7 @@ export default function BookView() {
           enteredByEmail: currentUser?.email || '',
           createdAt: serverTimestamp()
         });
+        await persistLedgerCategory(finalCategory);
         setExpenses((prev) => [{
           id: created.id,
           amount: Number(amount),
@@ -442,6 +493,7 @@ export default function BookView() {
         setAmount('');
         setDescription('');
         setCustomCatInput('');
+        setCategory(finalCategory);
         notifyTeamMembers('Added a new entry', `Recorded ${entryType === 'in' ? 'money in' : 'money out'} of ${getCurrencySymbol(book.currency)} ${amount} for "${description}" in category "${finalCategory}"`, `${userProfile?.displayName || currentUser?.email} added "${description}" (${getCurrencySymbol(book.currency)}${amount}) to ${book.name}`).catch(console.error);
       }
     } catch (err) {
@@ -465,24 +517,44 @@ export default function BookView() {
     }
   };
 
-  const sendEmailNotification = async (toEmail: string, subject: string, message: string) => {
+  const sendEmailNotification = async (toEmail: string, subject: string, message: string, meta?: { action?: string }) => {
     try {
-      // In production (Render), the frontend might be running under a different URL base if not configured properly, 
-      // but absolute path /api/email/send works if the React app and Node app are on the exact same domain.
       const { authHeaders } = await import('../lib/auth-client');
       const res = await fetch('/api/email/send', {
         method: 'POST',
         headers: await authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ to: toEmail, subject, message })
       });
+      const payload = await res.json().catch(() => ({}));
+      if (bookId) {
+        await addDoc(collection(db, `books/${bookId}/email_events`), {
+          direction: 'outbound',
+          status: res.ok ? 'sent' : 'failed',
+          toEmail,
+          subject,
+          action: meta?.action || 'Team notification',
+          detail: res.ok ? 'Notification email sent' : String(payload.error || res.statusText || 'Send failed'),
+          createdAt: new Date().toISOString(),
+        }).catch(() => undefined);
+      }
       if (!res.ok) {
-         const payload = await res.json().catch(() => ({}));
          console.error('Email API Error:', payload.error || res.statusText);
          addToast(payload.error || 'Email sending failed on the server.', 'error');
       }
       return res.ok;
     } catch (err: any) {
       console.error('Failed to send email via backend:', err);
+      if (bookId) {
+        await addDoc(collection(db, `books/${bookId}/email_events`), {
+          direction: 'outbound',
+          status: 'failed',
+          toEmail,
+          subject,
+          action: meta?.action || 'Team notification',
+          detail: err?.message || 'Network error',
+          createdAt: new Date().toISOString(),
+        }).catch(() => undefined);
+      }
       addToast('Network error sending email: ' + err.message, 'error');
       return false;
     }
@@ -578,12 +650,15 @@ export default function BookView() {
           </div>
         </div>
 
-      <Tabs.Root defaultValue="ledger" className="space-y-5">
-        <Tabs.List className="flex gap-4 border-b border-slate-200/60">
-          <Tabs.Trigger value="ledger" className="pb-2 text-sm font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B1F3A] data-[state=active]:border-b-2 data-[state=active]:border-[#12B8A8] transition-colors">
+      <Tabs.Root value={ledgerTab} onValueChange={setLedgerTab} className="space-y-5">
+        <Tabs.List className="flex gap-4 border-b border-slate-200/60 overflow-x-auto">
+          <Tabs.Trigger value="ledger" className="pb-2 text-sm font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B1F3A] data-[state=active]:border-b-2 data-[state=active]:border-[#12B8A8] transition-colors whitespace-nowrap">
             Ledger Entries
           </Tabs.Trigger>
-          <Tabs.Trigger value="analytics" className="pb-2 text-sm font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B1F3A] data-[state=active]:border-b-2 data-[state=active]:border-[#12B8A8] transition-colors">
+          <Tabs.Trigger value="email" className="pb-2 text-sm font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B1F3A] data-[state=active]:border-b-2 data-[state=active]:border-[#12B8A8] transition-colors whitespace-nowrap">
+            Email Activity
+          </Tabs.Trigger>
+          <Tabs.Trigger value="analytics" className="pb-2 text-sm font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B1F3A] data-[state=active]:border-b-2 data-[state=active]:border-[#12B8A8] transition-colors whitespace-nowrap">
             Analytics & Reports
           </Tabs.Trigger>
         </Tabs.List>
@@ -803,6 +878,107 @@ export default function BookView() {
           )}
         </Tabs.Content>
 
+        <Tabs.Content value="email" className="outline-none space-y-4">
+          <div className="byjan-card p-4 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+                  <Mail className="w-4 h-4 text-slate-500" /> Email activity
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">Real inbound receipts and outbound team notifications for this ledger only. Nothing is invented.</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <code className="text-[11px] bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 max-w-[220px] truncate">{inboundAddress || inboundMailboxAddress(book.name)}</code>
+                <button type="button" className="byjan-btn-ghost !px-2.5 !py-1.5" onClick={() => void copyInboundAddress()}>
+                  <Copy className="w-3.5 h-3.5" />
+                  {copiedInbound ? 'Copied' : 'Copy'}
+                </button>
+                <button type="button" className="byjan-btn-ghost !px-2.5 !py-1.5" onClick={() => void loadEmailActivity()} disabled={inboundEventsLoading}>
+                  {inboundEventsLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Refresh'}
+                </button>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-2">
+                <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Inbound</p>
+                <p className="text-sm font-bold text-slate-900">{inboundEvents.length}</p>
+              </div>
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-2">
+                <p className="text-[10px] uppercase tracking-wider text-emerald-700 font-semibold">Added</p>
+                <p className="text-sm font-bold text-emerald-800">{inboundEvents.filter((e) => e.status === 'accepted').length}</p>
+              </div>
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-2">
+                <p className="text-[10px] uppercase tracking-wider text-amber-700 font-semibold">Rejected</p>
+                <p className="text-sm font-bold text-amber-800">{inboundEvents.filter((e) => e.status === 'rejected').length}</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-white px-2 py-2">
+                <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Outbound</p>
+                <p className="text-sm font-bold text-slate-900">{outboundEvents.length}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="byjan-table overflow-hidden">
+            {inboundEventsLoading ? (
+              <div className="p-8 text-center text-sm text-slate-500">Loading email activity…</div>
+            ) : emailActivityRows.length === 0 ? (
+              <div className="p-8 text-center text-sm text-slate-500">No email activity for this ledger yet. Forward a receipt to the inbound address or add an entry to notify the team.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse min-w-[720px]">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200">
+                      <th className="px-4 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">When</th>
+                      <th className="px-4 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Type</th>
+                      <th className="px-4 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+                      <th className="px-4 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">From / To</th>
+                      <th className="px-4 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Details</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {emailActivityRows.map((event) => {
+                      const when = event.createdAt ? new Date(event.createdAt).toLocaleString() : '—';
+                      const isInbound = event.direction !== 'outbound';
+                      const status = String(event.status || '');
+                      const statusLabel = status === 'accepted' ? 'Entry added'
+                        : status === 'rejected' ? 'Not added'
+                        : status === 'sent' ? 'Sent'
+                        : status === 'failed' ? 'Failed'
+                        : status || 'Unknown';
+                      const statusClass = status === 'accepted' || status === 'sent'
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                        : status === 'rejected' || status === 'failed'
+                          ? 'bg-amber-50 text-amber-800 border-amber-200'
+                          : 'bg-slate-50 text-slate-700 border-slate-200';
+                      return (
+                        <tr key={`${event.direction}-${event.id}`} className="align-top">
+                          <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{when}</td>
+                          <td className="px-4 py-3 text-xs font-medium text-slate-800">{isInbound ? 'Inbound receipt' : 'Team email'}</td>
+                          <td className="px-4 py-3">
+                            <span className={cn('inline-flex text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded border', statusClass)}>
+                              {statusLabel}
+                            </span>
+                            {event.teamNotified ? <span className="block text-[10px] text-slate-500 mt-1">Team notified</span> : null}
+                          </td>
+                          <td className="px-4 py-3 text-xs text-slate-700 break-all">
+                            {isInbound ? (event.fromEmail || 'unknown') : (event.toEmail || '—')}
+                          </td>
+                          <td className="px-4 py-3 text-xs text-slate-600">
+                            <p className="font-medium text-slate-800">{event.subject || event.action || '—'}</p>
+                            {event.reason ? <p className="mt-0.5">{event.reason}</p> : null}
+                            {event.detail ? <p className="mt-0.5">{event.detail}</p> : null}
+                            {event.amount != null && event.amount !== '' ? <p className="mt-0.5">{event.category || 'Uncategorized'} · {event.amount}</p> : null}
+                            {event.description ? <p className="mt-0.5 text-slate-500">{event.description}</p> : null}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </Tabs.Content>
 
         <Tabs.Content value="analytics" className="outline-none space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -912,7 +1088,7 @@ export default function BookView() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {defaultCategories.map(cat => <SelectItem key={cat} value={cat}>{cat}</SelectItem>)}
+                    {categoryOptions.map(cat => <SelectItem key={cat} value={cat}>{cat}</SelectItem>)}
                     <div className="h-px bg-slate-200 my-1"></div>
                     <SelectItem value="__custom__" className="font-semibold text-blue-600">-- Add Custom Category --</SelectItem>
                   </SelectContent>
@@ -959,7 +1135,7 @@ export default function BookView() {
                 <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
                   <Mail className="w-3.5 h-3.5" /> Receipt by email
                 </p>
-                <p className="text-sm text-slate-600 leading-relaxed">Any member of this ledger can forward a receipt or bill from their own email. Byjan only creates an entry if that From address is on the team below. Everyone on the ledger is notified, and the real mail log is listed here — nothing is invented.</p>
+                <p className="text-sm text-slate-600 leading-relaxed">Any member can forward a receipt to this address. Full receive/send status is on the Email Activity tab.</p>
                 <div className="flex items-center gap-2">
                   <code className="flex-1 text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 truncate">{inboundAddress || inboundMailboxAddress(book.name)}</code>
                   <button type="button" className="byjan-btn-ghost !px-2.5" onClick={() => void copyInboundAddress()}>
@@ -967,29 +1143,16 @@ export default function BookView() {
                     {copiedInbound ? 'Copied' : 'Copy'}
                   </button>
                 </div>
-                <p className="text-[11px] text-slate-500">The address uses this ledger’s name so it is easy to type. Sending from byjanbooks@easypado.com stays as it is.</p>
-                <div className="pt-2 border-t border-slate-100 space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Mail activity</p>
-                  {inboundEventsLoading ? (
-                    <p className="text-[11px] text-slate-500">Loading received mail…</p>
-                  ) : inboundEvents.length === 0 ? (
-                    <p className="text-[11px] text-slate-500">No inbound mail has been received for this ledger yet.</p>
-                  ) : (
-                    <ul className="space-y-1.5 max-h-40 overflow-y-auto">
-                      {inboundEvents.map((event) => (
-                        <li key={event.id} className="text-[11px] leading-snug rounded-lg border border-slate-100 bg-slate-50 px-2 py-1.5">
-                          <span className={event.status === 'accepted' ? 'font-semibold text-emerald-700' : 'font-semibold text-amber-800'}>
-                            {event.status === 'accepted' ? 'Added' : 'Not added'}
-                          </span>
-                          <span className="text-slate-500"> · {event.fromEmail || 'unknown sender'}</span>
-                          {event.subject ? <span className="block text-slate-600 truncate">{event.subject}</span> : null}
-                          {event.reason ? <span className="block text-slate-500">{event.reason}</span> : null}
-                          {event.amount ? <span className="block text-slate-600">{event.category} · {event.amount}</span> : null}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
+                <button
+                  type="button"
+                  className="byjan-btn-ghost !w-full !justify-center text-xs"
+                  onClick={() => {
+                    setIsMembersModalOpen(false);
+                    setLedgerTab('email');
+                  }}
+                >
+                  Open Email Activity
+                </button>
               </div>
               <div className="space-y-2">
                 {Object.entries(book.roles).map(([uid, data]: [string, any]) => (
