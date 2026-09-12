@@ -72,10 +72,10 @@ export default function Layout() {
   };
 
   return (
-    <div className="h-full w-full bg-[#F5F7FA] flex flex-col md:flex-row font-sans text-[#0F172A] overflow-hidden">
+    <div className="h-full w-full flex flex-col md:flex-row font-sans text-[#0F172A] overflow-hidden bg-transparent">
       <GlobalSearch />
 
-      <div className="md:hidden bg-white border-b border-slate-200 flex items-center justify-between px-3 py-2.5 z-50">
+      <div className="md:hidden byjan-glass border-b border-white/50 flex items-center justify-between px-3 py-2.5 z-50">
         <Link to="/" className="flex items-center gap-2" title="Main dashboard">
           <BrandLogo size="sm" />
           <span className="font-bold text-slate-900">Byjan</span>
@@ -133,7 +133,7 @@ export default function Layout() {
       </aside>
 
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-        <div className="hidden md:flex relative z-[70] shrink-0 items-center gap-3 px-5 h-14 bg-white border-b border-slate-200">
+        <div className="hidden md:flex relative z-[70] shrink-0 items-center gap-3 px-5 h-14 byjan-glass border-b border-white/50">
           <WorkspaceSwitcher variant="header" />
           <div className="flex-1 flex justify-center min-w-0">
             <div className="w-full max-w-2xl">

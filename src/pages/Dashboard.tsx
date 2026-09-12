@@ -6,7 +6,7 @@ import { createLedger, listLedgers } from '../lib/ledgers';
 import { listAllExpenses } from '../lib/expenses';
 import { useBooksTenantMeta } from '../lib/tenant';
 import { getCurrencySymbol } from '../lib/currency';
-import { Plus, Check, X, Users, Building2, Receipt, ArrowRight, BookOpen, Pin } from 'lucide-react';
+import { Plus, Check, X, Users, Building2, Receipt, ArrowRight, BookOpen, Pin, Sparkles } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 import AppLoader from '../components/AppLoader';
@@ -23,6 +23,8 @@ interface BookItem {
   pinned?: boolean;
   roles: Record<string, { role: string; email: string }>;
 }
+
+type BookStat = { net: number; monthOut: number; entries: number };
 
 type InviteItem = LedgerInvite;
 
@@ -49,6 +51,7 @@ export default function Dashboard() {
   const [newBookName, setNewBookName] = useState('');
   const [newCurrency, setNewCurrency] = useState('');
   const [creating, setCreating] = useState(false);
+  const [bookStats, setBookStats] = useState<Record<string, BookStat>>({});
 
   const fetchData = async () => {
     if (!currentUser || !userProfile) return;
@@ -68,17 +71,26 @@ export default function Dashboard() {
       let tIn = 0; let tOut = 0; let monthIn = 0; let monthOut = 0; let reimbursable = 0; let uncategorized = 0;
       const monthKey = new Date().toISOString().slice(0, 7);
       let activity: Record<string, number> = {};
+      const nextBookStats: Record<string, BookStat> = {};
       if (fetchedBooks.length) {
         const { expenses } = await listAllExpenses();
         expenses.forEach((data) => {
           const amount = Number(data.amount || 0);
           const isIn = data.entryType === 'in' || data.type === 'in';
           const isTransfer = data.entryType === 'transfer';
+          const ledgerId = String(data.bookId || '');
+          if (!nextBookStats[ledgerId]) nextBookStats[ledgerId] = { net: 0, monthOut: 0, entries: 0 };
+          nextBookStats[ledgerId].entries += 1;
+          if (isIn) nextBookStats[ledgerId].net += amount;
+          else if (!isTransfer) nextBookStats[ledgerId].net -= amount;
           if (isIn) tIn += amount;
           else if (!isTransfer) tOut += amount;
           if (String(data.date || '').startsWith(monthKey)) {
             if (isIn) monthIn += amount;
-            else if (!isTransfer) monthOut += amount;
+            else if (!isTransfer) {
+              monthOut += amount;
+              nextBookStats[ledgerId].monthOut += amount;
+            }
           }
           if (data.reimbursable) reimbursable += amount;
           const cat = String(data.category || '').trim().toLowerCase();
@@ -86,6 +98,7 @@ export default function Dashboard() {
           const user = String(data.enteredBy || data.paidByName || data.createdBy || 'Unknown');
           activity[user] = (activity[user] || 0) + 1;
         });
+        setBookStats(nextBookStats);
         setGlobalStats({
           totalIn: tIn,
           totalOut: tOut,
@@ -97,6 +110,7 @@ export default function Dashboard() {
           userActivity: activity,
         });
       } else {
+        setBookStats({});
         setGlobalStats({ totalIn: 0, totalOut: 0, monthIn: 0, monthOut: 0, reimbursable: 0, entries: 0, uncategorized: 0, userActivity: {} });
       }
 
@@ -180,30 +194,71 @@ export default function Dashboard() {
   ), []);
   const bookList = usePagedList(books, filterBook, 10);
 
+  const currency = getCurrencySymbol(books[0]?.currency || userProfile?.defaultCurrency || 'INR');
+  const net = globalStats.totalIn - globalStats.totalOut;
+  const hour = new Date().getHours();
+  const hello = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const firstName = String(userProfile?.displayName || currentUser?.email || 'there').split(' ')[0];
+
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
-      <div className="flex items-end justify-between gap-3 mb-2">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">{expensesOnly ? 'Shared ledgers' : 'Workspace'}</p>
-          <h1 className="text-2xl font-bold text-slate-900 font-display mt-1">{expensesOnly ? 'Expense Tracker' : 'Main dashboard'}</h1>
-          <p className="text-sm text-slate-500 mt-1">{expensesOnly ? 'Roommate and team ledgers you belong to.' : 'Ledgers, Books, and the work waiting on you.'}</p>
+    <div className="max-w-5xl mx-auto space-y-5">
+      <section className="byjan-card byjan-hero">
+        <div className="relative z-10 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-teal-800/80">{hello}</p>
+            <h1 className="text-[28px] leading-tight font-semibold text-slate-900 font-display mt-1">{firstName}</h1>
+            <p className="text-sm text-slate-500 mt-1 max-w-md">
+              {expensesOnly ? 'Every shared ledger you can post to, in one glass desk.' : 'Ledgers and Books in one private workspace — tap a card and keep moving.'}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {!expensesOnly && (
+              <Link to="/books" className="byjan-btn-ghost min-h-10">
+                <BookOpen className="w-4 h-4" />
+                Open Books
+              </Link>
+            )}
+            <button onClick={() => setShowNewBook(true)} className="byjan-btn min-h-10">
+              <Plus className="w-4 h-4" />
+              New ledger
+            </button>
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {!expensesOnly && (
-            <Link to="/books" className="byjan-btn-ghost">
-              <BookOpen className="w-4 h-4" />
-              Open Books
-            </Link>
-          )}
-          <button
-            onClick={() => setShowNewBook(true)}
-            className="byjan-btn"
-          >
-            <Plus className="w-4 h-4" />
-            New Expense Tracker
-          </button>
-        </div>
-      </div>
+        {books.length > 0 && (
+          <div className="byjan-stat-grid mt-4 relative z-10">
+            <div className="byjan-stat">
+              <p className="byjan-stat-label">Net</p>
+              <p className={`byjan-stat-value ${net >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{net < 0 ? '−' : ''}{currency}{Math.abs(net).toLocaleString()}</p>
+            </div>
+            <div className="byjan-stat">
+              <p className="byjan-stat-label">In</p>
+              <p className="byjan-stat-value text-emerald-600">{currency}{globalStats.totalIn.toLocaleString()}</p>
+            </div>
+            <div className="byjan-stat">
+              <p className="byjan-stat-label">Out</p>
+              <p className="byjan-stat-value text-[#0B1F3A]">{currency}{globalStats.totalOut.toLocaleString()}</p>
+            </div>
+            <div className="byjan-stat">
+              <p className="byjan-stat-label">Month</p>
+              <p className="byjan-stat-value text-[#0B1F3A]">{currency}{globalStats.monthOut.toLocaleString()}</p>
+            </div>
+          </div>
+        )}
+        {(globalStats.reimbursable > 0 || globalStats.uncategorized > 0) && (
+          <div className="relative z-10 flex flex-wrap gap-2 mt-3">
+            {globalStats.reimbursable > 0 && (
+              <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-amber-50/80 text-amber-800 border border-amber-200/70">
+                Reimbursable {currency}{globalStats.reimbursable.toLocaleString()}
+              </span>
+            )}
+            {globalStats.uncategorized > 0 && (
+              <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-slate-50/80 text-slate-600 border border-slate-200/70">
+                {globalStats.uncategorized} need a category
+              </span>
+            )}
+          </div>
+        )}
+      </section>
 
       <Dialog.Root open={showNewBook} onOpenChange={setShowNewBook}>
         <Dialog.Portal>
@@ -281,49 +336,12 @@ export default function Dashboard() {
         </div>
       )}
 
-      {!expensesOnly && (
-        <div className="grid sm:grid-cols-2 gap-3">
-          <div className="byjan-card p-4">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Expense Tracker tenancy</p>
-            <p className="text-sm font-semibold text-slate-900 mt-1">Per-ledger membership</p>
-            <p className="text-xs text-slate-500 mt-1">Each ledger lives under <code className="text-[11px]">books/{'{ledgerId}'}</code>. You only see ledgers where <code className="text-[11px]">roles.{'{your uid}'}</code> is set. Other users cannot see yours.</p>
-          </div>
-          <div className="byjan-card p-4">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Books tenant</p>
-            <p className="text-sm font-semibold text-slate-900 mt-1">{tenant?.name || 'Your Books workspace'}</p>
-            <p className="text-xs text-slate-500 mt-1">Your account owns <code className="text-[11px]">erp_workspaces/{'{your uid}'}</code>. Nested companies get their own isolated books under that account. Create and switch them from Books → Companies or the Workspace menu.</p>
-          </div>
-        </div>
-      )}
-
-      <div className={expensesOnly ? 'space-y-4' : 'grid lg:grid-cols-2 gap-6 items-start'}>
-        <section className="space-y-4">
+      <div className={expensesOnly ? 'space-y-4' : 'grid lg:grid-cols-2 gap-5 items-start'}>
+        <section className="space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-base font-bold text-slate-900">{expensesOnly ? 'Your ledgers' : 'Expense Tracker'}</h2>
-            <span className="text-xs text-slate-500">{books.length} ledger{books.length === 1 ? '' : 's'}</span>
+            <h2 className="text-base font-semibold text-slate-900">{expensesOnly ? 'Your ledgers' : 'Ledgers'}</h2>
+            <span className="text-xs text-slate-500">{books.length}</span>
           </div>
-          {books.length > 0 && (
-            <div className="byjan-stat-grid">
-              <div className="byjan-stat">
-                <p className="byjan-stat-label">Net</p>
-                <p className={`byjan-stat-value ${(globalStats.totalIn - globalStats.totalOut) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                  {getCurrencySymbol(books[0]?.currency || userProfile?.defaultCurrency || 'INR')}{(globalStats.totalIn - globalStats.totalOut).toLocaleString()}
-                </p>
-              </div>
-              <div className="byjan-stat">
-                <p className="byjan-stat-label">In</p>
-                <p className="byjan-stat-value text-emerald-600">{getCurrencySymbol(books[0]?.currency || userProfile?.defaultCurrency || 'INR')}{globalStats.totalIn.toLocaleString()}</p>
-              </div>
-              <div className="byjan-stat">
-                <p className="byjan-stat-label">Out</p>
-                <p className="byjan-stat-value text-[#0B1F3A]">{getCurrencySymbol(books[0]?.currency || userProfile?.defaultCurrency || 'INR')}{globalStats.totalOut.toLocaleString()}</p>
-              </div>
-              <div className="byjan-stat">
-                <p className="byjan-stat-label">Entries</p>
-                <p className="byjan-stat-value text-[#0B1F3A]">{globalStats.entries}</p>
-              </div>
-            </div>
-          )}
           {loading ? (
             <AppLoader title="Ledgers" message="Loading the books you can open." />
           ) : books.length === 0 ? (
@@ -348,23 +366,35 @@ export default function Dashboard() {
             <div className={expensesOnly ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3' : 'grid grid-cols-1 sm:grid-cols-2 gap-3'}>
               {bookList.pageRows.map(book => {
                 const role = book.roles[currentUser!.uid]?.role || 'viewer';
+                const stat = bookStats[book.id];
+                const symbol = getCurrencySymbol(book.currency);
                 return (
                   <Link to={`/book/${book.id}`} key={book.id} className="byjan-card byjan-lift byjan-ledger-card">
-                    <div className="w-8 h-8 rounded-lg bg-[#0B1F3A] text-white flex items-center justify-center shrink-0">
-                      <Receipt className="w-3.5 h-3.5" />
+                    <div className="w-9 h-9 rounded-xl bg-[#0B1F3A] text-white flex items-center justify-center shrink-0">
+                      <Receipt className="w-4 h-4" />
                     </div>
                     <div className="min-w-0 flex-1">
                       <h3 className="text-sm font-semibold text-slate-900 leading-snug">{book.name}</h3>
-                      <div className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-500">
+                      <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-500">
                         <span className="inline-flex items-center gap-1"><Users className="w-3 h-3" />{Object.keys(book.roles).length}</span>
-                        <span className="font-semibold text-slate-600 tabular-nums">{book.currency}</span>
+                        <span className="tabular-nums">{book.currency}</span>
+                        {stat ? (
+                          <span className={`tabular-nums font-semibold ${stat.net >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                            {stat.net < 0 ? '−' : ''}{symbol}{Math.abs(stat.net).toLocaleString()}
+                          </span>
+                        ) : null}
                       </div>
                     </div>
-                    <span className="inline-flex items-center gap-1.5 shrink-0">
-                      {book.pinned ? <Pin className="w-3.5 h-3.5 text-[#12B8A8]" /> : null}
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wide ${getRoleBadgeColor(role)}`}>
-                        {role}
+                    <span className="inline-flex flex-col items-end gap-1 shrink-0">
+                      <span className="inline-flex items-center gap-1">
+                        {book.pinned ? <Pin className="w-3.5 h-3.5 text-[#12B8A8]" /> : null}
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wide ${getRoleBadgeColor(role)}`}>
+                          {role}
+                        </span>
                       </span>
+                      {stat && stat.monthOut > 0 && (
+                        <span className="text-[10px] text-slate-500 tabular-nums">Month {symbol}{stat.monthOut.toLocaleString()}</span>
+                      )}
                     </span>
                   </Link>
                 );
@@ -375,19 +405,20 @@ export default function Dashboard() {
         </section>
 
         {!expensesOnly && (
-        <section className="space-y-4">
+        <section className="space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-base font-bold text-slate-900 flex items-center gap-2"><BookOpen className="w-4 h-4" /> Books</h2>
-            <Link to="/books" className="inline-flex items-center gap-1 text-sm font-semibold text-teal-800 hover:underline">
-              Open dashboard <ArrowRight className="w-4 h-4" />
+            <h2 className="text-base font-semibold text-slate-900 flex items-center gap-2"><Sparkles className="w-4 h-4 text-teal-700" /> Books</h2>
+            <Link to="/books" className="inline-flex items-center gap-1 text-sm font-semibold text-teal-800 hover:underline min-h-10">
+              Open <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
+          {tenant?.name && <p className="text-xs text-slate-500 -mt-1">{tenant.name}</p>}
           <div className="grid sm:grid-cols-2 gap-3">
             {BOOKS_TREE.map((branch) => (
-              <Link key={branch.id} to={branch.href} className="byjan-card byjan-lift p-3">
+              <Link key={branch.id} to={branch.href} className="byjan-card byjan-lift p-3.5">
                 <p className="font-semibold text-sm text-slate-900">{branch.name}</p>
                 <p className="text-xs text-slate-500 mt-1 line-clamp-2">{branch.blurb}</p>
-                <p className="text-[11px] text-slate-400 mt-2">{branch.items.length} features</p>
+                <p className="text-[11px] text-slate-400 mt-2">{branch.items.length} live tools</p>
               </Link>
             ))}
           </div>

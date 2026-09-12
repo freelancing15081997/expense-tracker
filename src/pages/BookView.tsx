@@ -18,7 +18,7 @@ import { createExpense, listExpenses, softDeleteExpense, updateExpense } from '.
 import { createNotification } from '../lib/notifications';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send, Copy, Paperclip, Mail, Megaphone, Shield, Pin, PinOff, SlidersHorizontal, ArrowUpDown } from 'lucide-react';
+import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send, Copy, CopyPlus, Paperclip, Mail, Megaphone, Shield, Pin, PinOff, SlidersHorizontal, ArrowUpDown } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Tabs from '@radix-ui/react-tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
@@ -32,6 +32,8 @@ import { ReceiptModal, attachmentKind } from '../components/ReceiptModal';
 import { EventMailTrack, emailStatusClass, emailStatusLabel, resolvedStatus } from '../components/EmailActivityFlow';
 import { ListControls, usePagedList } from '../components/ListControls';
 import AppLoader from '../components/AppLoader';
+import LedgerTools from '../components/LedgerTools';
+import { dueRecurringPosts, isoDay, readRecurring } from '../lib/ledger-advanced';
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -182,6 +184,8 @@ export default function BookView() {
   const [receiptPreview, setReceiptPreview] = useState<{ url: string; title: string; kind: 'image' | 'pdf' | 'file'; fileName?: string } | null>(null);
   const [openingReceiptId, setOpeningReceiptId] = useState<string | null>(null);
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkBusy, setBulkBusy] = useState('');
   const skipFilterSave = useRef(true);
   const [unsentEmailChange, setUnsentEmailChange] = useState<{action: string, detail: string} | null>(null);  const navigate = useNavigate();
 
@@ -234,7 +238,28 @@ export default function BookView() {
             if (payload.book) setBook(payload.book);
           }).catch(() => undefined);
         }
-        const rows = await listExpenses(bookId);
+        let rows = await listExpenses(bookId);
+        if (!alive) return;
+        const myRoleNow = next.roles?.[currentUser.uid]?.role || (next.ownerId === currentUser.uid ? 'owner' : 'viewer');
+        if (['owner', 'admin', 'contributor'].includes(String(myRoleNow))) {
+          const { posts, nextRules } = dueRecurringPosts(readRecurring(next), rows);
+          if (posts.length) {
+            for (const row of posts) {
+              await createExpense(bookId, {
+                ...row,
+                paidByName: userProfile?.displayName || currentUser.email,
+                enteredBy: userProfile?.displayName || currentUser.email,
+                enteredByUid: currentUser.uid,
+                enteredByEmail: currentUser.email || '',
+              }, { force: true });
+            }
+            const updated = await updateLedger(bookId, { recurringRules: nextRules });
+            if (!alive) return;
+            setBook(updated);
+            rows = await listExpenses(bookId);
+            addToast(`Posted ${posts.length} recurring ${posts.length === 1 ? 'entry' : 'entries'}.`, 'success');
+          }
+        }
         if (!alive) return;
         setExpenses(rows.sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt)));
         setLoading(false);
@@ -775,6 +800,67 @@ export default function BookView() {
     }
   };
 
+  const refreshExpenses = async () => {
+    if (!bookId) return;
+    const rows = await listExpenses(bookId);
+    setExpenses(rows.sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt)));
+  };
+
+  const duplicateExpense = async (exp: any) => {
+    if (!canWrite || !bookId) return;
+    setBulkBusy(exp.id);
+    try {
+      await createExpense(bookId, {
+        amount: Number(exp.amount || 0),
+        description: `${exp.description || 'Entry'} (copy)`,
+        category: exp.category || 'Uncategorized',
+        entryType: exp.entryType || 'out',
+        date: isoDay(),
+        merchant: exp.merchant || '',
+        paymentMethod: exp.paymentMethod || 'cash',
+        notes: exp.notes || '',
+        reimbursable: Boolean(exp.reimbursable),
+        billable: Boolean(exp.billable),
+        tags: exp.tags || '',
+        paidByName: userProfile?.displayName || currentUser?.email,
+        enteredBy: userProfile?.displayName || currentUser?.email,
+        enteredByUid: currentUser?.uid || '',
+        enteredByEmail: currentUser?.email || '',
+        duplicatedFrom: exp.id,
+      });
+      await refreshExpenses();
+      addToast('Entry duplicated.', 'success');
+    } catch (err: any) {
+      addToast(err?.message || 'Could not duplicate that entry', 'error');
+    } finally {
+      setBulkBusy('');
+    }
+  };
+
+  const toggleSelected = (id: string) => {
+    setSelectedIds((curr) => (curr.includes(id) ? curr.filter((row) => row !== id) : [...curr, id]));
+  };
+
+  const runBulk = async (kind: 'delete' | 'reimburse' | 'category', categoryName?: string) => {
+    if (!canWrite || !bookId || !selectedIds.length) return;
+    if (kind === 'delete' && !confirm(`Remove ${selectedIds.length} entries? They stay for audit.`)) return;
+    setBulkBusy(kind);
+    try {
+      for (const id of selectedIds) {
+        if (kind === 'delete') await softDeleteExpense(bookId, id);
+        if (kind === 'reimburse') await updateExpense(bookId, id, { reimbursable: true });
+        if (kind === 'category' && categoryName) await updateExpense(bookId, id, { category: categoryName });
+      }
+      await refreshExpenses();
+      setSelectedIds([]);
+      addToast(kind === 'delete' ? 'Selected entries removed.' : 'Selected entries updated.', 'success');
+    } catch (err: any) {
+      addToast(err?.message || 'Bulk action failed', 'error');
+    } finally {
+      setBulkBusy('');
+    }
+  };
+
   const sendEmailNotification = async (toEmail: string, subject: string, message: string, meta?: { action?: string }) => {
     try {
       const { authHeaders } = await import('../lib/auth-client');
@@ -1010,7 +1096,7 @@ export default function BookView() {
     <>
       <div className="h-full min-h-0 flex flex-col">
       <Tabs.Root value={ledgerTab} onValueChange={setLedgerTab} className="h-full min-h-0 flex flex-col">
-        <div className="shrink-0 px-4 md:px-6 lg:px-8 pt-2 pb-2 bg-[#F5F7FA] border-b border-slate-200/80">
+        <div className="shrink-0 px-4 md:px-6 lg:px-8 pt-2 pb-2 byjan-glass border-b border-white/50">
         <div className="max-w-6xl mx-auto">
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="flex items-center gap-2 min-w-0">
@@ -1234,6 +1320,40 @@ export default function BookView() {
         <div className="flex-1 min-h-0 overflow-y-auto px-4 md:px-6 lg:px-8 py-2">
         <div className="max-w-6xl mx-auto">
         <Tabs.Content value="ledger" className="outline-none">
+          <LedgerTools
+            bookId={bookId!}
+            book={book}
+            canWrite={canWrite}
+            categories={categoryOptions}
+            merchants={Array.from(new Set(expenses.map((exp) => String(exp.merchant || '').trim()).filter(Boolean))).slice(0, 40)}
+            currencySymbol={getCurrencySymbol(book.currency)}
+            enteredBy={String(userProfile?.displayName || currentUser?.email || '')}
+            enteredByUid={currentUser?.uid || ''}
+            enteredByEmail={currentUser?.email || ''}
+            expenses={expenses}
+            onBook={(next) => setBook(next)}
+            onRefresh={refreshExpenses}
+            onToast={(message, kind) => addToast(message, kind || 'success')}
+          />
+          {selectedIds.length > 0 && canWrite && (
+            <div className="byjan-card flex flex-wrap items-center gap-2 px-3 py-2 mb-2">
+              <span className="text-xs font-semibold text-slate-600">{selectedIds.length} selected</span>
+              <button type="button" className="byjan-chip" disabled={Boolean(bulkBusy)} onClick={() => void runBulk('reimburse')}>Mark reimbursable</button>
+              <select
+                className="byjan-filter !h-8 !w-auto"
+                defaultValue=""
+                onChange={(e) => {
+                  if (e.target.value) void runBulk('category', e.target.value);
+                  e.target.value = '';
+                }}
+              >
+                <option value="">Move category</option>
+                {categoryOptions.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
+              </select>
+              <button type="button" className="byjan-chip" disabled={Boolean(bulkBusy)} onClick={() => void runBulk('delete')}>Remove</button>
+              <button type="button" className="text-xs font-semibold text-slate-500" onClick={() => setSelectedIds([])}>Clear</button>
+            </div>
+          )}
           {filteredExpenses.length > 0 && (
             <p className="text-[11px] font-semibold text-slate-500 mb-2">
               {filteredExpenses.length} {filteredExpenses.length === 1 ? 'entry' : 'entries'}
@@ -1249,7 +1369,20 @@ export default function BookView() {
             <div className="hidden md:block overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
               <table className="w-full text-left border-collapse whitespace-nowrap min-w-[600px]">
                 <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200">
+                  <tr className="bg-white/40 border-b border-white/50">
+                    {canWrite && (
+                      <th className="px-3 py-2 w-8">
+                        <input
+                          type="checkbox"
+                          aria-label="Select page"
+                          checked={paginatedExpenses.length > 0 && paginatedExpenses.every((exp) => selectedIds.includes(exp.id))}
+                          onChange={(e) => {
+                            const ids = paginatedExpenses.map((exp) => exp.id);
+                            setSelectedIds((curr) => e.target.checked ? Array.from(new Set([...curr, ...ids])) : curr.filter((id) => !ids.includes(id)));
+                          }}
+                        />
+                      </th>
+                    )}
                     <th className="px-3.5 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
                       <button type="button" onClick={() => toggleSort('description')} className="inline-flex items-center gap-1 hover:text-[#0B1F3A]">
                         Description <ArrowUpDown className="w-3 h-3" />{sortKey === 'description' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
@@ -1288,7 +1421,12 @@ export default function BookView() {
                     <tr><td colSpan={10} className="px-5 py-8 text-center text-sm text-slate-500">No entries found matching your criteria.</td></tr>
                   ) : (
                     paginatedExpenses.map((exp) => (
-                      <tr key={exp.id} className="hover:bg-slate-50/50 transition-colors group">
+                      <tr key={exp.id} className="hover:bg-white/40 transition-colors group">
+                        {canWrite && (
+                          <td className="px-3 py-2">
+                            <input type="checkbox" aria-label={`Select ${exp.description}`} checked={selectedIds.includes(exp.id)} onChange={() => toggleSelected(exp.id)} />
+                          </td>
+                        )}
                         <td className="px-3.5 py-2 font-medium text-slate-900 text-sm max-w-xs truncate" title={exp.description}>
                           <span className="inline-flex items-center gap-1.5">
                             {exp.receiptPath && (
@@ -1340,7 +1478,10 @@ export default function BookView() {
                         {canWrite && (
                           <td className="px-3.5 py-2 text-right">
                             <div className="flex items-center justify-end gap-2 text-slate-400">
-                              <button onClick={() => openEditExpense(exp)} className="p-1 hover:text-zinc-600 hover:bg-zinc-50 rounded transition-colors" title="Edit">
+                              <button onClick={() => void duplicateExpense(exp)} disabled={bulkBusy === exp.id} className="p-1 hover:text-zinc-600 hover:bg-white/70 rounded transition-colors" title="Duplicate">
+                                {bulkBusy === exp.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CopyPlus className="w-4 h-4" />}
+                              </button>
+                              <button onClick={() => openEditExpense(exp)} className="p-1 hover:text-zinc-600 hover:bg-white/70 rounded transition-colors" title="Edit">
                                 <PenSquare className="w-4 h-4" />
                               </button>
                               <button onClick={() => handleDeleteExpense(exp.id, exp.description)} disabled={isDeleting === exp.id} className="p-1 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors disabled:opacity-50" title="Delete">
@@ -1357,13 +1498,16 @@ export default function BookView() {
             </div>
 
             {/* Compact Mobile View */}
-            <div className="md:hidden flex flex-col gap-3 p-3 bg-slate-50">
+            <div className="md:hidden flex flex-col gap-3 p-3 bg-white/30">
               {paginatedExpenses.length === 0 ? (
                 <div className="p-5 text-center text-sm text-slate-500 bg-white rounded-lg border border-slate-200">No entries found.</div>
               ) : (
                 paginatedExpenses.map((exp) => (
                   <div key={exp.id} className="p-3.5 byjan-card flex flex-col gap-2">
                     <div className="flex justify-between items-start gap-2">
+                      {canWrite && (
+                        <input type="checkbox" className="mt-1" aria-label={`Select ${exp.description}`} checked={selectedIds.includes(exp.id)} onChange={() => toggleSelected(exp.id)} />
+                      )}
                       <div className="font-semibold text-slate-900 text-[14px] leading-tight flex-1">
                         {exp.description}
                         {exp.status === 'draft' && (
@@ -1392,7 +1536,10 @@ export default function BookView() {
                                 {openingReceiptId === exp.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Paperclip className="w-3.5 h-3.5" />}
                               </button>
                             )}
-                            <button onClick={() => openEditExpense(exp)} className="p-1.5 bg-slate-50 text-slate-500 hover:text-zinc-600 rounded-md border border-slate-200">
+                            <button onClick={() => void duplicateExpense(exp)} disabled={bulkBusy === exp.id} className="p-1.5 bg-white/70 text-slate-500 hover:text-zinc-600 rounded-md border border-white/70 min-w-9 min-h-9">
+                              {bulkBusy === exp.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CopyPlus className="w-3.5 h-3.5" />}
+                            </button>
+                            <button onClick={() => openEditExpense(exp)} className="p-1.5 bg-white/70 text-slate-500 hover:text-zinc-600 rounded-md border border-white/70 min-w-9 min-h-9">
                               <PenSquare className="w-3.5 h-3.5" />
                             </button>
                             <button onClick={() => handleDeleteExpense(exp.id, exp.description)} disabled={isDeleting === exp.id} className="p-1.5 bg-slate-50 text-slate-500 hover:text-rose-600 rounded-md border border-slate-200">
@@ -1697,7 +1844,12 @@ export default function BookView() {
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">Merchant / payee</label>
-                <input type="text" value={merchant} onChange={(e) => setMerchant(e.target.value)} className="byjan-input" placeholder="e.g. Amazon, landlord" />
+                <input list="entry-merchants" type="text" value={merchant} onChange={(e) => setMerchant(e.target.value)} className="byjan-input" placeholder="e.g. Amazon, landlord" />
+                <datalist id="entry-merchants">
+                  {Array.from(new Set(expenses.map((exp) => String(exp.merchant || '').trim()).filter(Boolean))).slice(0, 40).map((name) => (
+                    <option key={name} value={name} />
+                  ))}
+                </datalist>
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">Tags</label>
