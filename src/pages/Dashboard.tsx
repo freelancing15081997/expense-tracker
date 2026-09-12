@@ -131,6 +131,7 @@ export default function Dashboard() {
   };
 
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
+  const [decliningId, setDecliningId] = useState<string | null>(null);
   const handleAcceptInvite = async (invite: InviteItem) => {
     if (!currentUser || !userProfile) return;
     setAcceptingId(invite.id);
@@ -153,10 +154,16 @@ export default function Dashboard() {
   };
 
   const handleDeclineInvite = async (inviteId: string) => {
+    setDecliningId(inviteId);
     try {
       await declineLedgerInvite(inviteId);
       fetchData();
-    } catch (err) { console.error("Fetch API error:", err); }
+    } catch (err) {
+      console.error("Fetch API error:", err);
+      addToast('Could not decline that invitation', 'error');
+    } finally {
+      setDecliningId(null);
+    }
   };
 
   const getRoleBadgeColor = (role: string) => {
@@ -259,11 +266,13 @@ export default function Dashboard() {
                   <p className="text-xs text-slate-500 mt-0.5">Invited as <span className="font-semibold text-slate-700 capitalize">{invite.role}</span></p>
                 </div>
                 <div className="flex items-center gap-2 mt-auto pt-1">
-                  <button onClick={() => handleAcceptInvite(invite)} disabled={acceptingId === invite.id} className="byjan-btn flex-1 text-xs">
-                    {acceptingId === invite.id ? <span className="app-loader-ring app-loader-ring-sm" /> : <Check className="w-3.5 h-3.5" />} Accept
+                  <button onClick={() => handleAcceptInvite(invite)} disabled={Boolean(acceptingId || decliningId)} className="byjan-btn flex-1 text-xs">
+                    {acceptingId === invite.id ? <span className="app-loader-ring app-loader-ring-sm" /> : <Check className="w-3.5 h-3.5" />}
+                    {acceptingId === invite.id ? 'Joining' : 'Accept'}
                   </button>
-                  <button onClick={() => handleDeclineInvite(invite.id)} className="byjan-btn-ghost flex-1 text-xs">
-                    <X className="w-3.5 h-3.5" /> Decline
+                  <button onClick={() => handleDeclineInvite(invite.id)} disabled={Boolean(acceptingId || decliningId)} className="byjan-btn-ghost flex-1 text-xs">
+                    {decliningId === invite.id ? <span className="app-loader-ring app-loader-ring-sm" /> : <X className="w-3.5 h-3.5" />}
+                    {decliningId === invite.id ? 'Declining' : 'Decline'}
                   </button>
                 </div>
               </div>

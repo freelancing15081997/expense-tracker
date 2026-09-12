@@ -28,7 +28,7 @@ import { getCurrencySymbol } from '../lib/currency';
 import { bookInboundAddress, ledgerAppLink, openInviteButtonHtml, openLedgerButtonHtml, wrapByjanEmailHtml } from '../lib/inbound-mail';
 import { createLedgerInvite, memberEmails } from '../lib/invites';
 import { authHeaders } from '../lib/auth-client';
-import { ReceiptModal } from '../components/ReceiptModal';
+import { ReceiptModal, attachmentKind } from '../components/ReceiptModal';
 import { EventMailTrack, emailStatusClass, emailStatusLabel, resolvedStatus } from '../components/EmailActivityFlow';
 import { ListControls, usePagedList } from '../components/ListControls';
 import AppLoader from '../components/AppLoader';
@@ -179,7 +179,9 @@ export default function BookView() {
   const [outboundEvents, setOutboundEvents] = useState<any[]>([]);
   const [inboundEventsLoading, setInboundEventsLoading] = useState(false);
   const [ledgerTab, setLedgerTab] = useState('ledger');
-  const [receiptPreview, setReceiptPreview] = useState<{ url: string; title: string } | null>(null);
+  const [receiptPreview, setReceiptPreview] = useState<{ url: string; title: string; kind: 'image' | 'pdf' | 'file'; fileName?: string } | null>(null);
+  const [openingReceiptId, setOpeningReceiptId] = useState<string | null>(null);
+  const [exportingPdf, setExportingPdf] = useState(false);
   const skipFilterSave = useRef(true);
   const [unsentEmailChange, setUnsentEmailChange] = useState<{action: string, detail: string} | null>(null);  const navigate = useNavigate();
 
@@ -443,16 +445,42 @@ export default function BookView() {
   };
 
   const openReceipt = async (exp: any) => {
-    if (!exp?.receiptPath) return;
+    if (!exp?.receiptPath || openingReceiptId) return;
+    const title = exp.receiptName || exp.description || 'Attachment';
+    setOpeningReceiptId(exp.id);
+    setReceiptPreview({ url: '', title, kind: 'image' });
     try {
       const res = await fetch(`/api/blob/file?path=${encodeURIComponent(exp.receiptPath)}`, { headers: await authHeaders() });
-      if (!res.ok) throw new Error('Could not open receipt');
+      if (!res.ok) throw new Error('Could not open attachment');
       const blob = await res.blob();
+      const fileName = String(exp.receiptName || exp.receiptPath.split('/').pop() || title);
       if (receiptPreview?.url) URL.revokeObjectURL(receiptPreview.url);
-      setReceiptPreview({ url: URL.createObjectURL(blob), title: exp.receiptName || exp.description });
+      setReceiptPreview({
+        url: URL.createObjectURL(blob),
+        title,
+        kind: attachmentKind(fileName, blob.type),
+        fileName,
+      });
     } catch (err: any) {
-      addToast(err?.message || 'Could not open receipt', 'error');
+      setReceiptPreview(null);
+      addToast(err?.message || 'Could not open attachment', 'error');
+    } finally {
+      setOpeningReceiptId(null);
     }
+  };
+
+  const downloadPdf = () => {
+    if (exportingPdf) return;
+    setExportingPdf(true);
+    requestAnimationFrame(() => {
+      try {
+        generatePDF(false);
+      } catch {
+        addToast('Could not create the PDF', 'error');
+      } finally {
+        setExportingPdf(false);
+      }
+    });
   };
 
   const generatePDF = (returnBase64 = false) => {
@@ -1122,8 +1150,8 @@ export default function BookView() {
                   </span>
                 )}
               </button>
-              <button type="button" onClick={() => generatePDF(false)} className="byjan-btn-ghost !h-9 !px-2.5" title="Download PDF">
-                <Download className="w-4 h-4" />
+              <button type="button" onClick={downloadPdf} disabled={exportingPdf} className="byjan-btn-ghost !h-9 !px-2.5" title="Download PDF">
+                {exportingPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
               </button>
               <button type="button" onClick={emailReport} disabled={sendingReport} className="byjan-btn-ghost !h-9 !px-2.5" title="Email report">
                 {sendingReport ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
@@ -1264,8 +1292,14 @@ export default function BookView() {
                         <td className="px-3.5 py-2 font-medium text-slate-900 text-sm max-w-xs truncate" title={exp.description}>
                           <span className="inline-flex items-center gap-1.5">
                             {exp.receiptPath && (
-                              <button type="button" onClick={() => openReceipt(exp)} className="text-teal-700 hover:text-teal-900" title="Open receipt">
-                                <Paperclip className="w-3.5 h-3.5" />
+                              <button
+                                type="button"
+                                onClick={() => void openReceipt(exp)}
+                                disabled={openingReceiptId === exp.id}
+                                className="text-teal-700 hover:text-teal-900 disabled:opacity-70"
+                                title="Open attachment"
+                              >
+                                {openingReceiptId === exp.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Paperclip className="w-3.5 h-3.5" />}
                               </button>
                             )}
                             {exp.description}
@@ -1348,8 +1382,14 @@ export default function BookView() {
                         {canWrite && (
                           <>
                             {exp.receiptPath && (
-                              <button type="button" onClick={() => openReceipt(exp)} className="p-1.5 bg-slate-50 text-slate-500 hover:text-teal-700 rounded-md border border-slate-200" title="Open receipt">
-                                <Paperclip className="w-3.5 h-3.5" />
+                              <button
+                                type="button"
+                                onClick={() => void openReceipt(exp)}
+                                disabled={openingReceiptId === exp.id}
+                                className="p-1.5 bg-slate-50 text-slate-500 hover:text-teal-700 rounded-md border border-slate-200 disabled:opacity-70"
+                                title="Open attachment"
+                              >
+                                {openingReceiptId === exp.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Paperclip className="w-3.5 h-3.5" />}
                               </button>
                             )}
                             <button onClick={() => openEditExpense(exp)} className="p-1.5 bg-slate-50 text-slate-500 hover:text-zinc-600 rounded-md border border-slate-200">
@@ -1863,12 +1903,16 @@ export default function BookView() {
 
       {receiptPreview && (
         <ReceiptModal
-          imageUrl={receiptPreview.url}
+          imageUrl={receiptPreview.url || null}
           expenseTitle={receiptPreview.title}
+          kind={receiptPreview.kind}
+          fileName={receiptPreview.fileName}
+          loading={!receiptPreview.url && Boolean(openingReceiptId)}
           verified={false}
           onClose={() => {
-            URL.revokeObjectURL(receiptPreview.url);
+            if (receiptPreview.url) URL.revokeObjectURL(receiptPreview.url);
             setReceiptPreview(null);
+            setOpeningReceiptId(null);
           }}
         />
       )}

@@ -9,32 +9,34 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState<'email' | 'google' | ''>('');
   const navigate = useNavigate();
+  const loading = Boolean(busy);
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       setError('');
-      setLoading(true);
+      setBusy('email');
       await signInWithEmailAndPassword(auth, email, password);
       navigate(consumeReturnTo());
     } catch (err: any) {
       setError(err.message || 'Failed to sign in');
     } finally {
-      setLoading(false);
+      setBusy('');
     }
   };
 
   const handleGoogleLogin = async () => {
     try {
       setError('');
-      setLoading(true);
+      setBusy('google');
       const result = await signInWithGoogle();
       if (result) navigate(consumeReturnTo());
     } catch (err: any) {
       setError(err.message || 'Failed to sign in with Google');
-      setLoading(false);
+    } finally {
+      setBusy('');
     }
   };
 
@@ -59,8 +61,8 @@ export default function Login() {
         disabled={loading}
         className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 h-10 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-60"
       >
-        <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" className="w-5 h-5" />
-        Continue with Google
+        {busy === 'google' ? <span className="app-loader-ring app-loader-ring-sm" /> : <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" className="w-5 h-5" />}
+        {busy === 'google' ? 'Opening Google' : 'Continue with Google'}
       </button>
 
       <div className="my-4 flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
@@ -72,39 +74,35 @@ export default function Login() {
       <form className="space-y-3" onSubmit={handleEmailLogin}>
         <div>
           <label className="block text-sm font-medium text-slate-700">Email address</label>
-          <div className="mt-1.5 relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <Mail className="h-4 w-4 text-slate-400" />
-            </div>
+          <label className="byjan-field mt-1.5">
+            <Mail className="h-4 w-4 text-slate-400 shrink-0" />
             <input
               type="email"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-            className="byjan-input pl-10 h-10"
               placeholder="you@example.com"
+              autoComplete="email"
             />
-          </div>
+          </label>
         </div>
         <div>
           <label className="block text-sm font-medium text-slate-700">Password</label>
-          <div className="mt-1.5 relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <Lock className="h-4 w-4 text-slate-400" />
-            </div>
+          <label className="byjan-field mt-1.5">
+            <Lock className="h-4 w-4 text-slate-400 shrink-0" />
             <input
               type="password"
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-            className="byjan-input pl-10 h-10"
-              placeholder="••••••••"
+              placeholder="Password"
+              autoComplete="current-password"
             />
-          </div>
+          </label>
         </div>
         <button type="submit" disabled={loading} className="byjan-btn w-full h-10">
-          {loading && <span className="app-loader-ring app-loader-ring-sm" />}
-          {loading ? 'Signing in' : 'Sign in'}
+          {busy === 'email' && <span className="app-loader-ring app-loader-ring-sm" />}
+          {busy === 'email' ? 'Signing in' : 'Sign in'}
         </button>
       </form>
     </AuthScene>

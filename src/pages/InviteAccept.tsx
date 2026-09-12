@@ -123,10 +123,12 @@ export default function InviteAccept() {
             </p>
             <div className="mt-4 flex gap-2">
               <button type="button" className="byjan-btn flex-1" disabled={Boolean(busy)} onClick={() => void accept()}>
-                {busy === 'accept' ? 'Joining…' : 'Accept'}
+                {busy === 'accept' && <span className="app-loader-ring app-loader-ring-sm" />}
+                {busy === 'accept' ? 'Joining' : 'Accept'}
               </button>
               <button type="button" className="byjan-btn-ghost flex-1" disabled={Boolean(busy)} onClick={() => void decline()}>
-                {busy === 'decline' ? 'Declining…' : 'Decline'}
+                {busy === 'decline' && <span className="app-loader-ring app-loader-ring-sm" />}
+                {busy === 'decline' ? 'Declining' : 'Decline'}
               </button>
             </div>
           </>

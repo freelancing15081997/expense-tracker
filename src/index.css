@@ -276,6 +276,7 @@ svg.byjan-glyph {
   border-color: var(--byjan-teal);
   box-shadow: 0 0 0 3px rgba(18, 184, 168, 0.18);
 }
+.byjan-field,
 .byjan-search {
   display: flex;
   align-items: center;
@@ -288,10 +289,15 @@ svg.byjan-glyph {
   min-width: 0;
   box-shadow: inset 0 1px 2px rgba(11, 31, 58, 0.04);
 }
+.byjan-field {
+  height: 40px;
+}
+.byjan-field:focus-within,
 .byjan-search:focus-within {
   border-color: var(--byjan-teal);
   box-shadow: 0 0 0 3px rgba(18, 184, 168, 0.18);
 }
+.byjan-field input,
 .byjan-search input {
   flex: 1;
   min-width: 0;
@@ -301,7 +307,9 @@ svg.byjan-glyph {
   background: transparent;
   font-size: 0.8125rem;
   color: var(--byjan-navy);
+  padding: 0;
 }
+.byjan-field input::placeholder,
 .byjan-search input::placeholder {
   color: #94a3b8;
 }
