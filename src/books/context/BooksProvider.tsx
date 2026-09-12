@@ -16,6 +16,7 @@ import type {
   FinanceJournal,
   FinanceParty,
   FinancePeriod,
+  BooksRole,
   FinanceTenant,
   FixedAsset,
   InboxItem,
@@ -55,6 +56,9 @@ import {
   voidDocument,
   deactivateParty as deactivatePartyRecord,
   type TxCtx,
+  upsertTenantMember,
+  inviteTenantMemberByEmail,
+  removeTenantMember,
 } from '../data/repo';
 import { createChildWorkspace, listOrgDirectory, syncOrgIndexName } from '../data/orgs';
 import { BOOKS_WORKSPACE_EVENT, ownsWorkspace, readActiveWorkspace, selectWorkspace, writeActiveWorkspace, type OrgRecord } from '../core/hierarchy';
@@ -176,6 +180,9 @@ type BooksContextValue = {
   reverse: (journalId: string) => Promise<void>;
   close: (periodId: string) => Promise<void>;
   reopen: (periodId: string) => Promise<void>;
+  inviteMember: (email: string, memberRole: BooksRole, featureIds?: string[]) => Promise<void>;
+  upsertMember: (uid: string, email: string, memberRole: BooksRole, featureIds?: string[]) => Promise<void>;
+  removeMember: (uid: string) => Promise<void>;
   rename: (name: string, logoPath?: string | null, profile?: {
     gstin?: string;
     address?: string;
@@ -334,6 +341,25 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
         throw new Error('Not a member of this Books workspace');
       }
       setTenant(workspace.tenant);
+
+      // Accept Books tenant invite for this email, if any.
+      try {
+        const email = String(currentUser.email || userProfile?.email || '').trim().toLowerCase();
+        const pending = workspace.tenant?.pendingInvites?.[email];
+        if (pending && currentUser.uid) {
+          await upsertTenantMember(db, id, 'owner', {
+            uid: currentUser.uid,
+            email,
+            memberRole: (pending.role as BooksRole) || 'viewer',
+            featureIds: Array.isArray(pending.featureIds) ? pending.featureIds : [],
+          });
+          workspace = await loadWorkspace(db, id);
+          setTenant(workspace.tenant);
+        }
+      } catch {
+        // ignore invite accept failures; user can still use owned workspaces
+      }
+
       setAccounts(workspace.accounts);
       setParties(workspace.parties);
       setJournals(workspace.journals);
@@ -497,7 +523,36 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
     return { db, tenantId, uid: currentUser.uid, role };
   }, [currentUser, tenantId, role]);
 
-  const value = useMemo<BooksContextValue>(() => {
+  
+  const inviteMember = async (email: string, memberRole: BooksRole, featureIds: string[] = []) => {
+    if (!db || !tenantId || !role || !currentUser) throw new Error('Books workspace is not ready');
+    await inviteTenantMemberByEmail(db, tenantId, role, {
+      email,
+      memberRole,
+      featureIds,
+      invitedBy: currentUser.uid,
+    });
+    // Also grant platform books features capped by caller permissions via API.
+    const { grantBooksFeatures } = await import('../../lib/rbac');
+    await grantBooksFeatures({ email, permissionIds: featureIds.length ? featureIds : ['books.access'] });
+    await refresh();
+  };
+
+  const upsertMember = async (uid: string, email: string, memberRole: BooksRole, featureIds: string[] = []) => {
+    if (!db || !tenantId || !role) throw new Error('Books workspace is not ready');
+    await upsertTenantMember(db, tenantId, role, { uid, email, memberRole, featureIds });
+    const { grantBooksFeatures } = await import('../../lib/rbac');
+    await grantBooksFeatures({ uid, email, permissionIds: featureIds.length ? featureIds : ['books.access'] });
+    await refresh();
+  };
+
+  const removeMember = async (uid: string) => {
+    if (!db || !tenantId || !role) throw new Error('Books workspace is not ready');
+    await removeTenantMember(db, tenantId, role, uid);
+    await refresh();
+  };
+
+const value = useMemo<BooksContextValue>(() => {
     const after = async <T,>(work: () => Promise<T>, ok?: string | { title?: string; description?: string }, gate?: 'post' | 'delete') => {
       if (gate) {
         const allowed = await confirmAction(
@@ -593,6 +648,9 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
       reverse: (journalId) => after(() => reverseJournal(ctx(), journalId), 'Journal reversed', 'delete'),
       close: (periodId) => after(() => closePeriod(ctx(), periodId), 'Period closed', 'post'),
       reopen: (periodId) => after(() => reopenPeriod(ctx(), periodId), 'Period reopened'),
+      inviteMember,
+      upsertMember,
+      removeMember,
       rename: async (name, logoPath, profile) => after(async () => {
         await updateTenantName(db, tenantId!, role!, name, logoPath, profile);
         if (currentUser) await syncOrgIndexName(db, currentUser.uid, tenantId!, name.trim());

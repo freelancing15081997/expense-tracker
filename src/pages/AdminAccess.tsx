@@ -92,7 +92,7 @@ export default function AdminAccess() {
       setInviteRoleId((curr) => {
         if (curr) return curr;
         const preferred =
-          memberPayload.roles.find((r) => r.key === 'contributor')
+          memberPayload.roles.find((r) => r.key === 'external')
           || memberPayload.roles.find((r) => !r.isSystem)
           || memberPayload.roles[0];
         return preferred?.id || '';
@@ -136,7 +136,7 @@ export default function AdminAccess() {
   }, [catalog]);
 
   const selectedRole = roles.find((r) => r.id === selectedRoleId) || null;
-  const lockedPermissions = !creatingRole && Boolean(selectedRole && (selectedRole.key === 'owner' || selectedRole.key === 'admin'));
+  const lockedPermissions = !creatingRole && Boolean(selectedRole && (selectedRole.key === 'super_user'));
 
   const onInvite = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -295,7 +295,7 @@ export default function AdminAccess() {
         <Shield className="w-10 h-10 text-slate-400 mx-auto" />
         <h1 className="font-display text-2xl font-semibold text-[#0B1F3A] mt-4 tracking-[-0.03em]">Access restricted</h1>
         <p className="text-sm text-slate-500 mt-2 leading-relaxed">
-          You need admin access to manage organization users, roles, and feature permissions.
+          Only a platform super user can open Access & roles. External signup users never see this console.
         </p>
       </div>
     );
@@ -310,7 +310,7 @@ export default function AdminAccess() {
             <p className="text-[11px] font-semibold tracking-[0.22em] uppercase text-white/70">Access control</p>
             <h1 className="font-display text-[34px] md:text-[40px] font-semibold tracking-[-0.04em] leading-none mt-2">Roles & people</h1>
             <p className="text-sm text-white/75 mt-3 max-w-xl leading-relaxed">
-              Manage organization membership and feature permissions across Dashboard, Expense Tracker, Books, and Admin — stored in Neon.
+              Super users only. Signup users get Default external with no features until you assign them. Promote another super user from Users. Books company access is managed under Books → Settings.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -403,7 +403,7 @@ export default function AdminAccess() {
                             onChange={(e) => void onChangeMemberRole(member.uid, e.target.value)}
                           >
                             {roles.map((role) => (
-                              <option key={role.id} value={role.id}>{role.name}</option>
+                              <option key={role.id} value={role.id}>{role.name}{role.key === 'external' ? ' · signup default' : role.key === 'super_user' ? ' · platform' : ''}</option>
                             ))}
                           </select>
                         </td>

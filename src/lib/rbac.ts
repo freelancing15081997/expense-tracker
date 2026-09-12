@@ -61,6 +61,7 @@ export type RbacSession = {
   permissions: string[];
   roles: RbacRole[];
   permissionCatalog: RbacPermission[];
+  isSuperUser?: boolean;
 };
 
 export async function fetchRbacSession(displayName = '') {
@@ -139,4 +140,19 @@ export function hasPermission(permissions: string[] | null | undefined, id: stri
 
 export function hasAnyPermission(permissions: string[] | null | undefined, ids: string[]) {
   return ids.some((id) => hasPermission(permissions, id));
+}
+
+
+export async function grantBooksFeatures(input: { email?: string; uid?: string; permissionIds: string[] }) {
+  return apiPost<{ pending?: boolean; joined?: boolean; email?: string; uid?: string; permissionIds?: string[]; inviteId?: string }>('/api/rbac', {
+    op: 'grantBooksFeatures',
+    ...input,
+  });
+}
+
+export async function revokeBooksFeatures(input: { uid: string; permissionIds?: string[] }) {
+  return apiPost<{ ok: boolean; permissionIds: string[] }>('/api/rbac', {
+    op: 'revokeBooksFeatures',
+    ...input,
+  });
 }

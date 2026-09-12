@@ -5,11 +5,13 @@ import {
   createCustomRole,
   deleteCustomRole,
   getRbacSession,
+  grantBooksFeatures,
   inviteOrgMember,
   listOrgInvites,
   listOrgMembers,
   removeOrgMember,
   renameOrg,
+  revokeBooksFeatures,
   updateCustomRole,
   updateOrgMember,
 } from './_lib/rbac.js';
@@ -102,6 +104,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (op === 'renameOrg') {
       apiJson(res as any, 200, { org: await renameOrg(user, String(body.name || '')) });
+      return;
+    }
+
+    if (op === 'grantBooksFeatures') {
+      apiJson(res as any, 200, await grantBooksFeatures(user, {
+        email: body.email != null ? String(body.email) : undefined,
+        uid: body.uid != null ? String(body.uid) : undefined,
+        permissionIds: Array.isArray(body.permissionIds) ? body.permissionIds.map(String) : [],
+      }));
+      return;
+    }
+
+    if (op === 'revokeBooksFeatures') {
+      apiJson(res as any, 200, await revokeBooksFeatures(user, {
+        uid: String(body.uid || ''),
+        permissionIds: Array.isArray(body.permissionIds) ? body.permissionIds.map(String) : undefined,
+      }));
       return;
     }
 

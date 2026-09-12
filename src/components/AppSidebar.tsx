@@ -35,7 +35,7 @@ function iconWell(active: boolean) {
 
 export default function AppSidebar({ expanded, pinned, tenant, userProfile, onLogout, onTogglePin }: AppSidebarProps) {
   const location = useLocation();
-  const { can, canAny } = useRbac();
+  const { can, canAny, canAccessPath } = useRbac();
   const booksWrapRef = useRef<HTMLDivElement>(null);
   const [booksFlyout, setBooksFlyout] = useState(false);
   const [mobileBooks, setMobileBooks] = useState(location.pathname.startsWith('/books'));
@@ -51,6 +51,11 @@ export default function AppSidebar({ expanded, pinned, tenant, userProfile, onLo
   const showDashboard = can('dashboard.view');
   const showExpenses = canAny(['expenses.view', 'ledgers.view']);
   const showBooks = canAny(['books.access', 'books.dashboard.view']);
+  const filteredBooksNav = BOOKS_NAV.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => canAccessPath(item.href)),
+  })).filter((group) => group.items.length > 0);
+  const filteredQuickCreate = BOOKS_QUICK_CREATE.filter((item) => canAccessPath(item.href));
   const showSettings = canAny(['settings.view', 'settings.manage']);
   const showAdmin = can('admin.access');
 
@@ -196,7 +201,7 @@ export default function AppSidebar({ expanded, pinned, tenant, userProfile, onLo
 
           {showText && (mobileBooks || onBooks) && (
             <div className="mt-1 space-y-2 pl-1 md:hidden">
-              {BOOKS_NAV.map((group) => (
+              {filteredBooksNav.map((group) => (
                 <div key={group.title}>
                   <p className="px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">{group.title}</p>
                   <div className="space-y-1">
@@ -292,7 +297,7 @@ export default function AppSidebar({ expanded, pinned, tenant, userProfile, onLo
             </Link>
           </div>
           <div className="flex flex-wrap gap-2 mb-4">
-            {BOOKS_QUICK_CREATE.map((item) => (
+            {filteredQuickCreate.map((item) => (
               <Link
                 key={item.href}
                 to={item.href}
@@ -306,7 +311,7 @@ export default function AppSidebar({ expanded, pinned, tenant, userProfile, onLo
             ))}
           </div>
           <div className="grid sm:grid-cols-2 gap-4">
-            {BOOKS_NAV.map((group) => (
+            {filteredBooksNav.map((group) => (
               <section key={group.title}>
                 <p className="flex items-center gap-1.5 px-1 mb-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
                   <GroupIcon title={group.title} className="w-3.5 h-3.5" />

@@ -206,3 +206,15 @@ CREATE TABLE IF NOT EXISTS org_invites (
 CREATE INDEX IF NOT EXISTS org_invites_org_idx ON org_invites (org_id, status);
 CREATE INDEX IF NOT EXISTS org_invites_email_idx ON org_invites (email, status);
 CREATE UNIQUE INDEX IF NOT EXISTS org_invites_token_idx ON org_invites (token);
+
+
+CREATE TABLE IF NOT EXISTS org_member_grants (
+  org_id TEXT NOT NULL,
+  uid TEXT NOT NULL,
+  permission_id TEXT NOT NULL,
+  granted_by TEXT,
+  data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (org_id, uid, permission_id)
+);
+CREATE INDEX IF NOT EXISTS org_member_grants_uid_idx ON org_member_grants (uid);

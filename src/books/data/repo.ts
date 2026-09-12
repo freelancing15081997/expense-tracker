@@ -968,6 +968,79 @@ export async function saveAccount(
   return ref.id;
 }
 
+
+export async function upsertTenantMember(
+  db: Firestore,
+  tenantId: string,
+  role: BooksRole,
+  input: { uid: string; email: string; memberRole: BooksRole; featureIds?: string[] },
+) {
+  assertCan(role, 'manage_settings');
+  const ref = tenantRef(db, tenantId);
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists()) throw new Error('Books workspace not found');
+    const data = snap.data() || {};
+    const memberIds = Array.isArray(data.memberIds) ? [...data.memberIds] : [];
+    if (!memberIds.includes(input.uid)) memberIds.push(input.uid);
+    const members = { ...(data.members && typeof data.members === 'object' ? data.members : {}) } as Record<string, unknown>;
+    members[input.uid] = {
+      role: input.memberRole,
+      email: input.email || '',
+      featureIds: input.featureIds || [],
+    };
+    const pendingInvites = { ...(data.pendingInvites && typeof data.pendingInvites === 'object' ? data.pendingInvites : {}) } as Record<string, unknown>;
+    delete pendingInvites[String(input.email || '').toLowerCase()];
+    tx.update(ref, { memberIds, members, pendingInvites, updatedAt: Date.now() });
+  });
+}
+
+export async function inviteTenantMemberByEmail(
+  db: Firestore,
+  tenantId: string,
+  role: BooksRole,
+  input: { email: string; memberRole: BooksRole; featureIds?: string[]; invitedBy: string },
+) {
+  assertCan(role, 'manage_settings');
+  const email = String(input.email || '').trim().toLowerCase();
+  if (!email || !email.includes('@')) throw new Error('Valid email required');
+  const ref = tenantRef(db, tenantId);
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists()) throw new Error('Books workspace not found');
+    const data = snap.data() || {};
+    const pendingInvites = { ...(data.pendingInvites && typeof data.pendingInvites === 'object' ? data.pendingInvites : {}) } as Record<string, unknown>;
+    pendingInvites[email] = {
+      email,
+      role: input.memberRole,
+      featureIds: input.featureIds || [],
+      invitedBy: input.invitedBy,
+      createdAt: Date.now(),
+    };
+    tx.update(ref, { pendingInvites, updatedAt: Date.now() });
+  });
+}
+
+export async function removeTenantMember(
+  db: Firestore,
+  tenantId: string,
+  role: BooksRole,
+  uid: string,
+) {
+  assertCan(role, 'manage_settings');
+  const ref = tenantRef(db, tenantId);
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists()) throw new Error('Books workspace not found');
+    const data = snap.data() || {};
+    if (data.ownerId === uid) throw new Error('Cannot remove the Books company owner');
+    const memberIds = (Array.isArray(data.memberIds) ? data.memberIds : []).filter((id: string) => id !== uid);
+    const members = { ...(data.members && typeof data.members === 'object' ? data.members : {}) } as Record<string, unknown>;
+    delete members[uid];
+    tx.update(ref, { memberIds, members, updatedAt: Date.now() });
+  });
+}
+
 export async function updateTenantName(
   db: Firestore,
   tenantId: string,

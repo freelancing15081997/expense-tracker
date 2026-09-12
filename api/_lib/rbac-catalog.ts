@@ -41,13 +41,23 @@ export const RBAC_PERMISSIONS: RbacPermissionDef[] = [
   { id: 'books.control.view', tool: 'books', feature: 'control', action: 'view', label: 'View control', description: 'Tax, reports, inbox, approvals, and audit.', sortOrder: 330 },
   { id: 'books.control.manage', tool: 'books', feature: 'control', action: 'manage', label: 'Manage control', description: 'Act on approvals, inbox, and control workflows.', sortOrder: 340 },
   { id: 'books.settings.manage', tool: 'books', feature: 'settings', action: 'manage', label: 'Books settings', description: 'Rename workspace and manage Books company settings.', sortOrder: 350 },
+  { id: 'books.users.manage', tool: 'books', feature: 'users', action: 'manage', label: 'Books users & access', description: 'Invite people into a Books company and grant a subset of the tenant’s Books features.', sortOrder: 360 },
 
-  { id: 'admin.access', tool: 'admin', feature: 'admin', action: 'access', label: 'Access admin', description: 'Open the Access & roles console.', sortOrder: 400 },
-  { id: 'admin.users', tool: 'admin', feature: 'users', action: 'manage', label: 'Manage users', description: 'Invite, assign roles, and disable organization members.', sortOrder: 410 },
-  { id: 'admin.roles', tool: 'admin', feature: 'roles', action: 'manage', label: 'Manage roles', description: 'Create roles and edit the feature permission matrix.', sortOrder: 420 },
+  { id: 'admin.access', tool: 'admin', feature: 'admin', action: 'access', label: 'Access admin', description: 'Open the platform Access & roles console (super users only).', sortOrder: 400 },
+  { id: 'admin.users', tool: 'admin', feature: 'users', action: 'manage', label: 'Manage users', description: 'Invite, assign roles, and disable platform members.', sortOrder: 410 },
+  { id: 'admin.roles', tool: 'admin', feature: 'roles', action: 'manage', label: 'Manage roles', description: 'Edit the default external role and custom role permission matrix.', sortOrder: 420 },
 ];
 
-export type SystemRoleKey = 'owner' | 'admin' | 'manager' | 'accountant' | 'contributor' | 'viewer';
+/** Single platform org. Signup users join as Default external; only super users see admin RBAC. */
+export const PLATFORM_ORG_ID = 'org_platform';
+export const PLATFORM_ORG_NAME = 'Byjan';
+
+/**
+ * Platform system roles.
+ * - super_user: full access + Access & roles. Only a super user can promote another.
+ * - external: default for signup form users. Starts with zero features until a super user assigns them.
+ */
+export type SystemRoleKey = 'super_user' | 'external';
 
 const ALL = () => RBAC_PERMISSIONS.map((p) => p.id);
 
@@ -55,95 +65,23 @@ export const SYSTEM_ROLE_DEFS: Array<{
   key: SystemRoleKey;
   name: string;
   description: string;
+  /** When true, seed always overwrites permissions. When false, create empty once and preserve edits. */
+  syncPermissions: boolean;
   permissions: string[] | '*';
 }> = [
   {
-    key: 'owner',
-    name: 'Owner',
-    description: 'Full access to every tool, including user and role administration.',
+    key: 'super_user',
+    name: 'Super user',
+    description: 'Internal platform operator. Full product access plus Access & roles. Only a super user can create another super user.',
+    syncPermissions: true,
     permissions: '*',
   },
   {
-    key: 'admin',
-    name: 'Admin',
-    description: 'Administer people and roles, and use all product features.',
-    permissions: '*',
-  },
-  {
-    key: 'manager',
-    name: 'Manager',
-    description: 'Run expense trackers and Books day-to-day without admin console access.',
-    permissions: ALL().filter((id) => !id.startsWith('admin.')),
-  },
-  {
-    key: 'accountant',
-    name: 'Accountant',
-    description: 'Accounting-focused Books access with expense visibility.',
-    permissions: [
-      'dashboard.view',
-      'settings.view',
-      'expenses.view',
-      'ledgers.view',
-      'books.access',
-      'books.dashboard.view',
-      'books.accounting.view',
-      'books.accounting.post',
-      'books.accounting.close',
-      'books.sales.view',
-      'books.sales.manage',
-      'books.purchases.view',
-      'books.purchases.manage',
-      'books.banking.view',
-      'books.banking.manage',
-      'books.control.view',
-      'books.control.manage',
-    ],
-  },
-  {
-    key: 'contributor',
-    name: 'Contributor',
-    description: 'Add and edit expenses; limited Books create access.',
-    permissions: [
-      'dashboard.view',
-      'settings.view',
-      'settings.manage',
-      'expenses.view',
-      'expenses.create',
-      'expenses.edit',
-      'ledgers.view',
-      'inbound.email',
-      'books.access',
-      'books.dashboard.view',
-      'books.accounting.view',
-      'books.accounting.post',
-      'books.sales.view',
-      'books.sales.manage',
-      'books.purchases.view',
-      'books.purchases.manage',
-      'books.banking.view',
-      'books.banking.manage',
-      'books.operations.view',
-      'books.control.view',
-    ],
-  },
-  {
-    key: 'viewer',
-    name: 'Viewer',
-    description: 'Read-only access across dashboards, ledgers, and Books.',
-    permissions: [
-      'dashboard.view',
-      'settings.view',
-      'expenses.view',
-      'ledgers.view',
-      'books.access',
-      'books.dashboard.view',
-      'books.accounting.view',
-      'books.sales.view',
-      'books.purchases.view',
-      'books.banking.view',
-      'books.operations.view',
-      'books.control.view',
-    ],
+    key: 'external',
+    name: 'Default external',
+    description: 'Assigned to everyone who registers from signup. Starts with no features until a super user grants them. External users never see platform RBAC.',
+    syncPermissions: false,
+    permissions: [],
   },
 ];
 
@@ -161,7 +99,7 @@ export const ROUTE_PERMISSIONS: Array<{ match: RegExp; anyOf: string[] }> = [
   { match: /^\/books\/(banking|expenses)(\/|$)/, anyOf: ['books.banking.view'] },
   { match: /^\/books\/(inventory|assets|projects|budgets|forecast|revenue|leases)(\/|$)/, anyOf: ['books.operations.view'] },
   { match: /^\/books\/(tax|reports|entities|companies|workbench|inbox|approvals|insights|audit)(\/|$)/, anyOf: ['books.control.view'] },
-  { match: /^\/books\/settings(\/|$)/, anyOf: ['books.settings.manage', 'books.control.view'] },
+  { match: /^\/books\/settings(\/|$)/, anyOf: ['books.settings.manage', 'books.users.manage', 'books.control.view'] },
   { match: /^\/books(\/|$)/, anyOf: ['books.access', 'books.dashboard.view'] },
 ];
 
@@ -178,4 +116,12 @@ export function requiredPermissionForPath(pathname: string): string[] | null {
     if (row.match.test(path)) return row.anyOf;
   }
   return null;
+}
+
+export function isAdminPermission(permissionId: string) {
+  return permissionId.startsWith('admin.');
+}
+
+export function isBooksPermission(permissionId: string) {
+  return permissionId.startsWith('books.');
 }

@@ -38,99 +38,28 @@ var RBAC_PERMISSIONS = [
   { id: "books.control.view", tool: "books", feature: "control", action: "view", label: "View control", description: "Tax, reports, inbox, approvals, and audit.", sortOrder: 330 },
   { id: "books.control.manage", tool: "books", feature: "control", action: "manage", label: "Manage control", description: "Act on approvals, inbox, and control workflows.", sortOrder: 340 },
   { id: "books.settings.manage", tool: "books", feature: "settings", action: "manage", label: "Books settings", description: "Rename workspace and manage Books company settings.", sortOrder: 350 },
-  { id: "admin.access", tool: "admin", feature: "admin", action: "access", label: "Access admin", description: "Open the Access & roles console.", sortOrder: 400 },
-  { id: "admin.users", tool: "admin", feature: "users", action: "manage", label: "Manage users", description: "Invite, assign roles, and disable organization members.", sortOrder: 410 },
-  { id: "admin.roles", tool: "admin", feature: "roles", action: "manage", label: "Manage roles", description: "Create roles and edit the feature permission matrix.", sortOrder: 420 }
+  { id: "books.users.manage", tool: "books", feature: "users", action: "manage", label: "Books users & access", description: "Invite people into a Books company and grant a subset of the tenant\u2019s Books features.", sortOrder: 360 },
+  { id: "admin.access", tool: "admin", feature: "admin", action: "access", label: "Access admin", description: "Open the platform Access & roles console (super users only).", sortOrder: 400 },
+  { id: "admin.users", tool: "admin", feature: "users", action: "manage", label: "Manage users", description: "Invite, assign roles, and disable platform members.", sortOrder: 410 },
+  { id: "admin.roles", tool: "admin", feature: "roles", action: "manage", label: "Manage roles", description: "Edit the default external role and custom role permission matrix.", sortOrder: 420 }
 ];
+var PLATFORM_ORG_ID = "org_platform";
+var PLATFORM_ORG_NAME = "Byjan";
 var ALL = () => RBAC_PERMISSIONS.map((p) => p.id);
 var SYSTEM_ROLE_DEFS = [
   {
-    key: "owner",
-    name: "Owner",
-    description: "Full access to every tool, including user and role administration.",
+    key: "super_user",
+    name: "Super user",
+    description: "Internal platform operator. Full product access plus Access & roles. Only a super user can create another super user.",
+    syncPermissions: true,
     permissions: "*"
   },
   {
-    key: "admin",
-    name: "Admin",
-    description: "Administer people and roles, and use all product features.",
-    permissions: "*"
-  },
-  {
-    key: "manager",
-    name: "Manager",
-    description: "Run expense trackers and Books day-to-day without admin console access.",
-    permissions: ALL().filter((id) => !id.startsWith("admin."))
-  },
-  {
-    key: "accountant",
-    name: "Accountant",
-    description: "Accounting-focused Books access with expense visibility.",
-    permissions: [
-      "dashboard.view",
-      "settings.view",
-      "expenses.view",
-      "ledgers.view",
-      "books.access",
-      "books.dashboard.view",
-      "books.accounting.view",
-      "books.accounting.post",
-      "books.accounting.close",
-      "books.sales.view",
-      "books.sales.manage",
-      "books.purchases.view",
-      "books.purchases.manage",
-      "books.banking.view",
-      "books.banking.manage",
-      "books.control.view",
-      "books.control.manage"
-    ]
-  },
-  {
-    key: "contributor",
-    name: "Contributor",
-    description: "Add and edit expenses; limited Books create access.",
-    permissions: [
-      "dashboard.view",
-      "settings.view",
-      "settings.manage",
-      "expenses.view",
-      "expenses.create",
-      "expenses.edit",
-      "ledgers.view",
-      "inbound.email",
-      "books.access",
-      "books.dashboard.view",
-      "books.accounting.view",
-      "books.accounting.post",
-      "books.sales.view",
-      "books.sales.manage",
-      "books.purchases.view",
-      "books.purchases.manage",
-      "books.banking.view",
-      "books.banking.manage",
-      "books.operations.view",
-      "books.control.view"
-    ]
-  },
-  {
-    key: "viewer",
-    name: "Viewer",
-    description: "Read-only access across dashboards, ledgers, and Books.",
-    permissions: [
-      "dashboard.view",
-      "settings.view",
-      "expenses.view",
-      "ledgers.view",
-      "books.access",
-      "books.dashboard.view",
-      "books.accounting.view",
-      "books.sales.view",
-      "books.purchases.view",
-      "books.banking.view",
-      "books.operations.view",
-      "books.control.view"
-    ]
+    key: "external",
+    name: "Default external",
+    description: "Assigned to everyone who registers from signup. Starts with no features until a super user grants them. External users never see platform RBAC.",
+    syncPermissions: false,
+    permissions: []
   }
 ];
 function permissionIdsForRole(key) {
@@ -138,6 +67,12 @@ function permissionIdsForRole(key) {
   if (!def) return [];
   if (def.permissions === "*") return ALL();
   return [...def.permissions];
+}
+function isAdminPermission(permissionId) {
+  return permissionId.startsWith("admin.");
+}
+function isBooksPermission(permissionId) {
+  return permissionId.startsWith("books.");
 }
 
 // api/_lib/rbac.ts
@@ -152,6 +87,15 @@ function emailOf(value) {
 }
 function newId(prefix) {
   return `${prefix}${randomBytes(10).toString("hex")}`;
+}
+function superUserEmailsFromEnv() {
+  const raw = String(process.env.SUPER_USER_EMAILS || process.env.BYJAN_SUPER_USER_EMAILS || "").trim();
+  if (!raw) return [];
+  return [...new Set(raw.split(/[,;\s]+/).map((e) => e.trim().toLowerCase()).filter(Boolean))];
+}
+function isAllowlistedSuper(email) {
+  const list = superUserEmailsFromEnv();
+  return Boolean(email && list.includes(email));
 }
 var rbacReady = false;
 async function ensureRbacSchema(sql) {
@@ -237,6 +181,18 @@ async function ensureRbacSchema(sql) {
   await db`CREATE INDEX IF NOT EXISTS org_invites_org_idx ON org_invites (org_id, status)`;
   await db`CREATE INDEX IF NOT EXISTS org_invites_email_idx ON org_invites (email, status)`;
   await db`CREATE UNIQUE INDEX IF NOT EXISTS org_invites_token_idx ON org_invites (token)`;
+  await db`
+    CREATE TABLE IF NOT EXISTS org_member_grants (
+      org_id TEXT NOT NULL,
+      uid TEXT NOT NULL,
+      permission_id TEXT NOT NULL,
+      granted_by TEXT,
+      data JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (org_id, uid, permission_id)
+    )
+  `;
+  await db`CREATE INDEX IF NOT EXISTS org_member_grants_uid_idx ON org_member_grants (uid)`;
   for (const perm of RBAC_PERMISSIONS) {
     await db`
       INSERT INTO rbac_permissions (id, tool, feature, action, label, description, sort_order, updated_at)
@@ -282,12 +238,13 @@ async function seedSystemRoles(sql, orgId) {
     )[0];
     const id = text(saved?.id) || roleId;
     map[def.key] = id;
+    if (!def.syncPermissions) continue;
     const wanted = new Set(permissionIdsForRole(def.key));
     const current = rows(
       await sql`SELECT permission_id FROM rbac_role_permissions WHERE role_id = ${id}`
     ).map((r) => text(r.permission_id));
     const have = new Set(current);
-    for (const permissionId of wanted) {
+    for (const permissionId of Array.from(wanted)) {
       if (have.has(permissionId)) continue;
       await sql`
         INSERT INTO rbac_role_permissions (role_id, permission_id)
@@ -295,7 +252,7 @@ async function seedSystemRoles(sql, orgId) {
         ON CONFLICT DO NOTHING
       `;
     }
-    for (const permissionId of have) {
+    for (const permissionId of Array.from(have)) {
       if (wanted.has(permissionId)) continue;
       await sql`DELETE FROM rbac_role_permissions WHERE role_id = ${id} AND permission_id = ${permissionId}`;
     }
@@ -320,6 +277,19 @@ async function rolePermissions(sql, roleId) {
     await sql`SELECT permission_id FROM rbac_role_permissions WHERE role_id = ${roleId}`
   ).map((r) => text(r.permission_id)).filter(Boolean);
 }
+async function memberGrants(sql, orgId, uid) {
+  return rows(
+    await sql`
+      SELECT permission_id FROM org_member_grants
+      WHERE org_id = ${orgId} AND uid = ${uid}
+    `
+  ).map((r) => text(r.permission_id)).filter(Boolean);
+}
+async function effectivePermissions(sql, orgId, uid, roleId) {
+  const fromRole = await rolePermissions(sql, roleId);
+  const grants = await memberGrants(sql, orgId, uid);
+  return [.../* @__PURE__ */ new Set([...fromRole, ...grants])];
+}
 async function listRoles(sql, orgId) {
   const list = rows(
     await sql`
@@ -330,7 +300,9 @@ async function listRoles(sql, orgId) {
         ), 0) AS member_count
       FROM rbac_roles r
       WHERE r.org_id = ${orgId}
-      ORDER BY r.is_system DESC, r.name ASC
+      ORDER BY
+        CASE r.key WHEN 'super_user' THEN 0 WHEN 'external' THEN 1 ELSE 2 END,
+        r.is_system DESC, r.name ASC
     `
   );
   const out = [];
@@ -374,23 +346,28 @@ async function getMember(sql, orgId, uid) {
     updatedAt: text(row.updated_at)
   };
 }
-async function createPersonalOrg(sql, user, displayName) {
-  const orgId = `org_${user.uid}`;
-  const label = text(displayName) || emailOf(user.email).split("@")[0] || "Owner";
-  const name = `${label}'s workspace`;
-  await sql`
-    INSERT INTO orgs (id, name, owner_uid, data, created_at, updated_at)
-    VALUES (${orgId}, ${name}, ${user.uid}, ${JSON.stringify({ kind: "personal" })}::jsonb, NOW(), NOW())
-    ON CONFLICT (id) DO UPDATE SET updated_at = NOW()
-  `;
-  const roles = await seedSystemRoles(sql, orgId);
-  const ownerRoleId = roles.owner;
+async function ensurePlatformOrg(sql, bootstrapOwnerUid = "") {
+  const existing = await getOrg(sql, PLATFORM_ORG_ID);
+  if (!existing) {
+    await sql`
+      INSERT INTO orgs (id, name, owner_uid, data, created_at, updated_at)
+      VALUES (
+        ${PLATFORM_ORG_ID}, ${PLATFORM_ORG_NAME}, ${bootstrapOwnerUid},
+        ${JSON.stringify({ kind: "platform" })}::jsonb, NOW(), NOW()
+      )
+      ON CONFLICT (id) DO NOTHING
+    `;
+  }
+  await seedSystemRoles(sql, PLATFORM_ORG_ID);
+  return PLATFORM_ORG_ID;
+}
+async function upsertPlatformMember(sql, user, roleId, displayName, invitedBy) {
   const email = emailOf(user.email);
+  const label = text(displayName) || email.split("@")[0] || "User";
   await sql`
     INSERT INTO org_members (org_id, uid, role_id, email, display_name, status, invited_by, updated_at)
-    VALUES (${orgId}, ${user.uid}, ${ownerRoleId}, ${email}, ${label}, 'active', ${user.uid}, NOW())
+    VALUES (${PLATFORM_ORG_ID}, ${user.uid}, ${roleId}, ${email}, ${label}, 'active', ${invitedBy}, NOW())
     ON CONFLICT (org_id, uid) DO UPDATE SET
-      role_id = EXCLUDED.role_id,
       email = COALESCE(NULLIF(EXCLUDED.email, ''), org_members.email),
       display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), org_members.display_name),
       status = 'active',
@@ -399,52 +376,44 @@ async function createPersonalOrg(sql, user, displayName) {
   await ledgerUpsertUser(user.uid, {
     email,
     displayName: label,
-    orgId,
+    orgId: PLATFORM_ORG_ID,
     updatedAt: (/* @__PURE__ */ new Date()).toISOString()
   }, true);
-  return orgId;
+}
+async function applyInviteBooksGrants(sql, orgId, uid, inviteData) {
+  const data = inviteData && typeof inviteData === "object" ? inviteData : {};
+  const grants = Array.isArray(data.booksGrants) ? data.booksGrants.map((g) => text(g)).filter((id) => isBooksPermission(id)) : [];
+  for (const permissionId of grants) {
+    await sql`
+      INSERT INTO org_member_grants (org_id, uid, permission_id, granted_by, created_at)
+      VALUES (${orgId}, ${uid}, ${permissionId}, ${text(data.invitedBy) || uid}, NOW())
+      ON CONFLICT DO NOTHING
+    `;
+  }
 }
 async function ensureUserOrg(user, displayName = "") {
   const sql = await sqlReady();
   const profile = await ledgerGetUser(user.uid);
-  const preferred = text(profile?.orgId);
-  if (preferred) {
-    const member = await getMember(sql, preferred, user.uid);
-    if (member?.status === "active") {
-      await seedSystemRoles(sql, preferred);
-      return preferred;
-    }
-  }
-  const byUid = rows(
-    await sql`
-      SELECT org_id FROM org_members
-      WHERE uid = ${user.uid} AND status = 'active'
-      ORDER BY created_at ASC
-      LIMIT 1
-    `
-  )[0];
-  if (byUid?.org_id) {
-    await seedSystemRoles(sql, text(byUid.org_id));
-    await ledgerUpsertUser(user.uid, { orgId: text(byUid.org_id) }, true);
-    return text(byUid.org_id);
-  }
+  const label = text(displayName || profile?.displayName || "");
   const email = emailOf(user.email || profile?.email);
+  await ensurePlatformOrg(sql, user.uid);
+  const roles = await seedSystemRoles(sql, PLATFORM_ORG_ID);
   if (email) {
     const invite = rows(
       await sql`
-        SELECT id, org_id, role_id FROM org_invites
-        WHERE email = ${email} AND status = 'pending'
+        SELECT id, org_id, role_id, data FROM org_invites
+        WHERE email = ${email} AND status = 'pending' AND org_id = ${PLATFORM_ORG_ID}
         ORDER BY created_at ASC
         LIMIT 1
       `
     )[0];
     if (invite) {
-      const label = text(displayName || profile?.displayName || email.split("@")[0] || "Member");
+      const name = label || email.split("@")[0] || "Member";
       await sql`
         INSERT INTO org_members (org_id, uid, role_id, email, display_name, status, invited_by, updated_at)
         VALUES (
-          ${text(invite.org_id)}, ${user.uid}, ${text(invite.role_id)},
-          ${email}, ${label}, 'active', ${user.uid}, NOW()
+          ${PLATFORM_ORG_ID}, ${user.uid}, ${text(invite.role_id)},
+          ${email}, ${name}, 'active', ${user.uid}, NOW()
         )
         ON CONFLICT (org_id, uid) DO UPDATE SET
           role_id = EXCLUDED.role_id,
@@ -453,18 +422,44 @@ async function ensureUserOrg(user, displayName = "") {
           status = 'active',
           updated_at = NOW()
       `;
+      await applyInviteBooksGrants(sql, PLATFORM_ORG_ID, user.uid, invite.data);
       await sql`
         UPDATE org_invites
         SET status = 'accepted', updated_at = NOW(),
           data = COALESCE(data, '{}'::jsonb) || ${JSON.stringify({ acceptedBy: user.uid })}::jsonb
         WHERE id = ${text(invite.id)}
       `;
-      await seedSystemRoles(sql, text(invite.org_id));
-      await ledgerUpsertUser(user.uid, { orgId: text(invite.org_id), email, displayName: label }, true);
-      return text(invite.org_id);
+      await ledgerUpsertUser(user.uid, { orgId: PLATFORM_ORG_ID, email, displayName: name }, true);
+      return PLATFORM_ORG_ID;
     }
   }
-  return createPersonalOrg(sql, user, text(displayName || profile?.displayName || ""));
+  const member = await getMember(sql, PLATFORM_ORG_ID, user.uid);
+  const superCount = await countActiveSuperUsers(sql, PLATFORM_ORG_ID);
+  const allowlisted = isAllowlistedSuper(email);
+  const bootstrapSuper = !superUserEmailsFromEnv().length && superCount === 0 && !member;
+  if (!member) {
+    const asSuper = allowlisted || bootstrapSuper;
+    const roleId = asSuper ? roles.super_user : roles.external;
+    if (asSuper) {
+      await sql`
+        UPDATE orgs SET owner_uid = ${user.uid}, updated_at = NOW()
+        WHERE id = ${PLATFORM_ORG_ID}
+      `;
+    }
+    await upsertPlatformMember(sql, user, roleId, label, user.uid);
+    return PLATFORM_ORG_ID;
+  }
+  if (allowlisted && member.roleKey !== "super_user" && roles.super_user) {
+    await sql`
+      UPDATE org_members SET role_id = ${roles.super_user}, updated_at = NOW()
+      WHERE org_id = ${PLATFORM_ORG_ID} AND uid = ${user.uid}
+    `;
+  }
+  if (text(profile?.orgId) && text(profile?.orgId) !== PLATFORM_ORG_ID) {
+    await ledgerUpsertUser(user.uid, { orgId: PLATFORM_ORG_ID }, true);
+  }
+  await seedSystemRoles(sql, PLATFORM_ORG_ID);
+  return PLATFORM_ORG_ID;
 }
 async function getRbacSession(user, displayName = "") {
   const sql = await sqlReady();
@@ -478,9 +473,10 @@ async function getRbacSession(user, displayName = "") {
   return {
     org,
     member,
-    permissions: await rolePermissions(sql, member.roleId),
+    permissions: await effectivePermissions(sql, orgId, user.uid, member.roleId),
     roles: await listRoles(sql, orgId),
-    permissionCatalog: RBAC_PERMISSIONS
+    permissionCatalog: RBAC_PERMISSIONS,
+    isSuperUser: member.roleKey === "super_user"
   };
 }
 async function requireOrgPermission(user, permissionId, displayName = "") {
@@ -574,13 +570,13 @@ async function assertRoleInOrg(sql, orgId, roleId) {
   if (!row) throw new ApiError(400, "Role not found in this organization");
   return row;
 }
-async function countActiveOwners(sql, orgId) {
+async function countActiveSuperUsers(sql, orgId) {
   const row = rows(
     await sql`
       SELECT COUNT(*) AS count
       FROM org_members m
       JOIN rbac_roles r ON r.id = m.role_id
-      WHERE m.org_id = ${orgId} AND m.status = 'active' AND r.key = 'owner'
+      WHERE m.org_id = ${orgId} AND m.status = 'active' AND r.key = 'super_user'
     `
   )[0];
   return Number(row?.count || 0);
@@ -591,8 +587,8 @@ async function inviteOrgMember(user, input) {
   const email = emailOf(input.email);
   if (!email || !email.includes("@")) throw new ApiError(400, "Valid email required");
   const role = await assertRoleInOrg(sql, session.org.id, text(input.roleId));
-  if (text(role.key) === "owner" && session.member.roleKey !== "owner") {
-    throw new ApiError(403, "Only an owner can invite another owner");
+  if (text(role.key) === "super_user" && session.member.roleKey !== "super_user") {
+    throw new ApiError(403, "Only a super user can invite another super user");
   }
   const existingMember = rows(
     await sql`
@@ -670,12 +666,12 @@ async function updateOrgMember(user, input) {
   let nextRoleId = target.roleId;
   if (input.roleId) {
     const role = await assertRoleInOrg(sql, session.org.id, text(input.roleId));
-    if (text(role.key) === "owner" && session.member.roleKey !== "owner") {
-      throw new ApiError(403, "Only an owner can assign the owner role");
+    if (text(role.key) === "super_user" && session.member.roleKey !== "super_user") {
+      throw new ApiError(403, "Only a super user can assign the super user role");
     }
-    if (target.roleKey === "owner" && text(role.key) !== "owner") {
-      if (await countActiveOwners(sql, session.org.id) <= 1) {
-        throw new ApiError(400, "Keep at least one active owner");
+    if (target.roleKey === "super_user" && text(role.key) !== "super_user") {
+      if (await countActiveSuperUsers(sql, session.org.id) <= 1) {
+        throw new ApiError(400, "Keep at least one active super user");
       }
     }
     nextRoleId = text(role.id);
@@ -686,8 +682,8 @@ async function updateOrgMember(user, input) {
     if (!["active", "disabled"].includes(status)) throw new ApiError(400, "Invalid status");
     if (status === "disabled") {
       if (targetUid === user.uid) throw new ApiError(400, "You cannot disable your own account");
-      if (target.roleKey === "owner" && await countActiveOwners(sql, session.org.id) <= 1) {
-        throw new ApiError(400, "Keep at least one active owner");
+      if (target.roleKey === "super_user" && await countActiveSuperUsers(sql, session.org.id) <= 1) {
+        throw new ApiError(400, "Keep at least one active super user");
       }
     }
     nextStatus = status;
@@ -707,9 +703,10 @@ async function removeOrgMember(user, uidToRemove) {
   if (targetUid === user.uid) throw new ApiError(400, "You cannot remove yourself");
   const target = await getMember(sql, session.org.id, targetUid);
   if (!target) throw new ApiError(404, "Member not found");
-  if (target.roleKey === "owner" && await countActiveOwners(sql, session.org.id) <= 1) {
-    throw new ApiError(400, "Keep at least one active owner");
+  if (target.roleKey === "super_user" && await countActiveSuperUsers(sql, session.org.id) <= 1) {
+    throw new ApiError(400, "Keep at least one active super user");
   }
+  await sql`DELETE FROM org_member_grants WHERE org_id = ${session.org.id} AND uid = ${targetUid}`;
   await sql`DELETE FROM org_members WHERE org_id = ${session.org.id} AND uid = ${targetUid}`;
   return { ok: true };
 }
@@ -725,6 +722,9 @@ async function cancelOrgInvite(user, inviteId) {
 }
 async function createCustomRole(user, input) {
   const session = await requireOrgPermission(user, "admin.roles");
+  if (session.member.roleKey !== "super_user") {
+    throw new ApiError(403, "Only a super user can create roles");
+  }
   const sql = await sqlReady();
   const name = text(input.name).trim();
   if (!name) throw new ApiError(400, "Role name required");
@@ -739,9 +739,7 @@ async function createCustomRole(user, input) {
   } catch {
     throw new ApiError(409, "A role with a similar name already exists");
   }
-  const allowed = new Set(RBAC_PERMISSIONS.map((p) => p.id));
-  for (const permissionId of input.permissionIds || []) {
-    if (!allowed.has(permissionId)) continue;
+  for (const permissionId of sanitizeRolePermissionIds(input.permissionIds || [], key)) {
     await sql`
       INSERT INTO rbac_role_permissions (role_id, permission_id)
       VALUES (${id}, ${permissionId})
@@ -752,6 +750,9 @@ async function createCustomRole(user, input) {
 }
 async function updateCustomRole(user, input) {
   const session = await requireOrgPermission(user, "admin.roles");
+  if (session.member.roleKey !== "super_user") {
+    throw new ApiError(403, "Only a super user can edit roles");
+  }
   const sql = await sqlReady();
   const role = await assertRoleInOrg(sql, session.org.id, text(input.roleId));
   if (input.name != null) {
@@ -767,11 +768,10 @@ async function updateCustomRole(user, input) {
     `;
   }
   if (input.permissionIds) {
-    if (Boolean(role.is_system) && (text(role.key) === "owner" || text(role.key) === "admin")) {
-      throw new ApiError(400, "Owner and Admin always retain full permissions");
+    if (text(role.key) === "super_user") {
+      throw new ApiError(400, "Super user always retains full permissions");
     }
-    const allowed = new Set(RBAC_PERMISSIONS.map((p) => p.id));
-    const next = [...new Set(input.permissionIds.filter((id) => allowed.has(id)))];
+    const next = sanitizeRolePermissionIds(input.permissionIds, text(role.key));
     await sql`DELETE FROM rbac_role_permissions WHERE role_id = ${text(role.id)}`;
     for (const permissionId of next) {
       await sql`
@@ -785,6 +785,9 @@ async function updateCustomRole(user, input) {
 }
 async function deleteCustomRole(user, roleId) {
   const session = await requireOrgPermission(user, "admin.roles");
+  if (session.member.roleKey !== "super_user") {
+    throw new ApiError(403, "Only a super user can delete roles");
+  }
   const sql = await sqlReady();
   const role = await assertRoleInOrg(sql, session.org.id, text(roleId));
   if (Boolean(role.is_system)) throw new ApiError(400, "System roles cannot be deleted");
@@ -806,7 +809,123 @@ async function renameOrg(user, name) {
   await sql`UPDATE orgs SET name = ${next}, updated_at = NOW() WHERE id = ${session.org.id}`;
   return getOrg(sql, session.org.id);
 }
+function sanitizeRolePermissionIds(permissionIds, roleKey) {
+  const allowed = new Set(RBAC_PERMISSIONS.map((p) => p.id));
+  let next = [...new Set(permissionIds.filter((id) => allowed.has(id)))];
+  if (roleKey !== "super_user") next = next.filter((id) => !isAdminPermission(id));
+  return next;
+}
+async function grantBooksFeatures(user, input) {
+  const session = await requireAnyOrgPermission(user, ["books.users.manage", "books.settings.manage"]);
+  const sql = await sqlReady();
+  const wanted = [...new Set((input.permissionIds || []).map((id) => text(id)).filter(Boolean))];
+  if (!wanted.length) throw new ApiError(400, "Select at least one Books feature");
+  for (const id of wanted) {
+    if (!isBooksPermission(id)) throw new ApiError(400, `Only Books features can be granted here: ${id}`);
+    if (!session.permissions.includes(id) && !session.isSuperUser) {
+      throw new ApiError(403, `You cannot grant a feature you do not have: ${id}`);
+    }
+  }
+  if (!wanted.includes("books.access") && (session.permissions.includes("books.access") || session.isSuperUser)) {
+    wanted.push("books.access");
+  }
+  let targetUid = text(input.uid);
+  const email = emailOf(input.email);
+  if (!targetUid && email) {
+    const byEmail = rows(
+      await sql`SELECT id FROM users WHERE lower(COALESCE(email, '')) = ${email} LIMIT 1`
+    )[0];
+    targetUid = text(byEmail?.id);
+    if (!targetUid) {
+      const external = rows(
+        await sql`SELECT id FROM rbac_roles WHERE org_id = ${session.org.id} AND key = 'external' LIMIT 1`
+      )[0];
+      if (!external?.id) throw new ApiError(500, "Default external role missing");
+      await sql`
+        UPDATE org_invites
+        SET status = 'cancelled', updated_at = NOW()
+        WHERE org_id = ${session.org.id} AND email = ${email} AND status = 'pending'
+      `;
+      const id = newId("oinv_");
+      const token = newId("otk_");
+      const expires = new Date(Date.now() + 14 * 24 * 60 * 60 * 1e3).toISOString();
+      await sql`
+        INSERT INTO org_invites (
+          id, org_id, email, role_id, status, invited_by, token, data, created_at, updated_at, expires_at
+        )
+        VALUES (
+          ${id}, ${session.org.id}, ${email}, ${text(external.id)}, 'pending', ${user.uid}, ${token},
+          ${JSON.stringify({
+        orgName: session.org.name,
+        roleKey: "external",
+        roleName: "Default external",
+        booksGrants: wanted,
+        invitedByBooksTenant: true,
+        invitedBy: user.uid
+      })}::jsonb,
+          NOW(), NOW(), ${expires}::timestamptz
+        )
+      `;
+      return { pending: true, email, permissionIds: wanted, inviteId: id };
+    }
+  }
+  if (!targetUid) throw new ApiError(400, "User email or uid required");
+  const existing = await getMember(sql, session.org.id, targetUid);
+  if (!existing) {
+    const external = rows(
+      await sql`SELECT id FROM rbac_roles WHERE org_id = ${session.org.id} AND key = 'external' LIMIT 1`
+    )[0];
+    if (!external?.id) throw new ApiError(500, "Default external role missing");
+    const userRow = rows(
+      await sql`SELECT email, data FROM users WHERE id = ${targetUid} LIMIT 1`
+    )[0];
+    const data = userRow?.data && typeof userRow.data === "object" ? userRow.data : {};
+    const displayName = text(data.displayName) || emailOf(userRow?.email).split("@")[0] || "User";
+    await sql`
+      INSERT INTO org_members (org_id, uid, role_id, email, display_name, status, invited_by, updated_at)
+      VALUES (
+        ${session.org.id}, ${targetUid}, ${text(external.id)},
+        ${emailOf(userRow?.email) || email}, ${displayName}, 'active', ${user.uid}, NOW()
+      )
+      ON CONFLICT (org_id, uid) DO NOTHING
+    `;
+  }
+  for (const permissionId of wanted) {
+    await sql`
+      INSERT INTO org_member_grants (org_id, uid, permission_id, granted_by, created_at)
+      VALUES (${session.org.id}, ${targetUid}, ${permissionId}, ${user.uid}, NOW())
+      ON CONFLICT DO NOTHING
+    `;
+  }
+  return {
+    pending: false,
+    uid: targetUid,
+    permissionIds: await memberGrants(sql, session.org.id, targetUid)
+  };
+}
+async function revokeBooksFeatures(user, input) {
+  const session = await requireAnyOrgPermission(user, ["books.users.manage", "books.settings.manage"]);
+  const sql = await sqlReady();
+  const targetUid = text(input.uid);
+  if (!targetUid) throw new ApiError(400, "User required");
+  if (input.permissionIds?.length) {
+    for (const permissionId of input.permissionIds) {
+      if (!isBooksPermission(permissionId)) continue;
+      await sql`
+        DELETE FROM org_member_grants
+        WHERE org_id = ${session.org.id} AND uid = ${targetUid} AND permission_id = ${permissionId}
+      `;
+    }
+  } else {
+    await sql`
+      DELETE FROM org_member_grants
+      WHERE org_id = ${session.org.id} AND uid = ${targetUid} AND permission_id LIKE 'books.%'
+    `;
+  }
+  return { ok: true, permissionIds: await memberGrants(sql, session.org.id, targetUid) };
+}
 export {
+  PLATFORM_ORG_ID,
   RBAC_PERMISSIONS,
   cancelOrgInvite,
   createCustomRole,
@@ -814,6 +933,7 @@ export {
   ensureRbacSchema,
   ensureUserOrg,
   getRbacSession,
+  grantBooksFeatures,
   inviteOrgMember,
   listOrgInvites,
   listOrgMembers,
@@ -821,6 +941,7 @@ export {
   renameOrg,
   requireAnyOrgPermission,
   requireOrgPermission,
+  revokeBooksFeatures,
   updateCustomRole,
   updateOrgMember,
   userHasPermission
