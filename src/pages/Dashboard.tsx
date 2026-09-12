@@ -7,7 +7,7 @@ import { listAllExpenses } from '../lib/expenses';
 import { useBooksTenantMeta } from '../lib/tenant';
 import { getCurrencySymbol } from '../lib/currency';
 import { initials, readRecentLedgers, sparkDays } from '../lib/ledger-advanced';
-import { Plus, Check, X, Users, Building2, ArrowRight, BookOpen } from 'lucide-react';
+import { Plus, Check, X, Users, Building2, ChevronRight, BookOpen } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 import AppLoader from '../components/AppLoader';
@@ -211,33 +211,83 @@ export default function Dashboard() {
   const hello = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   const firstName = String(userProfile?.displayName || currentUser?.email || 'there').split(' ')[0];
 
+  const renderLedgerCard = (book: BookItem) => {
+    const role = book.roles[currentUser!.uid]?.role || 'viewer';
+    const stat = bookStats[book.id];
+    const symbol = getCurrencySymbol(book.currency);
+    const maxSpark = Math.max(...(stat?.spark || [1]), 1);
+    return (
+      <Link to={`/book/${book.id}`} key={book.id} className="byjan-ledger-tile byjan-lift">
+        <span className="byjan-ledger-mono">{initials(book.name)}</span>
+        <div className="min-w-0">
+          <h3 className="text-[15px] font-semibold text-[#0B1F3A] leading-tight tracking-tight">{book.name}</h3>
+          <p className="text-[12px] text-slate-500 mt-0.5 truncate">
+            {book.archived ? 'Archived · ' : ''}{book.pinned ? 'Pinned · ' : ''}{role} · {book.currency}
+            {stat ? ` · ${stat.entries}` : ''}
+          </p>
+        </div>
+        <span className="text-right shrink-0">
+          <span className="byjan-money block text-[15px] font-semibold tabular-nums leading-none text-[#0B1F3A]">
+            {stat ? `${stat.net < 0 ? '−' : ''}${symbol}${Math.abs(stat.net).toLocaleString()}` : '—'}
+          </span>
+          {stat && (
+            <svg className="byjan-spark mt-1.5 ml-auto" viewBox="0 0 64 18" aria-hidden>
+              <polyline
+                fill="rgba(11,31,58,0.06)"
+                stroke="#0B1F3A"
+                strokeWidth="1.5"
+                points={`0,18 ${stat.spark.map((v, i) => `${(i / Math.max(stat.spark.length - 1, 1)) * 64},${17 - (v / maxSpark) * 14}`).join(' ')} 64,18`}
+              />
+            </svg>
+          )}
+        </span>
+      </Link>
+    );
+  };
+
   return (
-    <div className="max-w-5xl mx-auto space-y-4">
+    <div className="max-w-5xl mx-auto space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">{hello}</p>
-          <h1 className="text-[22px] font-semibold text-[#0B1F3A] font-display tracking-tight truncate">{firstName}</h1>
+          <p className="ios-caption">{hello}</p>
+          <h1 className="ios-large-title truncate">{firstName}</h1>
         </div>
         <div className="flex flex-wrap gap-2">
           {!expensesOnly && (
-            <Link to="/books" className="byjan-btn-ghost !h-9">
+            <Link to="/books" className="byjan-btn-ghost !h-9 !rounded-full">
               <BookOpen className="w-4 h-4" />
               Books
             </Link>
           )}
-          <button onClick={() => setShowNewBook(true)} className="byjan-btn !h-9">
+          <button onClick={() => setShowNewBook(true)} className="byjan-btn !h-9 !rounded-full">
             <Plus className="w-4 h-4" />
             New ledger
           </button>
         </div>
       </div>
 
-      {books.length > 0 && (
-        <div className="byjan-kpi-bar">
-          <div className="byjan-kpi"><span>Net</span><b className="byjan-money">{net < 0 ? '−' : ''}{currency}{Math.abs(net).toLocaleString()}</b></div>
-          <div className="byjan-kpi"><span>In</span><b className="byjan-money">{currency}{globalStats.totalIn.toLocaleString()}</b></div>
-          <div className="byjan-kpi"><span>Out</span><b className="byjan-money">{currency}{globalStats.totalOut.toLocaleString()}</b></div>
-          <div className="byjan-kpi"><span>This month</span><b className="byjan-money">{currency}{globalStats.monthOut.toLocaleString()}</b></div>
+      {!expensesOnly && books.length > 0 && (
+        <div className="grid sm:grid-cols-2 gap-3">
+          <div className="ios-widget ios-widget-hero sm:col-span-2">
+            <p className="ios-caption">Net position</p>
+            <p className="byjan-money mt-2 text-[34px] font-semibold tracking-tight leading-none">{net < 0 ? '−' : ''}{currency}{Math.abs(net).toLocaleString()}</p>
+            <p className="ios-caption mt-3">Across {books.length} {books.length === 1 ? 'ledger' : 'ledgers'}</p>
+          </div>
+          <div className="ios-widget">
+            <p className="ios-caption">In</p>
+            <p className="byjan-money mt-2 text-[22px] font-semibold tracking-tight">{currency}{globalStats.totalIn.toLocaleString()}</p>
+          </div>
+          <div className="ios-widget">
+            <p className="ios-caption">Out this month</p>
+            <p className="byjan-money mt-2 text-[22px] font-semibold tracking-tight">{currency}{globalStats.monthOut.toLocaleString()}</p>
+          </div>
+        </div>
+      )}
+
+      {expensesOnly && books.length > 0 && (
+        <div className="ios-widget ios-widget-hero">
+          <p className="ios-caption">Net</p>
+          <p className="byjan-money mt-1 text-[28px] font-semibold tracking-tight leading-none">{net < 0 ? '−' : ''}{currency}{Math.abs(net).toLocaleString()}</p>
         </div>
       )}
 
@@ -317,88 +367,63 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className={expensesOnly ? 'space-y-4' : 'grid lg:grid-cols-[1.15fr_0.85fr] gap-4 items-start'}>
-        <section className="byjan-desk">
-          <div className="byjan-desk-head">
-            <div>
-              <h2 className="text-sm font-semibold text-[#0B1F3A]">{expensesOnly ? 'Your ledgers' : 'Ledgers'}</h2>
-              {recentBooks[0] && <p className="text-[11px] text-slate-500 mt-0.5">Last opened {recentBooks[0].name}</p>}
-            </div>
-            <div className="flex items-center gap-2">
+      <div className={expensesOnly ? 'space-y-4' : 'grid lg:grid-cols-[1.15fr_0.85fr] gap-6 items-start'}>
+        <section>
+          <div className="flex items-center justify-between gap-2 ios-section-label">
+            <span>{expensesOnly ? 'Ledgers' : 'Ledgers'}</span>
+            <span className="flex items-center gap-2">
               {books.some((book) => book.archived) && (
                 <button type="button" className="byjan-chip" data-on={showArchived} onClick={() => setShowArchived((v) => !v)}>Archived</button>
               )}
-              <span className="text-xs text-slate-400">{visibleBooks.length}</span>
-            </div>
+              {recentBooks[0] && <span className="font-normal">Last opened {recentBooks[0].name}</span>}
+            </span>
           </div>
           {loading ? (
             <AppLoader title="Ledgers" message="Loading the books you can open." />
           ) : books.length === 0 ? (
-            <div className="text-center py-12">
+            <div className="ios-widget text-center py-10">
               <Building2 className="w-8 h-8 text-slate-300 mx-auto mb-3" />
-              <h3 className="text-sm font-semibold text-slate-900">No ledgers yet</h3>
-              <p className="text-sm text-slate-500 mt-1">Create one or wait for an invitation.</p>
+              <h3 className="text-[15px] font-semibold text-[#0B1F3A]">No ledgers yet</h3>
+              <p className="ios-caption mt-1">Create one or wait for an invitation.</p>
             </div>
           ) : (
-            <>
-              <div className="px-3 pt-3">
-                <ListControls
-                  query={bookList.query}
-                  onQuery={bookList.setQuery}
-                  page={bookList.page}
-                  totalPages={bookList.totalPages}
-                  onPage={bookList.setPage}
-                  pageSize={bookList.pageSize}
-                  onPageSize={bookList.setPageSize}
-                  total={bookList.filtered.length}
-                  placeholder="Search ledgers"
-                />
+            <div className="space-y-3">
+              <ListControls
+                query={bookList.query}
+                onQuery={bookList.setQuery}
+                page={bookList.page}
+                totalPages={bookList.totalPages}
+                onPage={bookList.setPage}
+                pageSize={bookList.pageSize}
+                onPageSize={bookList.setPageSize}
+                total={bookList.filtered.length}
+                placeholder="Search ledgers"
+              />
+              <div className={expensesOnly ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3' : 'grid grid-cols-1 sm:grid-cols-2 gap-3'}>
+                {bookList.pageRows.map(renderLedgerCard)}
               </div>
-              <div className="mt-1">
-                {bookList.pageRows.map((book) => {
-                  const role = book.roles[currentUser!.uid]?.role || 'viewer';
-                  const stat = bookStats[book.id];
-                  const symbol = getCurrencySymbol(book.currency);
-                  return (
-                    <Link to={`/book/${book.id}`} key={book.id} className="byjan-desk-row">
-                      <span className="byjan-ledger-mono">{initials(book.name)}</span>
-                      <div className="min-w-0">
-                        <p className="text-[13px] font-semibold text-[#0B1F3A] truncate">{book.name}</p>
-                        <p className="text-[11px] text-slate-500 truncate">
-                          {book.archived ? 'Archived · ' : ''}{role} · {book.currency}{stat ? ` · ${stat.entries}` : ''}
-                        </p>
-                      </div>
-                      <span className="byjan-money text-[13px] font-semibold tabular-nums text-[#0B1F3A]">
-                        {stat ? `${stat.net < 0 ? '−' : ''}${symbol}${Math.abs(stat.net).toLocaleString()}` : '—'}
-                      </span>
-                    </Link>
-                  );
-                })}
-              </div>
-            </>
+            </div>
           )}
         </section>
 
         {!expensesOnly && (
-        <section className="byjan-desk">
-          <div className="byjan-desk-head">
-            <div>
-              <h2 className="text-sm font-semibold text-[#0B1F3A]">Books</h2>
-              {tenant?.name && <p className="text-[11px] text-slate-500 mt-0.5">{tenant.name}</p>}
-            </div>
-            <Link to="/books" className="text-xs font-semibold text-[#0B1F3A] hover:underline inline-flex items-center gap-1">
-              Open <ArrowRight className="w-3.5 h-3.5" />
-            </Link>
+        <section>
+          <div className="flex items-center justify-between ios-section-label">
+            <span>Books{tenant?.name ? ` · ${tenant.name}` : ''}</span>
+            <Link to="/books" className="text-[#0B1F3A] font-semibold">Open</Link>
           </div>
-          {BOOKS_TREE.map((branch) => (
-            <Link key={branch.id} to={branch.href} className="byjan-desk-row byjan-book-row">
-              <span className="byjan-ledger-mono">{branch.name.slice(0, 2)}</span>
-              <div className="min-w-0">
-                <p className="text-[13px] font-semibold text-[#0B1F3A] truncate">{branch.name}</p>
-                <p className="text-[11px] text-slate-500 truncate">{branch.blurb}</p>
-              </div>
-            </Link>
-          ))}
+          <div className="ios-group">
+            {BOOKS_TREE.map((branch) => (
+              <Link key={branch.id} to={branch.href} className="ios-row">
+                <span className="ios-glyph">{branch.name.slice(0, 2)}</span>
+                <span className="min-w-0">
+                  <span className="block text-[16px] font-medium text-[#0B1F3A] tracking-tight truncate">{branch.name}</span>
+                  <span className="block text-[12px] text-[#8e8e93] truncate">{branch.blurb}</span>
+                </span>
+                <ChevronRight className="ios-chevron w-5 h-5" />
+              </Link>
+            ))}
+          </div>
         </section>
         )}
       </div>

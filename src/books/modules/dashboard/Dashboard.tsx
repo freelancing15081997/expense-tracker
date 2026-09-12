@@ -2,7 +2,8 @@ import React, { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useBooks } from '../../context/BooksProvider';
 import { signedBalance } from '../../engine/chartOfAccounts';
-import { Card, FeatureIcon, Kpi, Money, PageShell, Status, btnAccent, btnGhost } from '../../ui';
+import { FeatureIcon, Money, PageShell, Status, btnAccent, btnGhost } from '../../ui';
+import { ChevronRight } from 'lucide-react';
 import { formatMoney, todayISO } from '../../core/money';
 import { BOOKS_QUICK_CREATE } from '../../nav';
 import { BOOKS_TREE } from '../../catalog/modules';
@@ -38,144 +39,146 @@ export default function Dashboard() {
   const unrec = bankTxns.filter((t) => !t.reconciled).length;
 
   return (
-    <PageShell title={tenant?.name || 'Books'} subtitle="Live balances, drafts, and the work waiting on you.">
+    <PageShell title={tenant?.name || 'Books'} subtitle="Balances, drafts, and what needs you next.">
       <div className="flex flex-wrap gap-2">
         {BOOKS_QUICK_CREATE.map((item, index) => (
-          <Link key={item.href} to={item.href} className={index === 0 ? btnAccent : btnGhost}>
+          <Link key={item.href} to={item.href} className={`${index === 0 ? btnAccent : btnGhost} !rounded-full`}>
             <FeatureIcon href={item.href} className="w-3.5 h-3.5" />
             {item.name}
           </Link>
         ))}
       </div>
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-        {cards.map((card) => (
-          <Link key={card.label} to={card.href}>
-            <Kpi label={card.label}>
-              <span className="flex items-center gap-2">
-                <FeatureIcon href={card.href} className="w-5 h-5" />
-                <Money minor={card.value} currency={currency} />
-              </span>
-            </Kpi>
+
+      <div className="grid sm:grid-cols-2 gap-3">
+        <Link to="/books/reports" className="ios-widget ios-widget-hero sm:col-span-2">
+          <p className="ios-caption">Net</p>
+          <p className="mt-2 text-[32px] font-semibold tracking-tight leading-none"><Money minor={cards[5].value} currency={currency} /></p>
+        </Link>
+        {cards.slice(0, 4).map((card) => (
+          <Link key={card.label} to={card.href} className="ios-widget">
+            <p className="ios-caption">{card.label}</p>
+            <p className="mt-2 text-[20px] font-semibold tracking-tight"><Money minor={card.value} currency={currency} /></p>
           </Link>
         ))}
       </div>
 
-      <div className="grid lg:grid-cols-[1.2fr_0.8fr] gap-3">
-        <Card className="p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Income vs expenses</p>
-          <p className="text-xs text-slate-500 mt-1 mb-3">Posted account balances only.</p>
-          <div className="h-48">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={[
-                { name: 'Income', amount: cards[3].value / 100, fill: '#12B8A8' },
-                { name: 'Expenses', amount: cards[4].value / 100, fill: '#0B1F3A' },
-              ]}>
-                <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 11 }} width={48} />
-                <Tooltip formatter={(value: number) => formatMoney(Math.round(Number(value) * 100), currency)} />
-                <Bar dataKey="amount" radius={6}>
-                  <Cell fill="#12B8A8" />
-                  <Cell fill="#0B1F3A" />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+      <div className="grid lg:grid-cols-[1.15fr_0.85fr] gap-6">
+        <div>
+          <p className="ios-section-label">Income vs expenses</p>
+          <div className="ios-widget">
+            <div className="h-44">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={[
+                  { name: 'Income', amount: cards[3].value / 100, fill: '#12B8A8' },
+                  { name: 'Expenses', amount: cards[4].value / 100, fill: '#0B1F3A' },
+                ]}>
+                  <XAxis dataKey="name" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11 }} width={48} axisLine={false} tickLine={false} />
+                  <Tooltip formatter={(value: number) => formatMoney(Math.round(Number(value) * 100), currency)} />
+                  <Bar dataKey="amount" radius={8}>
+                    <Cell fill="#12B8A8" />
+                    <Cell fill="#0B1F3A" />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </div>
-        </Card>
-        <Card className="p-4 space-y-2">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Work queue</p>
-          {[
-            { href: '/books/invoices', label: `${drafts.length} draft${drafts.length === 1 ? '' : 's'}` },
-            { href: '/books/collections', label: `${overdue.length} overdue invoice${overdue.length === 1 ? '' : 's'}` },
-            { href: '/books/payment-run', label: `${openBills.length} unpaid bill${openBills.length === 1 ? '' : 's'}` },
-            { href: '/books/approvals', label: `${pending} pending approval${pending === 1 ? '' : 's'}` },
-            { href: '/books/banking', label: `${unrec} unreconciled bank item${unrec === 1 ? '' : 's'}` },
-          ].map((item) => (
-            <Link key={item.href} to={item.href} className="block text-sm text-[#0B1F3A] hover:text-teal-800 hover:underline">
-              {item.label}
-            </Link>
-          ))}
-        </Card>
+        </div>
+        <div>
+          <p className="ios-section-label">Needs attention</p>
+          <div className="ios-group">
+            {[
+              { href: '/books/invoices', label: `${drafts.length} draft${drafts.length === 1 ? '' : 's'}` },
+              { href: '/books/collections', label: `${overdue.length} overdue invoice${overdue.length === 1 ? '' : 's'}` },
+              { href: '/books/payment-run', label: `${openBills.length} unpaid bill${openBills.length === 1 ? '' : 's'}` },
+              { href: '/books/approvals', label: `${pending} pending approval${pending === 1 ? '' : 's'}` },
+              { href: '/books/banking', label: `${unrec} unreconciled` },
+            ].map((item) => (
+              <Link key={item.href} to={item.href} className="ios-row">
+                <span className="text-[16px] font-medium text-[#0B1F3A] tracking-tight">{item.label}</span>
+                <ChevronRight className="ios-chevron w-5 h-5" />
+              </Link>
+            ))}
+          </div>
+        </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
-        <Card className="p-4"><p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Customers</p><p className="text-xl font-display mt-1">{customers}</p></Card>
-        <Card className="p-4"><p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Vendors</p><p className="text-xl font-display mt-1">{vendors}</p></Card>
-        <Card className="p-4"><p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Drafts</p><p className="text-xl font-display mt-1">{drafts.length}</p></Card>
-        <Card className="p-4"><p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Journals</p><p className="text-xl font-display mt-1">{posted}</p></Card>
-      </div>
-
-      {(overdue.length > 0 || openBills.length > 0 || pending > 0 || unrec > 0) && (
-        <Card className="p-4 border-amber-200 bg-amber-50 space-y-1">
-          {overdue.length > 0 && <p className="text-sm font-medium text-amber-900">{overdue.length} overdue invoice{overdue.length === 1 ? '' : 's'} — <Link to="/books/collections" className="underline">Collections</Link></p>}
-          {openBills.length > 0 && <p className="text-sm font-medium text-amber-900">{openBills.length} unpaid bill{openBills.length === 1 ? '' : 's'} — <Link to="/books/payment-run" className="underline">Payment run</Link></p>}
-          {pending > 0 && <p className="text-sm font-medium text-amber-900">{pending} pending approval{pending === 1 ? '' : 's'} — <Link to="/books/approvals" className="underline">Approvals</Link></p>}
-          {unrec > 0 && <p className="text-sm font-medium text-amber-900">{unrec} unreconciled bank item{unrec === 1 ? '' : 's'} — <Link to="/books/banking" className="underline">Banking</Link></p>}
-          <p className="text-sm font-medium text-amber-900">Close checklist — <Link to="/books/close" className="underline">Month-end close</Link></p>
-        </Card>
-      )}
-
-      <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-2">
-        {BOOKS_TREE.map((branch) => (
-          <Card key={branch.id} className="p-3.5 space-y-2">
-            <Link to={branch.href} className="font-semibold text-[#0B1F3A] hover:underline inline-flex items-center gap-2">
-              <span className="byjan-ledger-mono !w-8 !h-8 !rounded-lg !text-[10px]">{branch.name.slice(0, 2)}</span>
-              {branch.name}
-            </Link>
-            <ul className="space-y-0.5">
-              {branch.items.map((item) => (
-                <li key={item.href}>
-                  <Link to={item.href} className="text-[13px] text-slate-600 hover:text-[#0B1F3A] flex items-center gap-2 py-1">
-                    <FeatureIcon href={item.href} className="w-3.5 h-3.5 shrink-0" />
-                    <span className="truncate">{item.name}</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </Card>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {[
+          { label: 'Customers', value: customers },
+          { label: 'Vendors', value: vendors },
+          { label: 'Drafts', value: drafts.length },
+          { label: 'Journals', value: posted },
+        ].map((item) => (
+          <div key={item.label} className="ios-widget">
+            <p className="ios-caption">{item.label}</p>
+            <p className="mt-2 text-[22px] font-semibold tracking-tight text-[#0B1F3A]">{item.value}</p>
+          </div>
         ))}
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-3">
-        <Card>
-          <div className="px-4 py-3 border-b border-slate-100 flex justify-between">
-            <h2 className="text-sm font-semibold text-slate-800">Recent journals</h2>
-            <Link to="/books/journals" className="text-xs font-semibold text-slate-500 hover:text-slate-800">Open</Link>
+      {(overdue.length > 0 || openBills.length > 0 || pending > 0 || unrec > 0) && (
+        <div className="ios-group">
+          {overdue.length > 0 && <Link to="/books/collections" className="ios-row"><span>{overdue.length} overdue invoices</span><ChevronRight className="ios-chevron w-5 h-5" /></Link>}
+          {openBills.length > 0 && <Link to="/books/payment-run" className="ios-row"><span>{openBills.length} unpaid bills</span><ChevronRight className="ios-chevron w-5 h-5" /></Link>}
+          {pending > 0 && <Link to="/books/approvals" className="ios-row"><span>{pending} pending approvals</span><ChevronRight className="ios-chevron w-5 h-5" /></Link>}
+          {unrec > 0 && <Link to="/books/banking" className="ios-row"><span>{unrec} unreconciled items</span><ChevronRight className="ios-chevron w-5 h-5" /></Link>}
+          <Link to="/books/close" className="ios-row"><span>Month-end close</span><ChevronRight className="ios-chevron w-5 h-5" /></Link>
+        </div>
+      )}
+
+      {BOOKS_TREE.map((branch) => (
+        <div key={branch.id}>
+          <p className="ios-section-label">{branch.name}</p>
+          <div className="ios-group">
+            {branch.items.map((item) => (
+              <Link key={item.href} to={item.href} className="ios-row">
+                <span className="ios-glyph"><FeatureIcon href={item.href} className="w-4 h-4" /></span>
+                <span className="text-[16px] font-medium text-[#0B1F3A] tracking-tight truncate">{item.name}</span>
+                <ChevronRight className="ios-chevron w-5 h-5" />
+              </Link>
+            ))}
           </div>
-          {journals.slice(0, 6).length === 0 ? <p className="p-4 text-sm text-slate-500">No journals posted yet.</p> : (
-            <ul className="divide-y divide-slate-100">
-              {journals.slice(0, 6).map((j) => (
-                <li key={j.id} className="px-4 py-2.5 flex items-center justify-between gap-3 text-sm">
-                  <div className="min-w-0">
-                    <p className="font-medium text-slate-800 truncate">{j.number} · {j.description}</p>
-                    <p className="text-xs text-slate-500">{j.date}</p>
-                  </div>
-                  <Status value={j.status} />
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-        <Card>
-          <div className="px-4 py-3 border-b border-slate-100 flex justify-between">
-            <h2 className="text-sm font-semibold text-slate-800">Open documents</h2>
-            <Link to="/books/invoices" className="text-xs font-semibold text-slate-500 hover:text-slate-800">Invoices</Link>
+        </div>
+      ))}
+
+      <div className="grid lg:grid-cols-2 gap-6">
+        <div>
+          <div className="flex items-center justify-between ios-section-label">
+            <span>Recent journals</span>
+            <Link to="/books/journals" className="text-[#0B1F3A] font-semibold">Open</Link>
           </div>
-          {documents.filter((d) => d.status === 'draft' || d.status === 'posted').slice(0, 6).length === 0 ? (
-            <p className="p-4 text-sm text-slate-500">No open invoices, bills, or expenses.</p>
-          ) : (
-            <ul className="divide-y divide-slate-100">
-              {documents.filter((d) => d.status === 'draft' || d.status === 'posted').slice(0, 6).map((d) => (
-                <li key={d.id} className="px-4 py-2.5 flex items-center justify-between gap-3 text-sm">
-                  <div className="min-w-0">
-                    <p className="font-medium text-slate-800 truncate">{d.number}</p>
-                    <p className="text-xs text-slate-500 capitalize">{d.kind} · {d.date}</p>
-                  </div>
-                  <Money minor={d.totalMinor - d.paidMinor} currency={currency} />
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
+          <div className="ios-group">
+            {journals.slice(0, 6).length === 0 ? <p className="ios-row ios-caption">No journals posted yet.</p> : journals.slice(0, 6).map((j) => (
+              <div key={j.id} className="ios-row">
+                <span className="min-w-0">
+                  <span className="block text-[15px] font-medium text-[#0B1F3A] truncate">{j.number} · {j.description}</span>
+                  <span className="block text-[12px] text-[#8e8e93]">{j.date}</span>
+                </span>
+                <Status value={j.status} />
+              </div>
+            ))}
+          </div>
+        </div>
+        <div>
+          <div className="flex items-center justify-between ios-section-label">
+            <span>Open documents</span>
+            <Link to="/books/invoices" className="text-[#0B1F3A] font-semibold">Invoices</Link>
+          </div>
+          <div className="ios-group">
+            {documents.filter((d) => d.status === 'draft' || d.status === 'posted').slice(0, 6).length === 0 ? (
+              <p className="ios-row ios-caption">No open invoices, bills, or expenses.</p>
+            ) : documents.filter((d) => d.status === 'draft' || d.status === 'posted').slice(0, 6).map((d) => (
+              <div key={d.id} className="ios-row">
+                <span className="min-w-0">
+                  <span className="block text-[15px] font-medium text-[#0B1F3A] truncate">{d.number}</span>
+                  <span className="block text-[12px] text-[#8e8e93] capitalize">{d.kind} · {d.date}</span>
+                </span>
+                <Money minor={d.totalMinor - d.paidMinor} currency={currency} />
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </PageShell>
   );

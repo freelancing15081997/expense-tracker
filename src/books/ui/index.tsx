@@ -30,13 +30,13 @@ export function PageShell({
       {!embedded && (
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h1 className="font-display text-[28px] font-semibold tracking-tight text-[#0B1F3A] flex items-center gap-3">
-              <span className="w-11 h-11 rounded-xl bg-[#0B1F3A] text-white flex items-center justify-center shadow-[0_8px_16px_-10px_rgba(11,31,58,0.7)]">
+            <h1 className="ios-large-title flex items-center gap-3">
+              <span className="w-11 h-11 rounded-[14px] bg-[#0B1F3A] text-white flex items-center justify-center shadow-[0_10px_20px_-12px_rgba(11,31,58,0.7)]">
                 <FeatureIcon href={location.pathname} className="w-5 h-5" />
               </span>
               {title}
             </h1>
-            {subtitle && <p className="text-sm text-slate-500 mt-1 leading-relaxed">{subtitle}</p>}
+            {subtitle && <p className="ios-caption mt-1">{subtitle}</p>}
           </div>
           {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
         </div>
