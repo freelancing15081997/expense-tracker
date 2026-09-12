@@ -33,6 +33,7 @@ export type RbacMember = {
   invitedBy: string;
   createdAt?: string;
   updatedAt?: string;
+  grantIds?: string[];
 };
 
 export type RbacInvite = {
@@ -154,5 +155,13 @@ export async function revokeBooksFeatures(input: { uid: string; permissionIds?: 
   return apiPost<{ ok: boolean; permissionIds: string[] }>('/api/rbac', {
     op: 'revokeBooksFeatures',
     ...input,
+  });
+}
+
+export async function setMemberPrivileges(uid: string, permissionIds: string[]) {
+  return apiPost<{ ok: boolean; uid: string; grantIds: string[]; effectiveIds: string[] }>('/api/rbac', {
+    op: 'setMemberPrivileges',
+    uid,
+    permissionIds,
   });
 }

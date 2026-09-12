@@ -634,11 +634,12 @@ async function listOrgMembers(user) {
         COALESCE(NULLIF(m.display_name, ''), m.email) ASC
     `
   );
-  return {
-    ...session,
-    members: list.map((row) => ({
+  const members = [];
+  for (const row of list) {
+    const uid = text(row.uid);
+    members.push({
       orgId: text(row.org_id),
-      uid: text(row.uid),
+      uid,
       roleId: text(row.role_id),
       roleKey: text(row.role_key),
       roleName: text(row.role_name),
@@ -647,9 +648,11 @@ async function listOrgMembers(user) {
       status: text(row.status) || "active",
       invitedBy: text(row.invited_by),
       createdAt: text(row.created_at),
-      updatedAt: text(row.updated_at)
-    }))
-  };
+      updatedAt: text(row.updated_at),
+      grantIds: await memberGrants(sql, session.org.id, uid)
+    });
+  }
+  return { ...session, members };
 }
 async function listOrgInvites(user) {
   const session = await requireOrgPermission(user, "admin.users");
@@ -1042,6 +1045,36 @@ async function revokeBooksFeatures(user, input) {
   }
   return { ok: true, permissionIds: await memberGrants(sql, session.org.id, targetUid) };
 }
+async function setMemberPrivileges(user, input) {
+  const session = await requireOrgPermission(user, "admin.users");
+  if (session.member.roleKey !== "super_user") {
+    throw new ApiError(403, "Only a super user can edit per-user privileges");
+  }
+  const sql = await sqlReady();
+  const targetUid = text(input.uid);
+  if (!targetUid) throw new ApiError(400, "User required");
+  const member = await getMember(sql, session.org.id, targetUid);
+  if (!member) throw new ApiError(404, "Member not found");
+  if (member.roleKey === "super_user") {
+    throw new ApiError(400, "Super users already have every privilege");
+  }
+  const catalog = new Set(RBAC_PERMISSIONS.map((p) => p.id));
+  const next = [...new Set((input.permissionIds || []).map((id) => text(id)).filter(Boolean))].filter((id) => catalog.has(id) && !isAdminPermission(id));
+  await sql`DELETE FROM org_member_grants WHERE org_id = ${session.org.id} AND uid = ${targetUid}`;
+  for (const permissionId of next) {
+    await sql`
+      INSERT INTO org_member_grants (org_id, uid, permission_id, granted_by, created_at)
+      VALUES (${session.org.id}, ${targetUid}, ${permissionId}, ${user.uid}, NOW())
+      ON CONFLICT DO NOTHING
+    `;
+  }
+  return {
+    ok: true,
+    uid: targetUid,
+    grantIds: await memberGrants(sql, session.org.id, targetUid),
+    effectiveIds: await effectivePermissions(sql, session.org.id, targetUid, member.roleId)
+  };
+}
 export {
   PLATFORM_ORG_ID,
   RBAC_PERMISSIONS,
@@ -1060,6 +1093,7 @@ export {
   requireAnyOrgPermission,
   requireOrgPermission,
   revokeBooksFeatures,
+  setMemberPrivileges,
   updateCustomRole,
   updateOrgMember,
   userHasPermission

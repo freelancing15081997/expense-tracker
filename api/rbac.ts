@@ -12,6 +12,7 @@ import {
   removeOrgMember,
   renameOrg,
   revokeBooksFeatures,
+  setMemberPrivileges,
   updateCustomRole,
   updateOrgMember,
 } from './_lib/rbac.js';
@@ -120,6 +121,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       apiJson(res as any, 200, await revokeBooksFeatures(user, {
         uid: String(body.uid || ''),
         permissionIds: Array.isArray(body.permissionIds) ? body.permissionIds.map(String) : undefined,
+      }));
+      return;
+    }
+
+    if (op === 'setMemberPrivileges') {
+      apiJson(res as any, 200, await setMemberPrivileges(user, {
+        uid: String(body.uid || ''),
+        permissionIds: Array.isArray(body.permissionIds) ? body.permissionIds.map(String) : [],
       }));
       return;
     }
