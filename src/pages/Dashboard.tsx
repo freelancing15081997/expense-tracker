@@ -6,7 +6,7 @@ import { createLedger, listLedgers } from '../lib/ledgers';
 import { listAllExpenses } from '../lib/expenses';
 import { useBooksTenantMeta } from '../lib/tenant';
 import { getCurrencySymbol } from '../lib/currency';
-import { initials, readRecentLedgers, sparkDays, tileHue } from '../lib/ledger-advanced';
+import { initials, readRecentLedgers, sparkDays } from '../lib/ledger-advanced';
 import { Plus, Check, X, Users, Building2, ArrowRight, BookOpen, Sparkles } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
@@ -219,7 +219,7 @@ export default function Dashboard() {
             <h1 className="text-base font-semibold text-slate-900 font-display truncate">{hello}, {firstName}</h1>
             <p className="text-[11px] text-slate-500 truncate">
               {books.length > 0
-                ? `Net ${net < 0 ? '−' : ''}${currency}${Math.abs(net).toLocaleString()} · In ${currency}${globalStats.totalIn.toLocaleString()} · Out ${currency}${globalStats.totalOut.toLocaleString()} · Month ${currency}${globalStats.monthOut.toLocaleString()}`
+                ? <span className="byjan-money">{`Net ${net < 0 ? '−' : ''}${currency}${Math.abs(net).toLocaleString()} · In ${currency}${globalStats.totalIn.toLocaleString()} · Out ${currency}${globalStats.totalOut.toLocaleString()} · Month ${currency}${globalStats.monthOut.toLocaleString()}`}</span>
                 : (expensesOnly ? 'Shared ledgers you can post to.' : 'Ledgers and Books in one workspace.')}
               {globalStats.reimbursable > 0 ? ` · Reimburse ${currency}${globalStats.reimbursable.toLocaleString()}` : ''}
             </p>
@@ -361,17 +361,12 @@ export default function Dashboard() {
                 const role = book.roles[currentUser!.uid]?.role || 'viewer';
                 const stat = bookStats[book.id];
                 const symbol = getCurrencySymbol(book.currency);
-                const hue = book.accentHue || tileHue(book.name);
                 const maxSpark = Math.max(...(stat?.spark || [1]), 1);
                 return (
                   <Link
                     to={`/book/${book.id}`}
                     key={book.id}
                     className="byjan-ledger-tile byjan-lift"
-                    style={{
-                      ['--tile-ink' as string]: `hsl(${hue} 42% 26%)`,
-                      ['--tile-wash' as string]: `hsl(${hue} 46% 94% / 0.92)`,
-                    }}
                   >
                     <span className="byjan-ledger-mono">{initials(book.name)}</span>
                     <div className="min-w-0">
@@ -383,16 +378,16 @@ export default function Dashboard() {
                       </p>
                     </div>
                     <span className="text-right shrink-0">
-                      <span className={`block text-[13px] font-bold tabular-nums leading-none ${!stat ? 'text-slate-400' : stat.net >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                      <span className={`byjan-money block text-[13px] font-semibold tabular-nums leading-none ${!stat ? 'text-slate-400' : 'text-slate-900'}`}>
                         {stat ? `${stat.net < 0 ? '−' : ''}${symbol}${Math.abs(stat.net).toLocaleString()}` : '—'}
                       </span>
                       {stat && (
-                        <svg className="byjan-spark mt-1 ml-auto" viewBox="0 0 68 20" aria-hidden>
+                        <svg className="byjan-spark mt-1 ml-auto" viewBox="0 0 64 18" aria-hidden>
                           <polyline
-                            fill={`hsla(${hue}, 42%, 32%, 0.12)`}
-                            stroke={`hsl(${hue} 42% 28%)`}
-                            strokeWidth="1.7"
-                            points={`0,20 ${stat.spark.map((v, i) => `${(i / Math.max(stat.spark.length - 1, 1)) * 68},${19 - (v / maxSpark) * 16}`).join(' ')} 68,20`}
+                            fill="rgba(11,31,58,0.06)"
+                            stroke="#0B1F3A"
+                            strokeWidth="1.5"
+                            points={`0,18 ${stat.spark.map((v, i) => `${(i / Math.max(stat.spark.length - 1, 1)) * 64},${17 - (v / maxSpark) * 14}`).join(' ')} 64,18`}
                           />
                         </svg>
                       )}
@@ -414,12 +409,15 @@ export default function Dashboard() {
             </Link>
           </div>
           {tenant?.name && <p className="text-xs text-slate-500 -mt-1">{tenant.name}</p>}
-          <div className="grid sm:grid-cols-2 gap-3">
+          <div className="grid sm:grid-cols-2 gap-2">
             {BOOKS_TREE.map((branch) => (
-              <Link key={branch.id} to={branch.href} className="byjan-card byjan-lift p-3.5">
-                <p className="font-semibold text-sm text-slate-900">{branch.name}</p>
-                <p className="text-xs text-slate-500 mt-1 line-clamp-2">{branch.blurb}</p>
-                <p className="text-[11px] text-slate-400 mt-2">{branch.items.length} live tools</p>
+              <Link key={branch.id} to={branch.href} className="byjan-desk-tile byjan-lift">
+                <span className="byjan-ledger-mono">{branch.name.slice(0, 2)}</span>
+                <div className="min-w-0">
+                  <h3 className="text-[13px] font-semibold text-slate-900">{branch.name}</h3>
+                  <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-2">{branch.blurb}</p>
+                  <p className="text-[10px] text-slate-400 mt-1">{branch.items.length} tools</p>
+                </div>
               </Link>
             ))}
           </div>

@@ -42,6 +42,12 @@ export default function Layout() {
     setMobileMenuOpen(false);
   }, [location.pathname]);
 
+  useEffect(() => {
+    try {
+      document.documentElement.dataset.privacy = localStorage.getItem('byjan.privacy') === '1' ? 'on' : '';
+    } catch { /* ignore */ }
+  }, []);
+
   const loadNotifications = () => {
     if (!currentUser) return;
     listNotifications().then((notifs) => {

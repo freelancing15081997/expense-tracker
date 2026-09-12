@@ -407,6 +407,21 @@ export function readLastQuick(bookId: string) {
   }
 }
 
+export function missingReceiptIds(expenses: Array<Record<string, unknown>>, min = 200) {
+  return new Set(
+    expenses
+      .filter((exp) => String(exp.entryType || 'out') === 'out' && Number(exp.amount || 0) >= min && !exp.receiptPath && !exp.receiptUrl)
+      .map((exp) => String(exp.id || '')),
+  );
+}
+
+export function taxYearRange(kind: 'calendar' | 'fy-in', now = new Date()) {
+  const year = now.getFullYear();
+  if (kind === 'calendar') return { from: `${year}-01-01`, to: `${year}-12-31`, label: String(year) };
+  const start = now.getMonth() >= 3 ? year : year - 1;
+  return { from: `${start}-04-01`, to: `${start + 1}-03-31`, label: `FY ${start}-${String(start + 1).slice(2)}` };
+}
+
 export function writeLastQuick(bookId: string, patch: { category?: string; merchant?: string }) {
   try {
     localStorage.setItem(`byjan.quick.${bookId}`, JSON.stringify({ ...readLastQuick(bookId), ...patch }));

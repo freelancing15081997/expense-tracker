@@ -38,6 +38,7 @@ import {
   anomalyIds,
   dueRecurringPosts,
   isoDay,
+  missingReceiptIds,
   nearDupeIds,
   readRecurring,
   readWatchMerchants,
@@ -197,6 +198,10 @@ export default function BookView() {
   const [hideDrafts, setHideDrafts] = useState(false);
   const [staleOnly, setStaleOnly] = useState(false);
   const [anomalyOnly, setAnomalyOnly] = useState(false);
+  const [missingOnly, setMissingOnly] = useState(false);
+  const [privacy, setPrivacy] = useState(() => {
+    try { return localStorage.getItem('byjan.privacy') === '1'; } catch { return false; }
+  });
   const [lastDeleted, setLastDeleted] = useState<Record<string, unknown> | null>(null);
   const skipFilterSave = useRef(true);
   const [unsentEmailChange, setUnsentEmailChange] = useState<{action: string, detail: string} | null>(null);  const navigate = useNavigate();
@@ -298,7 +303,7 @@ export default function BookView() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, itemsPerPage, typeFilter, dateFrom, dateTo, methodFilter, reimbursableOnly, uncategorizedOnly, hideTransfers, flaggedOnly, amountMin, amountMax, hideDrafts, staleOnly, anomalyOnly]);
+  }, [searchQuery, itemsPerPage, typeFilter, dateFrom, dateTo, methodFilter, reimbursableOnly, uncategorizedOnly, hideTransfers, flaggedOnly, amountMin, amountMax, hideDrafts, staleOnly, anomalyOnly, missingOnly]);
 
   useEffect(() => {
     skipFilterSave.current = true;
@@ -357,6 +362,7 @@ export default function BookView() {
   useEffect(() => {
     const density = localStorage.getItem('byjan.density') || '';
     if (density) document.documentElement.dataset.density = density;
+    if (localStorage.getItem('byjan.privacy') === '1') document.documentElement.dataset.privacy = 'on';
     const onKey = (event: KeyboardEvent) => {
       const key = event.key.toLowerCase();
       if (event.ctrlKey || event.metaKey || event.altKey) return;
@@ -387,10 +393,24 @@ export default function BookView() {
         document.documentElement.dataset.density = next;
         try { localStorage.setItem('byjan.density', next); } catch { /* ignore */ }
       }
+      if (key === 'h') {
+        event.preventDefault();
+        setPrivacy((curr) => {
+          const next = !curr;
+          document.documentElement.dataset.privacy = next ? 'on' : '';
+          try { localStorage.setItem('byjan.privacy', next ? '1' : '0'); } catch { /* ignore */ }
+          return next;
+        });
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.privacy = privacy ? 'on' : '';
+    try { localStorage.setItem('byjan.privacy', privacy ? '1' : '0'); } catch { /* ignore */ }
+  }, [privacy]);
 
   useEffect(() => {
     if (!bookId || ledgerTab !== 'audit') return;
@@ -854,7 +874,7 @@ export default function BookView() {
 
   const handleDeleteExpense = async (id: string, description: string) => {
     if (!canWrite || !currentUser) return;
-    if (confirm('Remove this entry? It stays in the ledger for audit and is hidden from lists and totals.')) {
+    if (confirm('Delete this entry?')) {
       setIsDeleting(id);
       try {
         const gone = expenses.find((row) => row.id === id);
@@ -863,7 +883,7 @@ export default function BookView() {
         const rows = await listExpenses(bookId);
         setExpenses(rows.sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt)));
         await notifyTeamMembers('Deleted an entry', `Removed entry for "${description}"`, `${userProfile?.displayName || currentUser?.email} deleted "${description}" from ${book.name}`);
-        addToast('Entry removed. The record is kept for audit.', 'success');
+        addToast('Entry deleted.', 'success');
       } catch (err: any) {
         console.error("Delete failed:", err);
         addToast("Delete failed: " + err.message, 'error');
@@ -914,7 +934,7 @@ export default function BookView() {
 
   const runBulk = async (kind: 'delete' | 'reimburse' | 'category', categoryName?: string) => {
     if (!canWrite || !bookId || !selectedIds.length) return;
-    if (kind === 'delete' && !confirm(`Remove ${selectedIds.length} entries? They stay for audit.`)) return;
+    if (kind === 'delete' && !confirm(`Delete ${selectedIds.length} ${selectedIds.length === 1 ? 'entry' : 'entries'}?`)) return;
     setBulkBusy(kind);
     try {
       for (const id of selectedIds) {
@@ -924,7 +944,7 @@ export default function BookView() {
       }
       await refreshExpenses();
       setSelectedIds([]);
-      addToast(kind === 'delete' ? 'Selected entries removed.' : 'Selected entries updated.', 'success');
+      addToast(kind === 'delete' ? 'Selected entries deleted.' : 'Selected entries updated.', 'success');
     } catch (err: any) {
       addToast(err?.message || 'Bulk action failed', 'error');
     } finally {
@@ -1053,7 +1073,7 @@ export default function BookView() {
 
   const handleDeleteLedger = async () => {
     if (!currentUser || !bookId || !book) return;
-    if (!confirm(`Delete ledger “${book.name}”? It leaves everyone’s list. Entries are kept for audit.`)) return;
+    if (!confirm(`Delete ledger “${book.name}”?`)) return;
     setDeletingLedger(true);
     try {
       await softDeleteLedger(bookId);
@@ -1087,6 +1107,7 @@ export default function BookView() {
   const anomalySet = anomalyIds(expenses);
   const dupeSet = nearDupeIds(expenses);
   const staleSet = staleReimburseIds(expenses);
+  const missingSet = missingReceiptIds(expenses);
   const watchSet = new Set(readWatchMerchants(book).map((name) => name.toLowerCase()));
   const q = searchQuery.trim().toLowerCase();
   const filteredExpenses = expenses.filter((exp) => {
@@ -1111,6 +1132,7 @@ export default function BookView() {
     if (hideDrafts && exp.status === 'draft') return false;
     if (staleOnly && !staleSet.has(exp.id)) return false;
     if (anomalyOnly && !anomalySet.has(exp.id)) return false;
+    if (missingOnly && !missingSet.has(exp.id)) return false;
     return true;
   });
   const sortedExpenses = [...filteredExpenses].sort((a, b) => {
@@ -1154,6 +1176,7 @@ export default function BookView() {
     hideDrafts,
     staleOnly,
     anomalyOnly,
+    missingOnly,
     amountMin,
     amountMax,
   ].filter(Boolean).length;
@@ -1185,6 +1208,7 @@ export default function BookView() {
     setHideDrafts(false);
     setStaleOnly(false);
     setAnomalyOnly(false);
+    setMissingOnly(false);
     setAmountMin('');
     setAmountMax('');
   };
@@ -1273,19 +1297,19 @@ export default function BookView() {
             <div className="byjan-stat-grid">
               <div className="byjan-stat">
                 <p className="byjan-stat-label">Net</p>
-                <p className={cn('byjan-stat-value', balance >= 0 ? 'text-emerald-600' : 'text-rose-600')}>{balance < 0 ? '−' : ''}{getCurrencySymbol(book.currency)}{Math.abs(balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                <p className={cn('byjan-stat-value byjan-money', balance >= 0 ? 'text-emerald-700' : 'text-slate-800')}>{balance < 0 ? '−' : ''}{getCurrencySymbol(book.currency)}{Math.abs(balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
               </div>
               <div className="byjan-stat">
                 <p className="byjan-stat-label">Out</p>
-                <p className="byjan-stat-value text-rose-600">{getCurrencySymbol(book.currency)}{totalOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                <p className="byjan-stat-value byjan-money text-slate-800">{getCurrencySymbol(book.currency)}{totalOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
               </div>
               <div className="byjan-stat">
                 <p className="byjan-stat-label">In</p>
-                <p className="byjan-stat-value text-emerald-600">{getCurrencySymbol(book.currency)}{totalIn.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                <p className="byjan-stat-value byjan-money text-slate-800">{getCurrencySymbol(book.currency)}{totalIn.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
               </div>
               <div className="byjan-stat">
                 <p className="byjan-stat-label">Month</p>
-                <p className="byjan-stat-value text-[#0B1F3A]">{getCurrencySymbol(book.currency)}{monthOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                <p className="byjan-stat-value byjan-money text-[#0B1F3A]">{getCurrencySymbol(book.currency)}{monthOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
               </div>
             </div>
             {(budget > 0 || reimbursableOpen > 0 || isAuditor) && (
@@ -1464,6 +1488,10 @@ export default function BookView() {
               onStaleOnly={setStaleOnly}
               anomalyOnly={anomalyOnly}
               onAnomalyOnly={setAnomalyOnly}
+              missingOnly={missingOnly}
+              onMissingOnly={setMissingOnly}
+              privacy={privacy}
+              onPrivacy={setPrivacy}
               onCopyFilterLink={() => {
                 const params = new URLSearchParams();
                 if (searchQuery) params.set('q', searchQuery);
@@ -1491,18 +1519,18 @@ export default function BookView() {
                     await updateExpense(bookId!, String(lastDeleted.id), { deleted: false, deletedAt: null, status: lastDeleted.status || 'recorded' });
                     setLastDeleted(null);
                     await refreshExpenses();
-                    addToast('Last removal undone.', 'success');
+                    addToast('Entry restored.', 'success');
                   } catch (err: any) {
                     addToast(err?.message || 'Could not restore that entry', 'error');
                   }
                 }}
               >
-                Undo remove
+                Undo
               </button>
             )}
           </div>
-          {selectedIds.length > 0 && canWrite && (
-            <div className="byjan-card flex flex-wrap items-center gap-2 px-3 py-2 mb-2">
+          {selectedIds.length > 0 && canWrite && createPortal(
+            <div className="byjan-select-dock">
               <span className="text-xs font-semibold text-slate-600">{selectedIds.length} selected</span>
               <button type="button" className="byjan-chip" disabled={Boolean(bulkBusy)} onClick={() => void runBulk('reimburse')}>Mark reimbursable</button>
               <select
@@ -1516,9 +1544,10 @@ export default function BookView() {
                 <option value="">Move category</option>
                 {categoryOptions.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
               </select>
-              <button type="button" className="byjan-chip" disabled={Boolean(bulkBusy)} onClick={() => void runBulk('delete')}>Remove</button>
+              <button type="button" className="byjan-chip" disabled={Boolean(bulkBusy)} onClick={() => void runBulk('delete')}>Delete</button>
               <button type="button" className="text-xs font-semibold text-slate-500" onClick={() => setSelectedIds([])}>Clear</button>
-            </div>
+            </div>,
+            document.body,
           )}
           {filteredExpenses.length > 0 && (
             <p className="text-[11px] font-semibold text-slate-500 mb-2">
@@ -1636,7 +1665,7 @@ export default function BookView() {
                           <td className="px-3.5 py-2 text-right">
                             <div className="flex items-center justify-end gap-1.5 font-bold">
                               {exp.entryType === 'in' ? (
-                                <span className="text-emerald-600">+{getCurrencySymbol(book.currency)} {exp.amount.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                                <span className="byjan-money text-emerald-700">+{getCurrencySymbol(book.currency)} {exp.amount.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
                               ) : exp.entryType === 'transfer' ? (
                                 <span className="text-blue-600">{getCurrencySymbol(book.currency)} {exp.amount.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
                               ) : (
@@ -1689,7 +1718,7 @@ export default function BookView() {
                   <div
                     key={exp.id}
                     className={cn(
-                      'p-3.5 byjan-card flex flex-col gap-2',
+                      'p-2.5 byjan-card flex flex-col gap-1.5',
                       exp.flagged && 'byjan-row-flag',
                       anomalySet.has(exp.id) && 'byjan-row-anomaly',
                     )}
@@ -1704,7 +1733,7 @@ export default function BookView() {
                           <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">Needs review</span>
                         )}
                       </div>
-                      <div className={cn("font-bold text-[14px] whitespace-nowrap", exp.entryType === 'in' ? "text-emerald-600" : exp.entryType === 'transfer' ? "text-blue-600" : "text-slate-900")}>{exp.entryType === 'in' ? '+' : exp.entryType === 'transfer' ? '' : '-'}{getCurrencySymbol(book.currency)} {exp.amount.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
+                      <div className={cn("byjan-money font-semibold text-[14px] whitespace-nowrap", exp.entryType === 'in' ? "text-emerald-700" : "text-slate-900")}>{exp.entryType === 'in' ? '+' : exp.entryType === 'transfer' ? '' : '−'}{getCurrencySymbol(book.currency)} {exp.amount.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
                     </div>
                     <div className="flex justify-between items-end mt-1">
                       <div className="flex flex-col gap-1 text-[11px] text-slate-500">
@@ -1922,7 +1951,7 @@ export default function BookView() {
             <h3 className="font-semibold text-sm text-slate-900 flex items-center gap-2">
               <Shield className="w-4 h-4 text-slate-400" /> Ledger audit
             </h3>
-            <p className="text-xs text-slate-500 mt-1">Creates, edits, mailbox claims, and membership changes for this ledger. Financial rows are soft-deleted, not erased.</p>
+            <p className="text-xs text-slate-500 mt-1">Who added, edited, or invited people on this ledger.</p>
           </div>
           {auditLoading ? (
             <AppLoader title="Audit" message="Loading ledger activity." />

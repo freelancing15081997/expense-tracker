@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { Loader2, SlidersHorizontal } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Loader2, SlidersHorizontal, X } from 'lucide-react';
 import { createExpense, softDeleteExpense, updateExpense } from '../lib/expenses';
 import { listLedgers, updateLedger } from '../lib/ledgers';
 import {
@@ -18,6 +19,7 @@ import {
   readTemplates,
   readWatchMerchants,
   tileHue,
+  taxYearRange,
   toLedgerCsv,
   toOfx,
   toQif,
@@ -59,6 +61,10 @@ type Props = {
   onAnomalyOnly: (v: boolean) => void;
   onCopyFilterLink: () => void;
   onRepeatLast: () => void;
+  missingOnly: boolean;
+  onMissingOnly: (v: boolean) => void;
+  privacy: boolean;
+  onPrivacy: (v: boolean) => void;
 };
 
 export default function LedgerStudio(props: Props) {
@@ -95,14 +101,14 @@ export default function LedgerStudio(props: Props) {
     );
   }
 
-  return (
-    <div>
-      <button type="button" className="byjan-chip" data-on={open} onClick={() => setOpen((v) => !v)}>
-        <SlidersHorizontal className="w-3 h-3" />
-        Studio
-      </button>
-      {open && (
-        <div className="byjan-card p-3 mt-2 space-y-3 text-sm">
+  const body = (
+        <div className="space-y-3 text-sm">
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <p className="text-sm font-semibold text-slate-900">Studio</p>
+            <button type="button" className="w-8 h-8 rounded-lg border border-slate-200 text-slate-500" onClick={() => setOpen(false)} aria-label="Close">
+              <X className="w-4 h-4 mx-auto" />
+            </button>
+          </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
             <p>This month out <b className="block text-slate-900">{props.currencySymbol}{insights.monthOut.toLocaleString()}</b></p>
             <p>Last month <b className="block text-slate-900">{props.currencySymbol}{insights.lastOut.toLocaleString()}</b></p>
@@ -137,8 +143,38 @@ export default function LedgerStudio(props: Props) {
             <button type="button" className="byjan-chip" data-on={props.flaggedOnly} onClick={() => props.onFlaggedOnly(!props.flaggedOnly)}>Flagged only</button>
             <button type="button" className="byjan-chip" data-on={props.hideDrafts} onClick={() => props.onHideDrafts(!props.hideDrafts)}>Hide drafts</button>
             <button type="button" className="byjan-chip" data-on={props.staleOnly} onClick={() => props.onStaleOnly(!props.staleOnly)}>Stale reimburse</button>
-            <button type="button" className="byjan-chip" data-on={props.anomalyOnly} onClick={() => props.onAnomalyOnly(!props.anomalyOnly)}>Anomalies</button>
+            <button type="button" className="byjan-chip" data-on={props.anomalyOnly} onClick={() => props.onAnomalyOnly(!props.anomalyOnly)}>Unusual amounts</button>
+            <button type="button" className="byjan-chip" data-on={props.missingOnly} onClick={() => props.onMissingOnly(!props.missingOnly)}>Needs receipt</button>
+            <button type="button" className="byjan-chip" data-on={props.privacy} onClick={() => props.onPrivacy(!props.privacy)}>Hide amounts</button>
             <button type="button" className="byjan-chip" onClick={props.onCopyFilterLink}>Copy filter link</button>
+            <button
+              type="button"
+              className="byjan-chip"
+              onClick={() => {
+                const range = taxYearRange('fy-in');
+                downloadText(`ledger-${range.label}.csv`, toLedgerCsv(props.expenses.filter((exp) => {
+                  const day = String(exp.date || '');
+                  return day >= range.from && day <= range.to;
+                })), 'text/csv');
+                props.onToast(`${range.label} downloaded.`, 'success');
+              }}
+            >
+              Tax year CSV
+            </button>
+            <button
+              type="button"
+              className="byjan-chip"
+              onClick={() => {
+                const range = taxYearRange('calendar');
+                downloadText(`ledger-${range.label}.csv`, toLedgerCsv(props.expenses.filter((exp) => {
+                  const day = String(exp.date || '');
+                  return day >= range.from && day <= range.to;
+                })), 'text/csv');
+                props.onToast(`${range.label} downloaded.`, 'success');
+              }}
+            >
+              Calendar year CSV
+            </button>
           </div>
 
           {props.canWrite && (
@@ -488,11 +524,53 @@ export default function LedgerStudio(props: Props) {
                   </button>
                 )}
                 {templates.length > 0 && <span className="text-[11px] text-slate-500">{templates.length} templates on this ledger</span>}
+                <button
+                  type="button"
+                  className="byjan-chip"
+                  disabled={!props.selected[0] || busy === 'share'}
+                  onClick={async () => {
+                    const exp = props.selected[0];
+                    const roles = (props.book.roles || {}) as Record<string, { email?: string }>;
+                    const people = Object.values(roles).map((row) => String(row.email || '')).filter(Boolean);
+                    const total = Number(exp?.amount || 0);
+                    if (!exp || people.length < 2 || total <= 0) {
+                      props.onToast('Select one entry on a shared ledger.', 'error');
+                      return;
+                    }
+                    const share = Math.round((total / people.length) * 100) / 100;
+                    setBusy('share');
+                    try {
+                      await updateExpense(props.bookId, String(exp.id), {
+                        splits: people.map((email) => ({ person: email, amount: share })),
+                      });
+                      await props.onRefresh();
+                      props.onToast(`Split equally across ${people.length} people.`, 'success');
+                    } finally { setBusy(''); }
+                  }}
+                >
+                  Split with team
+                </button>
               </div>
             </>
           )}
         </div>
+  );
+
+  return (
+    <>
+      <button type="button" className="byjan-chip" data-on={open} onClick={() => setOpen((v) => !v)}>
+        <SlidersHorizontal className="w-3 h-3" />
+        Studio
+      </button>
+      {open && typeof document !== 'undefined' && createPortal(
+        <>
+          <div className="byjan-studio-mask" onClick={() => setOpen(false)} />
+          <aside className="byjan-studio-sheet" role="dialog" aria-label="Studio">
+            {body}
+          </aside>
+        </>,
+        document.body,
       )}
-    </div>
+    </>
   );
 }

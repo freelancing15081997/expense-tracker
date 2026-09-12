@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useBooks } from '../../context/BooksProvider';
 import { signedBalance } from '../../engine/chartOfAccounts';
-import { Card, FeatureIcon, GroupIcon, Kpi, Money, PageShell, Status, btnAccent, btnGhost } from '../../ui';
+import { Card, FeatureIcon, Kpi, Money, PageShell, Status, btnAccent, btnGhost } from '../../ui';
 import { formatMoney, todayISO } from '../../core/money';
 import { BOOKS_QUICK_CREATE } from '../../nav';
 import { BOOKS_TREE } from '../../catalog/modules';
@@ -114,11 +114,11 @@ export default function Dashboard() {
         </Card>
       )}
 
-      <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
+      <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-2">
         {BOOKS_TREE.map((branch) => (
-          <Card key={branch.id} className="p-4 space-y-2">
+          <Card key={branch.id} className="p-3.5 space-y-2">
             <Link to={branch.href} className="font-semibold text-[#0B1F3A] hover:underline inline-flex items-center gap-2">
-              <GroupIcon title={branch.name} className="w-4 h-4" />
+              <span className="byjan-ledger-mono !w-8 !h-8 !rounded-lg !text-[10px]">{branch.name.slice(0, 2)}</span>
               {branch.name}
             </Link>
             <ul className="space-y-0.5">

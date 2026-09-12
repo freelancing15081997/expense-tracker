@@ -314,7 +314,7 @@ export default function Settings() {
         </div>
         <div className="p-5 space-y-3 text-sm text-slate-600">
           <p>Idle sign-out after 30 minutes without activity. Maximum session length is 12 hours.</p>
-          <p>Financial rows are soft-deleted and remain available for audit. Duplicate ledger entries are blocked unless you confirm a forced save.</p>
+          <p>Deleted entries leave your lists. Similar entries are checked before they are saved again.</p>
           <p>Sign out is always visible on the sidebar. Firebase Auth remains the only sign-in method.</p>
         </div>
       </section>

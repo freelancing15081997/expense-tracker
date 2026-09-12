@@ -12,7 +12,7 @@ export default function AppLoader({
   const heading = title || message;
   const detail = title ? message : 'Preparing your workspace.';
   const body = (
-    <div className="flex flex-col items-center justify-center gap-4 text-center" role="status" aria-live="polite">
+    <div className="flex flex-col items-center justify-center gap-5 text-center" role="status" aria-live="polite">
       <span className="app-loader-stage" aria-hidden>
         <span className="app-loader-mark">
           <span className="app-loader-orbit" />
@@ -28,7 +28,7 @@ export default function AppLoader({
         </span>
       </span>
       <div className="space-y-2 max-w-xs">
-        <p className="text-sm font-semibold text-[#0B1F3A]">{heading}</p>
+        <p className="text-sm font-semibold text-[#0B1F3A] tracking-tight">{heading}</p>
         <p className="text-xs text-slate-500 leading-relaxed">{detail}</p>
         <span className="app-loader-track" aria-hidden>
           <span className="app-loader-bar" />
@@ -38,12 +38,12 @@ export default function AppLoader({
   );
   if (overlay) {
     return (
-      <div className="fixed inset-0 z-[9999] bg-slate-900/30 backdrop-blur-[2px] flex items-center justify-center">
-        <div className="bg-white rounded-2xl border border-slate-200 px-10 py-8 min-w-[240px]">
+      <div className="fixed inset-0 z-[9999] bg-slate-900/20 backdrop-blur-md flex items-center justify-center">
+        <div className="byjan-card px-10 py-8 min-w-[240px]">
           {body}
         </div>
       </div>
     );
   }
-  return <div className="flex items-center justify-center min-h-[40vh]">{body}</div>;
+  return <div className="flex items-center justify-center min-h-[36vh]">{body}</div>;
 }
