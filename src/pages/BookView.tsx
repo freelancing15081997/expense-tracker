@@ -1678,6 +1678,9 @@ export default function BookView() {
                               </button>
                             )}
                             {exp.description}
+                            {exp.source === 'email' && (
+                              <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-sky-50 text-sky-800 border border-sky-200" title={String(exp.emailSubject || 'From inbound email')}>Email</span>
+                            )}
                             {exp.status === 'draft' && (
                               <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">Needs review</span>
                             )}
@@ -1762,6 +1765,9 @@ export default function BookView() {
                       )}
                       <div className="font-semibold text-slate-900 text-[14px] leading-tight flex-1">
                         {exp.description}
+                        {exp.source === 'email' && (
+                          <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-sky-50 text-sky-800 border border-sky-200" title={String(exp.emailSubject || 'From inbound email')}>Email</span>
+                        )}
                         {exp.status === 'draft' && (
                           <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">Needs review</span>
                         )}
@@ -2064,7 +2070,27 @@ export default function BookView() {
                   className="byjan-input" 
                   placeholder="e.g. Server Hosting"
                 />
+                {editingExpense?.source === 'email' ? (
+                  <p className="mt-1 text-[11px] text-slate-500">From inbound email — you can update this description anytime.</p>
+                ) : null}
               </div>
+              {editingExpense?.source === 'email' && (editingExpense.emailBody || editingExpense.emailSubject) ? (
+                <div className="rounded-lg border border-sky-100 bg-sky-50/70 p-3 space-y-1.5">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-sky-800">Original email</p>
+                  {editingExpense.emailSubject ? (
+                    <p className="text-xs font-medium text-slate-800">{String(editingExpense.emailSubject)}</p>
+                  ) : null}
+                  {editingExpense.emailBody ? (
+                    <p className="text-xs text-slate-600 whitespace-pre-wrap max-h-28 overflow-y-auto">{String(editingExpense.emailBody)}</p>
+                  ) : null}
+                  {editingExpense.fundSource ? (
+                    <p className="text-[11px] text-slate-600"><span className="font-semibold text-slate-700">Paid from:</span> {String(editingExpense.fundSource)}</p>
+                  ) : null}
+                  {editingExpense.adjustments ? (
+                    <p className="text-[11px] text-slate-600"><span className="font-semibold text-slate-700">Adjustment:</span> {String(editingExpense.adjustments)}</p>
+                  ) : null}
+                </div>
+              ) : null}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">Category</label>
                 <Select value={category} onValueChange={setCategory}>

@@ -234,6 +234,10 @@ type ParsedReceipt = {
   invoiceNumber?: string;
   paymentMethod?: string;
   notes?: string;
+  /** Where the money came from (UPI / bank / cash / named account). */
+  fundSource?: string;
+  /** Free-text amount adjustments or splits mentioned in the email. */
+  adjustments?: string;
 };
 
 const CATEGORY_RULES: Array<{ category: string; pattern: RegExp }> = [
@@ -291,9 +295,15 @@ function parseAmount(text: string) {
     .replace(/[|]/g, ' ')
     .replace(/\b(totai|tota1|tota!)\b/gi, 'total')
     .replace(/\b(arnount|arnout|arnunt)\b/gi, 'amount');
-  const labeled = hay.match(/(?:grand\s*total|net\s*(?:payable|amount|total)|amount\s*(?:paid|due)|total\s*amount|total|paid)\s*[:\-–]?\s*(?:₹|rs\.?|inr|usd|eur|gbp|\$)?\s*([0-9]{1,3}(?:[,\s][0-9]{2,3})+(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)/i);
+  const labeled = hay.match(/(?:grand\s*total|net\s*(?:payable|amount|total)|amount\s*(?:paid|due)?|total\s*amount|total|paid(?:\s+for)?)\s*[:\-–]?\s*(?:₹|rs\.?|inr|usd|eur|gbp|\$)?\s*([0-9]{1,3}(?:[,\s][0-9]{2,3})+(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)/i);
   if (labeled) {
     const amount = toNumber(labeled[1].replace(/\s/g, ''));
+    if (amount) return amount;
+  }
+  // "amount 1800" / "amt: 1,200" without currency marker
+  const bareAmount = hay.match(/\b(?:amount|amt|total|paid)\s*[:\-–]?\s*([0-9]{1,3}(?:,[0-9]{2,3})+(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)\b/i);
+  if (bareAmount) {
+    const amount = toNumber(bareAmount[1].replace(/\s/g, ''));
     if (amount) return amount;
   }
   const currency = hay.match(/(?:₹|rs\.?\s*|inr\s*)([0-9]{1,3}(?:[,\s][0-9]{2,3})+(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)/i)
@@ -333,7 +343,15 @@ function merchantFrom(text: string) {
 }
 
 function entryTypeFrom(text: string) {
-  if (/\b(received|credited|money in|refund|incoming)\b/i.test(text)) return 'in' as const;
+  const hay = String(text || '');
+  // Returns / refunds / money-back → money in (even when a receipt image is attached).
+  if (/\b(return(?:ed|ing)?|refund(?:ed|s)?|money\s*back|cash\s*back|credited|received|money\s*in|incoming|reimbursed|reimbursement\s*received)\b/i.test(hay)) {
+    // "return to vendor" / "return purchase" with payment is still out unless clearly refunded.
+    if (/\b(return(?:ed|ing)?\s+to\s+(?:vendor|supplier)|returned\s+purchase\s+without\s+refund)\b/i.test(hay)) {
+      return 'out' as const;
+    }
+    return 'in' as const;
+  }
   return 'out' as const;
 }
 
@@ -343,28 +361,137 @@ function documentTypeFrom(text: string) {
   return 'receipt' as const;
 }
 
-export function parseReceiptFields(text: string, extras?: { subject?: string; fileName?: string }): ParsedReceipt {
-  const subject = cleanSubject(extras?.subject || '');
-  const fileName = String(extras?.fileName || '').replace(/[_-]+/g, ' ');
-  const hay = `${subject}\n${fileName}\n${text}`;
-  const merchant = merchantFrom(text) || merchantFrom(fileName);
-  const category = categoryFromText(hay);
+function paymentMethodFrom(text: string) {
+  const hay = String(text || '');
+  if (/\b(upi|gpay|google\s*pay|phonepe|paytm|bhim)\b/i.test(hay)) return 'upi';
+  if (/\b(card|visa|mastercard|rupay|debit\s*card|credit\s*card)\b/i.test(hay)) return 'card';
+  if (/\b(wallet|amazon\s*pay|mobikwik)\b/i.test(hay)) return 'wallet';
+  if (/\b(neft|rtgs|imps|bank\s*transfer|net\s*banking|from\s+(?:my\s+)?(?:hdfc|icici|sbi|axis|kotak|yes\s*bank)|account)\b/i.test(hay)) return 'bank';
+  if (/\bcash\b/i.test(hay)) return 'cash';
+  return '';
+}
+
+function fundSourceFrom(text: string) {
+  const hay = String(text || '');
+  const labeled =
+    hay.match(/(?:paid\s+from|from\s+(?:my\s+)?(?:account|a\/c|wallet)|amount\s+from|money\s+from|via|using)\s*[:\-–]?\s*([^\n.,;]{2,80})/i) ||
+    hay.match(/\bfrom\s+((?:hdfc|icici|sbi|axis|kotak|yes\s*bank|upi|gpay|phonepe|paytm|cash|card)[^\n.,;]{0,60})/i);
+  const raw = String(labeled?.[1] || '').replace(/\s+/g, ' ').trim();
+  return raw.slice(0, 80);
+}
+
+function paidForFrom(text: string) {
+  const hay = String(text || '').replace(/\s+/g, ' ').trim();
+  const patterns = [
+    /(?:paid\s+for|payment\s+for|expense\s+for|spent\s+on|bought|purchase(?:d)?\s+for|towards|regarding|for)\s*[:\-–]?\s*([^\n.!?]{3,120})/i,
+    /(?:this\s+is\s+for|description)\s*[:\-–]?\s*([^\n.!?]{3,120})/i,
+    /(?:return(?:ed)?|refund(?:ed)?)\s+(?:for|of|against)\s*[:\-–]?\s*([^\n.!?]{3,120})/i,
+  ];
+  for (const pattern of patterns) {
+    const match = hay.match(pattern);
+    const value = String(match?.[1] || '')
+      .replace(/\b(?:rs\.?|inr|₹)?\s*[0-9][0-9,]*(?:\.[0-9]+)?\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/[.,;:\-–]+$/, '');
+    if (value.length >= 3 && !/^(the|a|an|this|that|from|with|and)$/i.test(value)) {
+      return value.slice(0, 140);
+    }
+  }
+  return '';
+}
+
+function adjustmentsFrom(text: string) {
+  const hay = String(text || '');
+  const chunks: string[] = [];
+  const patterns = [
+    /(?:adjust(?:ment)?|allocate|split|of\s+which|out\s+of\s+this|please\s+adjust|mark\s+[0-9].{0,40}as)\s*[:\-–]?\s*([^\n]{5,200})/gi,
+    /([0-9][0-9,]*(?:\.[0-9]+)?\s*(?:is|for)\s+(?:personal|office|client|other|reimbursable)[^\n]{0,80})/gi,
+  ];
+  for (const pattern of patterns) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(hay))) {
+      const piece = String(match[0] || '').replace(/\s+/g, ' ').trim();
+      if (piece.length >= 5) chunks.push(piece.slice(0, 200));
+    }
+  }
+  return [...new Set(chunks)].slice(0, 4).join(' · ').slice(0, 400);
+}
+
+function composeNotes(parts: Array<string | undefined | null>) {
+  return [...new Set(parts.map((row) => String(row || '').trim()).filter(Boolean))].join('\n').slice(0, 800);
+}
+
+/**
+ * Fast, deterministic summary of the sender's email intent (no model call).
+ * Captures what was paid for, where funds came from, returns, and adjustments.
+ */
+export function summarizeEmailIntent(body: string, subject = ''): ParsedReceipt {
+  const cleanBody = clipQuoted(body);
+  const subjectClean = cleanSubject(subject);
+  const hay = `${subjectClean}\n${cleanBody}`;
+  const paidFor = paidForFrom(hay);
+  const fundSource = fundSourceFrom(hay);
+  const adjustments = adjustmentsFrom(hay);
+  const merchant = merchantFrom(cleanBody) || merchantFrom(subjectClean);
+  const paymentMethod = paymentMethodFrom(hay) || paymentMethodFrom(fundSource);
   const amount = parseAmount(hay);
   const date = parseIsoDate(hay) || new Date().toISOString().split('T')[0];
-  const fallback = subject || merchant || cleanSubject(fileName) || 'Inbound document';
-  const description = [merchant, subject && subject.toLowerCase() !== merchant.toLowerCase() ? subject : '']
-    .filter(Boolean)
-    .join(' · ')
-    .slice(0, 120) || fallback.slice(0, 120);
+  const category = categoryFromText(hay);
+  const entryType = entryTypeFrom(hay);
+  const description = (paidFor || subjectClean || merchant || 'Inbound email')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 140);
+  const notes = composeNotes([
+    fundSource ? `Paid from: ${fundSource}` : '',
+    adjustments ? `Adjustment: ${adjustments}` : '',
+  ]);
   return {
     amount,
     date,
     merchant,
     description,
     category,
-    entryType: entryTypeFrom(hay),
+    entryType,
     documentType: documentTypeFrom(hay),
     parseSource: 'text',
+    paymentMethod: paymentMethod || undefined,
+    fundSource: fundSource || undefined,
+    adjustments: adjustments || undefined,
+    notes: notes || undefined,
+  };
+}
+
+export function parseReceiptFields(text: string, extras?: { subject?: string; fileName?: string }): ParsedReceipt {
+  const subject = cleanSubject(extras?.subject || '');
+  const fileName = String(extras?.fileName || '').replace(/[_-]+/g, ' ');
+  const intent = summarizeEmailIntent(text, subject);
+  const hay = `${subject}\n${fileName}\n${text}`;
+  const merchant = intent.merchant || merchantFrom(text) || merchantFrom(fileName);
+  const category = intent.category !== 'Uncategorized' ? intent.category : categoryFromText(hay);
+  const amount = intent.amount || parseAmount(hay);
+  const date = intent.date || parseIsoDate(hay) || new Date().toISOString().split('T')[0];
+  const fallback = subject || merchant || cleanSubject(fileName) || 'Inbound document';
+  const description = (intent.description && intent.description !== 'Inbound email'
+    ? intent.description
+    : [merchant, subject && subject.toLowerCase() !== merchant.toLowerCase() ? subject : '']
+        .filter(Boolean)
+        .join(' · ')
+        .slice(0, 140) || fallback.slice(0, 140));
+  return {
+    amount,
+    date,
+    merchant,
+    description,
+    category,
+    entryType: intent.entryType || entryTypeFrom(hay),
+    documentType: documentTypeFrom(hay),
+    parseSource: 'text',
+    paymentMethod: intent.paymentMethod || paymentMethodFrom(hay) || undefined,
+    fundSource: intent.fundSource,
+    adjustments: intent.adjustments,
+    notes: intent.notes,
   };
 }
 
@@ -390,10 +517,21 @@ function withTimeoutMs<T>(promise: Promise<T>, ms: number): Promise<T | null> {
   });
 }
 
+function richerDescription(a: string, b: string) {
+  const left = String(a || '').trim();
+  const right = String(b || '').trim();
+  if (!left) return right;
+  if (!right) return left;
+  // Prefer the longer, more specific human description over merchant·subject stubs.
+  if (left.length >= right.length + 8) return left;
+  if (right.length >= left.length + 8) return right;
+  return left;
+}
+
 function preferParsed(primary: ParsedReceipt, secondary: ParsedReceipt): ParsedReceipt {
   const amount = primary.amount || secondary.amount;
   const merchant = primary.merchant || secondary.merchant;
-  const description = primary.description || secondary.description;
+  const description = richerDescription(primary.description, secondary.description);
   const category = primary.category !== 'Uncategorized' ? primary.category : secondary.category;
   return {
     amount,
@@ -413,7 +551,9 @@ function preferParsed(primary: ParsedReceipt, secondary: ParsedReceipt): ParsedR
     currency: primary.currency || secondary.currency,
     invoiceNumber: primary.invoiceNumber || secondary.invoiceNumber,
     paymentMethod: primary.paymentMethod || secondary.paymentMethod,
-    notes: primary.notes || secondary.notes,
+    notes: composeNotes([primary.notes, secondary.notes]) || undefined,
+    fundSource: primary.fundSource || secondary.fundSource,
+    adjustments: primary.adjustments || secondary.adjustments,
   };
 }
 
@@ -455,28 +595,49 @@ function asParsed(value: any, fallback: ParsedReceipt): ParsedReceipt {
   const merchant = String(value.merchant || value.vendor || value.seller || fallback.merchant || '').slice(0, 80);
   const description = String(
     value.description ||
+    value.paidFor ||
     value.summary ||
     (Array.isArray(value.lineItems) ? value.lineItems.slice(0, 3).map((row: any) => row?.name || row?.description).filter(Boolean).join(', ') : '') ||
     merchant ||
     fallback.description,
   ).slice(0, 160);
   const category = String(value.category || '').trim() || fallback.category;
-  const entryType = value.entryType === 'in' ? 'in' : 'out';
+  const rawEntry = String(value.entryType || value.type || '').toLowerCase();
+  const entryType =
+    rawEntry === 'in' || rawEntry === 'income' || rawEntry === 'refund' || rawEntry === 'return'
+      ? 'in'
+      : rawEntry === 'out' || rawEntry === 'expense'
+        ? 'out'
+        : fallback.entryType === 'in'
+          ? 'in'
+          : 'out';
   const documentType = value.documentType === 'invoice' || value.documentType === 'bill' ? value.documentType : 'receipt';
+  const fundSource = String(value.fundSource || value.paidFrom || value.sourceOfFunds || fallback.fundSource || '').slice(0, 80);
+  const adjustments = String(value.adjustments || value.adjustment || fallback.adjustments || '').slice(0, 400);
+  const paymentMethod =
+    String(value.paymentMethod || fallback.paymentMethod || paymentMethodFrom(fundSource) || '').slice(0, 40) || undefined;
+  const notes = composeNotes([
+    value.notes,
+    fundSource && !String(value.notes || '').includes(fundSource) ? `Paid from: ${fundSource}` : '',
+    adjustments && !String(value.notes || '').toLowerCase().includes('adjust') ? `Adjustment: ${adjustments}` : '',
+    fallback.notes,
+  ]);
   return {
     amount: amount || fallback.amount,
     date,
     merchant: merchant || fallback.merchant,
     description: description || fallback.description,
     category: category === 'Uncategorized' ? fallback.category : category,
-    entryType: fallback.entryType === 'in' ? 'in' : entryType,
+    entryType: fallback.entryType === 'in' || entryType === 'in' ? 'in' : 'out',
     documentType,
-    parseSource: amount ? 'ai' : fallback.parseSource,
+    parseSource: amount || description ? 'ai' : fallback.parseSource,
     taxAmount: taxAmount || fallback.taxAmount,
     currency: String(value.currency || fallback.currency || '').slice(0, 8) || undefined,
     invoiceNumber: String(value.invoiceNumber || value.billNumber || value.receiptNumber || fallback.invoiceNumber || '').slice(0, 64) || undefined,
-    paymentMethod: String(value.paymentMethod || fallback.paymentMethod || '').slice(0, 40) || undefined,
-    notes: String(value.notes || fallback.notes || '').slice(0, 240) || undefined,
+    paymentMethod,
+    notes: notes || undefined,
+    fundSource: fundSource || fallback.fundSource,
+    adjustments: adjustments || fallback.adjustments,
   };
 }
 
@@ -540,14 +701,20 @@ async function parseDocumentWithGemini(
 
   const maxBytes = 3 * 1024 * 1024;
   const payloadBytes = bytes.length > maxBytes ? bytes.subarray(0, maxBytes) : bytes;
-  const prompt = `You are a professional accounts-payable document parser for Byjan.
-Read this receipt, bill, invoice, tax invoice, UPI screenshot, bank slip, or photo of a document.
-Email context (may be empty): ${emailContext.slice(0, 800)}
+  const prompt = `You are Byjan's ledger clerk. Read this receipt, bill, invoice, tax invoice, UPI screenshot, bank slip, or photo.
+Also use the sender's email context (may describe what was paid for, where money came from, returns/refunds, or amount adjustments).
+Email context (may be empty): ${emailContext.slice(0, 1200)}
 Return JSON only with keys:
-amount (number), taxAmount (number), currency, date (YYYY-MM-DD), merchant, description, category
+amount (number), taxAmount (number), currency, date (YYYY-MM-DD), merchant, description, paidFor, category
 (Fuel, Groceries, Meals, Travel, Utilities, Health, Shopping, Software Subscriptions, or Uncategorized),
-entryType (out|in), documentType (receipt|bill|invoice), invoiceNumber, paymentMethod, notes.
-Never invent amounts. Prefer grand total / amount paid / net payable.
+entryType (out|in), documentType (receipt|bill|invoice), invoiceNumber, paymentMethod (cash|card|upi|bank|wallet),
+fundSource (where money came from), adjustments (any split/adjust instructions, verbatim short), notes.
+Rules:
+- Prefer the email's "paid for / description / return" wording for description when present.
+- entryType=in for refunds, returns with money back, reimbursements received; otherwise out.
+- Never invent amounts. Prefer grand total / amount paid / net payable from the document, unless the email clearly states the ledger amount to post.
+- Put adjustment / split instructions into adjustments (and notes) without dropping them.
+- Keep fundSource short (e.g. "HDFC UPI", "cash", "company card").
 If this is not a financial document (selfie, personal photo, meme, blank page, encrypted or password-protected file, or a screenshot with no totals), set amount to 0, leave merchant empty, and set notes to "not_a_receipt".`;
 
   const requestBody = {
@@ -590,6 +757,65 @@ If this is not a financial document (selfie, personal photo, meme, blank page, e
   return { parsed: fallback, error: errors.slice(0, 4).join(' | ') || 'all_models_failed' };
 }
 
+/**
+ * Fast text-only Gemini pass over the email body (no image bytes).
+ * Used so sender instructions become form fields even before / without a clear receipt OCR.
+ */
+async function summarizeEmailWithGemini(
+  subject: string,
+  body: string,
+  fallback: ParsedReceipt,
+): Promise<{ parsed: ParsedReceipt; model?: string; error?: string }> {
+  const key = geminiKey();
+  const cleanBody = clipQuoted(body);
+  if (!key || cleanBody.length < 12) {
+    return { parsed: fallback, error: !key ? 'missing_key' : 'thin_body' };
+  }
+  const prompt = `You are Byjan. Summarize this inbound ledger email into an expense/income entry form.
+Subject: ${cleanSubject(subject).slice(0, 200)}
+Email (keep facts; do not invent):
+${cleanBody.slice(0, 3500)}
+
+Return JSON only with keys:
+amount (number), date (YYYY-MM-DD or empty), merchant, description, paidFor, category
+(Fuel, Groceries, Meals, Travel, Utilities, Health, Shopping, Software Subscriptions, or Uncategorized),
+entryType (out|in), paymentMethod (cash|card|upi|bank|wallet), fundSource, adjustments, notes.
+Rules:
+- description = short what it was paid for (or returned for).
+- fundSource = where the money came from (account/UPI/cash/card) when mentioned.
+- entryType=in for return/refund/money back; otherwise out.
+- adjustments = any instruction to split/adjust part of the amount for another purpose, keep close to the sender's words.
+- Never invent amounts. If no amount is stated, set amount to 0.`;
+
+  const requestBody = {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { temperature: 0, responseMimeType: 'application/json' },
+  };
+
+  const errors: string[] = [];
+  for (const model of geminiModels().slice(0, 2)) {
+    // Keep this snappy — email text summarization should not stall inbound.
+    const result = await geminiGenerate(model, key, requestBody, 6_000);
+    if (!result.ok) {
+      errors.push(`${model}: ${result.error}`);
+      continue;
+    }
+    const raw = extractGeminiText(result.payload).replace(/^```json\s*|\s*```$/g, '').trim();
+    if (!raw) {
+      errors.push(`${model}: empty_response`);
+      continue;
+    }
+    const jsonSlice = raw.includes('{') ? raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1) : raw;
+    try {
+      const parsed = asParsed(JSON.parse(jsonSlice), fallback);
+      return { parsed, model };
+    } catch {
+      errors.push(`${model}: bad_json`);
+    }
+  }
+  return { parsed: fallback, error: errors.slice(0, 3).join(' | ') || 'email_ai_failed' };
+}
+
 async function probeGemini() {
   const key = geminiKey();
   if (!key) return { ok: false, error: 'missing_key' };
@@ -628,22 +854,33 @@ async function enrichFromDocument(
   body: string,
   subject: string,
   fallback: ParsedReceipt,
+  opts?: { geminiTimeoutMs?: number },
 ) {
   const mime = mimeForDocument(contentType, fileName);
   if (!mime) return { parsed: fallback, preview: '', engine: 'none' };
 
   const jobs: Array<Promise<{ parsed: ParsedReceipt; preview: string; engine: string } | null>> = [];
   const emailContext = `${subject}\n${body}`.trim();
+  const geminiTimeout = Math.max(4_000, Number(opts?.geminiTimeoutMs || 22_000));
 
   if (geminiKey()) {
     jobs.push(
-      parseDocumentWithGemini(bytes, contentType, fileName, fallback, emailContext).then((result) => ({
-        parsed: result.parsed,
-        preview: result.error ? `gemini_error: ${result.error}` : '',
-        engine: result.model
-          ? `gemini:${result.model}`
-          : (result.error ? 'gemini-failed' : 'gemini'),
-      })),
+      (async () => {
+        const raced = await withTimeoutMs(
+          parseDocumentWithGemini(bytes, contentType, fileName, fallback, emailContext),
+          geminiTimeout,
+        );
+        if (!raced) {
+          return { parsed: fallback, preview: 'gemini_error: timeout', engine: 'gemini-failed' };
+        }
+        return {
+          parsed: raced.parsed,
+          preview: raced.error ? `gemini_error: ${raced.error}` : '',
+          engine: raced.model
+            ? `gemini:${raced.model}`
+            : (raced.error ? 'gemini-failed' : 'gemini'),
+        };
+      })(),
     );
   }
 
@@ -696,7 +933,7 @@ async function enrichFromDocument(
   for (const row of settled) {
     if (!row) continue;
     // Prefer AI / higher-confidence amount results.
-    if (String(row.engine).startsWith('gemini') && row.engine !== 'gemini-failed' && (row.parsed.amount || row.parsed.merchant)) {
+    if (String(row.engine).startsWith('gemini') && row.engine !== 'gemini-failed' && (row.parsed.amount || row.parsed.merchant || row.parsed.description)) {
       best = preferParsed(row.parsed, best);
       engine = row.engine;
       if (row.preview) preview = row.preview;
@@ -715,6 +952,8 @@ async function enrichFromDocument(
     if (!preview && row.preview) preview = row.preview;
     if (engine === 'none') engine = row.engine;
   }
+  // Email intent (description / return / fund source) should not be wiped by a thin OCR stub.
+  best = preferParsed(best, fallback);
   return { parsed: best, preview, engine };
 }
 
@@ -988,13 +1227,18 @@ function looksLikeFilename(value: string) {
 function isUnusableDocument(parsed: ParsedReceipt, body: string, ocrPreview: string, parseEngine: string, hasFile: boolean) {
   const hay = `${parsed.notes || ''} ${parsed.description || ''} ${ocrPreview || ''}`.toLowerCase();
   if (/\bnot_a_receipt\b|not a receipt|not an invoice|not a bill|selfie|personal photo|encrypted|password-protected|password protected|unreadable document/.test(hay)) {
+    // Email-only instructions with a usable amount still count even if the attachment is junk.
+    if (parsed.amount > 0 && clipQuoted(body).length >= 24) return false;
     return true;
   }
   const noAmount = !parsed.amount;
   const noMerchant = looksLikeFilename(parsed.merchant || '');
   const thinBody = clipQuoted(body).length < 24;
+  const hasEmailIntent = Boolean(parsed.fundSource || parsed.adjustments || paidForFrom(`${parsed.description}\n${body}`));
   const failedParse = parseEngine === 'gemini-failed' || parseEngine === 'none' || ocrPreview.startsWith('gemini_error:');
-  if (noAmount && noMerchant && parsed.category === 'Uncategorized' && (thinBody || failedParse || !hasFile)) {
+  // Body-only emails (no attachment) with amount + description are valid entries.
+  if (!hasFile && parsed.amount > 0 && (parsed.description || hasEmailIntent)) return false;
+  if (noAmount && noMerchant && parsed.category === 'Uncategorized' && (thinBody || failedParse || !hasFile) && !hasEmailIntent) {
     return true;
   }
   return false;
@@ -2133,10 +2377,18 @@ async function processItem(item: any) {
     match = null;
   }
 
-  let parsed = parseReceiptFields(body, { subject, fileName: receipt?.name || attachments[0]?.Name || '' });
+  // Fast path: rule-based email intent, then optional short Gemini text summarize in parallel with the attachment.
+  const emailIntent = summarizeEmailIntent(body, subject);
+  let parsed = preferParsed(emailIntent, parseReceiptFields(body, { subject, fileName: receipt?.name || attachments[0]?.Name || '' }));
   let ocrPreview = '';
   let parseEngine = 'text';
+  const emailAiPromise = geminiKey() && clipQuoted(body).length >= 24
+    ? summarizeEmailWithGemini(subject, body, parsed)
+    : Promise.resolve(null);
+
   if (receipt?.bytes) {
+    // If the email already states amount + what it was for, keep image AI on a short leash for speed.
+    const richEmail = Boolean(parsed.amount && (parsed.description || parsed.fundSource || parsed.adjustments));
     const enriched = await enrichFromDocument(
       receipt.bytes,
       receipt.contentType,
@@ -2144,10 +2396,19 @@ async function processItem(item: any) {
       body,
       subject,
       parsed,
+      { geminiTimeoutMs: richEmail ? 8_000 : 18_000 },
     );
-    parsed = enriched.parsed;
+    parsed = preferParsed(enriched.parsed, parsed);
     ocrPreview = enriched.preview;
     parseEngine = enriched.engine || parseEngine;
+  }
+
+  const emailAi = await withTimeoutMs(emailAiPromise, 6_500);
+  if (emailAi?.parsed && (emailAi.parsed.amount || emailAi.parsed.description || emailAi.parsed.fundSource || emailAi.parsed.adjustments)) {
+    parsed = preferParsed(emailAi.parsed, parsed);
+    if (emailAi.model) parseEngine = parseEngine === 'text' ? `email-ai:${emailAi.model}` : `${parseEngine}+email-ai`;
+  } else if (emailAi?.error && !ocrPreview) {
+    ocrPreview = `email_ai: ${emailAi.error}`.slice(0, 200);
   }
   await markFlow(bookId, eventId, 'parsed', { parseEngine });
 
@@ -2203,6 +2464,7 @@ async function processItem(item: any) {
   const amountMissing = !(Number(parsed.amount) > 0);
   await markFlow(bookId, eventId, amountMissing ? 'amount_missing' : 'amount_found', { amount: parsed.amount, category: parsed.category });
 
+  const emailBodyAsIs = clipQuoted(body).slice(0, 8000);
   const expense = {
     id: newId(),
     amount: parsed.amount,
@@ -2222,11 +2484,20 @@ async function processItem(item: any) {
     taxAmount: parsed.taxAmount || 0,
     invoiceNumber: parsed.invoiceNumber || null,
     paymentMethod: parsed.paymentMethod || null,
-    notes: parsed.notes || null,
+    fundSource: parsed.fundSource || null,
+    adjustments: parsed.adjustments || null,
+    notes: composeNotes([
+      parsed.notes,
+      parsed.fundSource && !(parsed.notes || '').includes(parsed.fundSource) ? `Paid from: ${parsed.fundSource}` : '',
+      parsed.adjustments && !(parsed.notes || '').toLowerCase().includes('adjust') ? `Adjustment: ${parsed.adjustments}` : '',
+    ]) || null,
+    // Preserve the sender's email verbatim so the team can edit description/amount later with full context.
+    emailSubject: subject || null,
+    emailBody: emailBodyAsIs || null,
     currencyHint: parsed.currency || null,
     parseSource: parsed.parseSource,
     parseEngine,
-    parseError: ocrPreview.startsWith('gemini_error:') ? ocrPreview.slice(0, 400) : null,
+    parseError: ocrPreview.startsWith('gemini_error:') || ocrPreview.startsWith('email_ai:') ? ocrPreview.slice(0, 400) : null,
     emailMessageId: messageId,
     receiptPath: receipt?.path || null,
     receiptName: receipt?.name || null,
