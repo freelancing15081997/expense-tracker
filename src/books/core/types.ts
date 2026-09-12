@@ -49,7 +49,8 @@ export interface FinanceTenant {
   baseCurrency: string;
   fiscalYearStartMonth: number;
   memberIds: string[];
-  members: Record<string, { role: BooksRole; email: string }>;
+  members: Record<string, { role: BooksRole; email: string; featureIds?: string[] }>;
+  pendingInvites?: Record<string, { email: string; role: BooksRole; featureIds?: string[]; invitedBy?: string; createdAt?: number }>;
   sequences: Record<string, number>;
   postedCount: number;
   version: number;

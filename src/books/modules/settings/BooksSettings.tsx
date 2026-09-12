@@ -1,12 +1,21 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useBooks } from '../../context/BooksProvider';
+import { useRbac } from '../../../context/RbacContext';
+import { RBAC_PERMISSIONS } from '../../../lib/rbac-catalog';
+import type { BooksRole } from '../../core/types';
 import { booksFileUrl } from '../../storage/adapter';
 import { Card, Field, FileField, IconBtn, inputClass, PageShell, Status } from '../../ui';
 import { BOOKS_CATALOG } from '../../catalog';
 
 export default function BooksSettings() {
-  const { tenant, periods, role, can, rename, close, reopen, uploadFile } = useBooks();
+  const { tenant, periods, role, can, rename, close, reopen, uploadFile, inviteMember, removeMember } = useBooks();
+  const { can: canPlatform, session, refresh: refreshRbac } = useRbac();
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState<BooksRole>('contributor');
+  const [inviteFeatures, setInviteFeatures] = useState<string[]>([]);
+  const [usersBusy, setUsersBusy] = useState('');
+  const [usersMessage, setUsersMessage] = useState('');
   const [name, setName] = useState(tenant?.name || '');
   const [gstin, setGstin] = useState(tenant?.gstin || '');
   const [address, setAddress] = useState(tenant?.address || '');
@@ -143,6 +152,123 @@ export default function BooksSettings() {
         )}
         {message && <p className="text-sm text-slate-600">{message}</p>}
       </Card>
+      
+      {can('manage_settings') && canPlatform('books.users.manage') && (
+        <Card className="p-4 space-y-4">
+          <div>
+            <h2 className="font-semibold">Users & access</h2>
+            <p className="text-sm text-slate-500 mt-1">
+              Invite people to this Books company. You can only grant Books features that your account already has.
+              New users still need a Byjan login; after they sign in, refresh to see them in this company.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Company members</p>
+            <ul className="space-y-2 text-sm">
+              {Object.entries(tenant?.members || {}).map(([uid, member]) => {
+                const m = member as { email?: string; role?: string; featureIds?: string[] };
+                return (
+                <li key={uid} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="font-medium truncate">{m.email || uid}</p>
+                    <p className="text-xs text-slate-500 capitalize">{m.role}{m.featureIds?.length ? ` · ${m.featureIds.length} features` : ''}</p>
+                  </div>
+                  {uid !== tenant?.ownerId && (
+                    <button
+                      type="button"
+                      className="text-rose-700 text-xs underline"
+                      disabled={usersBusy === `rm:${uid}`}
+                      onClick={async () => {
+                        if (!window.confirm('Remove this member from the Books company?')) return;
+                        setUsersBusy(`rm:${uid}`);
+                        try {
+                          await removeMember(uid);
+                          setUsersMessage('Member removed');
+                        } catch (err: any) {
+                          setUsersMessage(err?.message || 'Could not remove member');
+                        } finally {
+                          setUsersBusy('');
+                        }
+                      }}
+                    >
+                      Remove
+                    </button>
+                  )}
+                </li>
+                );
+              })}
+              {Object.keys(tenant?.pendingInvites || {}).length > 0 && (
+                <li className="text-xs text-amber-700">
+                  Pending invites: {Object.keys(tenant?.pendingInvites || {}).join(', ')}
+                </li>
+              )}
+            </ul>
+          </div>
+          <form
+            className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setUsersBusy('invite');
+              setUsersMessage('');
+              try {
+                await inviteMember(inviteEmail, inviteRole, inviteFeatures);
+                await refreshRbac();
+                setInviteEmail('');
+                setInviteFeatures([]);
+                setUsersMessage('Invite sent. They will join this company after signing in.');
+              } catch (err: any) {
+                setUsersMessage(err?.message || 'Invite failed');
+              } finally {
+                setUsersBusy('');
+              }
+            }}
+          >
+            <div className="grid md:grid-cols-2 gap-3">
+              <Field label="Email">
+                <input className={inputClass} value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="colleague@company.com" required />
+              </Field>
+              <Field label="Books role">
+                <select className={inputClass} value={inviteRole} onChange={(e) => setInviteRole(e.target.value as BooksRole)}>
+                  <option value="admin">Admin</option>
+                  <option value="contributor">Contributor</option>
+                  <option value="viewer">Viewer</option>
+                  <option value="auditor">Auditor</option>
+                </select>
+              </Field>
+            </div>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Books features to grant</p>
+              <div className="grid sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+                {RBAC_PERMISSIONS.filter((p) => p.id.startsWith('books.') && canPlatform(p.id)).map((perm) => {
+                  const checked = inviteFeatures.includes(perm.id);
+                  return (
+                    <label key={perm.id} className="flex items-start gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        className="mt-1"
+                        checked={checked}
+                        onChange={() => setInviteFeatures((prev) => checked ? prev.filter((id) => id !== perm.id) : [...prev, perm.id])}
+                      />
+                      <span>
+                        <span className="font-medium">{perm.label}</span>
+                        <span className="block text-xs text-slate-500">{perm.id}</span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+              {!canPlatform('books.access') && (
+                <p className="text-xs text-rose-700 mt-2">You need Books features on your own account before you can grant them.</p>
+              )}
+            </div>
+            <IconBtn action="create" type="submit" busy={usersBusy === 'invite'} disabled={!inviteEmail.trim() || usersBusy === 'invite'}>
+              Invite to Books
+            </IconBtn>
+            {usersMessage && <p className="text-sm text-slate-600">{usersMessage}</p>}
+          </form>
+        </Card>
+      )}
+
       <Card className="p-4">
         <h2 className="font-semibold mb-3">Accounting periods</h2>
         <ul className="space-y-2">

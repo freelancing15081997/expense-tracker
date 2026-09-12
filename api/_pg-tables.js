@@ -1,3 +1,4 @@
+// api/_lib/pg-tables.ts
 import { neon } from "@neondatabase/serverless";
 import { randomBytes } from "node:crypto";
 function asRows(result) {
@@ -30,8 +31,8 @@ function asObject(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value;
 }
-let sqlMem = null;
-let schemaReady = false;
+var sqlMem = null;
+var schemaReady = false;
 async function getLedgerSql() {
   const url = postgresUrl();
   if (!url) throw new Error("Postgres is not configured");
@@ -57,8 +58,8 @@ function flag(data) {
   const deleted = data.deleted;
   return deleted === true || deleted === "true" || deleted === 1 || deleted === "1" || Boolean(data.deletedAt) || data.status === "deleted";
 }
-const INBOUND_DOMAIN = "easypado.com";
-const RESERVED_INBOUND_LOCALS = /* @__PURE__ */ new Set([
+var INBOUND_DOMAIN = "easypado.com";
+var RESERVED_INBOUND_LOCALS = /* @__PURE__ */ new Set([
   "support",
   "info",
   "noreply",
@@ -343,6 +344,11 @@ async function ensureLedgerSchema(sql) {
   await sql`CREATE INDEX IF NOT EXISTS erp_records_ws_col_idx ON erp_records (workspace_id, collection, deleted, updated_at DESC)`;
   await copyLegacyDocuments(sql);
   await copyLegacyErp(sql);
+  try {
+    const { ensureRbacSchema } = await import("./rbac.js");
+    await ensureRbacSchema(sql);
+  } catch {
+  }
 }
 async function copyLegacyDocuments(sql) {
   try {
@@ -1498,16 +1504,16 @@ async function ledgerListAudit(uid, bookId, limit = 80) {
     createdAt: text(row.created_at)
   }));
 }
-const FIREBASE_PROJECT = "gen-lang-client-0616065043";
-const jwtMem = /* @__PURE__ */ new Map();
-let jwks = null;
-class ApiError extends Error {
+var FIREBASE_PROJECT = "gen-lang-client-0616065043";
+var jwtMem = /* @__PURE__ */ new Map();
+var jwks = null;
+var ApiError = class extends Error {
   constructor(status, message, extra) {
     super(message);
     this.status = status;
     this.extra = extra;
   }
-}
+};
 function ownsErpWorkspace(uid, workspaceId) {
   return Boolean(uid && workspaceId && (workspaceId === uid || workspaceId.startsWith(`${uid}_`)));
 }
