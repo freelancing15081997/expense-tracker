@@ -371,6 +371,43 @@ export default function BookView() {
   ), []);
   const emailList = usePagedList(emailActivityAll, emailFilter, 10);
 
+  const updateFilterPos = useCallback(() => {
+    const el = filterBtnRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const width = Math.min(400, window.innerWidth - 24);
+    const left = Math.max(12, Math.min(r.right - width, window.innerWidth - width - 12));
+    const panelH = 300;
+    const below = r.bottom + 8;
+    const top = below + panelH > window.innerHeight - 12
+      ? Math.max(12, r.top - panelH - 8)
+      : below;
+    setFilterPos({ top, left, width });
+  }, []);
+
+  const toggleFilters = () => {
+    setFiltersOpen((open) => {
+      if (!open) requestAnimationFrame(updateFilterPos);
+      return !open;
+    });
+  };
+
+  useEffect(() => {
+    if (!filtersOpen) return;
+    updateFilterPos();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFiltersOpen(false);
+    };
+    window.addEventListener('resize', updateFilterPos);
+    window.addEventListener('scroll', updateFilterPos, true);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('resize', updateFilterPos);
+      window.removeEventListener('scroll', updateFilterPos, true);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [filtersOpen, updateFilterPos]);
+
   if (loading) return <AppLoader title="Ledger" message="Opening entries and balances." />;
   if (!book) return <div className="p-8 text-center text-sm text-slate-500">Book not found or access denied.</div>;
 
@@ -968,43 +1005,6 @@ export default function BookView() {
     setReimbursableOnly(false);
     setUncategorizedOnly(false);
   };
-
-  const updateFilterPos = useCallback(() => {
-    const el = filterBtnRef.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    const width = Math.min(400, window.innerWidth - 24);
-    const left = Math.max(12, Math.min(r.right - width, window.innerWidth - width - 12));
-    const panelH = 300;
-    const below = r.bottom + 8;
-    const top = below + panelH > window.innerHeight - 12
-      ? Math.max(12, r.top - panelH - 8)
-      : below;
-    setFilterPos({ top, left, width });
-  }, []);
-
-  const toggleFilters = () => {
-    setFiltersOpen((open) => {
-      if (!open) requestAnimationFrame(updateFilterPos);
-      return !open;
-    });
-  };
-
-  useEffect(() => {
-    if (!filtersOpen) return;
-    updateFilterPos();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setFiltersOpen(false);
-    };
-    window.addEventListener('resize', updateFilterPos);
-    window.addEventListener('scroll', updateFilterPos, true);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('resize', updateFilterPos);
-      window.removeEventListener('scroll', updateFilterPos, true);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [filtersOpen, updateFilterPos]);
 
   return (
     <>
