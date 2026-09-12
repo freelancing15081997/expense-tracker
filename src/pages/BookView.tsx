@@ -141,6 +141,7 @@ export default function BookView() {
   const [auditLoading, setAuditLoading] = useState(false);
   const [monthlyBudget, setMonthlyBudget] = useState('');
   const [period, setPeriod] = useState('');
+  const [filtersOpen, setFiltersOpen] = useState(false);
   
   // Invite State
   const [inviteEmail, setInviteEmail] = useState('');
@@ -1017,39 +1018,46 @@ export default function BookView() {
         </Tabs.List>
 
         {ledgerTab === 'ledger' && (
-          <div className="flex flex-col sm:flex-row items-center gap-3 mt-3">
-            <div className="w-full sm:w-auto flex-1 flex flex-row items-center justify-between byjan-card p-3 px-5">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Net Balance</p>
-              <h2 className={cn("text-lg font-bold", balance >= 0 ? "text-emerald-600" : "text-rose-600")}>{balance < 0 ? '-' : ''}{getCurrencySymbol(book.currency)} {Math.abs(balance).toLocaleString(undefined, {minimumFractionDigits: 2})}</h2>
-            </div>
-            <div className="w-full sm:w-auto flex-1 flex flex-row items-center justify-between byjan-card p-3 px-5">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Money Out</p>
-              <h2 className="text-lg font-bold text-rose-600">{getCurrencySymbol(book.currency)} {totalOut.toLocaleString(undefined, {minimumFractionDigits: 2})}</h2>
-            </div>
-            <div className="w-full sm:w-auto flex-1 flex flex-row items-center justify-between byjan-card p-3 px-5">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Money In</p>
-              <h2 className="text-lg font-bold text-emerald-600">{getCurrencySymbol(book.currency)} {totalIn.toLocaleString(undefined, {minimumFractionDigits: 2})}</h2>
-            </div>
-            <div className="w-full sm:w-auto flex-1 flex flex-row items-center justify-between byjan-card p-3 px-5">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">This month out</p>
-              <h2 className="text-lg font-bold text-slate-800">{getCurrencySymbol(book.currency)} {monthOut.toLocaleString(undefined, {minimumFractionDigits: 2})}</h2>
-            </div>
-            {budget > 0 && (
-              <div className="w-full sm:w-auto flex-1 flex flex-row items-center justify-between byjan-card p-3 px-5">
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Budget left</p>
-                <h2 className={cn("text-lg font-bold", monthOut > budget ? "text-rose-600" : "text-emerald-600")}>{getCurrencySymbol(book.currency)} {(budget - monthOut).toLocaleString(undefined, {minimumFractionDigits: 2})}</h2>
+          <div className="mt-3">
+            <div className="byjan-stat-grid">
+              <div className="byjan-stat">
+                <p className="byjan-stat-label">Net</p>
+                <p className={cn('byjan-stat-value', balance >= 0 ? 'text-emerald-600' : 'text-rose-600')} title={`${getCurrencySymbol(book.currency)} ${Math.abs(balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}`}>
+                  {balance < 0 ? '−' : ''}{getCurrencySymbol(book.currency)}{Math.abs(balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </p>
               </div>
-            )}
-            {reimbursableOpen > 0 && (
-              <div className="w-full sm:w-auto flex-1 flex flex-row items-center justify-between byjan-card p-3 px-5">
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Reimbursable</p>
-                <h2 className="text-lg font-bold text-amber-700">{getCurrencySymbol(book.currency)} {reimbursableOpen.toLocaleString(undefined, {minimumFractionDigits: 2})}</h2>
+              <div className="byjan-stat">
+                <p className="byjan-stat-label">Out</p>
+                <p className="byjan-stat-value text-rose-600" title={`${getCurrencySymbol(book.currency)} ${totalOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}>
+                  {getCurrencySymbol(book.currency)}{totalOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </p>
               </div>
-            )}
-            {isAuditor && (
-              <div className="w-full sm:w-auto flex-1 bg-amber-50 p-3 px-5 rounded-lg border border-amber-200 shadow-sm flex flex-row items-center justify-between">
-                <p className="text-xs font-bold text-amber-800 uppercase tracking-wider">Auditor</p>
-                <p className="text-[10px] text-amber-900/80 font-medium">Read-only</p>
+              <div className="byjan-stat">
+                <p className="byjan-stat-label">In</p>
+                <p className="byjan-stat-value text-emerald-600" title={`${getCurrencySymbol(book.currency)} ${totalIn.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}>
+                  {getCurrencySymbol(book.currency)}{totalIn.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </p>
+              </div>
+              <div className="byjan-stat">
+                <p className="byjan-stat-label">This month</p>
+                <p className="byjan-stat-value text-[#0B1F3A]" title={`${getCurrencySymbol(book.currency)} ${monthOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}>
+                  {getCurrencySymbol(book.currency)}{monthOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </p>
+              </div>
+            </div>
+            {(budget > 0 || reimbursableOpen > 0 || isAuditor) && (
+              <div className="flex flex-wrap items-center gap-2 mt-2">
+                {budget > 0 && (
+                  <span className={cn('text-[11px] font-semibold px-2 py-1 rounded-full border', monthOut > budget ? 'text-rose-700 bg-rose-50 border-rose-200' : 'text-slate-600 bg-slate-50 border-slate-200')}>
+                    Budget left {getCurrencySymbol(book.currency)}{(budget - monthOut).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </span>
+                )}
+                {reimbursableOpen > 0 && (
+                  <span className="text-[11px] font-semibold px-2 py-1 rounded-full border text-amber-800 bg-amber-50 border-amber-200">
+                    Reimbursable {getCurrencySymbol(book.currency)}{reimbursableOpen.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </span>
+                )}
+                {isAuditor && <span className="text-[11px] font-semibold px-2 py-1 rounded-full border text-amber-800 bg-amber-50 border-amber-200">Read-only</span>}
               </div>
             )}
           </div>
@@ -1060,13 +1068,13 @@ export default function BookView() {
         <div className="flex-1 min-h-0 overflow-y-auto px-4 md:px-6 lg:px-8 py-4">
         <div className="max-w-6xl mx-auto">
         <Tabs.Content value="ledger" className="space-y-4 outline-none">
-          <div className="byjan-toolbar mb-4">
-            <div className="flex flex-col lg:flex-row lg:items-center gap-2">
+          <div className="relative mb-3">
+            <div className="flex items-center gap-2">
               <label className="byjan-search flex-1">
                 <Search className="w-4 h-4 text-slate-400 shrink-0" />
                 <input
                   type="search"
-                  placeholder="Search entries, merchant, tags, notes…"
+                  placeholder="Search entries"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
@@ -1076,77 +1084,93 @@ export default function BookView() {
                   </button>
                 )}
               </label>
-              <div className="flex items-center gap-2 shrink-0">
-                <button type="button" onClick={() => generatePDF(false)} className="byjan-btn-ghost !h-10 !px-3">
-                  <Download className="w-4 h-4" /> <span className="hidden sm:inline">PDF</span>
-                </button>
-                <button type="button" onClick={emailReport} disabled={sendingReport} className="byjan-btn-ghost !h-10 !px-3">
-                  {sendingReport ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} <span className="hidden sm:inline">Email</span>
-                </button>
-                <DropdownMenu.Root>
-                  <DropdownMenu.Trigger asChild>
-                    <button type="button" className="byjan-btn-ghost !h-10 !px-3">
-                      <Settings2 className="w-4 h-4" /> <span className="hidden sm:inline">Cols</span>
-                    </button>
-                  </DropdownMenu.Trigger>
-                  <DropdownMenu.Portal>
-                    <DropdownMenu.Content align="end" className="w-48 bg-white rounded-lg shadow-lg border border-slate-200 p-2 z-50">
-                      <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-2">Visible Columns</div>
-                      {Object.keys(visibleColumns).map((col) => (
-                        <DropdownMenu.CheckboxItem
-                          key={col}
-                          checked={visibleColumns[col as keyof typeof visibleColumns]}
-                          onCheckedChange={(checked) => setVisibleColumns((prev) => ({ ...prev, [col]: checked }))}
-                          className="px-2 py-1.5 text-sm outline-none cursor-pointer hover:bg-slate-50 rounded flex items-center gap-2"
-                        >
-                          <span className="capitalize">{col}</span>
-                        </DropdownMenu.CheckboxItem>
-                      ))}
-                    </DropdownMenu.Content>
-                  </DropdownMenu.Portal>
-                </DropdownMenu.Root>
-              </div>
+              <button
+                type="button"
+                className="byjan-btn-ghost !h-10 !px-3 relative"
+                onClick={() => setFiltersOpen((v) => !v)}
+              >
+                <SlidersHorizontal className="w-4 h-4" />
+                <span className="hidden sm:inline">Filters</span>
+                {activeFilterCount > 0 && (
+                  <span className="ml-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[#0B1F3A] text-white text-[10px] font-bold inline-flex items-center justify-center">
+                    {activeFilterCount}
+                  </span>
+                )}
+              </button>
+              <button type="button" onClick={() => generatePDF(false)} className="byjan-btn-ghost !h-10 !px-3">
+                <Download className="w-4 h-4" />
+              </button>
+              <button type="button" onClick={emailReport} disabled={sendingReport} className="byjan-btn-ghost !h-10 !px-3">
+                {sendingReport ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              </button>
+              <DropdownMenu.Root>
+                <DropdownMenu.Trigger asChild>
+                  <button type="button" className="byjan-btn-ghost !h-10 !px-3">
+                    <Settings2 className="w-4 h-4" />
+                  </button>
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content align="end" className="w-48 bg-white rounded-lg shadow-lg border border-slate-200 p-2 z-50">
+                    <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-2">Columns</div>
+                    {Object.keys(visibleColumns).map((col) => (
+                      <DropdownMenu.CheckboxItem
+                        key={col}
+                        checked={visibleColumns[col as keyof typeof visibleColumns]}
+                        onCheckedChange={(checked) => setVisibleColumns((prev) => ({ ...prev, [col]: checked }))}
+                        className="px-2 py-1.5 text-sm outline-none cursor-pointer hover:bg-slate-50 rounded flex items-center gap-2"
+                      >
+                        <span className="capitalize">{col}</span>
+                      </DropdownMenu.CheckboxItem>
+                    ))}
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400 mr-1">
-                <SlidersHorizontal className="w-3.5 h-3.5" /> Filters
-              </span>
-              <button type="button" className="byjan-chip" data-on={period === 'week'} onClick={() => applyPeriod('week')}>This week</button>
-              <button type="button" className="byjan-chip" data-on={period === 'month'} onClick={() => applyPeriod('month')}>This month</button>
-              <button type="button" className="byjan-chip" data-on={period === '30'} onClick={() => applyPeriod('30')}>Last 30 days</button>
-              <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="byjan-filter">
-                <option value="all">All types</option>
-                <option value="out">Money out</option>
-                <option value="in">Money in</option>
-                <option value="transfer">Transfer</option>
-              </select>
-              <select value={methodFilter} onChange={(e) => setMethodFilter(e.target.value)} className="byjan-filter">
-                <option value="all">All methods</option>
-                <option value="cash">Cash</option>
-                <option value="card">Card</option>
-                <option value="upi">UPI</option>
-                <option value="bank">Bank</option>
-                <option value="wallet">Wallet</option>
-              </select>
-              <input type="date" value={dateFrom} onChange={(e) => { setPeriod(''); setDateFrom(e.target.value); }} className="byjan-filter" title="From date" />
-              <input type="date" value={dateTo} onChange={(e) => { setPeriod(''); setDateTo(e.target.value); }} className="byjan-filter" title="To date" />
-              <button type="button" className="byjan-chip" data-on={reimbursableOnly} onClick={() => setReimbursableOnly((v) => !v)}>Reimbursable</button>
-              <button type="button" className="byjan-chip" data-on={uncategorizedOnly} onClick={() => setUncategorizedOnly((v) => !v)}>Uncategorized</button>
-              {activeFilterCount > 0 && (
-                <button type="button" onClick={clearFilters} className="text-xs font-semibold text-slate-500 hover:text-[#0B1F3A]">
-                  Clear {activeFilterCount}
-                </button>
-              )}
-            </div>
-            {filteredExpenses.length > 0 && (
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] font-semibold text-slate-500 px-1">
-                <span>Showing {filteredExpenses.length} {filteredExpenses.length === 1 ? 'entry' : 'entries'}</span>
-                <span className="text-emerald-600">In {getCurrencySymbol(book.currency)} {filterIn.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                <span className="text-slate-800">Out {getCurrencySymbol(book.currency)} {filterOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                <span className={filterIn - filterOut >= 0 ? 'text-emerald-700' : 'text-rose-600'}>Net {getCurrencySymbol(book.currency)} {(filterIn - filterOut).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+            {filtersOpen && (
+              <div className="absolute right-0 top-[calc(100%+8px)] z-30 w-full sm:w-[420px] byjan-panel p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-slate-900">Filters</p>
+                  {activeFilterCount > 0 && (
+                    <button type="button" onClick={clearFilters} className="text-xs font-semibold text-slate-500 hover:text-[#0B1F3A]">Clear all</button>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" className="byjan-chip" data-on={period === 'week'} onClick={() => applyPeriod('week')}>This week</button>
+                  <button type="button" className="byjan-chip" data-on={period === 'month'} onClick={() => applyPeriod('month')}>This month</button>
+                  <button type="button" className="byjan-chip" data-on={period === '30'} onClick={() => applyPeriod('30')}>Last 30 days</button>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="byjan-filter w-full">
+                    <option value="all">All types</option>
+                    <option value="out">Money out</option>
+                    <option value="in">Money in</option>
+                    <option value="transfer">Transfer</option>
+                  </select>
+                  <select value={methodFilter} onChange={(e) => setMethodFilter(e.target.value)} className="byjan-filter w-full">
+                    <option value="all">All methods</option>
+                    <option value="cash">Cash</option>
+                    <option value="card">Card</option>
+                    <option value="upi">UPI</option>
+                    <option value="bank">Bank</option>
+                    <option value="wallet">Wallet</option>
+                  </select>
+                  <input type="date" value={dateFrom} onChange={(e) => { setPeriod(''); setDateFrom(e.target.value); }} className="byjan-filter w-full" title="From date" />
+                  <input type="date" value={dateTo} onChange={(e) => { setPeriod(''); setDateTo(e.target.value); }} className="byjan-filter w-full" title="To date" />
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" className="byjan-chip" data-on={reimbursableOnly} onClick={() => setReimbursableOnly((v) => !v)}>Reimbursable</button>
+                  <button type="button" className="byjan-chip" data-on={uncategorizedOnly} onClick={() => setUncategorizedOnly((v) => !v)}>Uncategorized</button>
+                </div>
               </div>
             )}
           </div>
+          {filteredExpenses.length > 0 && (
+            <p className="text-[11px] font-semibold text-slate-500 mb-3">
+              {filteredExpenses.length} {filteredExpenses.length === 1 ? 'entry' : 'entries'}
+              <span className="text-emerald-600"> · In {getCurrencySymbol(book.currency)}{filterIn.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+              <span> · Out {getCurrencySymbol(book.currency)}{filterOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+            </p>
+          )}
 
           {/* Data Table */}
           <div className="byjan-table flex flex-col">

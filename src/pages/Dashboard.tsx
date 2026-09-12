@@ -294,34 +294,24 @@ export default function Dashboard() {
             <span className="text-xs text-slate-500">{books.length} ledger{books.length === 1 ? '' : 's'}</span>
           </div>
           {books.length > 0 && (
-            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-              <div className="byjan-card p-4">
-                <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Net position</h3>
-                <span className={`text-xl font-display font-semibold ${(globalStats.totalIn - globalStats.totalOut) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+            <div className="byjan-stat-grid">
+              <div className="byjan-stat">
+                <p className="byjan-stat-label">Net</p>
+                <p className={`byjan-stat-value ${(globalStats.totalIn - globalStats.totalOut) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
                   {getCurrencySymbol(books[0]?.currency || userProfile?.defaultCurrency || 'INR')}{(globalStats.totalIn - globalStats.totalOut).toLocaleString()}
-                </span>
+                </p>
               </div>
-              <div className="byjan-card p-4">
-                <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Money in</h3>
-                <span className="text-xl font-display font-semibold text-emerald-600">+{getCurrencySymbol(books[0]?.currency || userProfile?.defaultCurrency || 'INR')}{globalStats.totalIn.toLocaleString()}</span>
+              <div className="byjan-stat">
+                <p className="byjan-stat-label">In</p>
+                <p className="byjan-stat-value text-emerald-600">{getCurrencySymbol(books[0]?.currency || userProfile?.defaultCurrency || 'INR')}{globalStats.totalIn.toLocaleString()}</p>
               </div>
-              <div className="byjan-card p-4">
-                <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Money out</h3>
-                <span className="text-xl font-display font-semibold text-[#0B1F3A]">-{getCurrencySymbol(books[0]?.currency || userProfile?.defaultCurrency || 'INR')}{globalStats.totalOut.toLocaleString()}</span>
+              <div className="byjan-stat">
+                <p className="byjan-stat-label">Out</p>
+                <p className="byjan-stat-value text-[#0B1F3A]">{getCurrencySymbol(books[0]?.currency || userProfile?.defaultCurrency || 'INR')}{globalStats.totalOut.toLocaleString()}</p>
               </div>
-              <div className="byjan-card p-4">
-                <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">This month</h3>
-                <span className="text-sm font-bold text-[#0B1F3A] block">In {globalStats.monthIn.toLocaleString()}</span>
-                <span className="text-xs text-slate-500">Out {globalStats.monthOut.toLocaleString()}</span>
-              </div>
-              <div className="byjan-card p-4">
-                <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Entries</h3>
-                <span className="text-xl font-display font-semibold text-[#0B1F3A]">{globalStats.entries}</span>
-                <span className="text-xs text-slate-500 block">{globalStats.uncategorized} uncategorized</span>
-              </div>
-              <div className="byjan-card p-4">
-                <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Reimbursable</h3>
-                <span className="text-xl font-display font-semibold text-amber-700">{getCurrencySymbol(books[0]?.currency || userProfile?.defaultCurrency || 'INR')}{globalStats.reimbursable.toLocaleString()}</span>
+              <div className="byjan-stat">
+                <p className="byjan-stat-label">Entries</p>
+                <p className="byjan-stat-value text-[#0B1F3A]">{globalStats.entries}</p>
               </div>
             </div>
           )}
@@ -350,22 +340,22 @@ export default function Dashboard() {
               {bookList.pageRows.map(book => {
                 const role = book.roles[currentUser!.uid]?.role || 'viewer';
                 return (
-                  <Link to={`/book/${book.id}`} key={book.id} className="group flex flex-col byjan-card byjan-lift p-4">
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="w-9 h-9 bg-slate-50 rounded-md flex items-center justify-center border border-slate-100">
-                        <Receipt className="w-4 h-4 text-slate-600" />
+                  <Link to={`/book/${book.id}`} key={book.id} className="byjan-card byjan-lift byjan-ledger-card">
+                    <div className="flex items-start justify-between">
+                      <div className="w-9 h-9 rounded-xl bg-[#0B1F3A] text-white flex items-center justify-center">
+                        <Receipt className="w-4 h-4" />
                       </div>
-                      <span className="inline-flex items-center gap-1">
+                      <span className="inline-flex items-center gap-1.5">
                         {book.pinned ? <Pin className="w-3.5 h-3.5 text-[#12B8A8]" /> : null}
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase tracking-wide ${getRoleBadgeColor(role)}`}>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wide ${getRoleBadgeColor(role)}`}>
                           {role}
                         </span>
                       </span>
                     </div>
-                    <h3 className="text-sm font-bold text-slate-900 truncate">{book.name}</h3>
-                    <div className="mt-3 flex items-center justify-between text-xs border-t border-slate-100 pt-3">
-                      <span className="flex items-center gap-1 text-slate-500"><Users className="w-3.5 h-3.5" />{Object.keys(book.roles).length}</span>
-                      <span className="font-bold text-slate-700">{getCurrencySymbol(book.currency)}</span>
+                    <h3 className="text-sm font-semibold text-slate-900 mt-3 leading-snug">{book.name}</h3>
+                    <div className="mt-auto flex items-center justify-between text-xs text-slate-500 pt-3">
+                      <span className="inline-flex items-center gap-1"><Users className="w-3.5 h-3.5" />{Object.keys(book.roles).length}</span>
+                      <span className="font-semibold text-slate-700 tabular-nums">{book.currency}</span>
                     </div>
                   </Link>
                 );
