@@ -18,7 +18,7 @@ import { createExpense, listExpenses, softDeleteExpense, updateExpense } from '.
 import { createNotification } from '../lib/notifications';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send, Copy, CopyPlus, Paperclip, Mail, Megaphone, Shield, Pin, PinOff, SlidersHorizontal, ArrowUpDown } from 'lucide-react';
+import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send, Copy, CopyPlus, Paperclip, Mail, Megaphone, Shield, Pin, PinOff, SlidersHorizontal, ArrowUpDown, Star } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Tabs from '@radix-ui/react-tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
@@ -33,6 +33,7 @@ import { EventMailTrack, emailStatusClass, emailStatusLabel, resolvedStatus } fr
 import { ListControls, usePagedList } from '../components/ListControls';
 import AppLoader from '../components/AppLoader';
 import LedgerTools from '../components/LedgerTools';
+import LedgerStudio from '../components/LedgerStudio';
 import { dueRecurringPosts, isoDay, readRecurring } from '../lib/ledger-advanced';
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -186,6 +187,11 @@ export default function BookView() {
   const [exportingPdf, setExportingPdf] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkBusy, setBulkBusy] = useState('');
+  const [amountMin, setAmountMin] = useState('');
+  const [amountMax, setAmountMax] = useState('');
+  const [hideTransfers, setHideTransfers] = useState(false);
+  const [flaggedOnly, setFlaggedOnly] = useState(false);
+  const [lastDeleted, setLastDeleted] = useState<Record<string, unknown> | null>(null);
   const skipFilterSave = useRef(true);
   const [unsentEmailChange, setUnsentEmailChange] = useState<{action: string, detail: string} | null>(null);  const navigate = useNavigate();
 
@@ -712,6 +718,12 @@ export default function BookView() {
       return;
     }
 
+    const lockBefore = String(book.lockBefore || '');
+    if (lockBefore && entryDate && entryDate < lockBefore) {
+      setIsSaving(false);
+      addToast(`This ledger is locked before ${lockBefore}.`, 'error');
+      return;
+    }
     try {
       if (editingExpense) {
         const nextStatus = Number(amount) > 0 ? 'recorded' : 'draft';
@@ -788,7 +800,9 @@ export default function BookView() {
     if (confirm('Remove this entry? It stays in the ledger for audit and is hidden from lists and totals.')) {
       setIsDeleting(id);
       try {
+        const gone = expenses.find((row) => row.id === id);
         await softDeleteExpense(bookId, id);
+        if (gone) setLastDeleted(gone);
         const rows = await listExpenses(bookId);
         setExpenses(rows.sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt)));
         await notifyTeamMembers('Deleted an entry', `Removed entry for "${description}"`, `${userProfile?.displayName || currentUser?.email} deleted "${description}" from ${book.name}`);
@@ -1028,6 +1042,11 @@ export default function BookView() {
     const day = String(exp.date || '').slice(0, 10);
     if (dateFrom && day && day < dateFrom) return false;
     if (dateTo && day && day > dateTo) return false;
+    if (hideTransfers && String(exp.entryType || '') === 'transfer') return false;
+    if (flaggedOnly && !exp.flagged) return false;
+    const amt = Number(exp.amount || 0);
+    if (amountMin && amt < Number(amountMin)) return false;
+    if (amountMax && amt > Number(amountMax)) return false;
     return true;
   });
   const sortedExpenses = [...filteredExpenses].sort((a, b) => {
@@ -1098,7 +1117,7 @@ export default function BookView() {
       <Tabs.Root value={ledgerTab} onValueChange={setLedgerTab} className="h-full min-h-0 flex flex-col">
         <div className="shrink-0 px-4 md:px-6 lg:px-8 pt-2 pb-2 byjan-glass border-b border-white/50">
         <div className="max-w-6xl mx-auto">
-      <div className="flex items-center justify-between gap-2 mb-2">
+      <div className="flex items-center justify-between gap-2 mb-1">
         <div className="flex items-center gap-2 min-w-0">
           <Link to="/expenses" className="p-1 text-slate-400 hover:text-slate-700" title="Back">
             <ArrowLeft className="w-4 h-4" />
@@ -1335,6 +1354,51 @@ export default function BookView() {
             onRefresh={refreshExpenses}
             onToast={(message, kind) => addToast(message, kind || 'success')}
           />
+          <div className="flex flex-wrap items-center gap-2 mb-2">
+            <LedgerStudio
+              bookId={bookId!}
+              book={book}
+              bookName={book.name}
+              canWrite={canWrite}
+              canManage={canManageUsers}
+              categories={categoryOptions}
+              currencySymbol={getCurrencySymbol(book.currency)}
+              expenses={expenses}
+              selected={expenses.filter((exp) => selectedIds.includes(exp.id))}
+              enteredBy={String(userProfile?.displayName || currentUser?.email || '')}
+              enteredByUid={currentUser?.uid || ''}
+              enteredByEmail={currentUser?.email || ''}
+              onBook={(next) => setBook(next)}
+              onRefresh={refreshExpenses}
+              onToast={(message, kind) => addToast(message, kind || 'success')}
+              amountMin={amountMin}
+              amountMax={amountMax}
+              onAmountMin={setAmountMin}
+              onAmountMax={setAmountMax}
+              hideTransfers={hideTransfers}
+              onHideTransfers={setHideTransfers}
+              flaggedOnly={flaggedOnly}
+              onFlaggedOnly={setFlaggedOnly}
+            />
+            {lastDeleted && canWrite && (
+              <button
+                type="button"
+                className="byjan-chip"
+                onClick={async () => {
+                  try {
+                    await updateExpense(bookId!, String(lastDeleted.id), { deleted: false, deletedAt: null, status: lastDeleted.status || 'recorded' });
+                    setLastDeleted(null);
+                    await refreshExpenses();
+                    addToast('Last removal undone.', 'success');
+                  } catch (err: any) {
+                    addToast(err?.message || 'Could not restore that entry', 'error');
+                  }
+                }}
+              >
+                Undo remove
+              </button>
+            )}
+          </div>
           {selectedIds.length > 0 && canWrite && (
             <div className="byjan-card flex flex-wrap items-center gap-2 px-3 py-2 mb-2">
               <span className="text-xs font-semibold text-slate-600">{selectedIds.length} selected</span>
@@ -1478,6 +1542,14 @@ export default function BookView() {
                         {canWrite && (
                           <td className="px-3.5 py-2 text-right">
                             <div className="flex items-center justify-end gap-2 text-slate-400">
+                              <button
+                                type="button"
+                                onClick={() => void updateExpense(bookId!, exp.id, { flagged: !exp.flagged }).then(() => refreshExpenses())}
+                                className={cn('p-1 rounded transition-colors', exp.flagged ? 'text-amber-500' : 'hover:text-zinc-600 hover:bg-white/70')}
+                                title={exp.flagged ? 'Unflag' : 'Flag'}
+                              >
+                                <Star className="w-4 h-4" fill={exp.flagged ? 'currentColor' : 'none'} />
+                              </button>
                               <button onClick={() => void duplicateExpense(exp)} disabled={bulkBusy === exp.id} className="p-1 hover:text-zinc-600 hover:bg-white/70 rounded transition-colors" title="Duplicate">
                                 {bulkBusy === exp.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CopyPlus className="w-4 h-4" />}
                               </button>

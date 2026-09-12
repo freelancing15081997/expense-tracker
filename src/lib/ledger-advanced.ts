@@ -141,3 +141,103 @@ export function dueRecurringPosts(
   }
   return { posts, nextRules };
 }
+
+export type CategoryRule = { id: string; match: string; category: string };
+
+export function readCategoryRules(book: Record<string, unknown> | null | undefined): CategoryRule[] {
+  return Array.isArray(book?.categoryRules) ? book.categoryRules as CategoryRule[] : [];
+}
+
+export function applyCategoryRules(description: string, merchant: string, rules: CategoryRule[]) {
+  const hay = `${description} ${merchant}`.toLowerCase();
+  return rules.find((rule) => rule.match.trim() && hay.includes(rule.match.trim().toLowerCase()))?.category || '';
+}
+
+export function tileHue(name: string) {
+  let h = 0;
+  for (let i = 0; i < name.length; i += 1) h = (h * 33 + name.charCodeAt(i)) % 360;
+  return h;
+}
+
+export function initials(name: string) {
+  const parts = String(name || 'L').trim().split(/\s+/).slice(0, 2);
+  return parts.map((part) => part[0]?.toUpperCase() || 'L').join('') || 'L';
+}
+
+export function monthKey(offset = 0) {
+  const d = new Date();
+  d.setMonth(d.getMonth() + offset);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+export function sparkDays(expenses: Array<Record<string, unknown>>, days = 7) {
+  const out = Array.from({ length: days }, () => 0);
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+  for (const exp of expenses) {
+    if (exp.entryType === 'in' || exp.entryType === 'transfer') continue;
+    const day = String(exp.date || '').slice(0, 10);
+    if (!day) continue;
+    const diff = Math.round((today.getTime() - new Date(`${day}T12:00:00`).getTime()) / 86400000);
+    if (diff >= 0 && diff < days) out[days - 1 - diff] += Number(exp.amount || 0);
+  }
+  return out;
+}
+
+export function ledgerInsights(expenses: Array<Record<string, unknown>>, budget = 0) {
+  const thisKey = monthKey(0);
+  const lastKey = monthKey(-1);
+  let monthOut = 0;
+  let lastOut = 0;
+  let monthIn = 0;
+  let weekend = 0;
+  let weekday = 0;
+  const merchants = new Map<string, number>();
+  const people = new Map<string, number>();
+  const clusters = new Map<string, number>();
+  for (const exp of expenses) {
+    const amount = Number(exp.amount || 0);
+    const type = String(exp.entryType || 'out');
+    const day = String(exp.date || '');
+    const person = String(exp.enteredBy || exp.paidByName || 'Someone');
+    if (type !== 'transfer') people.set(person, (people.get(person) || 0) + (type === 'in' ? amount : -amount));
+    if (type === 'out') {
+      if (day.startsWith(thisKey)) monthOut += amount;
+      if (day.startsWith(lastKey)) lastOut += amount;
+      const merchant = String(exp.merchant || '').trim();
+      if (merchant) merchants.set(merchant, (merchants.get(merchant) || 0) + amount);
+      const dow = new Date(`${day}T12:00:00`).getDay();
+      if (dow === 0 || dow === 6) weekend += amount;
+      else weekday += amount;
+      const key = `${day}|${amount}|${String(exp.description || '').toLowerCase()}`;
+      clusters.set(key, (clusters.get(key) || 0) + 1);
+    }
+    if (type === 'in' && day.startsWith(thisKey)) monthIn += amount;
+  }
+  const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+  const dayNum = new Date().getDate();
+  const pace = budget > 0 ? (monthOut / Math.max(1, dayNum)) * daysInMonth : 0;
+  const topMerchants = [...merchants.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4);
+  const settlement = [...people.entries()].sort((a, b) => a[1] - b[1]);
+  const dupes = [...clusters.values()].filter((n) => n > 1).length;
+  return { monthOut, lastOut, monthIn, weekend, weekday, topMerchants, settlement, pace, budget, dupes };
+}
+
+export function toQif(expenses: Array<Record<string, unknown>>, name: string) {
+  const lines = ['!Type:Bank', `N${name}`];
+  for (const exp of expenses) {
+    const sign = exp.entryType === 'in' ? 1 : -1;
+    lines.push(`D${String(exp.date || isoDay())}`, `T${(sign * Number(exp.amount || 0)).toFixed(2)}`, `P${exp.merchant || exp.description || ''}`, `L${exp.category || ''}`, `M${exp.description || ''}`, '^');
+  }
+  return lines.join('\n');
+}
+
+export function downloadText(filename: string, text: string, type = 'text/plain') {
+  const blob = new Blob([text], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}

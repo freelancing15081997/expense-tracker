@@ -180,24 +180,43 @@ svg.byjan-glyph {
   line-height: 1;
   text-align: right;
 }
-.byjan-ledger-card {
+.byjan-ledger-card,
+.byjan-ledger-tile {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  height: 56px;
+  padding: 6px 10px 6px 6px;
+  position: relative;
+  overflow: hidden;
+}
+.byjan-ledger-tile {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.4));
+  border-radius: 16px;
+}
+.byjan-ledger-mono {
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
   display: flex;
   align-items: center;
-  gap: 12px;
-  min-height: 0;
-  height: auto;
-  padding: 12px 14px;
-  position: relative;
+  justify-content: center;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  box-shadow: 0 8px 16px -10px rgba(11, 31, 58, 0.55);
 }
-.byjan-ledger-card::before {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 3px;
-  border-radius: 14px 0 0 14px;
-  background: linear-gradient(180deg, #12B8A8, #0B1F3A);
+.byjan-spark {
+  width: 54px;
+  height: 18px;
+  display: block;
 }
-.byjan-ledger-card h3 {
+.byjan-ledger-card h3,
+.byjan-ledger-tile h3 {
   display: -webkit-box;
   -webkit-line-clamp: 1;
   line-clamp: 1;
@@ -997,8 +1016,8 @@ html[data-density="compact"] h1 {
 .byjan-hero {
   position: relative;
   overflow: hidden;
-  padding: 18px 18px 16px;
-  border-radius: 22px;
+  padding: 10px 14px;
+  border-radius: 16px;
 }
 .byjan-hero::after {
   content: "";

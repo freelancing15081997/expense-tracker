@@ -6,7 +6,8 @@ import { createLedger, listLedgers } from '../lib/ledgers';
 import { listAllExpenses } from '../lib/expenses';
 import { useBooksTenantMeta } from '../lib/tenant';
 import { getCurrencySymbol } from '../lib/currency';
-import { Plus, Check, X, Users, Building2, Receipt, ArrowRight, BookOpen, Pin, Sparkles } from 'lucide-react';
+import { initials, sparkDays, tileHue } from '../lib/ledger-advanced';
+import { Plus, Check, X, Users, Building2, ArrowRight, BookOpen, Sparkles } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 import AppLoader from '../components/AppLoader';
@@ -24,7 +25,7 @@ interface BookItem {
   roles: Record<string, { role: string; email: string }>;
 }
 
-type BookStat = { net: number; monthOut: number; entries: number };
+type BookStat = { net: number; monthOut: number; lastMonthOut: number; entries: number; spark: number[] };
 
 type InviteItem = LedgerInvite;
 
@@ -72,6 +73,8 @@ export default function Dashboard() {
       const monthKey = new Date().toISOString().slice(0, 7);
       let activity: Record<string, number> = {};
       const nextBookStats: Record<string, BookStat> = {};
+      const lastKey = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1).toISOString().slice(0, 7);
+      const byBook: Record<string, Array<Record<string, unknown>>> = {};
       if (fetchedBooks.length) {
         const { expenses } = await listAllExpenses();
         expenses.forEach((data) => {
@@ -79,7 +82,9 @@ export default function Dashboard() {
           const isIn = data.entryType === 'in' || data.type === 'in';
           const isTransfer = data.entryType === 'transfer';
           const ledgerId = String(data.bookId || '');
-          if (!nextBookStats[ledgerId]) nextBookStats[ledgerId] = { net: 0, monthOut: 0, entries: 0 };
+          if (!nextBookStats[ledgerId]) nextBookStats[ledgerId] = { net: 0, monthOut: 0, lastMonthOut: 0, entries: 0, spark: [0, 0, 0, 0, 0, 0, 0] };
+          if (!byBook[ledgerId]) byBook[ledgerId] = [];
+          byBook[ledgerId].push(data);
           nextBookStats[ledgerId].entries += 1;
           if (isIn) nextBookStats[ledgerId].net += amount;
           else if (!isTransfer) nextBookStats[ledgerId].net -= amount;
@@ -92,11 +97,17 @@ export default function Dashboard() {
               nextBookStats[ledgerId].monthOut += amount;
             }
           }
+          if (!isIn && !isTransfer && String(data.date || '').startsWith(lastKey)) {
+            nextBookStats[ledgerId].lastMonthOut += amount;
+          }
           if (data.reimbursable) reimbursable += amount;
           const cat = String(data.category || '').trim().toLowerCase();
           if (!cat || cat === 'uncategorized') uncategorized += 1;
           const user = String(data.enteredBy || data.paidByName || data.createdBy || 'Unknown');
           activity[user] = (activity[user] || 0) + 1;
+        });
+        Object.keys(byBook).forEach((id) => {
+          if (nextBookStats[id]) nextBookStats[id].spark = sparkDays(byBook[id]);
         });
         setBookStats(nextBookStats);
         setGlobalStats({
@@ -180,14 +191,6 @@ export default function Dashboard() {
     }
   };
 
-  const getRoleBadgeColor = (role: string) => {
-    if (role === 'owner') return 'bg-slate-900 text-white border-transparent';
-    if (role === 'admin') return 'bg-zinc-50 text-zinc-700 border-zinc-200';
-    if (role === 'contributor') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-    if (role === 'auditor') return 'bg-amber-50 text-amber-700 border-amber-200';
-    return 'bg-slate-50 text-slate-700 border-slate-200';
-  };
-
   const filterBook = useCallback((book: BookItem, q: string) => (
     [book.name, book.currency, ...Object.values(book.roles || {}).map((r) => r.email)]
       .some((value) => String(value || '').toLowerCase().includes(q))
@@ -203,61 +206,29 @@ export default function Dashboard() {
   return (
     <div className="max-w-5xl mx-auto space-y-5">
       <section className="byjan-card byjan-hero">
-        <div className="relative z-10 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-teal-800/80">{hello}</p>
-            <h1 className="text-[28px] leading-tight font-semibold text-slate-900 font-display mt-1">{firstName}</h1>
-            <p className="text-sm text-slate-500 mt-1 max-w-md">
-              {expensesOnly ? 'Every shared ledger you can post to, in one glass desk.' : 'Ledgers and Books in one private workspace — tap a card and keep moving.'}
+        <div className="relative z-10 flex flex-wrap items-center justify-between gap-2">
+          <div className="min-w-0">
+            <h1 className="text-base font-semibold text-slate-900 font-display truncate">{hello}, {firstName}</h1>
+            <p className="text-[11px] text-slate-500 truncate">
+              {books.length > 0
+                ? `Net ${net < 0 ? '−' : ''}${currency}${Math.abs(net).toLocaleString()} · In ${currency}${globalStats.totalIn.toLocaleString()} · Out ${currency}${globalStats.totalOut.toLocaleString()} · Month ${currency}${globalStats.monthOut.toLocaleString()}`
+                : (expensesOnly ? 'Shared ledgers you can post to.' : 'Ledgers and Books in one workspace.')}
+              {globalStats.reimbursable > 0 ? ` · Reimburse ${currency}${globalStats.reimbursable.toLocaleString()}` : ''}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             {!expensesOnly && (
-              <Link to="/books" className="byjan-btn-ghost min-h-10">
+              <Link to="/books" className="byjan-btn-ghost !h-9">
                 <BookOpen className="w-4 h-4" />
-                Open Books
+                Books
               </Link>
             )}
-            <button onClick={() => setShowNewBook(true)} className="byjan-btn min-h-10">
+            <button onClick={() => setShowNewBook(true)} className="byjan-btn !h-9">
               <Plus className="w-4 h-4" />
               New ledger
             </button>
           </div>
         </div>
-        {books.length > 0 && (
-          <div className="byjan-stat-grid mt-4 relative z-10">
-            <div className="byjan-stat">
-              <p className="byjan-stat-label">Net</p>
-              <p className={`byjan-stat-value ${net >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{net < 0 ? '−' : ''}{currency}{Math.abs(net).toLocaleString()}</p>
-            </div>
-            <div className="byjan-stat">
-              <p className="byjan-stat-label">In</p>
-              <p className="byjan-stat-value text-emerald-600">{currency}{globalStats.totalIn.toLocaleString()}</p>
-            </div>
-            <div className="byjan-stat">
-              <p className="byjan-stat-label">Out</p>
-              <p className="byjan-stat-value text-[#0B1F3A]">{currency}{globalStats.totalOut.toLocaleString()}</p>
-            </div>
-            <div className="byjan-stat">
-              <p className="byjan-stat-label">Month</p>
-              <p className="byjan-stat-value text-[#0B1F3A]">{currency}{globalStats.monthOut.toLocaleString()}</p>
-            </div>
-          </div>
-        )}
-        {(globalStats.reimbursable > 0 || globalStats.uncategorized > 0) && (
-          <div className="relative z-10 flex flex-wrap gap-2 mt-3">
-            {globalStats.reimbursable > 0 && (
-              <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-amber-50/80 text-amber-800 border border-amber-200/70">
-                Reimbursable {currency}{globalStats.reimbursable.toLocaleString()}
-              </span>
-            )}
-            {globalStats.uncategorized > 0 && (
-              <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-slate-50/80 text-slate-600 border border-slate-200/70">
-                {globalStats.uncategorized} need a category
-              </span>
-            )}
-          </div>
-        )}
       </section>
 
       <Dialog.Root open={showNewBook} onOpenChange={setShowNewBook}>
@@ -369,31 +340,33 @@ export default function Dashboard() {
                 const stat = bookStats[book.id];
                 const symbol = getCurrencySymbol(book.currency);
                 return (
-                  <Link to={`/book/${book.id}`} key={book.id} className="byjan-card byjan-lift byjan-ledger-card">
-                    <div className="w-9 h-9 rounded-xl bg-[#0B1F3A] text-white flex items-center justify-center shrink-0">
-                      <Receipt className="w-4 h-4" />
+                  <Link to={`/book/${book.id}`} key={book.id} className="byjan-card byjan-lift byjan-ledger-tile">
+                    <span className="byjan-ledger-mono" style={{ background: `linear-gradient(160deg, hsl(${tileHue(book.name)} 42% 28%), hsl(${(tileHue(book.name) + 28) % 360} 48% 18%))` }}>
+                      {initials(book.name)}
+                    </span>
+                    <div className="min-w-0">
+                      <h3 className="text-[13px] font-semibold text-slate-900 leading-tight">{book.name}</h3>
+                      <p className="text-[10px] text-slate-500 mt-0.5 truncate">
+                        {book.pinned ? 'Pinned · ' : ''}{role} · {Object.keys(book.roles).length} · {book.currency}
+                        {stat && stat.lastMonthOut > 0 ? ` · vs last ${stat.monthOut >= stat.lastMonthOut ? 'up' : 'down'}` : ''}
+                      </p>
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <h3 className="text-sm font-semibold text-slate-900 leading-snug">{book.name}</h3>
-                      <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-500">
-                        <span className="inline-flex items-center gap-1"><Users className="w-3 h-3" />{Object.keys(book.roles).length}</span>
-                        <span className="tabular-nums">{book.currency}</span>
-                        {stat ? (
-                          <span className={`tabular-nums font-semibold ${stat.net >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                            {stat.net < 0 ? '−' : ''}{symbol}{Math.abs(stat.net).toLocaleString()}
-                          </span>
-                        ) : null}
-                      </div>
-                    </div>
-                    <span className="inline-flex flex-col items-end gap-1 shrink-0">
-                      <span className="inline-flex items-center gap-1">
-                        {book.pinned ? <Pin className="w-3.5 h-3.5 text-[#12B8A8]" /> : null}
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wide ${getRoleBadgeColor(role)}`}>
-                          {role}
-                        </span>
+                    <span className="text-right shrink-0">
+                      <span className={`block text-[13px] font-bold tabular-nums leading-none ${!stat ? 'text-slate-400' : stat.net >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                        {stat ? `${stat.net < 0 ? '−' : ''}${symbol}${Math.abs(stat.net).toLocaleString()}` : '—'}
                       </span>
-                      {stat && stat.monthOut > 0 && (
-                        <span className="text-[10px] text-slate-500 tabular-nums">Month {symbol}{stat.monthOut.toLocaleString()}</span>
+                      {stat && (
+                        <svg className="byjan-spark mt-1 ml-auto" viewBox="0 0 54 18" aria-hidden>
+                          <polyline
+                            fill="none"
+                            stroke={stat.net >= 0 ? '#0f766e' : '#be123c'}
+                            strokeWidth="1.6"
+                            points={stat.spark.map((v, i) => {
+                              const max = Math.max(...stat.spark, 1);
+                              return `${(i / Math.max(stat.spark.length - 1, 1)) * 54},${18 - (v / max) * 16}`;
+                            }).join(' ')}
+                          />
+                        </svg>
                       )}
                     </span>
                   </Link>

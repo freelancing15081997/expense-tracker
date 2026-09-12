@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Loader2, Repeat, Upload, Zap } from 'lucide-react';
+import { Loader2, Repeat, Zap } from 'lucide-react';
 import { createExpense } from '../lib/expenses';
 import { updateLedger } from '../lib/ledgers';
 import {
@@ -7,7 +7,8 @@ import {
   dueRecurringPosts,
   isoDay,
   newId,
-  parseLedgerCsv,
+  applyCategoryRules,
+  readCategoryRules,
   readRecurring,
   readTemplates,
   type EntryTemplate,
@@ -74,9 +75,17 @@ export default function LedgerTools({
   };
 
   const record = async (payload: Record<string, unknown>, label: string) => {
+    const lockBefore = String(book.lockBefore || '');
+    const day = String(payload.date || isoDay());
+    if (lockBefore && day < lockBefore) {
+      onToast(`This ledger is locked before ${lockBefore}.`, 'error');
+      return;
+    }
     try {
+      const auto = applyCategoryRules(String(payload.description || ''), String(payload.merchant || ''), readCategoryRules(book));
       await createExpense(bookId, {
         ...payload,
+        category: payload.category || auto || 'Uncategorized',
         paidByName: enteredBy,
         enteredBy,
         enteredByUid,
@@ -216,38 +225,8 @@ export default function LedgerTools({
     }
   };
 
-  const importCsv = async (file: File) => {
-    const text = await file.text();
-    const rows = parseLedgerCsv(text);
-    if (!rows.length) {
-      onToast('No usable rows in that CSV.', 'error');
-      return;
-    }
-    setBusy('csv');
-    try {
-      let ok = 0;
-      for (const row of rows) {
-        await createExpense(bookId, {
-          ...row,
-          paidByName: enteredBy,
-          enteredBy,
-          enteredByUid,
-          enteredByEmail,
-          imported: true,
-        }, { force: true });
-        ok += 1;
-      }
-      await onRefresh();
-      onToast(`Imported ${ok} ${ok === 1 ? 'entry' : 'entries'}.`, 'success');
-    } catch (err: any) {
-      onToast(err?.message || 'CSV import stopped.', 'error');
-    } finally {
-      setBusy('');
-    }
-  };
-
   return (
-    <div className="space-y-2 mb-3">
+    <div className="mb-2">
       <form onSubmit={quickAdd} className="byjan-card byjan-capture">
         <select value={kind} onChange={(e) => setKind(e.target.value as 'out' | 'in')} className="byjan-filter !w-auto" aria-label="Type">
           <option value="out">Out</option>
@@ -280,13 +259,17 @@ export default function LedgerTools({
         <datalist id="ledger-merchants">
           {merchants.map((name) => <option key={name} value={name} />)}
         </datalist>
+        <button type="button" className="byjan-btn-ghost !h-9 !px-2 hidden sm:inline-flex" onClick={() => void saveCurrentAsTemplate()} disabled={busy === 'tpl'} title="Save as template">
+          Save
+        </button>
         <button type="submit" disabled={busy === 'quick'} className="byjan-btn !h-9">
           {busy === 'quick' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
           Add
         </button>
       </form>
 
-      <div className="flex flex-wrap items-center gap-1.5">
+      {(templates.length > 0 || dueCount > 0 || ruleOpen) && (
+      <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
         {templates.map((tpl) => (
           <button
             key={tpl.id}
@@ -304,11 +287,8 @@ export default function LedgerTools({
             {tpl.name} · {currencySymbol}{Number(tpl.amount || 0).toLocaleString()}
           </button>
         ))}
-        <button type="button" className="byjan-chip" onClick={() => void saveCurrentAsTemplate()} disabled={busy === 'tpl'}>
-          Save as template
-        </button>
         <button type="button" className="byjan-chip" onClick={() => setRuleOpen((v) => !v)}>
-          <Repeat className="w-3 h-3" /> Recurring{dueCount ? ` · ${dueCount} due` : ''}
+          <Repeat className="w-3 h-3" /> Recurring{dueCount ? ` · ${dueCount}` : ''}
         </button>
         {dueCount > 0 && (
           <button type="button" className="byjan-chip" data-on="true" onClick={() => void postDue()} disabled={busy === 'due'}>
@@ -316,24 +296,8 @@ export default function LedgerTools({
             Post due
           </button>
         )}
-        <label className="byjan-chip cursor-pointer">
-          {busy === 'csv' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
-          Import CSV
-          <input
-            type="file"
-            accept=".csv,text/csv"
-            className="sr-only"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = '';
-              if (file) void importCsv(file);
-            }}
-          />
-        </label>
-        {rules.filter((row) => row.active).length > 0 && (
-          <span className="text-[11px] text-slate-500">{rules.filter((row) => row.active).length} live rules</span>
-        )}
       </div>
+      )}
 
       {ruleOpen && (
         <form onSubmit={addRule} className="byjan-card p-3 grid grid-cols-2 sm:grid-cols-3 gap-2">
