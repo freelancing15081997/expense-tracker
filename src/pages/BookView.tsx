@@ -17,7 +17,7 @@ import { createExpense, listExpenses, softDeleteExpense, updateExpense } from '.
 import { createNotification } from '../lib/notifications';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send, Copy, Paperclip, Mail, Megaphone, Shield, Pin, PinOff } from 'lucide-react';
+import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send, Copy, Paperclip, Mail, Megaphone, Shield, Pin, PinOff, SlidersHorizontal } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Tabs from '@radix-ui/react-tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
@@ -68,6 +68,32 @@ function uniqueCategories(...lists: Array<string[] | undefined | null>) {
   return out;
 }
 
+function isoDay(value = new Date()) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function periodRange(kind: string) {
+  const today = new Date();
+  if (kind === 'week') {
+    const start = new Date(today);
+    const weekday = start.getDay();
+    start.setDate(start.getDate() - (weekday === 0 ? 6 : weekday - 1));
+    return { from: isoDay(start), to: isoDay(today) };
+  }
+  if (kind === 'month') {
+    return { from: `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`, to: isoDay(today) };
+  }
+  if (kind === '30') {
+    const start = new Date(today);
+    start.setDate(start.getDate() - 29);
+    return { from: isoDay(start), to: isoDay(today) };
+  }
+  return { from: '', to: '' };
+}
+
 function expenseDateLabel(exp: any) {
   try {
     if (exp?.createdAt && typeof exp.createdAt.toDate === 'function') {
@@ -114,6 +140,7 @@ export default function BookView() {
   const [auditEvents, setAuditEvents] = useState<Array<Record<string, unknown>>>([]);
   const [auditLoading, setAuditLoading] = useState(false);
   const [monthlyBudget, setMonthlyBudget] = useState('');
+  const [period, setPeriod] = useState('');
   
   // Invite State
   const [inviteEmail, setInviteEmail] = useState('');
@@ -144,6 +171,7 @@ export default function BookView() {
   const [inboundEventsLoading, setInboundEventsLoading] = useState(false);
   const [ledgerTab, setLedgerTab] = useState('ledger');
   const [receiptPreview, setReceiptPreview] = useState<{ url: string; title: string } | null>(null);
+  const skipFilterSave = React.useRef(true);
   const [unsentEmailChange, setUnsentEmailChange] = useState<{action: string, detail: string} | null>(null);  const navigate = useNavigate();
 
   const handleRemoveMember = async (uidToRemove: string, isSelf: boolean) => {
@@ -223,6 +251,37 @@ export default function BookView() {
   useEffect(() => {
     setCurrentPage(1);
   }, [searchQuery, itemsPerPage, typeFilter, dateFrom, dateTo, methodFilter, reimbursableOnly, uncategorizedOnly]);
+
+  useEffect(() => {
+    skipFilterSave.current = true;
+    if (!bookId) return;
+    try {
+      const raw = sessionStorage.getItem(`byjan.ledger.filters.${bookId}`);
+      if (!raw) return;
+      const saved = JSON.parse(raw) as Record<string, unknown>;
+      if (typeof saved.searchQuery === 'string') setSearchQuery(saved.searchQuery);
+      if (typeof saved.typeFilter === 'string') setTypeFilter(saved.typeFilter);
+      if (typeof saved.methodFilter === 'string') setMethodFilter(saved.methodFilter);
+      if (typeof saved.dateFrom === 'string') setDateFrom(saved.dateFrom);
+      if (typeof saved.dateTo === 'string') setDateTo(saved.dateTo);
+      if (typeof saved.period === 'string') setPeriod(saved.period);
+      if (typeof saved.reimbursableOnly === 'boolean') setReimbursableOnly(saved.reimbursableOnly);
+      if (typeof saved.uncategorizedOnly === 'boolean') setUncategorizedOnly(saved.uncategorizedOnly);
+    } catch { /* ignore */ }
+  }, [bookId]);
+
+  useEffect(() => {
+    if (!bookId) return;
+    if (skipFilterSave.current) {
+      skipFilterSave.current = false;
+      return;
+    }
+    try {
+      sessionStorage.setItem(`byjan.ledger.filters.${bookId}`, JSON.stringify({
+        searchQuery, typeFilter, methodFilter, dateFrom, dateTo, period, reimbursableOnly, uncategorizedOnly,
+      }));
+    } catch { /* ignore */ }
+  }, [bookId, searchQuery, typeFilter, methodFilter, dateFrom, dateTo, period, reimbursableOnly, uncategorizedOnly]);
 
   useEffect(() => {
     if (!bookId || ledgerTab !== 'audit') return;
@@ -797,6 +856,39 @@ export default function BookView() {
   });
   const totalPages = Math.max(1, Math.ceil(filteredExpenses.length / itemsPerPage));
   const paginatedExpenses = filteredExpenses.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const activeFilterCount = [
+    searchQuery.trim(),
+    typeFilter !== 'all',
+    methodFilter !== 'all',
+    dateFrom,
+    dateTo,
+    reimbursableOnly,
+    uncategorizedOnly,
+  ].filter(Boolean).length;
+
+  const applyPeriod = (kind: string) => {
+    if (period === kind) {
+      setPeriod('');
+      setDateFrom('');
+      setDateTo('');
+      return;
+    }
+    const next = periodRange(kind);
+    setPeriod(kind);
+    setDateFrom(next.from);
+    setDateTo(next.to);
+  };
+
+  const clearFilters = () => {
+    setSearchQuery('');
+    setTypeFilter('all');
+    setMethodFilter('all');
+    setDateFrom('');
+    setDateTo('');
+    setPeriod('');
+    setReimbursableOnly(false);
+    setUncategorizedOnly(false);
+  };
 
   return (
     <>
@@ -918,26 +1010,67 @@ export default function BookView() {
         <div className="flex-1 min-h-0 overflow-y-auto px-4 md:px-6 lg:px-8 py-4">
         <div className="max-w-6xl mx-auto">
         <Tabs.Content value="ledger" className="space-y-4 outline-none">
-          {/* Enhanced Action Bar */}
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
-            <div className="relative w-full sm:w-72">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input 
-                type="text" 
-                placeholder="Search entries..." 
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                className="byjan-input pl-9"
-              />
+          <div className="byjan-toolbar mb-4">
+            <div className="flex flex-col lg:flex-row lg:items-center gap-2">
+              <label className="byjan-search flex-1">
+                <Search className="w-4 h-4 text-slate-400 shrink-0" />
+                <input
+                  type="search"
+                  placeholder="Search entries, merchant, tags, notes…"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+                {searchQuery && (
+                  <button type="button" onClick={() => setSearchQuery('')} className="text-slate-400 hover:text-slate-700" title="Clear search">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </label>
+              <div className="flex items-center gap-2 shrink-0">
+                <button type="button" onClick={() => generatePDF(false)} className="byjan-btn-ghost !h-10 !px-3">
+                  <Download className="w-4 h-4" /> <span className="hidden sm:inline">PDF</span>
+                </button>
+                <button type="button" onClick={emailReport} disabled={sendingReport} className="byjan-btn-ghost !h-10 !px-3">
+                  {sendingReport ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} <span className="hidden sm:inline">Email</span>
+                </button>
+                <DropdownMenu.Root>
+                  <DropdownMenu.Trigger asChild>
+                    <button type="button" className="byjan-btn-ghost !h-10 !px-3">
+                      <Settings2 className="w-4 h-4" /> <span className="hidden sm:inline">Cols</span>
+                    </button>
+                  </DropdownMenu.Trigger>
+                  <DropdownMenu.Portal>
+                    <DropdownMenu.Content align="end" className="w-48 bg-white rounded-lg shadow-lg border border-slate-200 p-2 z-50">
+                      <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-2">Visible Columns</div>
+                      {Object.keys(visibleColumns).map((col) => (
+                        <DropdownMenu.CheckboxItem
+                          key={col}
+                          checked={visibleColumns[col as keyof typeof visibleColumns]}
+                          onCheckedChange={(checked) => setVisibleColumns((prev) => ({ ...prev, [col]: checked }))}
+                          className="px-2 py-1.5 text-sm outline-none cursor-pointer hover:bg-slate-50 rounded flex items-center gap-2"
+                        >
+                          <span className="capitalize">{col}</span>
+                        </DropdownMenu.CheckboxItem>
+                      ))}
+                    </DropdownMenu.Content>
+                  </DropdownMenu.Portal>
+                </DropdownMenu.Root>
+              </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-              <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="byjan-input !w-auto !h-9 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400 mr-1">
+                <SlidersHorizontal className="w-3.5 h-3.5" /> Filters
+              </span>
+              <button type="button" className="byjan-chip" data-on={period === 'week'} onClick={() => applyPeriod('week')}>This week</button>
+              <button type="button" className="byjan-chip" data-on={period === 'month'} onClick={() => applyPeriod('month')}>This month</button>
+              <button type="button" className="byjan-chip" data-on={period === '30'} onClick={() => applyPeriod('30')}>Last 30 days</button>
+              <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="byjan-filter">
                 <option value="all">All types</option>
                 <option value="out">Money out</option>
                 <option value="in">Money in</option>
                 <option value="transfer">Transfer</option>
               </select>
-              <select value={methodFilter} onChange={(e) => setMethodFilter(e.target.value)} className="byjan-input !w-auto !h-9 text-sm">
+              <select value={methodFilter} onChange={(e) => setMethodFilter(e.target.value)} className="byjan-filter">
                 <option value="all">All methods</option>
                 <option value="cash">Cash</option>
                 <option value="card">Card</option>
@@ -945,45 +1078,15 @@ export default function BookView() {
                 <option value="bank">Bank</option>
                 <option value="wallet">Wallet</option>
               </select>
-              <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="byjan-input !w-auto !h-9 text-sm" title="From date" />
-              <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="byjan-input !w-auto !h-9 text-sm" title="To date" />
-              <label className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600">
-                <input type="checkbox" checked={reimbursableOnly} onChange={(e) => setReimbursableOnly(e.target.checked)} />
-                Reimbursable
-              </label>
-              <label className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600">
-                <input type="checkbox" checked={uncategorizedOnly} onChange={(e) => setUncategorizedOnly(e.target.checked)} />
-                Uncategorized
-              </label>
-              <button onClick={() => generatePDF(false)} className="byjan-btn-ghost flex-1 sm:flex-none !px-3 !py-2">
-                <Download className="w-4 h-4" /> <span className="hidden sm:inline">PDF</span>
-              </button>
-              <button onClick={emailReport} disabled={sendingReport} className="byjan-btn-ghost flex-1 sm:flex-none !px-3 !py-2">
-                {sendingReport ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} <span className="hidden sm:inline">Email</span>
-              </button>
-              
-              <DropdownMenu.Root>
-                <DropdownMenu.Trigger asChild>
-                  <button className="byjan-btn-ghost !px-3 !py-2">
-                    <Settings2 className="w-4 h-4" /> <span className="hidden sm:inline">Cols</span>
-                  </button>
-                </DropdownMenu.Trigger>
-                <DropdownMenu.Portal>
-                  <DropdownMenu.Content align="end" className="w-48 bg-white rounded-lg shadow-lg border border-slate-200 p-2 z-50">
-                    <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-2">Visible Columns</div>
-                    {Object.keys(visibleColumns).map((col) => (
-                      <DropdownMenu.CheckboxItem
-                        key={col}
-                        checked={visibleColumns[col as keyof typeof visibleColumns]}
-                        onCheckedChange={(checked) => setVisibleColumns(prev => ({...prev, [col]: checked}))}
-                        className="px-2 py-1.5 text-sm outline-none cursor-pointer hover:bg-slate-50 rounded flex items-center gap-2"
-                      >
-                        <span className="capitalize">{col}</span>
-                      </DropdownMenu.CheckboxItem>
-                    ))}
-                  </DropdownMenu.Content>
-                </DropdownMenu.Portal>
-              </DropdownMenu.Root>
+              <input type="date" value={dateFrom} onChange={(e) => { setPeriod(''); setDateFrom(e.target.value); }} className="byjan-filter" title="From date" />
+              <input type="date" value={dateTo} onChange={(e) => { setPeriod(''); setDateTo(e.target.value); }} className="byjan-filter" title="To date" />
+              <button type="button" className="byjan-chip" data-on={reimbursableOnly} onClick={() => setReimbursableOnly((v) => !v)}>Reimbursable</button>
+              <button type="button" className="byjan-chip" data-on={uncategorizedOnly} onClick={() => setUncategorizedOnly((v) => !v)}>Uncategorized</button>
+              {activeFilterCount > 0 && (
+                <button type="button" onClick={clearFilters} className="text-xs font-semibold text-slate-500 hover:text-[#0B1F3A]">
+                  Clear {activeFilterCount}
+                </button>
+              )}
             </div>
           </div>
 

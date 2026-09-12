@@ -47,16 +47,15 @@ export function ListControls(props: {
   const end = Math.min(props.page * props.pageSize, props.total);
   return (
     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-      <div className="relative w-full sm:max-w-xs">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+      <label className="byjan-search w-full sm:max-w-xs">
+        <Search className="w-4 h-4 text-slate-400 shrink-0" />
         <input
           type="search"
           value={props.query}
           onChange={(e) => props.onQuery(e.target.value)}
           placeholder={props.placeholder || 'Search'}
-          className="byjan-input pl-9"
         />
-      </div>
+      </label>
       <div className="flex items-center gap-2 text-xs text-slate-500">
         <span>Rows</span>
         <select
