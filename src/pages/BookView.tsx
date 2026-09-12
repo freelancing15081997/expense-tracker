@@ -17,7 +17,7 @@ import { createExpense, listExpenses, softDeleteExpense, updateExpense } from '.
 import { createNotification } from '../lib/notifications';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send, Copy, Paperclip, Mail, Megaphone, Shield, Pin, PinOff, SlidersHorizontal } from 'lucide-react';
+import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send, Copy, Paperclip, Mail, Megaphone, Shield, Pin, PinOff, SlidersHorizontal, ArrowUpDown } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Tabs from '@radix-ui/react-tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
@@ -154,9 +154,14 @@ export default function BookView() {
   const [visibleColumns, setVisibleColumns] = useState({
     date: true,
     category: true,
+    merchant: false,
+    method: false,
     author: true,
-    amount: true
+    amount: true,
+    balance: false,
   });
+  const [sortKey, setSortKey] = useState<'date' | 'amount' | 'description' | 'category'>('date');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [sendingReport, setSendingReport] = useState(false);
 
   const [announceTitle, setAnnounceTitle] = useState('');
@@ -267,6 +272,8 @@ export default function BookView() {
       if (typeof saved.period === 'string') setPeriod(saved.period);
       if (typeof saved.reimbursableOnly === 'boolean') setReimbursableOnly(saved.reimbursableOnly);
       if (typeof saved.uncategorizedOnly === 'boolean') setUncategorizedOnly(saved.uncategorizedOnly);
+      if (saved.sortKey === 'date' || saved.sortKey === 'amount' || saved.sortKey === 'description' || saved.sortKey === 'category') setSortKey(saved.sortKey);
+      if (saved.sortDir === 'asc' || saved.sortDir === 'desc') setSortDir(saved.sortDir);
     } catch { /* ignore */ }
   }, [bookId]);
 
@@ -278,10 +285,24 @@ export default function BookView() {
     }
     try {
       sessionStorage.setItem(`byjan.ledger.filters.${bookId}`, JSON.stringify({
-        searchQuery, typeFilter, methodFilter, dateFrom, dateTo, period, reimbursableOnly, uncategorizedOnly,
+        searchQuery, typeFilter, methodFilter, dateFrom, dateTo, period, reimbursableOnly, uncategorizedOnly, sortKey, sortDir,
       }));
     } catch { /* ignore */ }
-  }, [bookId, searchQuery, typeFilter, methodFilter, dateFrom, dateTo, period, reimbursableOnly, uncategorizedOnly]);
+  }, [bookId, searchQuery, typeFilter, methodFilter, dateFrom, dateTo, period, reimbursableOnly, uncategorizedOnly, sortKey, sortDir]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== 'n' || event.ctrlKey || event.metaKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target && (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable)) return;
+      const add = document.querySelector('[data-add-entry]') as HTMLButtonElement | null;
+      if (!add || add.disabled) return;
+      event.preventDefault();
+      add.click();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   useEffect(() => {
     if (!bookId || ledgerTab !== 'audit') return;
@@ -854,8 +875,34 @@ export default function BookView() {
     if (dateTo && day && day > dateTo) return false;
     return true;
   });
-  const totalPages = Math.max(1, Math.ceil(filteredExpenses.length / itemsPerPage));
-  const paginatedExpenses = filteredExpenses.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const sortedExpenses = [...filteredExpenses].sort((a, b) => {
+    const dir = sortDir === 'asc' ? 1 : -1;
+    if (sortKey === 'amount') return (Number(a.amount || 0) - Number(b.amount || 0)) * dir;
+    if (sortKey === 'description') return String(a.description || '').localeCompare(String(b.description || '')) * dir;
+    if (sortKey === 'category') return String(a.category || '').localeCompare(String(b.category || '')) * dir;
+    return String(a.date || a.createdAt || '').localeCompare(String(b.date || b.createdAt || '')) * dir;
+  });
+  const runningById = new Map<string, number>();
+  let run = 0;
+  [...filteredExpenses]
+    .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')))
+    .forEach((exp) => {
+      const amount = Number(exp.amount || 0);
+      if (exp.entryType === 'in') run += amount;
+      else if (exp.entryType !== 'transfer') run -= amount;
+      runningById.set(exp.id, run);
+    });
+  const filterIn = filteredExpenses.filter((e) => e.entryType === 'in').reduce((sum, exp) => sum + Number(exp.amount || 0), 0);
+  const filterOut = filteredExpenses.filter((e) => e.entryType !== 'in' && e.entryType !== 'transfer').reduce((sum, exp) => sum + Number(exp.amount || 0), 0);
+  const totalPages = Math.max(1, Math.ceil(sortedExpenses.length / itemsPerPage));
+  const paginatedExpenses = sortedExpenses.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const toggleSort = (key: typeof sortKey) => {
+    if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else {
+      setSortKey(key);
+      setSortDir(key === 'date' ? 'desc' : 'asc');
+    }
+  };
   const activeFilterCount = [
     searchQuery.trim(),
     typeFilter !== 'all',
@@ -940,8 +987,11 @@ export default function BookView() {
           )}
           {canWrite && (
             <button 
+              type="button"
+              data-add-entry
               onClick={openNewExpense}
               className="byjan-btn !px-3 sm:!px-4 !py-1.5"
+              title="Add entry (N)"
             >
               <Plus className="w-4 h-4" />
               <span className="hidden sm:inline">Add Entry</span>
@@ -1088,6 +1138,14 @@ export default function BookView() {
                 </button>
               )}
             </div>
+            {filteredExpenses.length > 0 && (
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] font-semibold text-slate-500 px-1">
+                <span>Showing {filteredExpenses.length} {filteredExpenses.length === 1 ? 'entry' : 'entries'}</span>
+                <span className="text-emerald-600">In {getCurrencySymbol(book.currency)} {filterIn.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                <span className="text-slate-800">Out {getCurrencySymbol(book.currency)} {filterOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                <span className={filterIn - filterOut >= 0 ? 'text-emerald-700' : 'text-rose-600'}>Net {getCurrencySymbol(book.currency)} {(filterIn - filterOut).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+              </div>
+            )}
           </div>
 
           {/* Data Table */}
@@ -1098,17 +1156,42 @@ export default function BookView() {
               <table className="w-full text-left border-collapse whitespace-nowrap min-w-[600px]">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">
-                    <th className="px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Description</th>
-                    {visibleColumns.date && <th className="px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Date</th>}
-                    {visibleColumns.category && <th className="px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Category</th>}
+                    <th className="px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                      <button type="button" onClick={() => toggleSort('description')} className="inline-flex items-center gap-1 hover:text-[#0B1F3A]">
+                        Description <ArrowUpDown className="w-3 h-3" />{sortKey === 'description' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+                      </button>
+                    </th>
+                    {visibleColumns.date && (
+                      <th className="px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                        <button type="button" onClick={() => toggleSort('date')} className="inline-flex items-center gap-1 hover:text-[#0B1F3A]">
+                          Date <ArrowUpDown className="w-3 h-3" />{sortKey === 'date' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+                        </button>
+                      </th>
+                    )}
+                    {visibleColumns.category && (
+                      <th className="px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                        <button type="button" onClick={() => toggleSort('category')} className="inline-flex items-center gap-1 hover:text-[#0B1F3A]">
+                          Category <ArrowUpDown className="w-3 h-3" />{sortKey === 'category' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+                        </button>
+                      </th>
+                    )}
+                    {visibleColumns.merchant && <th className="px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Merchant</th>}
+                    {visibleColumns.method && <th className="px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Method</th>}
                     {visibleColumns.author && <th className="px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Author</th>}
-                    {visibleColumns.amount && <th className="px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider text-right">Amount</th>}
+                    {visibleColumns.amount && (
+                      <th className="px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider text-right">
+                        <button type="button" onClick={() => toggleSort('amount')} className="inline-flex items-center gap-1 ml-auto hover:text-[#0B1F3A]">
+                          Amount <ArrowUpDown className="w-3 h-3" />{sortKey === 'amount' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+                        </button>
+                      </th>
+                    )}
+                    {visibleColumns.balance && <th className="px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider text-right">Running</th>}
                     {canWrite && <th className="px-5 py-3 w-16 text-right text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Actions</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {paginatedExpenses.length === 0 ? (
-                    <tr><td colSpan={7} className="px-5 py-8 text-center text-sm text-slate-500">No entries found matching your criteria.</td></tr>
+                    <tr><td colSpan={10} className="px-5 py-8 text-center text-sm text-slate-500">No entries found matching your criteria.</td></tr>
                   ) : (
                     paginatedExpenses.map((exp) => (
                       <tr key={exp.id} className="hover:bg-slate-50/50 transition-colors group">
@@ -1133,6 +1216,8 @@ export default function BookView() {
                             </span>
                           </td>
                         )}
+                        {visibleColumns.merchant && <td className="px-5 py-3 text-slate-600 text-sm truncate max-w-[140px]" title={exp.merchant || ''}>{exp.merchant || '—'}</td>}
+                        {visibleColumns.method && <td className="px-5 py-3 text-slate-500 text-sm capitalize">{exp.paymentMethod || 'cash'}</td>}
                         {visibleColumns.author && <td className="px-5 py-3 text-slate-600 text-sm truncate max-w-[120px]" title={`Entered by: ${exp.enteredBy || exp.paidByName}${exp.lastEditedBy ? '\nLast edited by: ' + exp.lastEditedBy : ''}`}>{exp.enteredBy || exp.paidByName}</td>}
                         {visibleColumns.amount && (
                           <td className="px-5 py-3 text-right">
@@ -1145,6 +1230,11 @@ export default function BookView() {
                                 <span className="text-slate-900">-{getCurrencySymbol(book.currency)} {exp.amount.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
                               )}
                             </div>
+                          </td>
+                        )}
+                        {visibleColumns.balance && (
+                          <td className="px-5 py-3 text-right text-sm font-semibold text-slate-600">
+                            {getCurrencySymbol(book.currency)} {Number(runningById.get(exp.id) || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                           </td>
                         )}
                         {canWrite && (
@@ -1184,7 +1274,8 @@ export default function BookView() {
                     </div>
                     <div className="flex justify-between items-end mt-1">
                       <div className="flex flex-col gap-1 text-[11px] text-slate-500">
-                        <span className="flex items-center gap-1.5">{expenseDateLabel(exp)}</span>
+                        <span className="flex items-center gap-1.5">{expenseDateLabel(exp)}{exp.merchant ? ` · ${exp.merchant}` : ''}</span>
+                        <span className="flex items-center gap-1.5">{exp.category || 'Uncategorized'}{exp.paymentMethod ? ` · ${exp.paymentMethod}` : ''}</span>
                         <span className="flex items-center gap-1.5">{exp.enteredBy || exp.paidByName}</span>
                       </div>
                       <div className="flex items-center gap-2">
