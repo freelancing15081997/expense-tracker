@@ -1,5 +1,6 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -142,6 +143,8 @@ export default function BookView() {
   const [monthlyBudget, setMonthlyBudget] = useState('');
   const [period, setPeriod] = useState('');
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const filterBtnRef = useRef<HTMLButtonElement>(null);
+  const [filterPos, setFilterPos] = useState({ top: 56, left: 24, width: 400 });
   
   // Invite State
   const [inviteEmail, setInviteEmail] = useState('');
@@ -177,7 +180,7 @@ export default function BookView() {
   const [inboundEventsLoading, setInboundEventsLoading] = useState(false);
   const [ledgerTab, setLedgerTab] = useState('ledger');
   const [receiptPreview, setReceiptPreview] = useState<{ url: string; title: string } | null>(null);
-  const skipFilterSave = React.useRef(true);
+  const skipFilterSave = useRef(true);
   const [unsentEmailChange, setUnsentEmailChange] = useState<{action: string, detail: string} | null>(null);  const navigate = useNavigate();
 
   const handleRemoveMember = async (uidToRemove: string, isSelf: boolean) => {
@@ -938,18 +941,55 @@ export default function BookView() {
     setUncategorizedOnly(false);
   };
 
+  const updateFilterPos = useCallback(() => {
+    const el = filterBtnRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const width = Math.min(400, window.innerWidth - 24);
+    const left = Math.max(12, Math.min(r.right - width, window.innerWidth - width - 12));
+    const panelH = 300;
+    const below = r.bottom + 8;
+    const top = below + panelH > window.innerHeight - 12
+      ? Math.max(12, r.top - panelH - 8)
+      : below;
+    setFilterPos({ top, left, width });
+  }, []);
+
+  const toggleFilters = () => {
+    setFiltersOpen((open) => {
+      if (!open) requestAnimationFrame(updateFilterPos);
+      return !open;
+    });
+  };
+
+  useEffect(() => {
+    if (!filtersOpen) return;
+    updateFilterPos();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFiltersOpen(false);
+    };
+    window.addEventListener('resize', updateFilterPos);
+    window.addEventListener('scroll', updateFilterPos, true);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('resize', updateFilterPos);
+      window.removeEventListener('scroll', updateFilterPos, true);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [filtersOpen, updateFilterPos]);
+
   return (
     <>
       <div className="h-full min-h-0 flex flex-col">
       <Tabs.Root value={ledgerTab} onValueChange={setLedgerTab} className="h-full min-h-0 flex flex-col">
-        <div className="shrink-0 px-4 md:px-6 lg:px-8 pt-4 pb-3 bg-[#F5F7FA] border-b border-slate-200/80">
+        <div className="shrink-0 px-4 md:px-6 lg:px-8 pt-2 pb-2 bg-[#F5F7FA] border-b border-slate-200/80">
         <div className="max-w-6xl mx-auto">
-      <div className="flex items-center justify-between gap-2 mb-3">
+      <div className="flex items-center justify-between gap-2 mb-2">
         <div className="flex items-center gap-2 min-w-0">
           <Link to="/expenses" className="p-1 text-slate-400 hover:text-slate-700" title="Back">
             <ArrowLeft className="w-4 h-4" />
           </Link>
-          <h1 className="text-lg font-bold text-slate-900 truncate">{book.name}</h1>
+          <h1 className="text-base font-bold text-slate-900 truncate">{book.name}</h1>
           <button type="button" onClick={() => void togglePinned()} className="p-1 text-slate-400 hover:text-[#0B1F3A]" title={book.pinned ? 'Unpin ledger' : 'Pin ledger'}>
             {book.pinned ? <Pin className="w-4 h-4 text-[#12B8A8]" /> : <PinOff className="w-4 h-4" />}
           </button>
@@ -1002,76 +1042,59 @@ export default function BookView() {
           </div>
         </div>
 
-        <Tabs.List className="flex gap-4 border-b border-slate-200/60 overflow-x-auto">
-          <Tabs.Trigger value="ledger" className="pb-2 text-sm font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B1F3A] data-[state=active]:border-b-2 data-[state=active]:border-[#12B8A8] transition-colors whitespace-nowrap">
-            Ledger Entries
+        <Tabs.List className="flex gap-5 border-b border-slate-200/60 overflow-x-auto">
+          <Tabs.Trigger value="ledger" className="pb-1.5 text-[13px] font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B1F3A] data-[state=active]:border-b-2 data-[state=active]:border-[#12B8A8] transition-colors whitespace-nowrap">
+            Ledger
           </Tabs.Trigger>
-          <Tabs.Trigger value="email" className="pb-2 text-sm font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B1F3A] data-[state=active]:border-b-2 data-[state=active]:border-[#12B8A8] transition-colors whitespace-nowrap">
-            Email Activity
+          <Tabs.Trigger value="email" className="pb-1.5 text-[13px] font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B1F3A] data-[state=active]:border-b-2 data-[state=active]:border-[#12B8A8] transition-colors whitespace-nowrap">
+            Email
           </Tabs.Trigger>
-          <Tabs.Trigger value="analytics" className="pb-2 text-sm font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B1F3A] data-[state=active]:border-b-2 data-[state=active]:border-[#12B8A8] transition-colors whitespace-nowrap">
-            Analytics & Reports
+          <Tabs.Trigger value="analytics" className="pb-1.5 text-[13px] font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B1F3A] data-[state=active]:border-b-2 data-[state=active]:border-[#12B8A8] transition-colors whitespace-nowrap">
+            Analytics
           </Tabs.Trigger>
-          <Tabs.Trigger value="audit" className="pb-2 text-sm font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B1F3A] data-[state=active]:border-b-2 data-[state=active]:border-[#12B8A8] transition-colors whitespace-nowrap">
+          <Tabs.Trigger value="audit" className="pb-1.5 text-[13px] font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B1F3A] data-[state=active]:border-b-2 data-[state=active]:border-[#12B8A8] transition-colors whitespace-nowrap">
             Audit
           </Tabs.Trigger>
         </Tabs.List>
 
         {ledgerTab === 'ledger' && (
-          <div className="mt-3">
+          <div className="mt-2 space-y-2">
             <div className="byjan-stat-grid">
               <div className="byjan-stat">
                 <p className="byjan-stat-label">Net</p>
-                <p className={cn('byjan-stat-value', balance >= 0 ? 'text-emerald-600' : 'text-rose-600')} title={`${getCurrencySymbol(book.currency)} ${Math.abs(balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}`}>
-                  {balance < 0 ? '−' : ''}{getCurrencySymbol(book.currency)}{Math.abs(balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                </p>
+                <p className={cn('byjan-stat-value', balance >= 0 ? 'text-emerald-600' : 'text-rose-600')}>{balance < 0 ? '−' : ''}{getCurrencySymbol(book.currency)}{Math.abs(balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
               </div>
               <div className="byjan-stat">
                 <p className="byjan-stat-label">Out</p>
-                <p className="byjan-stat-value text-rose-600" title={`${getCurrencySymbol(book.currency)} ${totalOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}>
-                  {getCurrencySymbol(book.currency)}{totalOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                </p>
+                <p className="byjan-stat-value text-rose-600">{getCurrencySymbol(book.currency)}{totalOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
               </div>
               <div className="byjan-stat">
                 <p className="byjan-stat-label">In</p>
-                <p className="byjan-stat-value text-emerald-600" title={`${getCurrencySymbol(book.currency)} ${totalIn.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}>
-                  {getCurrencySymbol(book.currency)}{totalIn.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                </p>
+                <p className="byjan-stat-value text-emerald-600">{getCurrencySymbol(book.currency)}{totalIn.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
               </div>
               <div className="byjan-stat">
-                <p className="byjan-stat-label">This month</p>
-                <p className="byjan-stat-value text-[#0B1F3A]" title={`${getCurrencySymbol(book.currency)} ${monthOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}>
-                  {getCurrencySymbol(book.currency)}{monthOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                </p>
+                <p className="byjan-stat-label">Month</p>
+                <p className="byjan-stat-value text-[#0B1F3A]">{getCurrencySymbol(book.currency)}{monthOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
               </div>
             </div>
             {(budget > 0 || reimbursableOpen > 0 || isAuditor) && (
-              <div className="flex flex-wrap items-center gap-2 mt-2">
+              <div className="flex flex-wrap items-center gap-1.5">
                 {budget > 0 && (
-                  <span className={cn('text-[11px] font-semibold px-2 py-1 rounded-full border', monthOut > budget ? 'text-rose-700 bg-rose-50 border-rose-200' : 'text-slate-600 bg-slate-50 border-slate-200')}>
+                  <span className={cn('text-[10px] font-semibold px-2 py-0.5 rounded-full border', monthOut > budget ? 'text-rose-700 bg-rose-50 border-rose-200' : 'text-slate-600 bg-slate-50 border-slate-200')}>
                     Budget left {getCurrencySymbol(book.currency)}{(budget - monthOut).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                   </span>
                 )}
                 {reimbursableOpen > 0 && (
-                  <span className="text-[11px] font-semibold px-2 py-1 rounded-full border text-amber-800 bg-amber-50 border-amber-200">
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border text-amber-800 bg-amber-50 border-amber-200">
                     Reimbursable {getCurrencySymbol(book.currency)}{reimbursableOpen.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                   </span>
                 )}
-                {isAuditor && <span className="text-[11px] font-semibold px-2 py-1 rounded-full border text-amber-800 bg-amber-50 border-amber-200">Read-only</span>}
+                {isAuditor && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border text-amber-800 bg-amber-50 border-amber-200">Read-only</span>}
               </div>
             )}
-          </div>
-        )}
-        </div>
-        </div>
-
-        <div className="flex-1 min-h-0 overflow-y-auto px-4 md:px-6 lg:px-8 py-4">
-        <div className="max-w-6xl mx-auto">
-        <Tabs.Content value="ledger" className="space-y-4 outline-none">
-          <div className="relative mb-3">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <label className="byjan-search flex-1">
-                <Search className="w-4 h-4 text-slate-400 shrink-0" />
+                <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                 <input
                   type="search"
                   placeholder="Search entries"
@@ -1086,8 +1109,10 @@ export default function BookView() {
               </label>
               <button
                 type="button"
-                className="byjan-btn-ghost !h-10 !px-3 relative"
-                onClick={() => setFiltersOpen((v) => !v)}
+                ref={filterBtnRef}
+                className="byjan-btn-ghost !h-9 !px-2.5 relative"
+                onClick={toggleFilters}
+                aria-expanded={filtersOpen}
               >
                 <SlidersHorizontal className="w-4 h-4" />
                 <span className="hidden sm:inline">Filters</span>
@@ -1097,15 +1122,15 @@ export default function BookView() {
                   </span>
                 )}
               </button>
-              <button type="button" onClick={() => generatePDF(false)} className="byjan-btn-ghost !h-10 !px-3">
+              <button type="button" onClick={() => generatePDF(false)} className="byjan-btn-ghost !h-9 !px-2.5" title="Download PDF">
                 <Download className="w-4 h-4" />
               </button>
-              <button type="button" onClick={emailReport} disabled={sendingReport} className="byjan-btn-ghost !h-10 !px-3">
+              <button type="button" onClick={emailReport} disabled={sendingReport} className="byjan-btn-ghost !h-9 !px-2.5" title="Email report">
                 {sendingReport ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
               </button>
               <DropdownMenu.Root>
                 <DropdownMenu.Trigger asChild>
-                  <button type="button" className="byjan-btn-ghost !h-10 !px-3">
+                  <button type="button" className="byjan-btn-ghost !h-9 !px-2.5" title="Columns">
                     <Settings2 className="w-4 h-4" />
                   </button>
                 </DropdownMenu.Trigger>
@@ -1126,46 +1151,63 @@ export default function BookView() {
                 </DropdownMenu.Portal>
               </DropdownMenu.Root>
             </div>
-            {filtersOpen && (
-              <div className="absolute right-0 top-[calc(100%+8px)] z-30 w-full sm:w-[420px] byjan-panel p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold text-slate-900">Filters</p>
-                  {activeFilterCount > 0 && (
-                    <button type="button" onClick={clearFilters} className="text-xs font-semibold text-slate-500 hover:text-[#0B1F3A]">Clear all</button>
-                  )}
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <button type="button" className="byjan-chip" data-on={period === 'week'} onClick={() => applyPeriod('week')}>This week</button>
-                  <button type="button" className="byjan-chip" data-on={period === 'month'} onClick={() => applyPeriod('month')}>This month</button>
-                  <button type="button" className="byjan-chip" data-on={period === '30'} onClick={() => applyPeriod('30')}>Last 30 days</button>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="byjan-filter w-full">
-                    <option value="all">All types</option>
-                    <option value="out">Money out</option>
-                    <option value="in">Money in</option>
-                    <option value="transfer">Transfer</option>
-                  </select>
-                  <select value={methodFilter} onChange={(e) => setMethodFilter(e.target.value)} className="byjan-filter w-full">
-                    <option value="all">All methods</option>
-                    <option value="cash">Cash</option>
-                    <option value="card">Card</option>
-                    <option value="upi">UPI</option>
-                    <option value="bank">Bank</option>
-                    <option value="wallet">Wallet</option>
-                  </select>
-                  <input type="date" value={dateFrom} onChange={(e) => { setPeriod(''); setDateFrom(e.target.value); }} className="byjan-filter w-full" title="From date" />
-                  <input type="date" value={dateTo} onChange={(e) => { setPeriod(''); setDateTo(e.target.value); }} className="byjan-filter w-full" title="To date" />
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <button type="button" className="byjan-chip" data-on={reimbursableOnly} onClick={() => setReimbursableOnly((v) => !v)}>Reimbursable</button>
-                  <button type="button" className="byjan-chip" data-on={uncategorizedOnly} onClick={() => setUncategorizedOnly((v) => !v)}>Uncategorized</button>
-                </div>
-              </div>
-            )}
           </div>
+        )}
+        </div>
+        </div>
+
+        {filtersOpen && createPortal(
+          <>
+            <div className="fixed inset-0 z-[60]" onClick={() => setFiltersOpen(false)} />
+            <div
+              className="fixed z-[70] byjan-panel p-3.5 space-y-3"
+              style={{ top: filterPos.top, left: filterPos.left, width: filterPos.width }}
+              role="dialog"
+              aria-label="Filters"
+            >
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-slate-900">Filters</p>
+                {activeFilterCount > 0 && (
+                  <button type="button" onClick={clearFilters} className="text-xs font-semibold text-slate-500 hover:text-[#0B1F3A]">Clear all</button>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" className="byjan-chip" data-on={period === 'week'} onClick={() => applyPeriod('week')}>This week</button>
+                <button type="button" className="byjan-chip" data-on={period === 'month'} onClick={() => applyPeriod('month')}>This month</button>
+                <button type="button" className="byjan-chip" data-on={period === '30'} onClick={() => applyPeriod('30')}>Last 30 days</button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="byjan-filter w-full">
+                  <option value="all">All types</option>
+                  <option value="out">Money out</option>
+                  <option value="in">Money in</option>
+                  <option value="transfer">Transfer</option>
+                </select>
+                <select value={methodFilter} onChange={(e) => setMethodFilter(e.target.value)} className="byjan-filter w-full">
+                  <option value="all">All methods</option>
+                  <option value="cash">Cash</option>
+                  <option value="card">Card</option>
+                  <option value="upi">UPI</option>
+                  <option value="bank">Bank</option>
+                  <option value="wallet">Wallet</option>
+                </select>
+                <input type="date" value={dateFrom} onChange={(e) => { setPeriod(''); setDateFrom(e.target.value); }} className="byjan-filter w-full" title="From date" />
+                <input type="date" value={dateTo} onChange={(e) => { setPeriod(''); setDateTo(e.target.value); }} className="byjan-filter w-full" title="To date" />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" className="byjan-chip" data-on={reimbursableOnly} onClick={() => setReimbursableOnly((v) => !v)}>Reimbursable</button>
+                <button type="button" className="byjan-chip" data-on={uncategorizedOnly} onClick={() => setUncategorizedOnly((v) => !v)}>Uncategorized</button>
+              </div>
+            </div>
+          </>,
+          document.body
+        )}
+
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 md:px-6 lg:px-8 py-2">
+        <div className="max-w-6xl mx-auto">
+        <Tabs.Content value="ledger" className="outline-none">
           {filteredExpenses.length > 0 && (
-            <p className="text-[11px] font-semibold text-slate-500 mb-3">
+            <p className="text-[11px] font-semibold text-slate-500 mb-2">
               {filteredExpenses.length} {filteredExpenses.length === 1 ? 'entry' : 'entries'}
               <span className="text-emerald-600"> · In {getCurrencySymbol(book.currency)}{filterIn.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
               <span> · Out {getCurrencySymbol(book.currency)}{filterOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
@@ -1180,37 +1222,37 @@ export default function BookView() {
               <table className="w-full text-left border-collapse whitespace-nowrap min-w-[600px]">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">
-                    <th className="px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                    <th className="px-3.5 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
                       <button type="button" onClick={() => toggleSort('description')} className="inline-flex items-center gap-1 hover:text-[#0B1F3A]">
                         Description <ArrowUpDown className="w-3 h-3" />{sortKey === 'description' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
                       </button>
                     </th>
                     {visibleColumns.date && (
-                      <th className="px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                      <th className="px-3.5 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
                         <button type="button" onClick={() => toggleSort('date')} className="inline-flex items-center gap-1 hover:text-[#0B1F3A]">
                           Date <ArrowUpDown className="w-3 h-3" />{sortKey === 'date' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
                         </button>
                       </th>
                     )}
                     {visibleColumns.category && (
-                      <th className="px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                      <th className="px-3.5 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
                         <button type="button" onClick={() => toggleSort('category')} className="inline-flex items-center gap-1 hover:text-[#0B1F3A]">
                           Category <ArrowUpDown className="w-3 h-3" />{sortKey === 'category' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
                         </button>
                       </th>
                     )}
-                    {visibleColumns.merchant && <th className="px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Merchant</th>}
-                    {visibleColumns.method && <th className="px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Method</th>}
-                    {visibleColumns.author && <th className="px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Author</th>}
+                    {visibleColumns.merchant && <th className="px-3.5 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Merchant</th>}
+                    {visibleColumns.method && <th className="px-3.5 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Method</th>}
+                    {visibleColumns.author && <th className="px-3.5 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Author</th>}
                     {visibleColumns.amount && (
-                      <th className="px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider text-right">
+                      <th className="px-3.5 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wider text-right">
                         <button type="button" onClick={() => toggleSort('amount')} className="inline-flex items-center gap-1 ml-auto hover:text-[#0B1F3A]">
                           Amount <ArrowUpDown className="w-3 h-3" />{sortKey === 'amount' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
                         </button>
                       </th>
                     )}
-                    {visibleColumns.balance && <th className="px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider text-right">Running</th>}
-                    {canWrite && <th className="px-5 py-3 w-16 text-right text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Actions</th>}
+                    {visibleColumns.balance && <th className="px-3.5 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wider text-right">Running</th>}
+                    {canWrite && <th className="px-3.5 py-2 w-16 text-right text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Actions</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1219,7 +1261,7 @@ export default function BookView() {
                   ) : (
                     paginatedExpenses.map((exp) => (
                       <tr key={exp.id} className="hover:bg-slate-50/50 transition-colors group">
-                        <td className="px-5 py-3 font-medium text-slate-900 text-sm max-w-xs truncate" title={exp.description}>
+                        <td className="px-3.5 py-2 font-medium text-slate-900 text-sm max-w-xs truncate" title={exp.description}>
                           <span className="inline-flex items-center gap-1.5">
                             {exp.receiptPath && (
                               <button type="button" onClick={() => openReceipt(exp)} className="text-teal-700 hover:text-teal-900" title="Open receipt">
@@ -1232,19 +1274,19 @@ export default function BookView() {
                             )}
                           </span>
                         </td>
-                        {visibleColumns.date && <td className="px-5 py-3 text-slate-500 text-sm">{expenseDateLabel(exp)}</td>}
+                        {visibleColumns.date && <td className="px-3.5 py-2 text-slate-500 text-sm">{expenseDateLabel(exp)}</td>}
                         {visibleColumns.category && (
-                          <td className="px-5 py-3">
+                          <td className="px-3.5 py-2">
                             <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-700 border border-slate-200">
                               {exp.category}
                             </span>
                           </td>
                         )}
-                        {visibleColumns.merchant && <td className="px-5 py-3 text-slate-600 text-sm truncate max-w-[140px]" title={exp.merchant || ''}>{exp.merchant || '—'}</td>}
-                        {visibleColumns.method && <td className="px-5 py-3 text-slate-500 text-sm capitalize">{exp.paymentMethod || 'cash'}</td>}
-                        {visibleColumns.author && <td className="px-5 py-3 text-slate-600 text-sm truncate max-w-[120px]" title={`Entered by: ${exp.enteredBy || exp.paidByName}${exp.lastEditedBy ? '\nLast edited by: ' + exp.lastEditedBy : ''}`}>{exp.enteredBy || exp.paidByName}</td>}
+                        {visibleColumns.merchant && <td className="px-3.5 py-2 text-slate-600 text-sm truncate max-w-[140px]" title={exp.merchant || ''}>{exp.merchant || '—'}</td>}
+                        {visibleColumns.method && <td className="px-3.5 py-2 text-slate-500 text-sm capitalize">{exp.paymentMethod || 'cash'}</td>}
+                        {visibleColumns.author && <td className="px-3.5 py-2 text-slate-600 text-sm truncate max-w-[120px]" title={`Entered by: ${exp.enteredBy || exp.paidByName}${exp.lastEditedBy ? '\nLast edited by: ' + exp.lastEditedBy : ''}`}>{exp.enteredBy || exp.paidByName}</td>}
                         {visibleColumns.amount && (
-                          <td className="px-5 py-3 text-right">
+                          <td className="px-3.5 py-2 text-right">
                             <div className="flex items-center justify-end gap-1.5 font-bold">
                               {exp.entryType === 'in' ? (
                                 <span className="text-emerald-600">+{getCurrencySymbol(book.currency)} {exp.amount.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
@@ -1257,12 +1299,12 @@ export default function BookView() {
                           </td>
                         )}
                         {visibleColumns.balance && (
-                          <td className="px-5 py-3 text-right text-sm font-semibold text-slate-600">
+                          <td className="px-3.5 py-2 text-right text-sm font-semibold text-slate-600">
                             {getCurrencySymbol(book.currency)} {Number(runningById.get(exp.id) || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                           </td>
                         )}
                         {canWrite && (
-                          <td className="px-5 py-3 text-right">
+                          <td className="px-3.5 py-2 text-right">
                             <div className="flex items-center justify-end gap-2 text-slate-400">
                               <button onClick={() => openEditExpense(exp)} className="p-1 hover:text-zinc-600 hover:bg-zinc-50 rounded transition-colors" title="Edit">
                                 <PenSquare className="w-4 h-4" />

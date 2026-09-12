@@ -341,22 +341,22 @@ export default function Dashboard() {
                 const role = book.roles[currentUser!.uid]?.role || 'viewer';
                 return (
                   <Link to={`/book/${book.id}`} key={book.id} className="byjan-card byjan-lift byjan-ledger-card">
-                    <div className="flex items-start justify-between">
-                      <div className="w-9 h-9 rounded-xl bg-[#0B1F3A] text-white flex items-center justify-center">
-                        <Receipt className="w-4 h-4" />
+                    <div className="w-8 h-8 rounded-lg bg-[#0B1F3A] text-white flex items-center justify-center shrink-0">
+                      <Receipt className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="text-sm font-semibold text-slate-900 leading-snug">{book.name}</h3>
+                      <div className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-500">
+                        <span className="inline-flex items-center gap-1"><Users className="w-3 h-3" />{Object.keys(book.roles).length}</span>
+                        <span className="font-semibold text-slate-600 tabular-nums">{book.currency}</span>
                       </div>
-                      <span className="inline-flex items-center gap-1.5">
-                        {book.pinned ? <Pin className="w-3.5 h-3.5 text-[#12B8A8]" /> : null}
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wide ${getRoleBadgeColor(role)}`}>
-                          {role}
-                        </span>
+                    </div>
+                    <span className="inline-flex items-center gap-1.5 shrink-0">
+                      {book.pinned ? <Pin className="w-3.5 h-3.5 text-[#12B8A8]" /> : null}
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wide ${getRoleBadgeColor(role)}`}>
+                        {role}
                       </span>
-                    </div>
-                    <h3 className="text-sm font-semibold text-slate-900 mt-3 leading-snug">{book.name}</h3>
-                    <div className="mt-auto flex items-center justify-between text-xs text-slate-500 pt-3">
-                      <span className="inline-flex items-center gap-1"><Users className="w-3.5 h-3.5" />{Object.keys(book.roles).length}</span>
-                      <span className="font-semibold text-slate-700 tabular-nums">{book.currency}</span>
-                    </div>
+                    </span>
                   </Link>
                 );
               })}
