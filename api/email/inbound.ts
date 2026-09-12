@@ -429,16 +429,28 @@ function composeNotes(parts: Array<string | undefined | null>) {
   return [...new Set(parts.map((row) => String(row || '').trim()).filter(Boolean))].join('\n').slice(0, 800);
 }
 
+/** Strip revert/update command phrases so matching can focus on the original item text. */
+function stripActionPhrases(text: string) {
+  return String(text || '')
+    .replace(/\b((?:i\s+)?(?:need(?:s|ed)?(?:\s+to)?|want(?:s|ed)?(?:\s+to)?|please|kindly|pls)\s+)?(revert|rollback|roll\s*back|undo|remove|delete|cancel)(?:\s+(?:this|that|it|the))?(?:\s+(?:entr(?:y|ies)|record|expense|transaction))?\b/gi, ' ')
+    .replace(/\b(please\s+)?(update|correct|revise|edit|change)\s+(the\s+)?(amount|description|entr(?:y|ies)|record|expense|category|notes?)(?:\s+to\s+[^\n.!?]{1,40})?/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /**
  * Detect whether the email asks to create a new line, revert/remove an existing one,
  * update fields on an existing one, or process a product return/refund against a prior entry.
  */
 export function emailActionFrom(text: string): EmailAction {
   const hay = String(text || '');
-  // Explicit remove / undo of a posted entry.
-  if (/\b(remove|delete|revert|rollback|undo|cancel)\b.{0,40}\b(entr(?:y|ies)|record|expense|transaction|this|it)\b/i.test(hay)
-    || /\b(entr(?:y|ies)|record|expense)\b.{0,40}\b(remove|delete|revert|rollback|undo|cancel)\b/i.test(hay)
-    || /\b(please\s+)?(remove|delete|revert|undo)\s+(this|the|that)\b/i.test(hay)) {
+  // Natural "need revert / rollback this" language — do not require the word "entry".
+  if (
+    /\b(revert|rollback|roll\s*backs?|undo)\b/i.test(hay)
+    || /\b(need(?:s|ed)?(?:\s+to)?|want(?:s|ed)?(?:\s+to)?|please|kindly|pls)\s+(remove|delete|cancel)\b/i.test(hay)
+    || /\b(remove|delete|cancel)\b.{0,40}\b(entr(?:y|ies)|record|expense|transaction|this|it|above|previous|same)\b/i.test(hay)
+    || /\b(entr(?:y|ies)|record|expense)\b.{0,40}\b(remove|delete|cancel)\b/i.test(hay)
+  ) {
     return 'revert';
   }
   // Explicit field corrections on an existing entry (not a brand-new "paid for X, please adjust Y" note).
@@ -473,7 +485,17 @@ export function summarizeEmailIntent(body: string, subject = ''): ParsedReceipt 
   const category = categoryFromText(hay);
   const entryType = entryTypeFrom(hay);
   const action = emailActionFrom(hay);
-  const description = (paidFor || subjectClean || merchant || 'Inbound email')
+  // For revert/update emails, keep the original item wording (commands stripped) as the description
+  // so we can match the earlier entry even when there is no image or amount.
+  const cleanedItemText = stripActionPhrases(hay);
+  const description = (
+    paidFor
+    || (action !== 'create' ? cleanedItemText : '')
+    || subjectClean
+    || merchant
+    || cleanedItemText
+    || 'Inbound email'
+  )
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 140);
@@ -1835,14 +1857,24 @@ function textOverlapScore(a: string, b: string) {
 
 /**
  * Find an existing live expense that an inbound revert/update/return email is referring to.
- * Prefers exact amount + description/merchant overlap, then recent same-amount rows.
+ * Works without an image: uses amount when present, otherwise description / prior email body text.
  */
-async function findExpenseForEmailAction(bookId: string, parsed: ParsedReceipt) {
+async function findExpenseForEmailAction(
+  bookId: string,
+  parsed: ParsedReceipt,
+  extras?: { subject?: string; body?: string; senderEmail?: string },
+) {
   const expenses = await listLedgerExpenses(bookId);
   if (!expenses.length) return null;
   const amount = Number(parsed.amount || 0);
-  const wantDesc = normText(parsed.description);
+  const action = parsed.action || 'create';
+  // Prefer the original item wording, with revert/update commands stripped out.
+  const rawMatchText = stripActionPhrases(
+    [extras?.subject || '', extras?.body || '', parsed.description || '', parsed.merchant || ''].join('\n'),
+  );
+  const wantDesc = normText(rawMatchText || parsed.description);
   const wantMerchant = normText(parsed.merchant);
+  const senderEmail = String(extras?.senderEmail || '').trim().toLowerCase();
   let best: { expense: Record<string, unknown>; score: number } | null = null;
   for (const row of expenses) {
     let score = 0;
@@ -1850,22 +1882,52 @@ async function findExpenseForEmailAction(bookId: string, parsed: ParsedReceipt) 
     if (amount > 0 && Math.abs(rowAmount - amount) < 0.009) score += 4;
     else if (amount > 0 && rowAmount > 0 && Math.abs(rowAmount - amount) / amount <= 0.02) score += 2;
     if (wantMerchant && sameMerchant(wantMerchant, normText(row.merchant))) score += 3;
+    const rowHay = [row.description, row.merchant, row.emailBody, row.emailSubject, row.notes]
+      .map((part) => String(part || ''))
+      .join('\n');
     const descScore = Math.max(
+      textOverlapScore(wantDesc, rowHay),
       textOverlapScore(wantDesc, String(row.description || '')),
-      textOverlapScore(wantDesc, String(row.merchant || '')),
       textOverlapScore(wantMerchant, String(row.description || '')),
+      textOverlapScore(normText(parsed.description), String(row.description || '')),
     );
-    score += descScore * 4;
+    score += descScore * 5;
+    // Exact / near-exact description match without amount (common for text-only revert emails).
+    const rowDesc = normText(row.description);
+    if (wantDesc && rowDesc && (wantDesc === rowDesc || rowDesc.includes(wantDesc) || wantDesc.includes(rowDesc))) {
+      score += 3;
+    }
     if (parsed.date && String(row.date || '') === parsed.date) score += 1;
+    if (senderEmail) {
+      const rowSender = String(row.enteredByEmail || row.paidByName || row.enteredBy || '').trim().toLowerCase();
+      if (rowSender && rowSender === senderEmail) score += 1.5;
+    }
     // Prefer newer entries when scores tie.
     const ageBoost = isRecentTimestamp(row.createdAt || row.date, 90 * 24 * 60 * 60 * 1000) ? 0.5 : 0;
     score += ageBoost;
     if (!best || score > best.score) best = { expense: row, score };
   }
-  // Require a meaningful match — amount alone is not enough without some text signal,
-  // unless this is a same-file hash path handled elsewhere.
-  if (!best || best.score < 4.5) return null;
-  return best.expense;
+  // Revert/update emails are often text-only with no amount — accept a lower bar when
+  // description overlap is clearly present.
+  const minScore = (action === 'revert' || action === 'update') && amount <= 0 ? 2.5 : 4.5;
+  if (best && best.score >= minScore) return best.expense;
+
+  // Pure "please revert this" with almost no item text → fall back to this sender's newest live entry.
+  const leftover = wantDesc.replace(/\b(this|that|it|the|a|an|please|kindly|pls|need|want|to)\b/g, ' ').replace(/\s+/g, ' ').trim();
+  if ((action === 'revert' || action === 'update') && leftover.length < 4) {
+    const fromSender = expenses.filter((row) => {
+      if (!senderEmail) return true;
+      const rowSender = String(row.enteredByEmail || row.paidByName || row.enteredBy || '').trim().toLowerCase();
+      return rowSender === senderEmail;
+    });
+    const recent = fromSender
+      .slice()
+      .sort((a, b) => Date.parse(String(b.createdAt || b.date || '')) - Date.parse(String(a.createdAt || a.date || '')))[0];
+    if (recent && isRecentTimestamp(recent.createdAt || recent.date, 14 * 24 * 60 * 60 * 1000)) {
+      return recent;
+    }
+  }
+  return null;
 }
 
 function shouldPatchOnReturn(parsed: ParsedReceipt, body: string) {
@@ -2710,11 +2772,12 @@ async function processItem(item: any) {
   }
 
   // If the email asks to revert / update / return an existing entry, do that instead of creating a new one.
-  const action = parsed.action || emailActionFrom(`${subject}\n${body}`);
+  // Always re-read action from the raw email so AI/document parse cannot turn a revert into a create.
+  const action = emailActionFrom(`${subject}\n${body}`) || parsed.action || 'create';
   parsed.action = action;
   if (action === 'revert' || action === 'update' || action === 'return') {
     let target = match?.expenseId ? await loadLiveExpense(bookId, match.expenseId) : null;
-    if (!target) target = await findExpenseForEmailAction(bookId, parsed);
+    if (!target) target = await findExpenseForEmailAction(bookId, parsed, { subject, body, senderEmail: member.email });
     if (target) {
       return applyEmailLedgerAction({
         mailbox,
