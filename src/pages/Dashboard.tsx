@@ -7,6 +7,7 @@ import { listAllExpenses } from '../lib/expenses';
 import { useBooksTenantMeta } from '../lib/tenant';
 import { getCurrencySymbol } from '../lib/currency';
 import { initials, readRecentLedgers, sparkDays } from '../lib/ledger-advanced';
+import { formatIndianAmount, workspaceBridges } from '../lib/bridge-automations';
 import { Plus, Check, X, Users, Building2, ChevronRight, BookOpen } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
@@ -56,6 +57,7 @@ export default function Dashboard() {
   const [creating, setCreating] = useState(false);
   const [bookStats, setBookStats] = useState<Record<string, BookStat>>({});
   const [showArchived, setShowArchived] = useState(false);
+  const [bridges, setBridges] = useState<ReturnType<typeof workspaceBridges> | null>(null);
   const recentIds = readRecentLedgers();
 
   const fetchData = async () => {
@@ -116,6 +118,7 @@ export default function Dashboard() {
           if (nextBookStats[id]) nextBookStats[id].spark = sparkDays(byBook[id]);
         });
         setBookStats(nextBookStats);
+        setBridges(workspaceBridges(expenses));
         setGlobalStats({
           totalIn: tIn,
           totalOut: tOut,
@@ -128,6 +131,7 @@ export default function Dashboard() {
         });
       } else {
         setBookStats({});
+        setBridges(null);
         setGlobalStats({ totalIn: 0, totalOut: 0, monthIn: 0, monthOut: 0, reimbursable: 0, entries: 0, uncategorized: 0, userActivity: {} });
       }
 
@@ -246,11 +250,11 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+    <div className="max-w-6xl mx-auto space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="ios-caption">{hello}</p>
-          <h1 className="ios-large-title truncate">{firstName}</h1>
+          <h1 className="font-display text-[26px] font-semibold tracking-[-0.03em] text-[#0B1F3A] truncate">{firstName}</h1>
         </div>
         <div className="flex flex-wrap gap-2">
           {!expensesOnly && (
@@ -267,21 +271,57 @@ export default function Dashboard() {
       </div>
 
       {books.length > 0 && (
-        <div className="grid grid-cols-2 lg:grid-cols-6 gap-2.5">
-          {[
-            { label: 'Net', value: `${net < 0 ? '−' : ''}${currency}${Math.abs(net).toLocaleString()}`, tip: 'Money in minus money out across every ledger you can open.' },
-            { label: 'In', value: `${currency}${globalStats.totalIn.toLocaleString()}`, tip: 'All recorded money in, all time.' },
-            { label: 'Out this month', value: `${currency}${globalStats.monthOut.toLocaleString()}`, tip: 'Money out recorded in the current calendar month.' },
-            { label: 'In this month', value: `${currency}${globalStats.monthIn.toLocaleString()}`, tip: 'Money in recorded in the current calendar month.' },
-            { label: 'Entries', value: String(globalStats.entries), tip: 'Live entries across your ledgers, not including deleted rows.' },
-            { label: 'Uncategorized', value: String(globalStats.uncategorized), tip: `${globalStats.uncategorized} entries have no category. ${currency}${globalStats.reimbursable.toLocaleString()} is still marked reimbursable.` },
-          ].map((item) => (
-            <div key={item.label} className="dash-kpi" title={item.tip}>
-              <p className="dash-kpi-label">{item.label}</p>
-              <p className="dash-kpi-value byjan-money">{item.value}</p>
+        <>
+          <div className="byjan-stat-grid">
+            {[
+              { label: 'Net', value: formatIndianAmount(net, currency), tip: 'Money in minus money out across every ledger you can open.' },
+              { label: 'In', value: formatIndianAmount(globalStats.totalIn, currency), tip: 'All recorded money in, all time.' },
+              { label: 'Out / mo', value: formatIndianAmount(globalStats.monthOut, currency), tip: 'Money out recorded this calendar month.' },
+              { label: 'In / mo', value: formatIndianAmount(globalStats.monthIn, currency), tip: 'Money in recorded this calendar month.' },
+              { label: 'Entries', value: String(globalStats.entries), tip: 'Live entries, not including deleted rows.' },
+              { label: 'Open', value: String(globalStats.uncategorized), tip: `${globalStats.uncategorized} uncategorized. ${formatIndianAmount(globalStats.reimbursable, currency)} still reimbursable.` },
+            ].map((item) => (
+              <div key={item.label} className="byjan-stat" title={item.tip}>
+                <span className="byjan-stat-label">{item.label}</span>
+                <span className="byjan-stat-value byjan-money">{item.value}</span>
+              </div>
+            ))}
+          </div>
+          {bridges && (bridges.tds || bridges.gstGaps || bridges.dues.length || bridges.fest || bridges.mix.cashShare >= 40 || globalStats.uncategorized > 0) && (
+            <div className="ios-group">
+              {globalStats.uncategorized > 0 && (
+                <div className="ios-row" title="Entries with no category — email capture and UPI paste still land here if the merchant is new.">
+                  <span className="text-[14px] text-[#0B1F3A]">{globalStats.uncategorized} uncategorized</span>
+                </div>
+              )}
+              {bridges.tds > 0 && (
+                <div className="ios-row" title="Outgoing payments that look like 194C / 194I / 194J. Open the ledger Studio → India to mark them.">
+                  <span className="text-[14px] text-[#0B1F3A]">{bridges.tds} TDS watch</span>
+                </div>
+              )}
+              {bridges.gstGaps > 0 && (
+                <div className="ios-row" title="GST was applied but there is no receipt — ITC claims usually fail without it.">
+                  <span className="text-[14px] text-[#0B1F3A]">{bridges.gstGaps} GST rows need a receipt</span>
+                </div>
+              )}
+              {bridges.mix.cashShare >= 40 && (
+                <div className="ios-row" title="Cash is still a large share this month. Useful for households that mix UPI and cash.">
+                  <span className="text-[14px] text-[#0B1F3A]">{bridges.mix.cashShare}% cash this month</span>
+                </div>
+              )}
+              {bridges.dues.length > 0 && (
+                <div className="ios-row" title="Typical household bills not seen this month yet: rent, maid, society, power, school.">
+                  <span className="text-[14px] text-[#0B1F3A]">Missing {bridges.dues.slice(0, 4).join(', ')}</span>
+                </div>
+              )}
+              {bridges.fest && (
+                <div className="ios-row" title="Festival or payday window — spend usually jumps here and generic apps never name it.">
+                  <span className="text-[14px] text-[#0B1F3A]">{bridges.fest.name}</span>
+                </div>
+              )}
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
 
       <Dialog.Root open={showNewBook} onOpenChange={setShowNewBook}>

@@ -49,16 +49,16 @@ export default function Dashboard() {
         ))}
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-6 gap-2.5">
+      <div className="byjan-stat-grid">
         {cards.map((card) => (
           <Link
             key={card.label}
             to={card.href}
-            className="dash-kpi"
-            title={`${card.label} from posted Books balances. Open for the full report.`}
+            className="byjan-stat"
+            title={`${card.label} from posted Books balances.`}
           >
-            <p className="dash-kpi-label">{card.label}</p>
-            <p className="dash-kpi-value"><Money minor={card.value} currency={currency} /></p>
+            <span className="byjan-stat-label">{card.label}</span>
+            <span className="byjan-stat-value"><Money minor={card.value} currency={currency} /></span>
           </Link>
         ))}
       </div>

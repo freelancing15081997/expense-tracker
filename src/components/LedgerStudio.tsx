@@ -27,6 +27,7 @@ import {
   type CategoryRule,
   type RecurringRule,
 } from '../lib/ledger-advanced';
+import { formatIndianAmount, gstSplit, guessedMerchant, tdsHint, workspaceBridges } from '../lib/bridge-automations';
 
 type Props = {
   bookId: string;
@@ -107,7 +108,9 @@ function Switch({ on, onClick }: { on: boolean; onClick: () => void }) {
 
 export default function LedgerStudio(props: Props) {
   const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState<'glance' | 'show' | 'work' | 'india' | 'file'>('glance');
   const [busy, setBusy] = useState('');
+  const [gstRate, setGstRate] = useState<0 | 5 | 12 | 18 | 28>(18);
   const [match, setMatch] = useState('');
   const [ruleCat, setRuleCat] = useState(props.categories[0] || 'Uncategorized');
   const [splitA, setSplitA] = useState('');
@@ -127,7 +130,8 @@ export default function LedgerStudio(props: Props) {
   const wow = useMemo(() => weekOverWeek(props.expenses), [props.expenses]);
   const mix = useMemo(() => methodMix(props.expenses).slice(0, 3), [props.expenses]);
   const daysLeft = budgetDaysLeft(insights.monthOut, insights.budget);
-  const money = (n: number) => `${props.currencySymbol}${Math.abs(n).toLocaleString()}`;
+  const money = (n: number) => formatIndianAmount(n, props.currencySymbol);
+  const bridges = useMemo(() => workspaceBridges(props.expenses), [props.expenses]);
 
   const persist = async (patch: Record<string, unknown>) => {
     const next = await updateLedger(props.bookId, patch);
@@ -143,49 +147,61 @@ export default function LedgerStudio(props: Props) {
   const body = (
     <div className="studio-body">
       <header className="studio-head">
-        <div>
-          <p className="ios-caption">Ledger</p>
-          <h2 className="font-display text-[28px] font-semibold tracking-[-0.04em] text-[#0B1F3A] leading-none mt-1">Studio</h2>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="ios-caption">Ledger tools</p>
+            <h2 className="font-display text-[22px] font-semibold tracking-[-0.03em] text-[#0B1F3A] leading-none mt-1">Studio</h2>
+          </div>
+          <button type="button" className="w-8 h-8 rounded-full bg-white text-[#3a3a3c] border border-slate-200" onClick={() => setOpen(false)} aria-label="Close">
+            <X className="w-4 h-4 mx-auto" />
+          </button>
         </div>
-        <button type="button" className="w-9 h-9 rounded-full bg-white/80 text-[#3a3a3c]" onClick={() => setOpen(false)} aria-label="Close">
-          <X className="w-4 h-4 mx-auto" />
-        </button>
+        <div className="studio-tabs" role="tablist">
+          {([
+            ['glance', 'Glance'],
+            ['show', 'Show'],
+            ['work', 'Work'],
+            ['india', 'India'],
+            ['file', 'File'],
+          ] as const).map(([id, label]) => (
+            <button key={id} type="button" role="tab" aria-selected={tab === id} data-on={tab === id} onClick={() => setTab(id)}>{label}</button>
+          ))}
+        </div>
       </header>
 
-      <div className="grid grid-cols-2 gap-2">
-        <div className="ios-widget !p-3.5">
-          <p className="ios-caption">This month out</p>
-          <p className="mt-1.5 text-[20px] font-semibold tracking-tight text-[#0B1F3A]">{money(insights.monthOut)}</p>
+      {tab === 'glance' && (
+        <div className="byjan-stat-grid !h-auto">
+          {[
+            ['Out', money(insights.monthOut), 'This month money out'],
+            ['Last', money(insights.lastOut), 'Last month money out'],
+            ['WoW', `${wow.delta >= 0 ? '+' : ''}${Math.round(wow.delta)}%`, 'This week vs last week'],
+            ['Dupes', String(insights.dupes), 'Possible duplicate clusters'],
+            ['Cash', `${bridges.mix.cashShare}%`, 'Share of this month spent in cash'],
+            ['TDS', String(bridges.tds), 'Payments flagged for 194C / 194I / 194J'],
+          ].map(([label, value, tip]) => (
+            <div key={label} className="byjan-stat" title={tip}>
+              <span className="byjan-stat-label">{label}</span>
+              <span className="byjan-stat-value">{value}</span>
+            </div>
+          ))}
         </div>
-        <div className="ios-widget !p-3.5">
-          <p className="ios-caption">Last month</p>
-          <p className="mt-1.5 text-[20px] font-semibold tracking-tight text-[#0B1F3A]">{money(insights.lastOut)}</p>
-        </div>
-        <div className="ios-widget !p-3.5">
-          <p className="ios-caption">Week vs last</p>
-          <p className="mt-1.5 text-[20px] font-semibold tracking-tight text-[#0B1F3A]">{wow.delta >= 0 ? '+' : ''}{Math.round(wow.delta)}%</p>
-        </div>
-        <div className="ios-widget !p-3.5">
-          <p className="ios-caption">Possible duplicates</p>
-          <p className="mt-1.5 text-[20px] font-semibold tracking-tight text-[#0B1F3A]">{insights.dupes}</p>
-        </div>
-      </div>
+      )}
 
-      {insights.budget > 0 && (
+      {tab === 'glance' && insights.budget > 0 && (
         <p className="ios-caption px-1">
           Budget pace {money(Math.round(insights.pace))} of {money(insights.budget)}
           {insights.pace > insights.budget ? ' — over pace' : ' — on track'}
           {daysLeft > 0 ? ` · about ${daysLeft} day${daysLeft === 1 ? '' : 's'} left` : ' · used up at this pace'}
         </p>
       )}
-      {insights.topMerchants.length > 0 && (
+      {tab === 'glance' && insights.topMerchants.length > 0 && (
         <p className="ios-caption px-1">Top merchants: {insights.topMerchants.map(([name, amt]) => `${name} ${money(amt)}`).join(' · ')}</p>
       )}
-      {mix.length > 0 && (
+      {tab === 'glance' && mix.length > 0 && (
         <p className="ios-caption px-1">Methods: {mix.map(([name, amt]) => `${name} ${money(amt)}`).join(' · ')}</p>
       )}
 
-      <Section title="View">
+      {tab === 'show' && <Section title="View">
         <Row label="Hide transfers"><Switch on={props.hideTransfers} onClick={() => props.onHideTransfers(!props.hideTransfers)} /></Row>
         <Row label="Flagged only"><Switch on={props.flaggedOnly} onClick={() => props.onFlaggedOnly(!props.flaggedOnly)} /></Row>
         <Row label="Hide drafts"><Switch on={props.hideDrafts} onClick={() => props.onHideDrafts(!props.hideDrafts)} /></Row>
@@ -203,9 +219,9 @@ export default function LedgerStudio(props: Props) {
             <ChevronRight className="ios-chevron w-4 h-4" />
           </button>
         ))}
-      </Section>
+      </Section>}
 
-      {props.canWrite && (
+      {tab === 'work' && props.canWrite && (
         <>
           <Section title="Selected entries">
             <p className="ios-row text-[13px] text-[#8e8e93]">
@@ -508,7 +524,110 @@ export default function LedgerStudio(props: Props) {
               <ChevronRight className="ios-chevron w-4 h-4" />
             </button>
           </Section>
+        </>
+      )}
 
+      {tab === 'india' && props.canWrite && (
+        <Section title="India & local finance">
+          <p className="ios-row text-[13px] text-[#8e8e93]">
+            GST inclusive split, TDS watch, UPI/UTR duplicate flag, and merchant map for Swiggy, IRCTC, FASTag, society, and the rest. Same jsonb persist as email capture.
+          </p>
+          <div className="ios-row !gap-2">
+            <select className="byjan-filter flex-1" value={gstRate} onChange={(e) => setGstRate(Number(e.target.value) as 0 | 5 | 12 | 18 | 28)}>
+              <option value={0}>No GST</option>
+              <option value={5}>GST 5%</option>
+              <option value={12}>GST 12%</option>
+              <option value={18}>GST 18%</option>
+              <option value={28}>GST 28%</option>
+            </select>
+            <button
+              type="button"
+              className="byjan-btn !h-9"
+              disabled={!props.selected[0] || busy === 'gst'}
+              title="Treat the selected amount as GST-inclusive and store taxable + tax."
+              onClick={async () => {
+                const exp = props.selected[0];
+                if (!exp) return;
+                setBusy('gst');
+                try {
+                  const split = gstSplit(Number(exp.amount || 0), gstRate);
+                  const next = await updateExpense(props.bookId, String(exp.id), { ...split, gstInclusive: true });
+                  props.onPatched?.(next as Record<string, unknown>);
+                  props.onToast(gstRate ? `GST ${gstRate}% saved on the selected entry.` : 'GST cleared.', 'success');
+                } finally { setBusy(''); }
+              }}
+            >
+              Apply GST
+            </button>
+          </div>
+          <button
+            type="button"
+            className="ios-row w-full text-left"
+            disabled={busy === 'india'}
+            onClick={async () => {
+              setBusy('india');
+              try {
+                let n = 0;
+                for (const exp of props.expenses) {
+                  const guess = guessedMerchant(`${exp.description || ''} ${exp.merchant || ''}`);
+                  if (!guess) continue;
+                  const cat = String(exp.category || '').toLowerCase();
+                  if (exp.merchant && cat && cat !== 'uncategorized') continue;
+                  const next = await updateExpense(props.bookId, String(exp.id), {
+                    merchant: exp.merchant || guess.merchant,
+                    category: cat && cat !== 'uncategorized' ? exp.category : guess.category,
+                    paymentMethod: exp.paymentMethod || guess.method || exp.paymentMethod,
+                  });
+                  props.onPatched?.(next as Record<string, unknown>);
+                  n += 1;
+                }
+                props.onToast(n ? `Mapped ${n} Indian merchants.` : 'Nothing unmatched the merchant map.', 'success');
+              } finally { setBusy(''); }
+            }}
+          >
+            <span className="text-[15px] font-medium">Map Indian merchants</span>
+            <ChevronRight className="ios-chevron w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            className="ios-row w-full text-left"
+            disabled={busy === 'tds'}
+            onClick={async () => {
+              setBusy('tds');
+              try {
+                let n = 0;
+                for (const exp of props.expenses) {
+                  const hint = tdsHint(exp);
+                  if (!hint || exp.tdsWatch) continue;
+                  const next = await updateExpense(props.bookId, String(exp.id), {
+                    tdsWatch: true,
+                    tdsSection: hint.section,
+                    tdsRate: hint.rate,
+                    flagged: true,
+                    flagReason: hint.reason,
+                  });
+                  props.onPatched?.(next as Record<string, unknown>);
+                  n += 1;
+                }
+                props.onToast(n ? `Marked ${n} rows for TDS watch.` : 'No 194C / 194I / 194J rows found.', 'success');
+              } finally { setBusy(''); }
+            }}
+          >
+            <span className="text-[15px] font-medium">Scan TDS 194C / 194I / 194J</span>
+            <span className="text-[13px] text-[#8e8e93]">{bridges.tds}</span>
+          </button>
+          <div className="ios-row text-[13px] text-[#8e8e93]">
+            Cash this month {money(bridges.mix.cash)} · digital {money(bridges.mix.digital)}
+            {bridges.fest ? ` · ${bridges.fest.name}` : ''}
+            {bridges.dues.length ? ` · still missing ${bridges.dues.slice(0, 3).join(', ')}` : ''}
+            {bridges.gstGaps ? ` · ${bridges.gstGaps} GST rows need a receipt` : ''}
+            {bridges.dupUtr ? ` · ${bridges.dupUtr} duplicate UPI refs` : ''}
+          </div>
+        </Section>
+      )}
+
+      {tab === 'file' && props.canWrite && (
+        <>
           <Section title="Import & export">
             <form
               className="ios-row !flex-col !items-stretch !gap-2"
