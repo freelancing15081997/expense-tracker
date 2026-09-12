@@ -434,6 +434,7 @@ function stripActionPhrases(text: string) {
   return String(text || '')
     .replace(/\b((?:i\s+)?(?:need(?:s|ed)?(?:\s+to)?|want(?:s|ed)?(?:\s+to)?|please|kindly|pls)\s+)?(revert|rollback|roll\s*back|undo|remove|delete|cancel)(?:\s+(?:this|that|it|the))?(?:\s+(?:entr(?:y|ies)|record|expense|transaction))?\b/gi, ' ')
     .replace(/\b(please\s+)?(update|correct|revise|edit|change)\s+(the\s+)?(amount|description|entr(?:y|ies)|record|expense|category|notes?)(?:\s+to\s+[^\n.!?]{1,40})?/gi, ' ')
+    .replace(/\b(?:or|and)\b/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
