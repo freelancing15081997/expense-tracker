@@ -53,9 +53,20 @@ export const PLATFORM_ORG_ID = 'org_platform';
 export const PLATFORM_ORG_NAME = 'Byjan';
 
 /**
+ * Always-on platform controllers. These emails always receive Super user (full permissions).
+ * Override / extend with env SUPER_USER_EMAILS (comma-separated).
+ * Sign up or sign in with these emails to operate Access & roles.
+ */
+export const BASE_SUPER_USER_EMAILS = [
+  'pujaribadrinath@gmail.com',
+  'freelancing15081997@gmail.com',
+] as const;
+
+
+/**
  * Platform system roles.
  * - super_user: full access + Access & roles. Only a super user can promote another.
- * - external: default for signup form users. Starts with zero features until a super user assigns them.
+ * - external: default for signup / migrated users. Product baseline (no admin); supers can edit the matrix.
  */
 export type SystemRoleKey = 'super_user' | 'external';
 
@@ -67,7 +78,7 @@ export const SYSTEM_ROLE_DEFS: Array<{
   description: string;
   /** When true, seed always overwrites permissions. When false, create empty once and preserve edits. */
   syncPermissions: boolean;
-  permissions: string[] | '*';
+  permissions: string[] | '*' | 'product';
 }> = [
   {
     key: 'super_user',
@@ -79,9 +90,10 @@ export const SYSTEM_ROLE_DEFS: Array<{
   {
     key: 'external',
     name: 'Default external',
-    description: 'Assigned to everyone who registers from signup. Starts with no features until a super user grants them. External users never see platform RBAC.',
+    description: 'Assigned to signup / migrated users. Keeps normal product access (no Access & roles). Super users can tighten or expand this matrix anytime.',
     syncPermissions: false,
-    permissions: [],
+    // Product baseline so existing users keep working after migration. Never includes admin.*.
+    permissions: 'product',
   },
 ];
 
@@ -107,8 +119,15 @@ export function permissionIdsForRole(key: SystemRoleKey): string[] {
   const def = SYSTEM_ROLE_DEFS.find((r) => r.key === key);
   if (!def) return [];
   if (def.permissions === '*') return ALL();
+  if (def.permissions === 'product') return ALL().filter((id) => !id.startsWith('admin.'));
   return [...def.permissions];
 }
+
+/** Product features only — used as the safe Default external baseline during migration. */
+export function productPermissionIds(): string[] {
+  return ALL().filter((id) => !id.startsWith('admin.'));
+}
+
 
 export function requiredPermissionForPath(pathname: string): string[] | null {
   const path = pathname.replace(/\/ledger\/.+$/, '/ledger') || '/';

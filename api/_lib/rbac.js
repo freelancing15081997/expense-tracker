@@ -45,6 +45,10 @@ var RBAC_PERMISSIONS = [
 ];
 var PLATFORM_ORG_ID = "org_platform";
 var PLATFORM_ORG_NAME = "Byjan";
+var BASE_SUPER_USER_EMAILS = [
+  "pujaribadrinath@gmail.com",
+  "freelancing15081997@gmail.com"
+];
 var ALL = () => RBAC_PERMISSIONS.map((p) => p.id);
 var SYSTEM_ROLE_DEFS = [
   {
@@ -57,16 +61,21 @@ var SYSTEM_ROLE_DEFS = [
   {
     key: "external",
     name: "Default external",
-    description: "Assigned to everyone who registers from signup. Starts with no features until a super user grants them. External users never see platform RBAC.",
+    description: "Assigned to signup / migrated users. Keeps normal product access (no Access & roles). Super users can tighten or expand this matrix anytime.",
     syncPermissions: false,
-    permissions: []
+    // Product baseline so existing users keep working after migration. Never includes admin.*.
+    permissions: "product"
   }
 ];
 function permissionIdsForRole(key) {
   const def = SYSTEM_ROLE_DEFS.find((r) => r.key === key);
   if (!def) return [];
   if (def.permissions === "*") return ALL();
+  if (def.permissions === "product") return ALL().filter((id) => !id.startsWith("admin."));
   return [...def.permissions];
+}
+function productPermissionIds() {
+  return ALL().filter((id) => !id.startsWith("admin."));
 }
 function isAdminPermission(permissionId) {
   return permissionId.startsWith("admin.");
@@ -90,8 +99,8 @@ function newId(prefix) {
 }
 function superUserEmailsFromEnv() {
   const raw = String(process.env.SUPER_USER_EMAILS || process.env.BYJAN_SUPER_USER_EMAILS || "").trim();
-  if (!raw) return [];
-  return [...new Set(raw.split(/[,;\s]+/).map((e) => e.trim().toLowerCase()).filter(Boolean))];
+  const fromEnv = raw ? raw.split(/[,;\s]+/).map((e) => e.trim().toLowerCase()).filter(Boolean) : [];
+  return [.../* @__PURE__ */ new Set([...BASE_SUPER_USER_EMAILS.map((e) => e.toLowerCase()), ...fromEnv])];
 }
 function isAllowlistedSuper(email) {
   const list = superUserEmailsFromEnv();
@@ -238,12 +247,24 @@ async function seedSystemRoles(sql, orgId) {
     )[0];
     const id = text(saved?.id) || roleId;
     map[def.key] = id;
-    if (!def.syncPermissions) continue;
-    const wanted = new Set(permissionIdsForRole(def.key));
     const current = rows(
       await sql`SELECT permission_id FROM rbac_role_permissions WHERE role_id = ${id}`
     ).map((r) => text(r.permission_id));
     const have = new Set(current);
+    if (!def.syncPermissions) {
+      if (have.size === 0) {
+        const baseline = def.permissions === "product" ? productPermissionIds() : permissionIdsForRole(def.key);
+        for (const permissionId of baseline) {
+          await sql`
+            INSERT INTO rbac_role_permissions (role_id, permission_id)
+            VALUES (${id}, ${permissionId})
+            ON CONFLICT DO NOTHING
+          `;
+        }
+      }
+      continue;
+    }
+    const wanted = new Set(permissionIdsForRole(def.key));
     for (const permissionId of Array.from(wanted)) {
       if (have.has(permissionId)) continue;
       await sql`
@@ -525,7 +546,17 @@ async function ensureUserOrg(user, displayName = "") {
 }
 async function remappedAllLegacyMembers(sql) {
   const roles = await seedSystemRoles(sql, PLATFORM_ORG_ID);
-  if (!roles.external) return;
+  if (!roles.external || !roles.super_user) return;
+  const allow = new Set(superUserEmailsFromEnv());
+  for (const email of allow) {
+    await sql`
+      UPDATE org_members
+      SET role_id = ${roles.super_user}, status = 'active', updated_at = NOW()
+      WHERE org_id = ${PLATFORM_ORG_ID}
+        AND lower(email) = ${email}
+        AND role_id <> ${roles.super_user}
+    `;
+  }
   const legacy = rows(
     await sql`
       SELECT m.uid, m.email, r.key AS role_key
@@ -536,7 +567,6 @@ async function remappedAllLegacyMembers(sql) {
         AND r.key IN ('owner', 'admin', 'manager', 'accountant', 'contributor', 'viewer')
     `
   );
-  const allow = new Set(superUserEmailsFromEnv());
   for (const row of legacy) {
     const email = emailOf(row.email);
     const nextRole = allow.has(email) ? roles.super_user : roles.external;

@@ -310,7 +310,7 @@ export default function AdminAccess() {
             <p className="text-[11px] font-semibold tracking-[0.22em] uppercase text-white/70">Access control</p>
             <h1 className="font-display text-[34px] md:text-[40px] font-semibold tracking-[-0.04em] leading-none mt-2">Roles & people</h1>
             <p className="text-sm text-white/75 mt-3 max-w-xl leading-relaxed">
-              Super users only. Signup users get Default external with no features until you assign them. Promote another super user from Users. Books company access is managed under Books → Settings.
+              Two base controllers own Access & roles. Everyone else keeps Default external with product access (no admin). Tighten or expand that default anytime. Promote another super user from Users. Books company access stays under Books → Settings.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">

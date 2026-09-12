@@ -8,6 +8,7 @@ import {
 } from '../_pg-tables.js';
 import type { ApiUser } from './pg-tables';
 import {
+  BASE_SUPER_USER_EMAILS,
   PLATFORM_ORG_ID,
   PLATFORM_ORG_NAME,
   RBAC_PERMISSIONS,
@@ -15,6 +16,7 @@ import {
   isAdminPermission,
   isBooksPermission,
   permissionIdsForRole,
+  productPermissionIds,
   type SystemRoleKey,
 } from './rbac-catalog';
 
@@ -38,10 +40,13 @@ function newId(prefix: string) {
   return `${prefix}${randomBytes(10).toString('hex')}`;
 }
 
+/** Always includes the two hard-coded base controllers; env can add more. */
 function superUserEmailsFromEnv() {
   const raw = String(process.env.SUPER_USER_EMAILS || process.env.BYJAN_SUPER_USER_EMAILS || '').trim();
-  if (!raw) return [] as string[];
-  return [...new Set(raw.split(/[,;\s]+/).map((e) => e.trim().toLowerCase()).filter(Boolean))];
+  const fromEnv = raw
+    ? raw.split(/[,;\s]+/).map((e) => e.trim().toLowerCase()).filter(Boolean)
+    : [];
+  return [...new Set([...BASE_SUPER_USER_EMAILS.map((e) => e.toLowerCase()), ...fromEnv])];
 }
 
 function isAllowlistedSuper(email: string) {
@@ -261,14 +266,31 @@ async function seedSystemRoles(sql: Sql, orgId: string) {
     const id = text(saved?.id) || roleId;
     map[def.key] = id;
 
-    // Default external: create once with empty perms; never clobber super-user edits.
-    if (!def.syncPermissions) continue;
-
-    const wanted = new Set(permissionIdsForRole(def.key as SystemRoleKey));
     const current = rows<{ permission_id: string }>(
       await sql`SELECT permission_id FROM rbac_role_permissions WHERE role_id = ${id}`,
     ).map((r) => text(r.permission_id));
     const have = new Set(current);
+
+    // Default external: seed product baseline once if empty so migration does not lock users out.
+    // Never overwrite after a super user customizes the matrix.
+    if (!def.syncPermissions) {
+      if (have.size === 0) {
+        const baseline =
+          def.permissions === 'product'
+            ? productPermissionIds()
+            : permissionIdsForRole(def.key as SystemRoleKey);
+        for (const permissionId of baseline) {
+          await sql`
+            INSERT INTO rbac_role_permissions (role_id, permission_id)
+            VALUES (${id}, ${permissionId})
+            ON CONFLICT DO NOTHING
+          `;
+        }
+      }
+      continue;
+    }
+
+    const wanted = new Set(permissionIdsForRole(def.key as SystemRoleKey));
 
     for (const permissionId of Array.from(wanted)) {
       if (have.has(permissionId)) continue;
@@ -618,7 +640,20 @@ export async function ensureUserOrg(user: ApiUser, displayName = ''): Promise<st
 
 async function remappedAllLegacyMembers(sql: Sql) {
   const roles = await seedSystemRoles(sql, PLATFORM_ORG_ID);
-  if (!roles.external) return;
+  if (!roles.external || !roles.super_user) return;
+  const allow = new Set(superUserEmailsFromEnv());
+
+  // Promote the two base controller emails (and any env supers) whenever they exist in Neon.
+  for (const email of allow) {
+    await sql`
+      UPDATE org_members
+      SET role_id = ${roles.super_user}, status = 'active', updated_at = NOW()
+      WHERE org_id = ${PLATFORM_ORG_ID}
+        AND lower(email) = ${email}
+        AND role_id <> ${roles.super_user}
+    `;
+  }
+
   const legacy = rows<{ uid: string; email: string; role_key: string }>(
     await sql`
       SELECT m.uid, m.email, r.key AS role_key
@@ -629,7 +664,6 @@ async function remappedAllLegacyMembers(sql: Sql) {
         AND r.key IN ('owner', 'admin', 'manager', 'accountant', 'contributor', 'viewer')
     `,
   );
-  const allow = new Set(superUserEmailsFromEnv());
   for (const row of legacy) {
     const email = emailOf(row.email);
     const nextRole = allow.has(email) ? roles.super_user : roles.external;
