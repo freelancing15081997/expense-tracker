@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { useBooksTenantMeta } from '../lib/tenant';
 import type { AppPrefs, DateFormat, ListPageSize, NumberLocale, UiDensity } from '../lib/app-prefs';
 import { useToast } from '../context/ToastContext';
+import AccountSecurityPanel from '../components/AccountSecurityPanel';
 
 function Switch({ on, onChange, label, hint }: { on: boolean; onChange: (v: boolean) => void; label: string; hint: string }) {
   return (
@@ -310,12 +311,10 @@ export default function Settings() {
       <section className="byjan-card overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-200 bg-[#F8FAFC]">
           <h2 className="text-base font-semibold text-slate-900">Security</h2>
-          <p className="text-xs text-slate-500 mt-1">These controls are already enforced on this browser session.</p>
+          <p className="text-xs text-slate-500 mt-1">Password, email activation, and authenticator MFA for your account.</p>
         </div>
-        <div className="p-5 space-y-3 text-sm text-slate-600">
-          <p>Idle sign-out after 30 minutes without activity. Maximum session length is 12 hours.</p>
-          <p>Deleted entries leave your lists. Similar entries are checked before they are saved again.</p>
-          <p>Sign out is always visible on the sidebar. Firebase Auth remains the only sign-in method.</p>
+        <div className="p-5">
+          <AccountSecurityPanel />
         </div>
       </section>
 

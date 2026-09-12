@@ -4,6 +4,7 @@ import { createUserWithEmailAndPassword, signInWithGoogle, auth } from '../lib/f
 import { Mail, Lock, AlertCircle } from 'lucide-react';
 import AuthScene from '../components/AuthScene';
 import { consumeReturnTo } from '../lib/return-to';
+import { authErrorMessage, sendActivationEmail } from '../lib/account-security';
 
 export default function Register() {
   const [email, setEmail] = useState('');
@@ -18,10 +19,15 @@ export default function Register() {
     try {
       setError('');
       setBusy('email');
-      await createUserWithEmailAndPassword(auth, email, password);
-      navigate(consumeReturnTo());
-    } catch (err: any) {
-      setError(err.message || 'Failed to create an account');
+      const credential = await createUserWithEmailAndPassword(auth, email, password);
+      try {
+        await sendActivationEmail(credential.user);
+      } catch {
+        // Activation email is best-effort; ActivateAccount can resend.
+      }
+      navigate('/activate', { replace: true });
+    } catch (err: unknown) {
+      setError(authErrorMessage(err, 'Failed to create an account'));
     } finally {
       setBusy('');
     }
