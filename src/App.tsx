@@ -7,6 +7,10 @@ import { ToastProvider } from './context/ToastContext';
 import { AppPrefsProvider } from './context/AppPrefsContext';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
+import ActivateAccount from './pages/ActivateAccount';
+import AuthAction from './pages/AuthAction';
 import Dashboard from './pages/Dashboard';
 import BookView from './pages/BookView';
 import InviteAccept from './pages/InviteAccept';
@@ -15,6 +19,7 @@ import AdminAccess from './pages/AdminAccess';
 import Layout from './components/Layout';
 
 import { peekReturnTo } from './lib/return-to';
+import { needsEmailActivation } from './lib/account-security';
 
 const BooksApp = lazy(() => import('./books/app/BooksApp'));
 
@@ -22,13 +27,17 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   const { currentUser, loading } = useAuth();
   if (loading) return <AppLoader title="Byjan" message="Checking your session." />;
   if (!currentUser) return <Navigate to="/login" replace />;
+  if (needsEmailActivation(currentUser)) return <Navigate to="/activate" replace />;
   return <>{children}</>;
 };
 
 const GuestRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentUser, loading } = useAuth();
   if (loading) return <AppLoader title="Byjan" message="Checking your session." />;
-  if (currentUser) return <Navigate to={peekReturnTo()} replace />;
+  if (currentUser) {
+    if (needsEmailActivation(currentUser)) return <Navigate to="/activate" replace />;
+    return <Navigate to={peekReturnTo()} replace />;
+  }
   return <>{children}</>;
 };
 
@@ -48,6 +57,10 @@ export default function App() {
             <Routes>
               <Route path="/login" element={<GuestRoute><Login /></GuestRoute>} />
               <Route path="/register" element={<GuestRoute><Register /></GuestRoute>} />
+              <Route path="/forgot-password" element={<GuestRoute><ForgotPassword /></GuestRoute>} />
+              <Route path="/reset-password" element={<ResetPassword />} />
+              <Route path="/activate" element={<ActivateAccount />} />
+              <Route path="/auth/action" element={<AuthAction />} />
               <Route path="/invite/:inviteId" element={<InviteAccept />} />
               <Route path="/" element={<ProtectedRoute><RbacProvider><Layout /></RbacProvider></ProtectedRoute>}>
                 <Route index element={<Dashboard />} />
