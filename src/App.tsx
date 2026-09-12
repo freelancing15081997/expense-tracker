@@ -1,6 +1,7 @@
 import React, { lazy, Suspense } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { RbacProvider, useRbac } from './context/RbacContext';
 import AppLoader from './components/AppLoader';
 import { ToastProvider } from './context/ToastContext';
 import { AppPrefsProvider } from './context/AppPrefsContext';
@@ -10,6 +11,7 @@ import Dashboard from './pages/Dashboard';
 import BookView from './pages/BookView';
 import InviteAccept from './pages/InviteAccept';
 import Settings from './pages/Settings';
+import AdminAccess from './pages/AdminAccess';
 import Layout from './components/Layout';
 
 import { peekReturnTo } from './lib/return-to';
@@ -30,6 +32,13 @@ const GuestRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return <>{children}</>;
 };
 
+const PermissionRoute: React.FC<{ anyOf: string[]; children: React.ReactNode }> = ({ anyOf, children }) => {
+  const { loading, canAny } = useRbac();
+  if (loading) return <AppLoader title="Byjan" message="Loading your access." />;
+  if (!canAny(anyOf)) return <Navigate to="/" replace />;
+  return <>{children}</>;
+};
+
 export default function App() {
   return (
     <AuthProvider>
@@ -40,11 +49,12 @@ export default function App() {
               <Route path="/login" element={<GuestRoute><Login /></GuestRoute>} />
               <Route path="/register" element={<GuestRoute><Register /></GuestRoute>} />
               <Route path="/invite/:inviteId" element={<InviteAccept />} />
-              <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+              <Route path="/" element={<ProtectedRoute><RbacProvider><Layout /></RbacProvider></ProtectedRoute>}>
                 <Route index element={<Dashboard />} />
                 <Route path="expenses" element={<Dashboard />} />
                 <Route path="book/:bookId" element={<BookView />} />
                 <Route path="settings" element={<Settings />} />
+                <Route path="admin" element={<PermissionRoute anyOf={['admin.access']}><AdminAccess /></PermissionRoute>} />
                 <Route path="books/*" element={<Suspense fallback={<AppLoader title="Books" message="Opening your company workspace." />}><BooksApp /></Suspense>} />
               </Route>
             </Routes>

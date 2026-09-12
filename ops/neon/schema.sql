@@ -129,3 +129,80 @@ CREATE TABLE IF NOT EXISTS documents (
 -- Example queries:
 -- SELECT * FROM expenses WHERE description ILIKE '%basha%' AND amount = 500;
 -- SELECT * FROM inbound_events WHERE book_id = '...' ORDER BY created_at DESC;
+
+
+-- Organization RBAC (roles, permissions, members)
+CREATE TABLE IF NOT EXISTS orgs (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL DEFAULT '',
+  owner_uid TEXT NOT NULL DEFAULT '',
+  data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS orgs_owner_idx ON orgs (owner_uid);
+
+CREATE TABLE IF NOT EXISTS rbac_permissions (
+  id TEXT PRIMARY KEY,
+  tool TEXT NOT NULL,
+  feature TEXT NOT NULL,
+  action TEXT NOT NULL,
+  label TEXT NOT NULL DEFAULT '',
+  description TEXT NOT NULL DEFAULT '',
+  sort_order INT NOT NULL DEFAULT 0,
+  data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS rbac_roles (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  key TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  is_system BOOLEAN NOT NULL DEFAULT FALSE,
+  data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (org_id, key)
+);
+CREATE INDEX IF NOT EXISTS rbac_roles_org_idx ON rbac_roles (org_id);
+
+CREATE TABLE IF NOT EXISTS rbac_role_permissions (
+  role_id TEXT NOT NULL,
+  permission_id TEXT NOT NULL,
+  PRIMARY KEY (role_id, permission_id)
+);
+
+CREATE TABLE IF NOT EXISTS org_members (
+  org_id TEXT NOT NULL,
+  uid TEXT NOT NULL,
+  role_id TEXT NOT NULL,
+  email TEXT,
+  display_name TEXT,
+  status TEXT NOT NULL DEFAULT 'active',
+  invited_by TEXT,
+  data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (org_id, uid)
+);
+CREATE INDEX IF NOT EXISTS org_members_uid_idx ON org_members (uid);
+CREATE INDEX IF NOT EXISTS org_members_email_idx ON org_members (email);
+
+CREATE TABLE IF NOT EXISTS org_invites (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  email TEXT NOT NULL,
+  role_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  invited_by TEXT,
+  token TEXT NOT NULL,
+  data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS org_invites_org_idx ON org_invites (org_id, status);
+CREATE INDEX IF NOT EXISTS org_invites_email_idx ON org_invites (email, status);
+CREATE UNIQUE INDEX IF NOT EXISTS org_invites_token_idx ON org_invites (token);

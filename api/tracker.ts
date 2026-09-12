@@ -36,6 +36,7 @@ import {
   ledgerList,
   withDomainApi,
 } from './_pg-tables.js';
+import { requireAnyOrgPermission, requireOrgPermission } from './_lib/rbac.js';
 
 type Domain = 'ledgers' | 'expenses' | 'notifications' | 'me' | 'books';
 
@@ -96,6 +97,7 @@ async function handleLedgers(req: VercelRequest, res: VercelResponse) {
     }
 
     if (op === 'create') {
+      await requireOrgPermission(user, 'ledgers.create');
       const book = await ledgerCreateBook({
         uid: user.uid,
         email: user.email,
@@ -131,6 +133,7 @@ async function handleLedgers(req: VercelRequest, res: VercelResponse) {
     if (op === 'softDelete') {
       const bookId = String(body.bookId || '').trim();
       if (!bookId) throw new ApiError(400, 'Missing ledger');
+      await requireOrgPermission(user, 'ledgers.manage');
       await ledgerSoftDeleteBook(bookId, user.uid);
       apiJson(res, 200, { ok: true });
       return;
@@ -237,6 +240,7 @@ async function handleExpenses(req: VercelRequest, res: VercelResponse) {
     if (op === 'create') {
       const bookId = String(body.bookId || '').trim();
       if (!bookId) throw new ApiError(400, 'Missing ledger');
+      await requireOrgPermission(user, 'expenses.create');
       await ledgerRequireWriter(bookId, user.uid);
       const input = body.expense && typeof body.expense === 'object' && !Array.isArray(body.expense)
         ? body.expense as Record<string, unknown>
@@ -270,6 +274,7 @@ async function handleExpenses(req: VercelRequest, res: VercelResponse) {
       const bookId = String(body.bookId || '').trim();
       const expenseId = String(body.expenseId || body.expense && (body.expense as { id?: string }).id || '').trim();
       if (!bookId || !expenseId) throw new ApiError(400, 'Missing expense');
+      await requireOrgPermission(user, 'expenses.edit');
       await ledgerRequireWriter(bookId, user.uid);
       const current = await ledgerGetExpense(bookId, expenseId);
       if (!current) throw new ApiError(404, 'Expense not found');
@@ -300,6 +305,7 @@ async function handleExpenses(req: VercelRequest, res: VercelResponse) {
       const bookId = String(body.bookId || '').trim();
       const expenseId = String(body.expenseId || '').trim();
       if (!bookId || !expenseId) throw new ApiError(400, 'Missing expense');
+      await requireOrgPermission(user, 'expenses.delete');
       await ledgerRequireWriter(bookId, user.uid);
       const ok = await ledgerSoftDeleteExpense(bookId, expenseId, user.uid);
       if (!ok) throw new ApiError(404, 'Expense not found');
@@ -456,6 +462,7 @@ function booksId() {
 
 async function handleBooks(req: VercelRequest, res: VercelResponse) {
   await withDomainApi(req, res, async (user, body) => {
+    await requireAnyOrgPermission(user, ['books.access', 'books.dashboard.view']);
     const op = String(body.op || '');
     const path = String(body.path || '').replace(/^\/+|\/+$/g, '');
 

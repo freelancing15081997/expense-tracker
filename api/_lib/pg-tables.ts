@@ -379,6 +379,12 @@ async function ensureLedgerSchema(sql: Sql) {
   await sql`CREATE INDEX IF NOT EXISTS erp_records_ws_col_idx ON erp_records (workspace_id, collection, deleted, updated_at DESC)`;
   await copyLegacyDocuments(sql);
   await copyLegacyErp(sql);
+  try {
+    const { ensureRbacSchema } = await import('./rbac.js');
+    await ensureRbacSchema(sql);
+  } catch {
+    // RBAC bootstrap is best-effort during ledger schema init; /api/rbac also ensures it.
+  }
 }
 
 async function copyLegacyDocuments(sql: Sql) {

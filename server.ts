@@ -61,6 +61,10 @@ app.all(["/api/ledgers", "/api/expenses", "/api/notifications", "/api/me", "/api
   const { default: tracker } = await import("./api/tracker");
   await tracker(req as any, res as any);
 });
+app.all("/api/rbac", async (req, res) => {
+  const { default: rbac } = await import("./api/rbac");
+  await rbac(req as any, res as any);
+});
 app.post("/api/email/inbound", async (req, res) => {
   const { default: inbound } = await import("./api/email/inbound");
   await inbound(req as any, res as any);

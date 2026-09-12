@@ -6,6 +6,7 @@
     "api/kv.ts": { "maxDuration": 30, "includeFiles": "api/_pg-tables.js" },
     "api/invites.ts": { "maxDuration": 15, "includeFiles": "api/_pg-tables.js" },
     "api/tracker.ts": { "maxDuration": 15, "includeFiles": "api/_pg-tables.js" },
+    "api/rbac.ts": { "maxDuration": 15, "includeFiles": "{api/_pg-tables.js,api/_lib/rbac.js,api/_lib/rbac-catalog.ts}" },
     "api/migrate.ts": { "maxDuration": 60, "includeFiles": "api/_pg-tables.js" },
     "api/email/send.ts": { "maxDuration": 30 },
     "api/email/send-report.ts": { "maxDuration": 60 },
@@ -36,6 +37,7 @@
     { "source": "/api/notifications", "destination": "/api/tracker?domain=notifications" },
     { "source": "/api/me", "destination": "/api/tracker?domain=me" },
     { "source": "/api/books", "destination": "/api/tracker?domain=books" },
+    { "source": "/api/rbac", "destination": "/api/rbac" },
     { "source": "/api/auth/:path*", "destination": "/api" },
     { "source": "/neondb/auth/:path*", "destination": "/api" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
