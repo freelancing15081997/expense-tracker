@@ -23,7 +23,18 @@ export default function Layout() {
   const tenant = useBooksTenantMeta();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isSidebarHovered, setIsSidebarHovered] = useState(false);
-  const isExpanded = mobileMenuOpen || isSidebarHovered;
+  const [railPinned, setRailPinned] = useState(() => {
+    try { return localStorage.getItem('byjan.rail.pin') === '1'; } catch { return false; }
+  });
+  const isExpanded = mobileMenuOpen || isSidebarHovered || railPinned;
+  const toggleRailPin = () => {
+    setRailPinned((curr) => {
+      const next = !curr;
+      try { localStorage.setItem('byjan.rail.pin', next ? '1' : '0'); } catch { /* ignore */ }
+      if (!next) setIsSidebarHovered(false);
+      return next;
+    });
+  };
   const [notificationsPanelOpen, setNotificationsPanelOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
 
@@ -117,9 +128,11 @@ export default function Layout() {
       >
         <AppSidebar
           expanded={isExpanded}
+          pinned={railPinned}
           tenant={tenant}
           userProfile={userProfile}
           onLogout={logout}
+          onTogglePin={toggleRailPin}
         />
       </aside>
 

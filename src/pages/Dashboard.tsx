@@ -6,7 +6,7 @@ import { createLedger, listLedgers } from '../lib/ledgers';
 import { listAllExpenses } from '../lib/expenses';
 import { useBooksTenantMeta } from '../lib/tenant';
 import { getCurrencySymbol } from '../lib/currency';
-import { initials, sparkDays, tileHue } from '../lib/ledger-advanced';
+import { initials, readRecentLedgers, sparkDays, tileHue } from '../lib/ledger-advanced';
 import { Plus, Check, X, Users, Building2, ArrowRight, BookOpen, Sparkles } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
@@ -22,6 +22,8 @@ interface BookItem {
   ownerId: string;
   currency: string;
   pinned?: boolean;
+  archived?: boolean;
+  accentHue?: number;
   roles: Record<string, { role: string; email: string }>;
 }
 
@@ -53,6 +55,8 @@ export default function Dashboard() {
   const [newCurrency, setNewCurrency] = useState('');
   const [creating, setCreating] = useState(false);
   const [bookStats, setBookStats] = useState<Record<string, BookStat>>({});
+  const [showArchived, setShowArchived] = useState(false);
+  const recentIds = readRecentLedgers();
 
   const fetchData = async () => {
     if (!currentUser || !userProfile) return;
@@ -64,6 +68,8 @@ export default function Dashboard() {
         ownerId: String(book.ownerId || ''),
         currency: String(book.currency || 'INR'),
         pinned: Boolean(book.pinned),
+        archived: Boolean(book.archived),
+        accentHue: Number(book.accentHue || 0) || undefined,
         roles: (book.roles || {}) as BookItem['roles'],
       })).sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || a.name.localeCompare(b.name));
       setBooks(fetchedBooks);
@@ -195,7 +201,9 @@ export default function Dashboard() {
     [book.name, book.currency, ...Object.values(book.roles || {}).map((r) => r.email)]
       .some((value) => String(value || '').toLowerCase().includes(q))
   ), []);
-  const bookList = usePagedList(books, filterBook, 10);
+  const visibleBooks = books.filter((book) => showArchived || !book.archived);
+  const bookList = usePagedList(visibleBooks, filterBook, 12);
+  const recentBooks = recentIds.map((id) => books.find((book) => book.id === id)).filter(Boolean) as BookItem[];
 
   const currency = getCurrencySymbol(books[0]?.currency || userProfile?.defaultCurrency || 'INR');
   const net = globalStats.totalIn - globalStats.totalOut;
@@ -204,7 +212,7 @@ export default function Dashboard() {
   const firstName = String(userProfile?.displayName || currentUser?.email || 'there').split(' ')[0];
 
   return (
-    <div className="max-w-5xl mx-auto space-y-5">
+    <div className="max-w-5xl mx-auto space-y-3">
       <section className="byjan-card byjan-hero">
         <div className="relative z-10 flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
@@ -307,12 +315,26 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className={expensesOnly ? 'space-y-4' : 'grid lg:grid-cols-2 gap-5 items-start'}>
-        <section className="space-y-3">
-          <div className="flex items-center justify-between">
+      <div className={expensesOnly ? 'space-y-3' : 'grid lg:grid-cols-2 gap-4 items-start'}>
+        <section className="space-y-2">
+          <div className="flex items-center justify-between gap-2">
             <h2 className="text-base font-semibold text-slate-900">{expensesOnly ? 'Your ledgers' : 'Ledgers'}</h2>
-            <span className="text-xs text-slate-500">{books.length}</span>
+            <div className="flex items-center gap-2">
+              {books.some((book) => book.archived) && (
+                <button type="button" className="byjan-chip" data-on={showArchived} onClick={() => setShowArchived((v) => !v)}>
+                  Archived
+                </button>
+              )}
+              <span className="text-xs text-slate-500">{visibleBooks.length}</span>
+            </div>
           </div>
+          {recentBooks.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {recentBooks.slice(0, 5).map((book) => (
+                <Link key={book.id} to={`/book/${book.id}`} className="byjan-chip">{book.name}</Link>
+              ))}
+            </div>
+          )}
           {loading ? (
             <AppLoader title="Ledgers" message="Loading the books you can open." />
           ) : books.length === 0 ? (
@@ -339,16 +361,25 @@ export default function Dashboard() {
                 const role = book.roles[currentUser!.uid]?.role || 'viewer';
                 const stat = bookStats[book.id];
                 const symbol = getCurrencySymbol(book.currency);
+                const hue = book.accentHue || tileHue(book.name);
+                const maxSpark = Math.max(...(stat?.spark || [1]), 1);
                 return (
-                  <Link to={`/book/${book.id}`} key={book.id} className="byjan-card byjan-lift byjan-ledger-tile">
-                    <span className="byjan-ledger-mono" style={{ background: `linear-gradient(160deg, hsl(${tileHue(book.name)} 42% 28%), hsl(${(tileHue(book.name) + 28) % 360} 48% 18%))` }}>
-                      {initials(book.name)}
-                    </span>
+                  <Link
+                    to={`/book/${book.id}`}
+                    key={book.id}
+                    className="byjan-ledger-tile byjan-lift"
+                    style={{
+                      ['--tile-ink' as string]: `hsl(${hue} 42% 26%)`,
+                      ['--tile-wash' as string]: `hsl(${hue} 46% 94% / 0.92)`,
+                    }}
+                  >
+                    <span className="byjan-ledger-mono">{initials(book.name)}</span>
                     <div className="min-w-0">
                       <h3 className="text-[13px] font-semibold text-slate-900 leading-tight">{book.name}</h3>
                       <p className="text-[10px] text-slate-500 mt-0.5 truncate">
-                        {book.pinned ? 'Pinned · ' : ''}{role} · {Object.keys(book.roles).length} · {book.currency}
-                        {stat && stat.lastMonthOut > 0 ? ` · vs last ${stat.monthOut >= stat.lastMonthOut ? 'up' : 'down'}` : ''}
+                        {book.archived ? 'Archived · ' : ''}{book.pinned ? 'Pinned · ' : ''}{role} · {book.currency}
+                        {stat ? ` · ${stat.entries}` : ''}
+                        {stat && stat.lastMonthOut > 0 ? ` · ${stat.monthOut >= stat.lastMonthOut ? '↑' : '↓'} vs last` : ''}
                       </p>
                     </div>
                     <span className="text-right shrink-0">
@@ -356,15 +387,12 @@ export default function Dashboard() {
                         {stat ? `${stat.net < 0 ? '−' : ''}${symbol}${Math.abs(stat.net).toLocaleString()}` : '—'}
                       </span>
                       {stat && (
-                        <svg className="byjan-spark mt-1 ml-auto" viewBox="0 0 54 18" aria-hidden>
+                        <svg className="byjan-spark mt-1 ml-auto" viewBox="0 0 68 20" aria-hidden>
                           <polyline
-                            fill="none"
-                            stroke={stat.net >= 0 ? '#0f766e' : '#be123c'}
-                            strokeWidth="1.6"
-                            points={stat.spark.map((v, i) => {
-                              const max = Math.max(...stat.spark, 1);
-                              return `${(i / Math.max(stat.spark.length - 1, 1)) * 54},${18 - (v / max) * 16}`;
-                            }).join(' ')}
+                            fill={`hsla(${hue}, 42%, 32%, 0.12)`}
+                            stroke={`hsl(${hue} 42% 28%)`}
+                            strokeWidth="1.7"
+                            points={`0,20 ${stat.spark.map((v, i) => `${(i / Math.max(stat.spark.length - 1, 1)) * 68},${19 - (v / maxSpark) * 16}`).join(' ')} 68,20`}
                           />
                         </svg>
                       )}

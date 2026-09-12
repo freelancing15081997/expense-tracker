@@ -241,3 +241,174 @@ export function downloadText(filename: string, text: string, type = 'text/plain'
   link.click();
   URL.revokeObjectURL(url);
 }
+
+export function todayOut(expenses: Array<Record<string, unknown>>, day = isoDay()) {
+  return expenses.reduce((sum, exp) => {
+    if (String(exp.entryType || 'out') !== 'out') return sum;
+    if (!String(exp.date || '').startsWith(day)) return sum;
+    return sum + Number(exp.amount || 0);
+  }, 0);
+}
+
+export function wouldBreakDailyCap(expenses: Array<Record<string, unknown>>, cap: number, extra: number, day = isoDay()) {
+  if (!cap || extra <= 0) return false;
+  return todayOut(expenses, day) + extra > cap;
+}
+
+export function anomalyIds(expenses: Array<Record<string, unknown>>) {
+  const outs = expenses.filter((exp) => String(exp.entryType || 'out') === 'out').map((exp) => Number(exp.amount || 0)).filter((n) => n > 0);
+  if (outs.length < 4) return new Set<string>();
+  const sorted = [...outs].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)] || 0;
+  const cutoff = median * 2.5;
+  return new Set(
+    expenses
+      .filter((exp) => String(exp.entryType || 'out') === 'out' && Number(exp.amount || 0) > cutoff)
+      .map((exp) => String(exp.id || '')),
+  );
+}
+
+export function nearDupeIds(expenses: Array<Record<string, unknown>>, windowDays = 3) {
+  const hits = new Set<string>();
+  const rows = expenses.filter((exp) => String(exp.entryType || 'out') === 'out');
+  for (let i = 0; i < rows.length; i += 1) {
+    const a = rows[i];
+    const dayA = String(a.date || '').slice(0, 10);
+    const amtA = Number(a.amount || 0);
+    const descA = String(a.description || '').trim().toLowerCase();
+    if (!dayA || !amtA) continue;
+    const tA = Date.parse(`${dayA}T12:00:00`);
+    for (let j = i + 1; j < rows.length; j += 1) {
+      const b = rows[j];
+      if (Number(b.amount || 0) !== amtA) continue;
+      const dayB = String(b.date || '').slice(0, 10);
+      const tB = Date.parse(`${dayB}T12:00:00`);
+      if (!Number.isFinite(tA) || !Number.isFinite(tB) || Math.abs(tA - tB) > windowDays * 86400000) continue;
+      const descB = String(b.description || '').trim().toLowerCase();
+      if (descA && descB && descA !== descB && !descA.includes(descB) && !descB.includes(descA)) continue;
+      hits.add(String(a.id || ''));
+      hits.add(String(b.id || ''));
+    }
+  }
+  return hits;
+}
+
+export function staleReimburseIds(expenses: Array<Record<string, unknown>>, days = 14) {
+  const cutoff = Date.now() - days * 86400000;
+  return new Set(
+    expenses
+      .filter((exp) => exp.reimbursable && Date.parse(`${String(exp.date || isoDay())}T12:00:00`) < cutoff)
+      .map((exp) => String(exp.id || '')),
+  );
+}
+
+export function methodMix(expenses: Array<Record<string, unknown>>) {
+  const mix = new Map<string, number>();
+  for (const exp of expenses) {
+    if (String(exp.entryType || 'out') !== 'out') continue;
+    const method = String(exp.paymentMethod || 'cash');
+    mix.set(method, (mix.get(method) || 0) + Number(exp.amount || 0));
+  }
+  return [...mix.entries()].sort((a, b) => b[1] - a[1]);
+}
+
+export function weekOverWeek(expenses: Array<Record<string, unknown>>) {
+  const today = new Date();
+  const startThis = new Date(today);
+  startThis.setDate(today.getDate() - 6);
+  const startLast = new Date(today);
+  startLast.setDate(today.getDate() - 13);
+  const thisFrom = isoDay(startThis);
+  const lastFrom = isoDay(startLast);
+  const lastTo = isoDay(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 7));
+  let thisWeek = 0;
+  let lastWeek = 0;
+  for (const exp of expenses) {
+    if (String(exp.entryType || 'out') !== 'out') continue;
+    const day = String(exp.date || '').slice(0, 10);
+    const amt = Number(exp.amount || 0);
+    if (day >= thisFrom) thisWeek += amt;
+    else if (day >= lastFrom && day <= lastTo) lastWeek += amt;
+  }
+  const delta = lastWeek === 0 ? (thisWeek > 0 ? 100 : 0) : ((thisWeek - lastWeek) / lastWeek) * 100;
+  return { thisWeek, lastWeek, delta };
+}
+
+export function budgetDaysLeft(monthOut: number, budget: number) {
+  if (!budget || budget <= monthOut) return 0;
+  const dayNum = new Date().getDate();
+  const pace = monthOut / Math.max(1, dayNum);
+  if (pace <= 0) return 99;
+  return Math.max(0, Math.floor((budget - monthOut) / pace));
+}
+
+export function toLedgerCsv(expenses: Array<Record<string, unknown>>) {
+  const header = 'Date,Type,Category,Description,Merchant,Method,Amount,Notes,Flagged,Reimbursable';
+  const rows = expenses.map((exp) => [
+    exp.date || '',
+    exp.entryType || 'out',
+    csvQuote(exp.category),
+    csvQuote(exp.description),
+    csvQuote(exp.merchant),
+    exp.paymentMethod || '',
+    Number(exp.amount || 0).toFixed(2),
+    csvQuote(exp.notes),
+    exp.flagged ? 'yes' : '',
+    exp.reimbursable ? 'yes' : '',
+  ].join(','));
+  return [header, ...rows].join('\n');
+}
+
+function csvQuote(value: unknown) {
+  const text = String(value || '');
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+export function toOfx(expenses: Array<Record<string, unknown>>, name: string) {
+  const body = expenses.map((exp) => {
+    const sign = exp.entryType === 'in' ? 1 : -1;
+    const amt = (sign * Number(exp.amount || 0)).toFixed(2);
+    const day = String(exp.date || isoDay()).replace(/-/g, '');
+    return `<STMTTRN><TRNTYPE>${sign > 0 ? 'CREDIT' : 'DEBIT'}</TRNTYPE><DTPOSTED>${day}</DTPOSTED><TRNAMT>${amt}</TRNAMT><FITID>${exp.id || newId('ofx')}</FITID><NAME>${String(exp.merchant || exp.description || '').slice(0, 32)}</NAME><MEMO>${String(exp.description || '')}</MEMO></STMTTRN>`;
+  }).join('');
+  return `OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\n<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS><BANKTRANLIST>${body}</BANKTRANLIST></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>\n<!-- ${name} -->`;
+}
+
+export function entryPlainText(exp: Record<string, unknown>, symbol: string) {
+  const sign = exp.entryType === 'in' ? '+' : exp.entryType === 'transfer' ? '' : '−';
+  return `${exp.date || ''}  ${sign}${symbol}${Number(exp.amount || 0).toLocaleString()}  ${exp.description || ''}  ${exp.category || ''}  ${exp.merchant || ''}`.replace(/\s+/g, ' ').trim();
+}
+
+export function readWatchMerchants(book: Record<string, unknown> | null | undefined) {
+  return Array.isArray(book?.watchMerchants) ? book.watchMerchants.map(String) : [];
+}
+
+export function touchRecentLedger(id: string) {
+  try {
+    const prev = readRecentLedgers().filter((row) => row !== id);
+    localStorage.setItem('byjan.recent.ledgers', JSON.stringify([id, ...prev].slice(0, 8)));
+  } catch { /* ignore */ }
+}
+
+export function readRecentLedgers() {
+  try {
+    const raw = JSON.parse(localStorage.getItem('byjan.recent.ledgers') || '[]');
+    return Array.isArray(raw) ? raw.map(String) : [];
+  } catch {
+    return [] as string[];
+  }
+}
+
+export function readLastQuick(bookId: string) {
+  try {
+    return JSON.parse(localStorage.getItem(`byjan.quick.${bookId}`) || '{}') as { category?: string; merchant?: string };
+  } catch {
+    return {};
+  }
+}
+
+export function writeLastQuick(bookId: string, patch: { category?: string; merchant?: string }) {
+  try {
+    localStorage.setItem(`byjan.quick.${bookId}`, JSON.stringify({ ...readLastQuick(bookId), ...patch }));
+  } catch { /* ignore */ }
+}

@@ -180,42 +180,55 @@ svg.byjan-glyph {
   line-height: 1;
   text-align: right;
 }
-.byjan-ledger-card,
 .byjan-ledger-tile {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) auto;
+  grid-template-columns: 44px minmax(0, 1fr) 76px;
   align-items: center;
   gap: 10px;
-  min-height: 56px;
-  height: 56px;
-  padding: 6px 10px 6px 6px;
+  height: 58px;
+  min-height: 58px;
+  padding: 5px 10px 5px 8px;
   position: relative;
+  isolation: isolate;
   overflow: hidden;
-}
-.byjan-ledger-tile {
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--tile-ink, #0B1F3A) 14%, rgba(255, 255, 255, 0.7));
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.4));
-  border-radius: 16px;
+    linear-gradient(118deg, var(--tile-wash, rgba(255, 255, 255, 0.86)) 0%, rgba(255, 255, 255, 0.42) 72%),
+    rgba(255, 255, 255, 0.5);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.8) inset,
+    0 10px 22px -16px rgba(11, 31, 58, 0.28);
+}
+.byjan-ledger-tile::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 11px;
+  bottom: 11px;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--tile-ink, #0B1F3A);
 }
 .byjan-ledger-mono {
-  width: 42px;
-  height: 42px;
-  border-radius: 13px;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: #fff;
   font-size: 13px;
   font-weight: 800;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.04em;
+  background: linear-gradient(160deg, var(--tile-ink, #0B1F3A), color-mix(in srgb, var(--tile-ink, #0B1F3A) 70%, #000));
   box-shadow: 0 8px 16px -10px rgba(11, 31, 58, 0.55);
 }
 .byjan-spark {
-  width: 54px;
-  height: 18px;
+  width: 68px;
+  height: 20px;
   display: block;
 }
-.byjan-ledger-card h3,
 .byjan-ledger-tile h3 {
   display: -webkit-box;
   -webkit-line-clamp: 1;
@@ -223,6 +236,10 @@ svg.byjan-glyph {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+.byjan-row-flag { box-shadow: inset 3px 0 0 #f59e0b; }
+.byjan-row-anomaly { box-shadow: inset 3px 0 0 #e11d48; }
+.byjan-row-dupe { box-shadow: inset 3px 0 0 #0284c7; }
+.byjan-row-watch { box-shadow: inset 3px 0 0 #0f766e; }
 @media (max-width: 720px) {
   .byjan-stat-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1016,8 +1033,8 @@ html[data-density="compact"] h1 {
 .byjan-hero {
   position: relative;
   overflow: hidden;
-  padding: 10px 14px;
-  border-radius: 16px;
+  padding: 8px 12px;
+  border-radius: 14px;
 }
 .byjan-hero::after {
   content: "";

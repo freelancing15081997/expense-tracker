@@ -34,7 +34,17 @@ import { ListControls, usePagedList } from '../components/ListControls';
 import AppLoader from '../components/AppLoader';
 import LedgerTools from '../components/LedgerTools';
 import LedgerStudio from '../components/LedgerStudio';
-import { dueRecurringPosts, isoDay, readRecurring } from '../lib/ledger-advanced';
+import {
+  anomalyIds,
+  dueRecurringPosts,
+  isoDay,
+  nearDupeIds,
+  readRecurring,
+  readWatchMerchants,
+  staleReimburseIds,
+  touchRecentLedger,
+  wouldBreakDailyCap,
+} from '../lib/ledger-advanced';
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -70,13 +80,6 @@ function uniqueCategories(...lists: Array<string[] | undefined | null>) {
     }
   }
   return out;
-}
-
-function isoDay(value = new Date()) {
-  const year = value.getFullYear();
-  const month = String(value.getMonth() + 1).padStart(2, '0');
-  const day = String(value.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
 }
 
 function periodRange(kind: string) {
@@ -191,6 +194,9 @@ export default function BookView() {
   const [amountMax, setAmountMax] = useState('');
   const [hideTransfers, setHideTransfers] = useState(false);
   const [flaggedOnly, setFlaggedOnly] = useState(false);
+  const [hideDrafts, setHideDrafts] = useState(false);
+  const [staleOnly, setStaleOnly] = useState(false);
+  const [anomalyOnly, setAnomalyOnly] = useState(false);
   const [lastDeleted, setLastDeleted] = useState<Record<string, unknown> | null>(null);
   const skipFilterSave = useRef(true);
   const [unsentEmailChange, setUnsentEmailChange] = useState<{action: string, detail: string} | null>(null);  const navigate = useNavigate();
@@ -292,7 +298,7 @@ export default function BookView() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, itemsPerPage, typeFilter, dateFrom, dateTo, methodFilter, reimbursableOnly, uncategorizedOnly]);
+  }, [searchQuery, itemsPerPage, typeFilter, dateFrom, dateTo, methodFilter, reimbursableOnly, uncategorizedOnly, hideTransfers, flaggedOnly, amountMin, amountMax, hideDrafts, staleOnly, anomalyOnly]);
 
   useEffect(() => {
     skipFilterSave.current = true;
@@ -309,9 +315,25 @@ export default function BookView() {
       if (typeof saved.period === 'string') setPeriod(saved.period);
       if (typeof saved.reimbursableOnly === 'boolean') setReimbursableOnly(saved.reimbursableOnly);
       if (typeof saved.uncategorizedOnly === 'boolean') setUncategorizedOnly(saved.uncategorizedOnly);
+      if (typeof saved.hideTransfers === 'boolean') setHideTransfers(saved.hideTransfers);
+      if (typeof saved.flaggedOnly === 'boolean') setFlaggedOnly(saved.flaggedOnly);
+      if (typeof saved.hideDrafts === 'boolean') setHideDrafts(saved.hideDrafts);
+      if (typeof saved.staleOnly === 'boolean') setStaleOnly(saved.staleOnly);
+      if (typeof saved.anomalyOnly === 'boolean') setAnomalyOnly(saved.anomalyOnly);
+      if (typeof saved.amountMin === 'string') setAmountMin(saved.amountMin);
+      if (typeof saved.amountMax === 'string') setAmountMax(saved.amountMax);
       if (saved.sortKey === 'date' || saved.sortKey === 'amount' || saved.sortKey === 'description' || saved.sortKey === 'category') setSortKey(saved.sortKey);
       if (saved.sortDir === 'asc' || saved.sortDir === 'desc') setSortDir(saved.sortDir);
     } catch { /* ignore */ }
+    const rawQuery = window.location.hash.split('?')[1];
+    if (!rawQuery) return;
+    const params = new URLSearchParams(rawQuery);
+    if (params.get('q')) setSearchQuery(params.get('q') || '');
+    if (params.get('from')) setDateFrom(params.get('from') || '');
+    if (params.get('to')) setDateTo(params.get('to') || '');
+    if (params.get('min')) setAmountMin(params.get('min') || '');
+    if (params.get('max')) setAmountMax(params.get('max') || '');
+    if (params.get('type')) setTypeFilter(params.get('type') || 'all');
   }, [bookId]);
 
   useEffect(() => {
@@ -323,19 +345,48 @@ export default function BookView() {
     try {
       sessionStorage.setItem(`byjan.ledger.filters.${bookId}`, JSON.stringify({
         searchQuery, typeFilter, methodFilter, dateFrom, dateTo, period, reimbursableOnly, uncategorizedOnly, sortKey, sortDir,
+        hideTransfers, flaggedOnly, hideDrafts, staleOnly, anomalyOnly, amountMin, amountMax,
       }));
     } catch { /* ignore */ }
-  }, [bookId, searchQuery, typeFilter, methodFilter, dateFrom, dateTo, period, reimbursableOnly, uncategorizedOnly, sortKey, sortDir]);
+  }, [bookId, searchQuery, typeFilter, methodFilter, dateFrom, dateTo, period, reimbursableOnly, uncategorizedOnly, sortKey, sortDir, hideTransfers, flaggedOnly, hideDrafts, staleOnly, anomalyOnly, amountMin, amountMax]);
 
   useEffect(() => {
+    if (bookId) touchRecentLedger(bookId);
+  }, [bookId]);
+
+  useEffect(() => {
+    const density = localStorage.getItem('byjan.density') || '';
+    if (density) document.documentElement.dataset.density = density;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() !== 'n' || event.ctrlKey || event.metaKey || event.altKey) return;
+      const key = event.key.toLowerCase();
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
       const target = event.target as HTMLElement | null;
-      if (target && (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable)) return;
-      const add = document.querySelector('[data-add-entry]') as HTMLButtonElement | null;
-      if (!add || add.disabled) return;
-      event.preventDefault();
-      add.click();
+      const typing = target && (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable);
+      if (key === '/' && !typing) {
+        event.preventDefault();
+        document.querySelector<HTMLInputElement>('input[placeholder="Search entries"]')?.focus();
+        return;
+      }
+      if (typing) return;
+      if (key === 'n') {
+        const add = document.querySelector('[data-add-entry]') as HTMLButtonElement | null;
+        if (!add || add.disabled) return;
+        event.preventDefault();
+        add.click();
+      }
+      if (key === 'f') {
+        event.preventDefault();
+        setFiltersOpen((open) => !open);
+      }
+      if (key === 'u') {
+        const undo = document.querySelector('[data-undo-remove]') as HTMLButtonElement | null;
+        undo?.click();
+      }
+      if (key === 'd') {
+        const next = document.documentElement.dataset.density === 'compact' ? '' : 'compact';
+        document.documentElement.dataset.density = next;
+        try { localStorage.setItem('byjan.density', next); } catch { /* ignore */ }
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -724,6 +775,12 @@ export default function BookView() {
       addToast(`This ledger is locked before ${lockBefore}.`, 'error');
       return;
     }
+    const cap = Number(book.dailyCap || 0);
+    const extra = entryType === 'out' ? Number(amount || 0) : 0;
+    if (wouldBreakDailyCap(expenses, cap, extra, entryDate) && !window.confirm(`This would go past the daily cap of ${getCurrencySymbol(book.currency)}${cap.toLocaleString()}. Record anyway?`)) {
+      setIsSaving(false);
+      return;
+    }
     try {
       if (editingExpense) {
         const nextStatus = Number(amount) > 0 ? 'recorded' : 'draft';
@@ -1027,6 +1084,10 @@ export default function BookView() {
 
   
   // Filter and Pagination Logic
+  const anomalySet = anomalyIds(expenses);
+  const dupeSet = nearDupeIds(expenses);
+  const staleSet = staleReimburseIds(expenses);
+  const watchSet = new Set(readWatchMerchants(book).map((name) => name.toLowerCase()));
   const q = searchQuery.trim().toLowerCase();
   const filteredExpenses = expenses.filter((exp) => {
     const hay = [exp.description, exp.category, exp.paidByName, exp.enteredBy, exp.merchant, exp.notes, exp.tags, exp.paymentMethod]
@@ -1047,6 +1108,9 @@ export default function BookView() {
     const amt = Number(exp.amount || 0);
     if (amountMin && amt < Number(amountMin)) return false;
     if (amountMax && amt > Number(amountMax)) return false;
+    if (hideDrafts && exp.status === 'draft') return false;
+    if (staleOnly && !staleSet.has(exp.id)) return false;
+    if (anomalyOnly && !anomalySet.has(exp.id)) return false;
     return true;
   });
   const sortedExpenses = [...filteredExpenses].sort((a, b) => {
@@ -1085,6 +1149,13 @@ export default function BookView() {
     dateTo,
     reimbursableOnly,
     uncategorizedOnly,
+    hideTransfers,
+    flaggedOnly,
+    hideDrafts,
+    staleOnly,
+    anomalyOnly,
+    amountMin,
+    amountMax,
   ].filter(Boolean).length;
 
   const applyPeriod = (kind: string) => {
@@ -1109,6 +1180,13 @@ export default function BookView() {
     setPeriod('');
     setReimbursableOnly(false);
     setUncategorizedOnly(false);
+    setHideTransfers(false);
+    setFlaggedOnly(false);
+    setHideDrafts(false);
+    setStaleOnly(false);
+    setAnomalyOnly(false);
+    setAmountMin('');
+    setAmountMax('');
   };
 
   return (
@@ -1134,15 +1212,15 @@ export default function BookView() {
           <button
             type="button"
             onClick={() => setIsAnnounceOpen(true)}
-            className="byjan-btn-ghost !px-3 !py-1.5"
+            className="byjan-btn-ghost !px-2 !py-1.5 hidden lg:inline-flex"
             title="Send an announcement to this ledger team"
           >
             <Megaphone className="w-4 h-4 text-slate-400" />
-            <span className="hidden sm:inline">Announce</span>
+            <span>Announce</span>
           </button>
           <button 
             onClick={() => setIsMembersModalOpen(true)}
-            className="byjan-btn-ghost !px-3 !py-1.5"
+            className="byjan-btn-ghost !px-2 !py-1.5"
           >
             <Users className="w-4 h-4 text-slate-400" />
             <span className="hidden sm:inline">Team</span>
@@ -1344,7 +1422,7 @@ export default function BookView() {
             book={book}
             canWrite={canWrite}
             categories={categoryOptions}
-            merchants={Array.from(new Set(expenses.map((exp) => String(exp.merchant || '').trim()).filter(Boolean))).slice(0, 40)}
+            merchants={Array.from<string>(new Set(expenses.map((exp) => String(exp.merchant || '').trim()).filter((name) => name.length > 0))).slice(0, 40)}
             currencySymbol={getCurrencySymbol(book.currency)}
             enteredBy={String(userProfile?.displayName || currentUser?.email || '')}
             enteredByUid={currentUser?.uid || ''}
@@ -1364,6 +1442,7 @@ export default function BookView() {
               categories={categoryOptions}
               currencySymbol={getCurrencySymbol(book.currency)}
               expenses={expenses}
+              filtered={filteredExpenses}
               selected={expenses.filter((exp) => selectedIds.includes(exp.id))}
               enteredBy={String(userProfile?.displayName || currentUser?.email || '')}
               enteredByUid={currentUser?.uid || ''}
@@ -1379,10 +1458,33 @@ export default function BookView() {
               onHideTransfers={setHideTransfers}
               flaggedOnly={flaggedOnly}
               onFlaggedOnly={setFlaggedOnly}
+              hideDrafts={hideDrafts}
+              onHideDrafts={setHideDrafts}
+              staleOnly={staleOnly}
+              onStaleOnly={setStaleOnly}
+              anomalyOnly={anomalyOnly}
+              onAnomalyOnly={setAnomalyOnly}
+              onCopyFilterLink={() => {
+                const params = new URLSearchParams();
+                if (searchQuery) params.set('q', searchQuery);
+                if (dateFrom) params.set('from', dateFrom);
+                if (dateTo) params.set('to', dateTo);
+                if (amountMin) params.set('min', amountMin);
+                if (amountMax) params.set('max', amountMax);
+                if (typeFilter !== 'all') params.set('type', typeFilter);
+                const next = `${window.location.origin}${window.location.pathname}#/book/${bookId}${params.toString() ? `?${params}` : ''}`;
+                void navigator.clipboard.writeText(next);
+                addToast('Filter link copied.', 'success');
+              }}
+              onRepeatLast={() => {
+                const last = expenses[0];
+                if (last) void duplicateExpense(last);
+              }}
             />
             {lastDeleted && canWrite && (
               <button
                 type="button"
+                data-undo-remove
                 className="byjan-chip"
                 onClick={async () => {
                   try {
@@ -1485,7 +1587,16 @@ export default function BookView() {
                     <tr><td colSpan={10} className="px-5 py-8 text-center text-sm text-slate-500">No entries found matching your criteria.</td></tr>
                   ) : (
                     paginatedExpenses.map((exp) => (
-                      <tr key={exp.id} className="hover:bg-white/40 transition-colors group">
+                      <tr
+                        key={exp.id}
+                        className={cn(
+                          'hover:bg-white/40 transition-colors group',
+                          exp.flagged && 'byjan-row-flag',
+                          anomalySet.has(exp.id) && 'byjan-row-anomaly',
+                          dupeSet.has(exp.id) && 'byjan-row-dupe',
+                          watchSet.has(String(exp.merchant || '').toLowerCase()) && 'byjan-row-watch',
+                        )}
+                      >
                         {canWrite && (
                           <td className="px-3 py-2">
                             <input type="checkbox" aria-label={`Select ${exp.description}`} checked={selectedIds.includes(exp.id)} onChange={() => toggleSelected(exp.id)} />
@@ -1575,7 +1686,14 @@ export default function BookView() {
                 <div className="p-5 text-center text-sm text-slate-500 bg-white rounded-lg border border-slate-200">No entries found.</div>
               ) : (
                 paginatedExpenses.map((exp) => (
-                  <div key={exp.id} className="p-3.5 byjan-card flex flex-col gap-2">
+                  <div
+                    key={exp.id}
+                    className={cn(
+                      'p-3.5 byjan-card flex flex-col gap-2',
+                      exp.flagged && 'byjan-row-flag',
+                      anomalySet.has(exp.id) && 'byjan-row-anomaly',
+                    )}
+                  >
                     <div className="flex justify-between items-start gap-2">
                       {canWrite && (
                         <input type="checkbox" className="mt-1" aria-label={`Select ${exp.description}`} checked={selectedIds.includes(exp.id)} onChange={() => toggleSelected(exp.id)} />
@@ -1608,6 +1726,14 @@ export default function BookView() {
                                 {openingReceiptId === exp.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Paperclip className="w-3.5 h-3.5" />}
                               </button>
                             )}
+                            <button
+                              type="button"
+                              onClick={() => void updateExpense(bookId!, exp.id, { flagged: !exp.flagged }).then(() => refreshExpenses())}
+                              className={cn('p-1.5 rounded-md border min-w-9 min-h-9', exp.flagged ? 'text-amber-500 border-amber-200 bg-amber-50' : 'bg-white/70 text-slate-500 border-white/70')}
+                              title={exp.flagged ? 'Unflag' : 'Flag'}
+                            >
+                              <Star className="w-3.5 h-3.5" fill={exp.flagged ? 'currentColor' : 'none'} />
+                            </button>
                             <button onClick={() => void duplicateExpense(exp)} disabled={bulkBusy === exp.id} className="p-1.5 bg-white/70 text-slate-500 hover:text-zinc-600 rounded-md border border-white/70 min-w-9 min-h-9">
                               {bulkBusy === exp.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CopyPlus className="w-3.5 h-3.5" />}
                             </button>

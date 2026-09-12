@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ArrowRightLeft, BookOpen, ChevronRight, LayoutDashboard, LogOut, Settings } from 'lucide-react';
+import { ArrowRightLeft, BookOpen, ChevronRight, LayoutDashboard, LogOut, Pin, PinOff, Settings } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import BrandLogo from './BrandLogo';
@@ -15,9 +15,11 @@ function cn(...inputs: ClassValue[]) {
 
 type AppSidebarProps = {
   expanded: boolean;
+  pinned?: boolean;
   tenant: BooksTenantMeta | null;
   userProfile: UserProfile | null;
   onLogout: () => void;
+  onTogglePin?: () => void;
 };
 
 function iconWell(active: boolean) {
@@ -29,7 +31,7 @@ function iconWell(active: boolean) {
   );
 }
 
-export default function AppSidebar({ expanded, tenant, userProfile, onLogout }: AppSidebarProps) {
+export default function AppSidebar({ expanded, pinned, tenant, userProfile, onLogout, onTogglePin }: AppSidebarProps) {
   const location = useLocation();
   const booksWrapRef = useRef<HTMLDivElement>(null);
   const [booksFlyout, setBooksFlyout] = useState(false);
@@ -94,22 +96,27 @@ export default function AppSidebar({ expanded, tenant, userProfile, onLogout }: 
 
   return (
     <>
-      <Link
-        to="/"
-        title="Byjan home"
-        className={cn(
-          'group mx-2.5 mt-3 mb-3 flex items-center rounded-2xl bg-white border border-slate-200/80',
-          showText ? 'gap-3 px-2 py-2' : 'justify-center p-1.5'
+      <div className={cn('mx-2.5 mt-3 mb-3 flex items-center rounded-2xl bg-white border border-slate-200/80', showText ? 'gap-2 px-2 py-2' : 'justify-center p-1.5')}>
+        <Link to="/" title="Byjan home" className={cn('group flex items-center min-w-0', showText ? 'gap-3 flex-1' : '')}>
+          <BrandLogo size="sm" />
+          {showText && (
+            <div className="min-w-0">
+              <p className="font-display font-semibold text-[17px] text-[#0B1F3A] tracking-[-0.03em] leading-none">Byjan</p>
+              <p className="text-[11px] font-medium text-slate-500 mt-1.5 truncate tracking-wide">Trace Financials Easily</p>
+            </div>
+          )}
+        </Link>
+        {showText && onTogglePin && (
+          <button
+            type="button"
+            onClick={onTogglePin}
+            className={cn('hidden md:inline-flex w-8 h-8 items-center justify-center rounded-lg border', pinned ? 'border-teal-200 bg-teal-50 text-teal-800' : 'border-slate-200 text-slate-400 hover:text-slate-700')}
+            title={pinned ? 'Unpin rail — page moves back' : 'Pin rail open'}
+          >
+            {pinned ? <Pin className="w-3.5 h-3.5" /> : <PinOff className="w-3.5 h-3.5" />}
+          </button>
         )}
-      >
-        <BrandLogo size="sm" />
-        {showText && (
-          <div className="min-w-0">
-            <p className="font-display font-semibold text-[17px] text-[#0B1F3A] tracking-[-0.03em] leading-none">Byjan</p>
-            <p className="text-[11px] font-medium text-slate-500 mt-1.5 truncate tracking-wide">Trace Financials Easily</p>
-          </div>
-        )}
-      </Link>
+      </div>
 
       <nav className="flex-1 overflow-y-auto overflow-x-visible px-2.5 pb-3 space-y-0.5">
         {showText && (

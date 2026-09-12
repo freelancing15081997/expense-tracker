@@ -9,8 +9,11 @@ import {
   newId,
   applyCategoryRules,
   readCategoryRules,
+  readLastQuick,
   readRecurring,
   readTemplates,
+  wouldBreakDailyCap,
+  writeLastQuick,
   type EntryTemplate,
   type RecurringRule,
 } from '../lib/ledger-advanced';
@@ -48,11 +51,16 @@ export default function LedgerTools({
 }: Props) {
   const templates = readTemplates(book);
   const rules = readRecurring(book);
+  const lastQuick = readLastQuick(bookId);
   const [kind, setKind] = useState<'out' | 'in'>('out');
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
-  const [category, setCategory] = useState(categories[0] || 'Uncategorized');
-  const [merchant, setMerchant] = useState('');
+  const [category, setCategory] = useState(lastQuick.category || categories[0] || 'Uncategorized');
+  const [merchant, setMerchant] = useState(lastQuick.merchant || '');
+  const descriptions = useMemo(
+    () => Array.from(new Set(expenses.map((exp) => String(exp.description || '').trim()).filter(Boolean))).slice(0, 40),
+    [expenses],
+  );
   const [busy, setBusy] = useState('');
   const [ruleOpen, setRuleOpen] = useState(false);
   const [rule, setRule] = useState({
@@ -79,6 +87,11 @@ export default function LedgerTools({
     const day = String(payload.date || isoDay());
     if (lockBefore && day < lockBefore) {
       onToast(`This ledger is locked before ${lockBefore}.`, 'error');
+      return;
+    }
+    const cap = Number(book.dailyCap || 0);
+    const extra = String(payload.entryType || 'out') === 'out' ? Number(payload.amount || 0) : 0;
+    if (wouldBreakDailyCap(expenses, cap, extra, day) && !window.confirm(`This would go past the daily cap of ${currencySymbol}${cap.toLocaleString()}. Record anyway?`)) {
       return;
     }
     try {
@@ -118,6 +131,7 @@ export default function LedgerTools({
         merchant,
         paymentMethod: 'cash',
       }, 'Entry recorded');
+      writeLastQuick(bookId, { category, merchant });
       setAmount('');
       setDescription('');
     } finally {
@@ -241,11 +255,15 @@ export default function LedgerTools({
           aria-label="Amount"
         />
         <input
+          list="ledger-descriptions"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           placeholder="Quick add — rent, milk, salary"
           className="byjan-input flex-1 min-w-[140px]"
         />
+        <datalist id="ledger-descriptions">
+          {descriptions.map((name) => <option key={name} value={name} />)}
+        </datalist>
         <select value={category} onChange={(e) => setCategory(e.target.value)} className="byjan-filter !w-[140px] hidden sm:block">
           {categories.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
         </select>

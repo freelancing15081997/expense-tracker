@@ -46,8 +46,8 @@ export function ListControls(props: {
   const start = props.total === 0 ? 0 : (props.page - 1) * props.pageSize + 1;
   const end = Math.min(props.page * props.pageSize, props.total);
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-      <label className="byjan-search w-full sm:max-w-xs">
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+      <label className="byjan-search w-full sm:max-w-xs !h-9">
         <Search className="w-4 h-4 text-slate-400 shrink-0" />
         <input
           type="search"

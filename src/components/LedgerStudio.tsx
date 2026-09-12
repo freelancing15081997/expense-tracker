@@ -1,21 +1,28 @@
 import React, { useMemo, useState } from 'react';
 import { Loader2, SlidersHorizontal } from 'lucide-react';
-import { createExpense, updateExpense } from '../lib/expenses';
-import { updateLedger } from '../lib/ledgers';
+import { createExpense, softDeleteExpense, updateExpense } from '../lib/expenses';
+import { listLedgers, updateLedger } from '../lib/ledgers';
 import {
   advanceIso,
   applyCategoryRules,
+  budgetDaysLeft,
   downloadText,
+  entryPlainText,
   isoDay,
   ledgerInsights,
+  methodMix,
   newId,
   parseLedgerCsv,
   readCategoryRules,
   readRecurring,
   readTemplates,
+  readWatchMerchants,
+  tileHue,
+  toLedgerCsv,
+  toOfx,
   toQif,
+  weekOverWeek,
   type CategoryRule,
-  type EntryTemplate,
   type RecurringRule,
 } from '../lib/ledger-advanced';
 
@@ -43,6 +50,15 @@ type Props = {
   onHideTransfers: (v: boolean) => void;
   flaggedOnly: boolean;
   onFlaggedOnly: (v: boolean) => void;
+  filtered: Array<Record<string, unknown>>;
+  hideDrafts: boolean;
+  onHideDrafts: (v: boolean) => void;
+  staleOnly: boolean;
+  onStaleOnly: (v: boolean) => void;
+  anomalyOnly: boolean;
+  onAnomalyOnly: (v: boolean) => void;
+  onCopyFilterLink: () => void;
+  onRepeatLast: () => void;
 };
 
 export default function LedgerStudio(props: Props) {
@@ -55,11 +71,18 @@ export default function LedgerStudio(props: Props) {
   const [viewName, setViewName] = useState('');
   const [cap, setCap] = useState(String(props.book.dailyCap || ''));
   const [lockBefore, setLockBefore] = useState(String(props.book.lockBefore || ''));
+  const [watch, setWatch] = useState('');
+  const [moveTo, setMoveTo] = useState('');
+  const [peers, setPeers] = useState<Array<{ id: string; name: string }>>([]);
   const rules = readCategoryRules(props.book);
   const templates = readTemplates(props.book);
   const recurring = readRecurring(props.book);
+  const watched = readWatchMerchants(props.book);
   const views = Array.isArray(props.book.savedViews) ? props.book.savedViews as Array<{ id: string; name: string; min?: string; max?: string }> : [];
   const insights = useMemo(() => ledgerInsights(props.expenses, Number(props.book.monthlyBudget || 0)), [props.expenses, props.book.monthlyBudget]);
+  const wow = useMemo(() => weekOverWeek(props.expenses), [props.expenses]);
+  const mix = useMemo(() => methodMix(props.expenses).slice(0, 3), [props.expenses]);
+  const daysLeft = budgetDaysLeft(insights.monthOut, insights.budget);
 
   const persist = async (patch: Record<string, unknown>) => {
     const next = await updateLedger(props.bookId, patch);
@@ -83,7 +106,7 @@ export default function LedgerStudio(props: Props) {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
             <p>This month out <b className="block text-slate-900">{props.currencySymbol}{insights.monthOut.toLocaleString()}</b></p>
             <p>Last month <b className="block text-slate-900">{props.currencySymbol}{insights.lastOut.toLocaleString()}</b></p>
-            <p>Weekday / weekend <b className="block text-slate-900">{props.currencySymbol}{insights.weekday.toLocaleString()} / {props.currencySymbol}{insights.weekend.toLocaleString()}</b></p>
+            <p>Week vs last <b className="block text-slate-900">{wow.delta >= 0 ? '+' : ''}{Math.round(wow.delta)}%</b></p>
             <p>Possible duplicates <b className="block text-slate-900">{insights.dupes}</b></p>
           </div>
           {insights.budget > 0 && (
@@ -98,12 +121,24 @@ export default function LedgerStudio(props: Props) {
           {insights.settlement.length > 1 && (
             <p className="text-[11px] text-slate-600">Who is ahead: {insights.settlement.map(([name, amt]) => `${name} ${amt >= 0 ? '+' : '−'}${props.currencySymbol}${Math.abs(amt).toLocaleString()}`).join(' · ')}</p>
           )}
+          {mix.length > 0 && (
+            <p className="text-[11px] text-slate-600">Methods: {mix.map(([name, amt]) => `${name} ${props.currencySymbol}${amt.toLocaleString()}`).join(' · ')}</p>
+          )}
+          {insights.budget > 0 && (
+            <p className="text-[11px] text-slate-600">
+              {daysLeft > 0 ? `About ${daysLeft} day${daysLeft === 1 ? '' : 's'} of budget left at this pace.` : 'Budget is used up at this pace.'}
+            </p>
+          )}
 
           <div className="flex flex-wrap gap-2">
             <input className="byjan-filter !w-24" placeholder="Min amt" value={props.amountMin} onChange={(e) => props.onAmountMin(e.target.value)} />
             <input className="byjan-filter !w-24" placeholder="Max amt" value={props.amountMax} onChange={(e) => props.onAmountMax(e.target.value)} />
             <button type="button" className="byjan-chip" data-on={props.hideTransfers} onClick={() => props.onHideTransfers(!props.hideTransfers)}>Hide transfers</button>
             <button type="button" className="byjan-chip" data-on={props.flaggedOnly} onClick={() => props.onFlaggedOnly(!props.flaggedOnly)}>Flagged only</button>
+            <button type="button" className="byjan-chip" data-on={props.hideDrafts} onClick={() => props.onHideDrafts(!props.hideDrafts)}>Hide drafts</button>
+            <button type="button" className="byjan-chip" data-on={props.staleOnly} onClick={() => props.onStaleOnly(!props.staleOnly)}>Stale reimburse</button>
+            <button type="button" className="byjan-chip" data-on={props.anomalyOnly} onClick={() => props.onAnomalyOnly(!props.anomalyOnly)}>Anomalies</button>
+            <button type="button" className="byjan-chip" onClick={props.onCopyFilterLink}>Copy filter link</button>
           </div>
 
           {props.canWrite && (
@@ -226,6 +261,152 @@ export default function LedgerStudio(props: Props) {
                 >
                   JSON backup
                 </button>
+                <button
+                  type="button"
+                  className="byjan-chip"
+                  onClick={() => {
+                    const slug = String(props.bookName || 'ledger').replace(/\s+/g, '-');
+                    downloadText(`${slug}-filtered.csv`, toLedgerCsv(props.filtered), 'text/csv');
+                    props.onToast('Filtered CSV downloaded.', 'success');
+                  }}
+                >
+                  Export filtered CSV
+                </button>
+                <button
+                  type="button"
+                  className="byjan-chip"
+                  onClick={() => {
+                    const slug = String(props.bookName || 'ledger').replace(/\s+/g, '-');
+                    downloadText(`${slug}.ofx`, toOfx(props.filtered, props.bookName), 'application/x-ofx');
+                    props.onToast('OFX downloaded.', 'success');
+                  }}
+                >
+                  Export OFX
+                </button>
+                <button type="button" className="byjan-chip" onClick={props.onRepeatLast}>Repeat last</button>
+                <button
+                  type="button"
+                  className="byjan-chip"
+                  disabled={props.selected.length === 0}
+                  onClick={() => {
+                    const text = props.selected.map((exp) => entryPlainText(exp, props.currencySymbol)).join('\n');
+                    void navigator.clipboard.writeText(text);
+                    props.onToast('Selected rows copied as text.', 'success');
+                  }}
+                >
+                  Copy selected
+                </button>
+                <button
+                  type="button"
+                  className="byjan-chip"
+                  disabled={props.selected.length !== 2 || busy === 'merge'}
+                  onClick={async () => {
+                    const [a, b] = props.selected;
+                    if (!a || !b) return;
+                    setBusy('merge');
+                    try {
+                      await updateExpense(props.bookId, String(a.id), {
+                        amount: Number(a.amount || 0) + Number(b.amount || 0),
+                        notes: [a.notes, b.notes, `Merged ${b.description || b.id}`].filter(Boolean).join(' · '),
+                        mergedFrom: b.id,
+                      });
+                      await softDeleteExpense(props.bookId, String(b.id));
+                      await props.onRefresh();
+                      props.onToast('Two selected rows merged.', 'success');
+                    } finally { setBusy(''); }
+                  }}
+                >
+                  Merge two
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <select
+                  className="byjan-filter !w-auto"
+                  value={moveTo}
+                  onFocus={() => {
+                    if (peers.length) return;
+                    void listLedgers().then((rows) => setPeers(rows.filter((row) => row.id !== props.bookId).map((row) => ({ id: row.id, name: String(row.name || 'Ledger') }))));
+                  }}
+                  onChange={(e) => setMoveTo(e.target.value)}
+                >
+                  <option value="">Move selected to…</option>
+                  {peers.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
+                </select>
+                <button
+                  type="button"
+                  className="byjan-chip"
+                  disabled={!moveTo || props.selected.length === 0 || busy === 'move'}
+                  onClick={async () => {
+                    setBusy('move');
+                    try {
+                      for (const exp of props.selected) {
+                        await createExpense(moveTo, {
+                          amount: Number(exp.amount || 0),
+                          description: exp.description,
+                          category: exp.category,
+                          entryType: exp.entryType || 'out',
+                          date: exp.date || isoDay(),
+                          merchant: exp.merchant || '',
+                          paymentMethod: exp.paymentMethod || 'cash',
+                          notes: exp.notes || '',
+                          reimbursable: Boolean(exp.reimbursable),
+                          paidByName: props.enteredBy,
+                          enteredBy: props.enteredBy,
+                          enteredByUid: props.enteredByUid,
+                          enteredByEmail: props.enteredByEmail,
+                          movedFrom: `${props.bookId}:${exp.id}`,
+                        }, { force: true });
+                        await softDeleteExpense(props.bookId, String(exp.id));
+                      }
+                      await props.onRefresh();
+                      props.onToast(`Moved ${props.selected.length} ${props.selected.length === 1 ? 'entry' : 'entries'}.`, 'success');
+                    } finally { setBusy(''); }
+                  }}
+                >
+                  Move
+                </button>
+                <input className="byjan-input !w-36" placeholder="Watch merchant" value={watch} onChange={(e) => setWatch(e.target.value)} />
+                <button
+                  type="button"
+                  className="byjan-chip"
+                  onClick={() => {
+                    if (!watch.trim()) return;
+                    void persist({ watchMerchants: [...watched, watch.trim()] });
+                    setWatch('');
+                  }}
+                >
+                  Watch
+                </button>
+                {watched.map((name) => (
+                  <button
+                    key={name}
+                    type="button"
+                    className="byjan-chip"
+                    data-on="true"
+                    title="Remove watch"
+                    onClick={() => void persist({ watchMerchants: watched.filter((row) => row !== name) })}
+                  >
+                    {name}
+                  </button>
+                ))}
+                {props.canManage && (
+                  <>
+                    <button
+                      type="button"
+                      className="byjan-chip"
+                      onClick={() => void persist({ archived: !props.book.archived })}
+                    >
+                      {props.book.archived ? 'Unarchive ledger' : 'Archive ledger'}
+                    </button>
+                    <button
+                      type="button"
+                      className="byjan-chip"
+                      onClick={() => void persist({ accentHue: (Number(props.book.accentHue || tileHue(props.bookName)) + 37) % 360 })}
+                    >
+                      Recolor tile
+                    </button>
+                  </>
+                )}
               </div>
 
               <form
