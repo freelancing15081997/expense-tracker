@@ -21,8 +21,13 @@ export default function CommandPalette() {
       }
       if (e.key === 'Escape') setOpen(false);
     };
+    const onOpen = () => setOpen(true);
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('byjan:books-search', onOpen);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('byjan:books-search', onOpen);
+    };
   }, []);
 
   const results = useMemo(() => {

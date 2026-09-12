@@ -127,8 +127,8 @@ export default function Layout() {
         onMouseEnter={() => setIsSidebarHovered(true)}
         onMouseLeave={() => setIsSidebarHovered(false)}
         className={cn(
-          'byjan-rail z-50 flex flex-col shrink-0 overflow-hidden border-r border-white/50 bg-[#FBFCFD]/80 backdrop-blur-xl transition-[width,transform] duration-200',
-          mobileMenuOpen ? 'fixed inset-y-0 left-0 w-[280px] translate-x-0' : 'fixed inset-y-0 left-0 -translate-x-full md:relative md:translate-x-0',
+          'byjan-rail z-50 flex flex-col shrink-0 border-r border-white/50 bg-[#FBFCFD]/80 backdrop-blur-xl transition-[width] duration-200 overflow-y-auto overflow-x-visible',
+          mobileMenuOpen ? 'fixed inset-y-0 left-0 w-[280px] translate-x-0' : 'fixed inset-y-0 left-0 -translate-x-full md:relative md:translate-x-0 md:transform-none',
           isExpanded ? 'md:w-[240px]' : 'md:w-[76px]'
         )}
       >

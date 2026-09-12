@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Loader2, Repeat, Zap } from 'lucide-react';
+import { Loader2, Repeat } from 'lucide-react';
 import { createExpense, softDeleteExpense } from '../lib/expenses';
 import { updateLedger } from '../lib/ledgers';
 import {
@@ -34,6 +34,8 @@ type Props = {
   expenses: Array<Record<string, unknown>>;
   onBook: (book: Record<string, unknown>) => void;
   onRefresh: () => Promise<void>;
+  onAdded?: (row: Record<string, unknown>) => void;
+  onRemoved?: (ids: string[]) => void;
   onToast: (message: string, kind?: 'success' | 'error') => void;
 };
 
@@ -42,14 +44,14 @@ export default function LedgerTools({
   book,
   canWrite,
   categories,
-  merchants,
-  currencySymbol,
   enteredBy,
   enteredByUid,
   enteredByEmail,
   expenses,
   onBook,
   onRefresh,
+  onAdded,
+  onRemoved,
   onToast,
 }: Props) {
   const templates = readTemplates(book);
@@ -64,13 +66,12 @@ export default function LedgerTools({
   const [when, setWhen] = useState(isoDay());
   const [line, setLine] = useState('');
   const [lastPosted, setLastPosted] = useState<string[]>([]);
-  const recent = expenses.slice(0, 4);
-  const topMerchants = merchants.slice(0, 4);
   const descriptions = useMemo(
     () => Array.from(new Set(expenses.map((exp) => String(exp.description || '').trim()).filter(Boolean))).slice(0, 40),
     [expenses],
   );
   const [busy, setBusy] = useState('');
+  const [moreOpen, setMoreOpen] = useState(false);
   const [ruleOpen, setRuleOpen] = useState(false);
   const [rule, setRule] = useState({
     description: '',
@@ -82,6 +83,7 @@ export default function LedgerTools({
   });
 
   const dueCount = useMemo(() => dueRecurringPosts(rules, expenses).posts.length, [rules, expenses]);
+  const yesterday = isoDay(new Date(Date.now() - 86400000));
 
   if (!canWrite) return null;
 
@@ -114,8 +116,12 @@ export default function LedgerTools({
         enteredByEmail,
         status: Number(payload.amount || 0) > 0 ? 'recorded' : 'draft',
       }, { force: Boolean(payload.recurringRuleId) });
-      if (created?.id) setLastPosted((ids) => [String(created.id), ...ids].slice(0, 8));
-      await onRefresh();
+      if (created?.id) {
+        setLastPosted((ids) => [String(created.id), ...ids].slice(0, 8));
+        onAdded?.(created as Record<string, unknown>);
+      } else {
+        void onRefresh();
+      }
       onToast(label, 'success');
       return true;
     } catch (err: any) {
@@ -189,7 +195,7 @@ export default function LedgerTools({
 
   const saveCurrentAsTemplate = async () => {
     if (!description.trim() || !Number(amount)) {
-      onToast('Fill the quick bar first, then save it as a template.', 'error');
+      onToast('Fill amount and description first, then save it.', 'error');
       return;
     }
     const next: EntryTemplate = {
@@ -200,23 +206,14 @@ export default function LedgerTools({
       category,
       entryType: kind,
       merchant,
-      paymentMethod: 'cash',
+      paymentMethod: method,
     };
     setBusy('tpl');
     try {
       await persistBook({ entryTemplates: [...templates, next] });
-      onToast('Template saved on this ledger.', 'success');
+      onToast('Saved as a shortcut.', 'success');
     } catch (err: any) {
       onToast(err?.message || 'Could not save template', 'error');
-    } finally {
-      setBusy('');
-    }
-  };
-
-  const removeTemplate = async (id: string) => {
-    setBusy(id);
-    try {
-      await persistBook({ entryTemplates: templates.filter((row) => row.id !== id) });
     } finally {
       setBusy('');
     }
@@ -244,7 +241,7 @@ export default function LedgerTools({
       await persistBook({ recurringRules: [...rules, next] });
       setRuleOpen(false);
       setRule({ ...rule, description: '', amount: '' });
-      onToast('Recurring rule saved. Due entries post when you open this ledger.', 'success');
+      onToast('Recurring saved.', 'success');
     } catch (err: any) {
       onToast(err?.message || 'Could not save recurring rule', 'error');
     } finally {
@@ -270,20 +267,53 @@ export default function LedgerTools({
   };
 
   return (
-    <div className="mb-2">
-      <form onSubmit={quickAdd} className="byjan-card byjan-capture">
-        <select value={kind} onChange={(e) => setKind(e.target.value as 'out' | 'in')} className="byjan-filter !w-auto" aria-label="Type">
-          <option value="out">Out</option>
-          <option value="in">In</option>
-        </select>
-        <input
-          inputMode="decimal"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          placeholder={`${currencySymbol}0`}
-          className="byjan-input !w-20 sm:!w-24"
-          aria-label="Amount"
-        />
+    <div className="mb-3">
+      <form onSubmit={quickAdd} className="ios-widget byjan-capture-card">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-[13px] font-semibold text-[#0B1F3A] tracking-tight">Quick add</p>
+            <p className="ios-caption">Type a line or fill the amount.</p>
+          </div>
+          {lastPosted[0] && (
+            <button
+              type="button"
+              className="text-[13px] font-semibold text-[#0B1F3A]"
+              onClick={async () => {
+                const id = lastPosted[0];
+                onRemoved?.([id]);
+                setLastPosted((ids) => ids.slice(1));
+                try {
+                  await softDeleteExpense(bookId, id);
+                  onToast('Last entry undone.', 'success');
+                } catch (err: any) {
+                  void onRefresh();
+                  onToast(err?.message || 'Could not undo', 'error');
+                }
+              }}
+            >
+              Undo last
+            </button>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="ios-seg" role="group" aria-label="In or out">
+            <button type="button" data-on={kind === 'out'} onClick={() => setKind('out')}>Out</button>
+            <button type="button" data-on={kind === 'in'} onClick={() => setKind('in')}>In</button>
+          </div>
+          <input
+            inputMode="decimal"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder={`${currencySymbol}0`}
+            className="byjan-input !w-[88px] !h-10"
+            aria-label="Amount"
+          />
+          <select value={category} onChange={(e) => setCategory(e.target.value)} className="byjan-filter !h-10 !w-[140px] hidden sm:block">
+            {categories.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
+          </select>
+        </div>
+
         <input
           value={line}
           onChange={(e) => {
@@ -296,6 +326,8 @@ export default function LedgerTools({
               setWhen(parsed.date);
               if (parsed.merchant) setMerchant(parsed.merchant);
               if (parsed.paymentMethod) setMethod(parsed.paymentMethod);
+            } else {
+              setDescription(e.target.value);
             }
           }}
           onPaste={(e) => {
@@ -305,137 +337,92 @@ export default function LedgerTools({
               setLine(text);
             }
           }}
-          placeholder="swiggy 349 yesterday · or paste a UPI SMS"
-          className="byjan-input flex-1 min-w-[160px]"
+          placeholder="swiggy 349 yesterday"
+          className="byjan-input !h-11 w-full"
           list="ledger-descriptions"
         />
         <datalist id="ledger-descriptions">
           {descriptions.map((name) => <option key={name} value={name} />)}
         </datalist>
-        <select value={category} onChange={(e) => setCategory(e.target.value)} className="byjan-filter !w-[120px] hidden md:block">
-          {categories.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
-        </select>
-        <button type="submit" disabled={busy === 'quick'} className="byjan-btn !h-9">
-          {busy === 'quick' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-          Add
-        </button>
-      </form>
-      <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-        <button type="button" className="byjan-chip" data-on={when === isoDay()} onClick={() => setWhen(isoDay())}>Today</button>
-        <button type="button" className="byjan-chip" data-on={when !== isoDay()} onClick={() => { const d = new Date(); d.setDate(d.getDate() - 1); setWhen(isoDay(d)); }}>Yesterday</button>
-        {(['upi', 'card', 'cash'] as const).map((row) => (
-          <button key={row} type="button" className="byjan-chip" data-on={method === row} onClick={() => setMethod(row)}>{row.toUpperCase()}</button>
-        ))}
-        <button type="button" className="byjan-chip hidden sm:inline-flex" onClick={() => void saveCurrentAsTemplate()} disabled={busy === 'tpl'}>Save</button>
-        <button
-          type="button"
-          className="byjan-chip"
-          onClick={async () => {
-            try {
-              const text = await navigator.clipboard.readText();
-              const rows = parseManyLines(text);
-              if (!rows.length) {
-                onToast('Clipboard has no amount I can read.', 'error');
-                return;
-              }
-              setLine(text);
-              await postParsed(rows.map((row) => ({ ...row, category })), rows.length > 1 ? `${rows.length} entries recorded` : 'Entry recorded');
-            } catch {
-              onToast('Allow clipboard access, then try again.', 'error');
-            }
-          }}
-        >
-          Paste
-        </button>
-        {lastPosted[0] && (
-          <button
-            type="button"
-            className="byjan-chip"
-            onClick={async () => {
-              const id = lastPosted[0];
-              await softDeleteExpense(bookId, id);
-              setLastPosted((ids) => ids.slice(1));
-              await onRefresh();
-              onToast('Last entry undone.', 'success');
-            }}
-          >
-            Undo last
-          </button>
-        )}
-        {recent.map((exp) => (
-          <button
-            key={String(exp.id)}
-            type="button"
-            className="byjan-chip"
-            disabled={Boolean(busy)}
-            onClick={() => void postParsed([{
-              amount: Number(exp.amount || 0),
-              description: exp.description,
-              category: exp.category,
-              entryType: exp.entryType || 'out',
-              date: when,
-              merchant: exp.merchant || '',
-              paymentMethod: exp.paymentMethod || method,
-            }], 'Repeated')}
-          >
-            {String(exp.description || 'Entry').slice(0, 16)} {currencySymbol}{Number(exp.amount || 0).toLocaleString()}
-          </button>
-        ))}
-        {topMerchants.map((name) => (
-          <button
-            key={name}
-            type="button"
-            className="byjan-chip"
-            onClick={() => {
-              const prior = lastMatchFor(expenses, name);
-              setMerchant(name);
-              setLine(prior ? `${name} ${prior.amount}` : name);
-              if (prior) {
-                setAmount(String(prior.amount || ''));
-                setDescription(String(prior.description || name));
-                setCategory(String(prior.category || category));
-              }
-            }}
-          >
-            {name}
-          </button>
-        ))}
-      </div>
 
-      {(templates.length > 0 || dueCount > 0 || ruleOpen) && (
-      <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-        {templates.map((tpl) => (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="ios-seg" role="group" aria-label="Date">
+              <button type="button" data-on={when === isoDay()} onClick={() => setWhen(isoDay())}>Today</button>
+              <button type="button" data-on={when === yesterday} onClick={() => setWhen(yesterday)}>Yesterday</button>
+            </div>
+            <div className="ios-seg" role="group" aria-label="Method">
+              {(['upi', 'card', 'cash'] as const).map((row) => (
+                <button key={row} type="button" data-on={method === row} onClick={() => setMethod(row)}>{row.toUpperCase()}</button>
+              ))}
+            </div>
+          </div>
+          <button type="submit" disabled={busy === 'quick'} className="byjan-btn !h-10 !rounded-full !px-5">
+            {busy === 'quick' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Add'}
+          </button>
+        </div>
+
+        <div className="flex items-center justify-between pt-1 border-t border-white/60">
+          <button type="button" className="text-[13px] font-semibold text-[#6e6e73]" onClick={() => setMoreOpen((v) => !v)}>
+            {moreOpen ? 'Hide extras' : 'Templates & recurring'}
+          </button>
           <button
-            key={tpl.id}
             type="button"
-            disabled={Boolean(busy)}
-            onClick={() => void applyTemplate(tpl)}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              void removeTemplate(tpl.id);
+            className="text-[13px] font-semibold text-[#0B1F3A]"
+            onClick={async () => {
+              try {
+                const text = await navigator.clipboard.readText();
+                const rows = parseManyLines(text);
+                if (!rows.length) {
+                  onToast('Clipboard has no amount I can read.', 'error');
+                  return;
+                }
+                setLine(text);
+                await postParsed(rows.map((row) => ({ ...row, category })), rows.length > 1 ? `${rows.length} entries recorded` : 'Entry recorded');
+              } catch {
+                onToast('Allow clipboard access, then try again.', 'error');
+              }
             }}
-            className="byjan-chip"
-            title="Click to post. Right-click to remove."
           >
-            {busy === tpl.id ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
-            {tpl.name} · {currencySymbol}{Number(tpl.amount || 0).toLocaleString()}
+            Paste
           </button>
-        ))}
-        <button type="button" className="byjan-chip" onClick={() => setRuleOpen((v) => !v)}>
-          <Repeat className="w-3 h-3" /> Recurring{dueCount ? ` · ${dueCount}` : ''}
-        </button>
-        {dueCount > 0 && (
-          <button type="button" className="byjan-chip" data-on="true" onClick={() => void postDue()} disabled={busy === 'due'}>
-            {busy === 'due' ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
-            Post due
+        </div>
+      </form>
+
+      {moreOpen && (
+        <div className="ios-group mt-2">
+          <button type="button" className="ios-row w-full text-left" onClick={() => void saveCurrentAsTemplate()} disabled={busy === 'tpl'}>
+            <span className="text-[15px] font-medium text-[#0B1F3A]">Save current as template</span>
           </button>
-        )}
-      </div>
+          {templates.map((tpl) => (
+            <button
+              key={tpl.id}
+              type="button"
+              className="ios-row w-full text-left"
+              disabled={Boolean(busy)}
+              onClick={() => void applyTemplate(tpl)}
+            >
+              <span className="text-[15px] font-medium text-[#0B1F3A] truncate">{tpl.name}</span>
+              <span className="text-[13px] text-[#8e8e93]">{currencySymbol}{Number(tpl.amount || 0).toLocaleString()}</span>
+            </button>
+          ))}
+          <button type="button" className="ios-row w-full text-left" onClick={() => setRuleOpen((v) => !v)}>
+            <span className="inline-flex items-center gap-2 text-[15px] font-medium text-[#0B1F3A]">
+              <Repeat className="w-4 h-4" /> Recurring
+            </span>
+            {dueCount ? <span className="text-[13px] text-[#8e8e93]">{dueCount} due</span> : null}
+          </button>
+          {dueCount > 0 && (
+            <button type="button" className="ios-row w-full text-left" onClick={() => void postDue()} disabled={busy === 'due'}>
+              <span className="text-[15px] font-medium text-[#0B1F3A]">Post due entries</span>
+            </button>
+          )}
+        </div>
       )}
 
-      {ruleOpen && (
-        <form onSubmit={addRule} className="byjan-card p-3 grid grid-cols-2 sm:grid-cols-3 gap-2">
-          <input className="byjan-input col-span-2 sm:col-span-1" placeholder="Rent, salary…" value={rule.description} onChange={(e) => setRule((r) => ({ ...r, description: e.target.value }))} />
+      {moreOpen && ruleOpen && (
+        <form onSubmit={addRule} className="ios-widget mt-2 grid grid-cols-2 gap-2">
+          <input className="byjan-input col-span-2" placeholder="Rent, salary…" value={rule.description} onChange={(e) => setRule((r) => ({ ...r, description: e.target.value }))} />
           <input className="byjan-input" placeholder="Amount" inputMode="decimal" value={rule.amount} onChange={(e) => setRule((r) => ({ ...r, amount: e.target.value }))} />
           <select className="byjan-filter" value={rule.category} onChange={(e) => setRule((r) => ({ ...r, category: e.target.value }))}>
             {categories.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
@@ -448,8 +435,8 @@ export default function LedgerTools({
             <option value="monthly">Every month</option>
             <option value="weekly">Every week</option>
           </select>
-          <input type="date" className="byjan-filter" value={rule.nextDate} onChange={(e) => setRule((r) => ({ ...r, nextDate: e.target.value }))} />
-          <button type="submit" disabled={busy === 'rule'} className="byjan-btn col-span-2 sm:col-span-1">
+          <input type="date" className="byjan-filter col-span-2" value={rule.nextDate} onChange={(e) => setRule((r) => ({ ...r, nextDate: e.target.value }))} />
+          <button type="submit" disabled={busy === 'rule'} className="byjan-btn col-span-2">
             {busy === 'rule' ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
             Save rule · next {advanceIso(rule.nextDate || isoDay(), rule.cadence) && rule.nextDate}
           </button>

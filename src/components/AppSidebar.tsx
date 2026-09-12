@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useLocation } from 'react-router-dom';
 import { ArrowRightLeft, BookOpen, ChevronRight, LayoutDashboard, LogOut, Pin, PinOff, Settings } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
@@ -180,8 +181,8 @@ export default function AppSidebar({ expanded, pinned, tenant, userProfile, onLo
             )}
           </div>
 
-          {showText && mobileBooks && (
-            <div className="md:hidden mt-1 space-y-2 pl-1">
+          {showText && (mobileBooks || onBooks) && (
+            <div className="mt-1 space-y-2 pl-1 md:hidden">
               {BOOKS_NAV.map((group) => (
                 <div key={group.title}>
                   <p className="px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">{group.title}</p>
@@ -242,7 +243,7 @@ export default function AppSidebar({ expanded, pinned, tenant, userProfile, onLo
         </button>
       </div>
 
-      {booksFlyout && (
+      {booksFlyout && typeof document !== 'undefined' && createPortal(
         <div
           id="books-nav-flyout"
           className="hidden md:block fixed z-[80] w-[min(560px,calc(100vw-96px))] max-h-[min(640px,calc(100vh-24px))] overflow-y-auto byjan-flyout p-4 pl-5 before:content-[''] before:absolute before:inset-y-0 before:-left-3 before:w-3"
@@ -304,7 +305,7 @@ export default function AppSidebar({ expanded, pinned, tenant, userProfile, onLo
             ))}
           </div>
         </div>
-      )}
+      , document.body)}
     </>
   );
 }

@@ -204,6 +204,7 @@ export default function BookView() {
   });
   const [lastDeleted, setLastDeleted] = useState<Record<string, unknown> | null>(null);
   const skipFilterSave = useRef(true);
+  const hiddenExpenseIds = useRef(new Set<string>());
   const [unsentEmailChange, setUnsentEmailChange] = useState<{action: string, detail: string} | null>(null);  const navigate = useNavigate();
 
   const handleRemoveMember = async (uidToRemove: string, isSelf: boolean) => {
@@ -278,7 +279,9 @@ export default function BookView() {
           }
         }
         if (!alive) return;
-        setExpenses(rows.sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt)));
+        setExpenses(rows
+          .filter((row) => row && !row.deleted && !row.deletedAt && row.status !== 'deleted')
+          .sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt)));
         setLoading(false);
       } catch (err: any) {
         if (!alive) return;
@@ -292,7 +295,9 @@ export default function BookView() {
       if (!bookId) return;
       listExpenses(bookId).then((rows) => {
         if (!alive) return;
-        setExpenses(rows.sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt)));
+        setExpenses(rows
+          .filter((row) => row && !row.deleted && !row.deletedAt && row.status !== 'deleted' && !hiddenExpenseIds.current.has(String(row.id)))
+          .sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt)));
       }).catch(() => undefined);
     }, 20000);
     return () => {
@@ -777,7 +782,19 @@ export default function BookView() {
     }
   };
 
-  
+  const applyExpenseLocal = (row: Record<string, unknown> | null | undefined) => {
+    if (!row?.id) return;
+    hiddenExpenseIds.current.delete(String(row.id));
+    setExpenses((curr) => [row, ...curr.filter((exp) => exp.id !== row.id)].sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt)));
+  };
+
+  const dropExpensesLocal = (ids: string[]) => {
+    const gone = new Set(ids);
+    ids.forEach((id) => hiddenExpenseIds.current.add(id));
+    setExpenses((curr) => curr.filter((exp) => !gone.has(exp.id)));
+    setSelectedIds((curr) => curr.filter((id) => !gone.has(id)));
+  };
+
   const handleSaveExpense = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canWrite || !bookId) return;
@@ -804,7 +821,7 @@ export default function BookView() {
     try {
       if (editingExpense) {
         const nextStatus = Number(amount) > 0 ? 'recorded' : 'draft';
-        await updateExpense(bookId, editingExpense.id, {
+        const updated = await updateExpense(bookId, editingExpense.id, {
           amount: Number(amount),
           description,
           category: finalCategory,
@@ -821,8 +838,7 @@ export default function BookView() {
           lastEditedByUid: currentUser?.uid || '',
         });
         await persistLedgerCategory(finalCategory);
-        const rows = await listExpenses(bookId);
-        setExpenses(rows.sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt)));
+        applyExpenseLocal(updated || { ...editingExpense, amount: Number(amount), description, category: finalCategory, entryType, date: entryDate, merchant, paymentMethod, notes, reimbursable, billable, tags, status: nextStatus });
         addToast('Entry updated successfully!', 'success');
         setIsExpenseModalOpen(false);
         notifyTeamMembers('Edited an entry', `Updated ${entryType === 'in' ? 'money in' : 'money out'} for "${description}" to ${getCurrencySymbol(book.currency)} ${amount} in category "${finalCategory}"`, `${userProfile?.displayName || currentUser?.email} updated "${description}" to ${getCurrencySymbol(book.currency)}${amount} in ${book.name}`).catch(console.error);
@@ -845,18 +861,18 @@ export default function BookView() {
           enteredByEmail: currentUser?.email || '',
           status: Number(amount) > 0 ? 'recorded' : 'draft',
         };
+        let created: any = null;
         try {
-          await createExpense(bookId, payload);
+          created = await createExpense(bookId, payload);
         } catch (err: any) {
           if (err?.status === 409 && window.confirm('A similar entry already exists on this ledger. Save it anyway?')) {
-            await createExpense(bookId, payload, { force: true });
+            created = await createExpense(bookId, payload, { force: true });
           } else {
             throw err;
           }
         }
         await persistLedgerCategory(finalCategory);
-        const rows = await listExpenses(bookId);
-        setExpenses(rows.sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt)));
+        if (created) applyExpenseLocal(created);
         addToast('Entry recorded successfully!', 'success');
         setCurrentPage(1);
         setIsExpenseModalOpen(false);
@@ -876,15 +892,15 @@ export default function BookView() {
     if (!canWrite || !currentUser) return;
     if (confirm('Delete this entry?')) {
       setIsDeleting(id);
+      const gone = expenses.find((row) => row.id === id);
+      dropExpensesLocal([id]);
+      if (gone) setLastDeleted(gone);
       try {
-        const gone = expenses.find((row) => row.id === id);
         await softDeleteExpense(bookId, id);
-        if (gone) setLastDeleted(gone);
-        const rows = await listExpenses(bookId);
-        setExpenses(rows.sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt)));
         await notifyTeamMembers('Deleted an entry', `Removed entry for "${description}"`, `${userProfile?.displayName || currentUser?.email} deleted "${description}" from ${book.name}`);
         addToast('Entry deleted.', 'success');
       } catch (err: any) {
+        if (gone) applyExpenseLocal(gone);
         console.error("Delete failed:", err);
         addToast("Delete failed: " + err.message, 'error');
       } finally { setIsDeleting(null); }
@@ -894,14 +910,16 @@ export default function BookView() {
   const refreshExpenses = async () => {
     if (!bookId) return;
     const rows = await listExpenses(bookId);
-    setExpenses(rows.sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt)));
+    setExpenses(rows
+      .filter((row) => row && !row.deleted && !row.deletedAt && row.status !== 'deleted' && !hiddenExpenseIds.current.has(String(row.id)))
+      .sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt)));
   };
 
   const duplicateExpense = async (exp: any) => {
     if (!canWrite || !bookId) return;
     setBulkBusy(exp.id);
     try {
-      await createExpense(bookId, {
+      const created = await createExpense(bookId, {
         amount: Number(exp.amount || 0),
         description: `${exp.description || 'Entry'} (copy)`,
         category: exp.category || 'Uncategorized',
@@ -919,7 +937,7 @@ export default function BookView() {
         enteredByEmail: currentUser?.email || '',
         duplicatedFrom: exp.id,
       });
-      await refreshExpenses();
+      applyExpenseLocal(created);
       addToast('Entry duplicated.', 'success');
     } catch (err: any) {
       addToast(err?.message || 'Could not duplicate that entry', 'error');
@@ -936,13 +954,20 @@ export default function BookView() {
     if (!canWrite || !bookId || !selectedIds.length) return;
     if (kind === 'delete' && !confirm(`Delete ${selectedIds.length} ${selectedIds.length === 1 ? 'entry' : 'entries'}?`)) return;
     setBulkBusy(kind);
+    const ids = [...selectedIds];
     try {
-      for (const id of selectedIds) {
+      if (kind === 'delete') dropExpensesLocal(ids);
+      for (const id of ids) {
         if (kind === 'delete') await softDeleteExpense(bookId, id);
-        if (kind === 'reimburse') await updateExpense(bookId, id, { reimbursable: true });
-        if (kind === 'category' && categoryName) await updateExpense(bookId, id, { category: categoryName });
+        if (kind === 'reimburse') {
+          const next = await updateExpense(bookId, id, { reimbursable: true });
+          applyExpenseLocal(next || { ...(expenses.find((row) => row.id === id) || {}), id, reimbursable: true });
+        }
+        if (kind === 'category' && categoryName) {
+          const next = await updateExpense(bookId, id, { category: categoryName });
+          applyExpenseLocal(next || { ...(expenses.find((row) => row.id === id) || {}), id, category: categoryName });
+        }
       }
-      await refreshExpenses();
       setSelectedIds([]);
       addToast(kind === 'delete' ? 'Selected entries deleted.' : 'Selected entries updated.', 'success');
     } catch (err: any) {
@@ -1454,6 +1479,8 @@ export default function BookView() {
             expenses={expenses}
             onBook={(next) => setBook(next)}
             onRefresh={refreshExpenses}
+            onAdded={applyExpenseLocal}
+            onRemoved={dropExpensesLocal}
             onToast={(message, kind) => addToast(message, kind || 'success')}
           />
           <div className="flex flex-wrap items-center gap-2 mb-2">
@@ -1473,6 +1500,9 @@ export default function BookView() {
               enteredByEmail={currentUser?.email || ''}
               onBook={(next) => setBook(next)}
               onRefresh={refreshExpenses}
+              onAdded={applyExpenseLocal}
+              onRemoved={dropExpensesLocal}
+              onPatched={applyExpenseLocal}
               onToast={(message, kind) => addToast(message, kind || 'success')}
               amountMin={amountMin}
               amountMax={amountMax}
@@ -1515,12 +1545,15 @@ export default function BookView() {
                 data-undo-remove
                 className="byjan-chip"
                 onClick={async () => {
+                  const restored = lastDeleted;
+                  applyExpenseLocal(restored);
+                  setLastDeleted(null);
                   try {
-                    await updateExpense(bookId!, String(lastDeleted.id), { deleted: false, deletedAt: null, status: lastDeleted.status || 'recorded' });
-                    setLastDeleted(null);
-                    await refreshExpenses();
+                    await updateExpense(bookId!, String(restored.id), { deleted: false, deletedAt: null, status: restored.status || 'recorded' });
                     addToast('Entry restored.', 'success');
                   } catch (err: any) {
+                    dropExpensesLocal([String(restored.id)]);
+                    setLastDeleted(restored);
                     addToast(err?.message || 'Could not restore that entry', 'error');
                   }
                 }}
