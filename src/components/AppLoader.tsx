@@ -13,10 +13,19 @@ export default function AppLoader({
   const detail = title ? message : 'Preparing your workspace.';
   const body = (
     <div className="flex flex-col items-center justify-center gap-4 text-center" role="status" aria-live="polite">
-      <span className="app-loader-mark" aria-hidden>
-        <span className="app-loader-orbit-rev" />
-        <span className="app-loader-orbit" />
-        <span className="font-display text-lg font-semibold tracking-tight">B</span>
+      <span className="app-loader-stage" aria-hidden>
+        <span className="app-loader-mark">
+          <span className="app-loader-orbit" />
+          <span className="app-loader-orbit-rev" />
+          <span className="font-display text-lg font-semibold tracking-tight">B</span>
+        </span>
+        <span className="app-loader-book">
+          <span className="app-loader-book-back" />
+          <span className="app-loader-book-page app-loader-book-page-b" />
+          <span className="app-loader-book-page app-loader-book-page-a" />
+          <span className="app-loader-book-cover" />
+          <span className="app-loader-book-spine" />
+        </span>
       </span>
       <div className="space-y-2 max-w-xs">
         <p className="text-sm font-semibold text-[#0B1F3A]">{heading}</p>

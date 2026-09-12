@@ -35,11 +35,11 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, []);
 
   const stack = (
-    <div className="fixed top-3 inset-x-0 z-[9999] flex flex-col items-center gap-2 pointer-events-none px-4">
+    <div className="fixed bottom-4 right-4 z-[80] flex flex-col items-end gap-2 pointer-events-none w-[min(100%-2rem,24rem)]">
       {toasts.map((toast) => (
         <div
           key={toast.id}
-          className={`pointer-events-auto w-full max-w-md flex items-start gap-3 px-4 py-3 rounded-2xl border shadow-[0_12px_32px_-18px_rgba(11,31,58,0.45)] ${
+          className={`pointer-events-auto w-full max-w-sm flex items-start gap-3 px-4 py-3 rounded-2xl border shadow-[0_12px_32px_-18px_rgba(11,31,58,0.45)] ${
             toast.type === 'success' ? 'bg-emerald-50 text-emerald-950 border-emerald-200' :
             toast.type === 'error' ? 'bg-rose-50 text-rose-950 border-rose-300' :
             'bg-[#0B1F3A] text-white border-[#0B1F3A]'
