@@ -44,6 +44,7 @@ export default function LedgerTools({
   book,
   canWrite,
   categories,
+  currencySymbol,
   enteredBy,
   enteredByUid,
   enteredByEmail,

@@ -49,15 +49,16 @@ export default function Dashboard() {
         ))}
       </div>
 
-      <div className="grid sm:grid-cols-2 gap-3">
-        <Link to="/books/reports" className="ios-widget ios-widget-hero sm:col-span-2">
-          <p className="ios-caption">Net</p>
-          <p className="mt-2 text-[32px] font-semibold tracking-tight leading-none"><Money minor={cards[5].value} currency={currency} /></p>
-        </Link>
-        {cards.slice(0, 4).map((card) => (
-          <Link key={card.label} to={card.href} className="ios-widget">
-            <p className="ios-caption">{card.label}</p>
-            <p className="mt-2 text-[20px] font-semibold tracking-tight"><Money minor={card.value} currency={currency} /></p>
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-2.5">
+        {cards.map((card) => (
+          <Link
+            key={card.label}
+            to={card.href}
+            className="dash-kpi"
+            title={`${card.label} from posted Books balances. Open for the full report.`}
+          >
+            <p className="dash-kpi-label">{card.label}</p>
+            <p className="dash-kpi-value"><Money minor={card.value} currency={currency} /></p>
           </Link>
         ))}
       </div>

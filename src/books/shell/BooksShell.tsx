@@ -41,8 +41,9 @@ function BooksNav({ pathname, onNavigate }: { pathname: string; onNavigate?: () 
                     <Link
                       key={item.href}
                       to={item.href}
+                      title={`${item.name} — ${branch.blurb}`}
                       onClick={onNavigate}
-                      className={`ios-row !min-h-[44px] !py-2 ${active ? 'bg-white/70' : ''}`}
+                      className={`ios-row !min-h-[44px] !py-2 ${active ? 'bg-[#EEF2F6]' : ''}`}
                     >
                       <span className={`ios-glyph !w-7 !h-7 !rounded-lg ${active ? '' : '!bg-[#e8eaed] !text-[#0B1F3A]'}`}>
                         <FeatureIcon href={item.href} className="w-3.5 h-3.5" />

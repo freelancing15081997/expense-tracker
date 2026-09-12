@@ -217,7 +217,7 @@ export default function Dashboard() {
     const symbol = getCurrencySymbol(book.currency);
     const maxSpark = Math.max(...(stat?.spark || [1]), 1);
     return (
-      <Link to={`/book/${book.id}`} key={book.id} className="byjan-ledger-tile byjan-lift">
+      <Link to={`/book/${book.id}`} key={book.id} className="byjan-ledger-tile byjan-lift" title={`${book.name} · ${role} · net ${stat ? `${stat.net < 0 ? '−' : ''}${symbol}${Math.abs(stat.net).toLocaleString()}` : 'loading'}`}>
         <span className="byjan-ledger-mono">{initials(book.name)}</span>
         <div className="min-w-0">
           <h3 className="text-[15px] font-semibold text-[#0B1F3A] leading-tight tracking-tight">{book.name}</h3>
@@ -266,28 +266,21 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {!expensesOnly && books.length > 0 && (
-        <div className="grid sm:grid-cols-2 gap-3">
-          <div className="ios-widget ios-widget-hero sm:col-span-2">
-            <p className="ios-caption">Net position</p>
-            <p className="byjan-money mt-2 text-[34px] font-semibold tracking-tight leading-none">{net < 0 ? '−' : ''}{currency}{Math.abs(net).toLocaleString()}</p>
-            <p className="ios-caption mt-3">Across {books.length} {books.length === 1 ? 'ledger' : 'ledgers'}</p>
-          </div>
-          <div className="ios-widget">
-            <p className="ios-caption">In</p>
-            <p className="byjan-money mt-2 text-[22px] font-semibold tracking-tight">{currency}{globalStats.totalIn.toLocaleString()}</p>
-          </div>
-          <div className="ios-widget">
-            <p className="ios-caption">Out this month</p>
-            <p className="byjan-money mt-2 text-[22px] font-semibold tracking-tight">{currency}{globalStats.monthOut.toLocaleString()}</p>
-          </div>
-        </div>
-      )}
-
-      {expensesOnly && books.length > 0 && (
-        <div className="ios-widget ios-widget-hero">
-          <p className="ios-caption">Net</p>
-          <p className="byjan-money mt-1 text-[28px] font-semibold tracking-tight leading-none">{net < 0 ? '−' : ''}{currency}{Math.abs(net).toLocaleString()}</p>
+      {books.length > 0 && (
+        <div className="grid grid-cols-2 lg:grid-cols-6 gap-2.5">
+          {[
+            { label: 'Net', value: `${net < 0 ? '−' : ''}${currency}${Math.abs(net).toLocaleString()}`, tip: 'Money in minus money out across every ledger you can open.' },
+            { label: 'In', value: `${currency}${globalStats.totalIn.toLocaleString()}`, tip: 'All recorded money in, all time.' },
+            { label: 'Out this month', value: `${currency}${globalStats.monthOut.toLocaleString()}`, tip: 'Money out recorded in the current calendar month.' },
+            { label: 'In this month', value: `${currency}${globalStats.monthIn.toLocaleString()}`, tip: 'Money in recorded in the current calendar month.' },
+            { label: 'Entries', value: String(globalStats.entries), tip: 'Live entries across your ledgers, not including deleted rows.' },
+            { label: 'Uncategorized', value: String(globalStats.uncategorized), tip: `${globalStats.uncategorized} entries have no category. ${currency}${globalStats.reimbursable.toLocaleString()} is still marked reimbursable.` },
+          ].map((item) => (
+            <div key={item.label} className="dash-kpi" title={item.tip}>
+              <p className="dash-kpi-label">{item.label}</p>
+              <p className="dash-kpi-value byjan-money">{item.value}</p>
+            </div>
+          ))}
         </div>
       )}
 
@@ -414,7 +407,7 @@ export default function Dashboard() {
           </div>
           <div className="ios-group">
             {BOOKS_TREE.map((branch) => (
-              <Link key={branch.id} to={branch.href} className="ios-row">
+              <Link key={branch.id} to={branch.href} className="ios-row" title={branch.blurb}>
                 <span className="ios-glyph">{branch.name.slice(0, 2)}</span>
                 <span className="min-w-0">
                   <span className="block text-[16px] font-medium text-[#0B1F3A] tracking-tight truncate">{branch.name}</span>
