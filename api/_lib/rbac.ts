@@ -456,6 +456,61 @@ async function applyInviteBooksGrants(sql: Sql, orgId: string, uid: string, invi
   }
 }
 
+
+/** Legacy personal-org roles from the first RBAC cut. Existing members keep those role_ids until remapped. */
+const LEGACY_PRIVILEGED_ROLE_KEYS = new Set(['owner', 'admin', 'manager', 'accountant', 'contributor', 'viewer']);
+
+async function migrateLegacyPlatformMembership(sql: Sql, user: ApiUser, email: string, roles: Record<string, string>) {
+  const member = await getMember(sql, PLATFORM_ORG_ID, user.uid);
+  if (!member) return null;
+
+  const allowlisted = isAllowlistedSuper(email);
+  const key = text(member.roleKey);
+
+  // Keep real super users; promote allowlisted emails.
+  if (key === 'super_user' || allowlisted) {
+    if (allowlisted && key !== 'super_user' && roles.super_user) {
+      await sql`
+        UPDATE org_members SET role_id = ${roles.super_user}, updated_at = NOW()
+        WHERE org_id = ${PLATFORM_ORG_ID} AND uid = ${user.uid}
+      `;
+      return getMember(sql, PLATFORM_ORG_ID, user.uid);
+    }
+    return member;
+  }
+
+  // Remap leftover owner/admin/manager/... memberships onto Default external.
+  if (LEGACY_PRIVILEGED_ROLE_KEYS.has(key) && roles.external) {
+    await sql`
+      UPDATE org_members SET role_id = ${roles.external}, updated_at = NOW()
+      WHERE org_id = ${PLATFORM_ORG_ID} AND uid = ${user.uid}
+    `;
+    return getMember(sql, PLATFORM_ORG_ID, user.uid);
+  }
+
+  return member;
+}
+
+async function stripAdminFromNonSuperRoles(sql: Sql, orgId: string) {
+  const rows_ = rows<{ role_id: string; key: string }>(
+    await sql`
+      SELECT r.id AS role_id, r.key
+      FROM rbac_roles r
+      WHERE r.org_id = ${orgId} AND r.key <> 'super_user'
+    `,
+  );
+  for (const row of rows_) {
+    await sql`
+      DELETE FROM rbac_role_permissions rp
+      USING rbac_permissions p
+      WHERE rp.role_id = ${text(row.role_id)}
+        AND rp.permission_id = p.id
+        AND p.id LIKE 'admin.%'
+    `;
+  }
+}
+
+
 export async function ensureUserOrg(user: ApiUser, displayName = ''): Promise<string> {
   const sql = await sqlReady();
   const profile = await ledgerGetUser(user.uid);
@@ -501,12 +556,24 @@ export async function ensureUserOrg(user: ApiUser, displayName = ''): Promise<st
     }
   }
 
-  const member = await getMember(sql, PLATFORM_ORG_ID, user.uid);
+  let member = await getMember(sql, PLATFORM_ORG_ID, user.uid);
   const superCount = await countActiveSuperUsers(sql, PLATFORM_ORG_ID);
   const allowlisted = isAllowlistedSuper(email);
   const bootstrapSuper = !superUserEmailsFromEnv().length && superCount === 0 && !member;
 
   if (!member) {
+    // Also absorb legacy personal-org owners who never joined the platform org yet.
+    const legacy = rows<{ org_id: string; role_key: string }>(
+      await sql`
+        SELECT m.org_id, r.key AS role_key
+        FROM org_members m
+        JOIN rbac_roles r ON r.id = m.role_id
+        WHERE m.uid = ${user.uid} AND m.status = 'active' AND m.org_id <> ${PLATFORM_ORG_ID}
+        ORDER BY m.created_at ASC
+        LIMIT 1
+      `,
+    )[0];
+
     const asSuper = allowlisted || bootstrapSuper;
     const roleId = asSuper ? roles.super_user : roles.external;
     if (asSuper) {
@@ -516,26 +583,69 @@ export async function ensureUserOrg(user: ApiUser, displayName = ''): Promise<st
       `;
     }
     await upsertPlatformMember(sql, user, roleId, label, user.uid);
+
+    // Disable leftover personal-org memberships so old Owner roles cannot be used.
+    if (legacy?.org_id) {
+      await sql`
+        UPDATE org_members
+        SET status = 'disabled', updated_at = NOW()
+        WHERE uid = ${user.uid} AND org_id <> ${PLATFORM_ORG_ID} AND status = 'active'
+      `;
+    }
+
+    await stripAdminFromNonSuperRoles(sql, PLATFORM_ORG_ID);
     return PLATFORM_ORG_ID;
   }
 
-  if (allowlisted && member.roleKey !== 'super_user' && roles.super_user) {
-    await sql`
-      UPDATE org_members SET role_id = ${roles.super_user}, updated_at = NOW()
-      WHERE org_id = ${PLATFORM_ORG_ID} AND uid = ${user.uid}
-    `;
-  }
+  // Existing platform members: demote legacy owner/admin/etc. to Default external.
+  member = await migrateLegacyPlatformMembership(sql, user, email, roles) || member;
+
+  await sql`
+    UPDATE org_members
+    SET status = 'disabled', updated_at = NOW()
+    WHERE uid = ${user.uid} AND org_id <> ${PLATFORM_ORG_ID} AND status = 'active'
+  `;
 
   if (text(profile?.orgId) && text(profile?.orgId) !== PLATFORM_ORG_ID) {
     await ledgerUpsertUser(user.uid, { orgId: PLATFORM_ORG_ID }, true);
   }
 
   await seedSystemRoles(sql, PLATFORM_ORG_ID);
+  await stripAdminFromNonSuperRoles(sql, PLATFORM_ORG_ID);
   return PLATFORM_ORG_ID;
 }
 
+
+async function remappedAllLegacyMembers(sql: Sql) {
+  const roles = await seedSystemRoles(sql, PLATFORM_ORG_ID);
+  if (!roles.external) return;
+  const legacy = rows<{ uid: string; email: string; role_key: string }>(
+    await sql`
+      SELECT m.uid, m.email, r.key AS role_key
+      FROM org_members m
+      JOIN rbac_roles r ON r.id = m.role_id
+      WHERE m.org_id = ${PLATFORM_ORG_ID}
+        AND m.status = 'active'
+        AND r.key IN ('owner', 'admin', 'manager', 'accountant', 'contributor', 'viewer')
+    `,
+  );
+  const allow = new Set(superUserEmailsFromEnv());
+  for (const row of legacy) {
+    const email = emailOf(row.email);
+    const nextRole = allow.has(email) ? roles.super_user : roles.external;
+    if (!nextRole) continue;
+    await sql`
+      UPDATE org_members SET role_id = ${nextRole}, updated_at = NOW()
+      WHERE org_id = ${PLATFORM_ORG_ID} AND uid = ${text(row.uid)}
+    `;
+  }
+  await stripAdminFromNonSuperRoles(sql, PLATFORM_ORG_ID);
+}
+
+
 export async function getRbacSession(user: ApiUser, displayName = ''): Promise<RbacSession> {
   const sql = await sqlReady();
+  await remappedAllLegacyMembers(sql);
   const orgId = await ensureUserOrg(user, displayName);
   const org = await getOrg(sql, orgId);
   if (!org) throw new ApiError(500, 'Organization missing');
