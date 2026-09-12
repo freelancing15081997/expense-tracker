@@ -401,10 +401,92 @@ export function readRecentLedgers() {
 
 export function readLastQuick(bookId: string) {
   try {
-    return JSON.parse(localStorage.getItem(`byjan.quick.${bookId}`) || '{}') as { category?: string; merchant?: string };
+    return JSON.parse(localStorage.getItem(`byjan.quick.${bookId}`) || '{}') as { category?: string; merchant?: string; method?: string };
   } catch {
     return {};
   }
+}
+
+const IN_HINT = /\b(salary|refund|income|credit(?:ed)?|received|deposit|cashback|reimbursed)\b/i;
+const METHOD_HINT: Array<[RegExp, string]> = [
+  [/\bupi\b/i, 'upi'],
+  [/\bcard|visa|master|rupay\b/i, 'card'],
+  [/\bbank|neft|imps|rtgs\b/i, 'bank'],
+  [/\bwallet|paytm|phonepe\b/i, 'wallet'],
+  [/\bcash\b/i, 'cash'],
+];
+
+function shiftDay(offset: number) {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  return isoDay(d);
+}
+
+function weekdayDate(name: string) {
+  const map: Record<string, number> = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+  const want = map[name.slice(0, 3).toLowerCase()];
+  if (want == null) return isoDay();
+  const d = new Date();
+  const diff = (d.getDay() - want + 7) % 7 || 7;
+  d.setDate(d.getDate() - diff);
+  return isoDay(d);
+}
+
+export type ParsedLine = {
+  amount: number;
+  description: string;
+  merchant: string;
+  entryType: 'in' | 'out';
+  date: string;
+  paymentMethod: string;
+};
+
+export function parseQuickLine(text: string, today = isoDay()): ParsedLine | null {
+  const raw = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!raw) return null;
+  let date = today;
+  if (/\byesterday\b/i.test(raw)) date = shiftDay(-1);
+  else if (/\btoday\b/i.test(raw)) date = today;
+  else {
+    const day = raw.match(/\b(mon|tue|wed|thu|fri|sat|sun)(?:day)?\b/i);
+    if (day) date = weekdayDate(day[1]);
+  }
+  const paymentMethod = METHOD_HINT.find(([re]) => re.test(raw))?.[1] || 'cash';
+  const qty = raw.match(/(\d+(?:\.\d+)?)\s*x\s+/i);
+  const multiply = qty ? Number(qty[1]) : 1;
+  const work = raw.replace(/(\d+(?:\.\d+)?)\s*x\s+/i, '');
+  const money = work.match(/(?:(?:rs\.?|inr|₹)\s*)(\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)/i)
+    || work.match(/(\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)/);
+  if (!money) return null;
+  let amount = Number(String(money[1]).replace(/,/g, ''));
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  if (Number.isFinite(multiply) && multiply > 1) amount = Math.round(amount * multiply * 100) / 100;
+  const merchant = String(work.match(/\b(?:to|at|from)\s+([A-Za-z][A-Za-z0-9.&-]{1,24})/i)?.[1] || '').trim();
+  const entryType = IN_HINT.test(raw) ? 'in' : 'out';
+  const description = work
+    .replace(money[0], ' ')
+    .replace(/\b(yesterday|today|upi|card|cash|bank|wallet|via|paid|debited|credited|to|at|from)\b/gi, ' ')
+    .replace(merchant, ' ')
+    .replace(/\b(mon|tue|wed|thu|fri|sat|sun)(?:day)?\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim() || merchant || 'Entry';
+  return { amount, description: description.slice(0, 80), merchant, entryType, date, paymentMethod };
+}
+
+export function parseManyLines(text: string) {
+  return String(text || '')
+    .split(/\r?\n/)
+    .map((line) => parseQuickLine(line))
+    .filter((row): row is ParsedLine => Boolean(row));
+}
+
+export function lastMatchFor(expenses: Array<Record<string, unknown>>, hint: string) {
+  const q = hint.trim().toLowerCase();
+  if (!q) return null;
+  return expenses.find((exp) => {
+    const hay = `${exp.description || ''} ${exp.merchant || ''}`.toLowerCase();
+    return hay.includes(q);
+  }) || null;
 }
 
 export function missingReceiptIds(expenses: Array<Record<string, unknown>>, min = 200) {
@@ -422,7 +504,7 @@ export function taxYearRange(kind: 'calendar' | 'fy-in', now = new Date()) {
   return { from: `${start}-04-01`, to: `${start + 1}-03-31`, label: `FY ${start}-${String(start + 1).slice(2)}` };
 }
 
-export function writeLastQuick(bookId: string, patch: { category?: string; merchant?: string }) {
+export function writeLastQuick(bookId: string, patch: { category?: string; merchant?: string; method?: string }) {
   try {
     localStorage.setItem(`byjan.quick.${bookId}`, JSON.stringify({ ...readLastQuick(bookId), ...patch }));
   } catch { /* ignore */ }

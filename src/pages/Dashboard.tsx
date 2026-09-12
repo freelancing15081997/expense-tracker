@@ -7,7 +7,7 @@ import { listAllExpenses } from '../lib/expenses';
 import { useBooksTenantMeta } from '../lib/tenant';
 import { getCurrencySymbol } from '../lib/currency';
 import { initials, readRecentLedgers, sparkDays } from '../lib/ledger-advanced';
-import { Plus, Check, X, Users, Building2, ArrowRight, BookOpen, Sparkles } from 'lucide-react';
+import { Plus, Check, X, Users, Building2, ArrowRight, BookOpen } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 import AppLoader from '../components/AppLoader';
@@ -212,32 +212,34 @@ export default function Dashboard() {
   const firstName = String(userProfile?.displayName || currentUser?.email || 'there').split(' ')[0];
 
   return (
-    <div className="max-w-5xl mx-auto space-y-3">
-      <section className="byjan-card byjan-hero">
-        <div className="relative z-10 flex flex-wrap items-center justify-between gap-2">
-          <div className="min-w-0">
-            <h1 className="text-base font-semibold text-slate-900 font-display truncate">{hello}, {firstName}</h1>
-            <p className="text-[11px] text-slate-500 truncate">
-              {books.length > 0
-                ? <span className="byjan-money">{`Net ${net < 0 ? '−' : ''}${currency}${Math.abs(net).toLocaleString()} · In ${currency}${globalStats.totalIn.toLocaleString()} · Out ${currency}${globalStats.totalOut.toLocaleString()} · Month ${currency}${globalStats.monthOut.toLocaleString()}`}</span>
-                : (expensesOnly ? 'Shared ledgers you can post to.' : 'Ledgers and Books in one workspace.')}
-              {globalStats.reimbursable > 0 ? ` · Reimburse ${currency}${globalStats.reimbursable.toLocaleString()}` : ''}
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {!expensesOnly && (
-              <Link to="/books" className="byjan-btn-ghost !h-9">
-                <BookOpen className="w-4 h-4" />
-                Books
-              </Link>
-            )}
-            <button onClick={() => setShowNewBook(true)} className="byjan-btn !h-9">
-              <Plus className="w-4 h-4" />
-              New ledger
-            </button>
-          </div>
+    <div className="max-w-5xl mx-auto space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">{hello}</p>
+          <h1 className="text-[22px] font-semibold text-[#0B1F3A] font-display tracking-tight truncate">{firstName}</h1>
         </div>
-      </section>
+        <div className="flex flex-wrap gap-2">
+          {!expensesOnly && (
+            <Link to="/books" className="byjan-btn-ghost !h-9">
+              <BookOpen className="w-4 h-4" />
+              Books
+            </Link>
+          )}
+          <button onClick={() => setShowNewBook(true)} className="byjan-btn !h-9">
+            <Plus className="w-4 h-4" />
+            New ledger
+          </button>
+        </div>
+      </div>
+
+      {books.length > 0 && (
+        <div className="byjan-kpi-bar">
+          <div className="byjan-kpi"><span>Net</span><b className="byjan-money">{net < 0 ? '−' : ''}{currency}{Math.abs(net).toLocaleString()}</b></div>
+          <div className="byjan-kpi"><span>In</span><b className="byjan-money">{currency}{globalStats.totalIn.toLocaleString()}</b></div>
+          <div className="byjan-kpi"><span>Out</span><b className="byjan-money">{currency}{globalStats.totalOut.toLocaleString()}</b></div>
+          <div className="byjan-kpi"><span>This month</span><b className="byjan-money">{currency}{globalStats.monthOut.toLocaleString()}</b></div>
+        </div>
+      )}
 
       <Dialog.Root open={showNewBook} onOpenChange={setShowNewBook}>
         <Dialog.Portal>
@@ -315,112 +317,88 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className={expensesOnly ? 'space-y-3' : 'grid lg:grid-cols-2 gap-4 items-start'}>
-        <section className="space-y-2">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="text-base font-semibold text-slate-900">{expensesOnly ? 'Your ledgers' : 'Ledgers'}</h2>
+      <div className={expensesOnly ? 'space-y-4' : 'grid lg:grid-cols-[1.15fr_0.85fr] gap-4 items-start'}>
+        <section className="byjan-desk">
+          <div className="byjan-desk-head">
+            <div>
+              <h2 className="text-sm font-semibold text-[#0B1F3A]">{expensesOnly ? 'Your ledgers' : 'Ledgers'}</h2>
+              {recentBooks[0] && <p className="text-[11px] text-slate-500 mt-0.5">Last opened {recentBooks[0].name}</p>}
+            </div>
             <div className="flex items-center gap-2">
               {books.some((book) => book.archived) && (
-                <button type="button" className="byjan-chip" data-on={showArchived} onClick={() => setShowArchived((v) => !v)}>
-                  Archived
-                </button>
+                <button type="button" className="byjan-chip" data-on={showArchived} onClick={() => setShowArchived((v) => !v)}>Archived</button>
               )}
-              <span className="text-xs text-slate-500">{visibleBooks.length}</span>
+              <span className="text-xs text-slate-400">{visibleBooks.length}</span>
             </div>
           </div>
-          {recentBooks.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {recentBooks.slice(0, 5).map((book) => (
-                <Link key={book.id} to={`/book/${book.id}`} className="byjan-chip">{book.name}</Link>
-              ))}
-            </div>
-          )}
           {loading ? (
             <AppLoader title="Ledgers" message="Loading the books you can open." />
           ) : books.length === 0 ? (
-            <div className="text-center py-12 byjan-card border-dashed">
-              <Building2 className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-              <h3 className="text-base font-semibold text-slate-900">No ledgers yet</h3>
-              <p className="text-sm text-slate-500 mt-1">Create a tracker or wait for an invitation.</p>
+            <div className="text-center py-12">
+              <Building2 className="w-8 h-8 text-slate-300 mx-auto mb-3" />
+              <h3 className="text-sm font-semibold text-slate-900">No ledgers yet</h3>
+              <p className="text-sm text-slate-500 mt-1">Create one or wait for an invitation.</p>
             </div>
           ) : (
-            <div className="space-y-3">
-              <ListControls
-                query={bookList.query}
-                onQuery={bookList.setQuery}
-                page={bookList.page}
-                totalPages={bookList.totalPages}
-                onPage={bookList.setPage}
-                pageSize={bookList.pageSize}
-                onPageSize={bookList.setPageSize}
-                total={bookList.filtered.length}
-                placeholder="Search ledgers"
-              />
-            <div className={expensesOnly ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3' : 'grid grid-cols-1 sm:grid-cols-2 gap-3'}>
-              {bookList.pageRows.map(book => {
-                const role = book.roles[currentUser!.uid]?.role || 'viewer';
-                const stat = bookStats[book.id];
-                const symbol = getCurrencySymbol(book.currency);
-                const maxSpark = Math.max(...(stat?.spark || [1]), 1);
-                return (
-                  <Link
-                    to={`/book/${book.id}`}
-                    key={book.id}
-                    className="byjan-ledger-tile byjan-lift"
-                  >
-                    <span className="byjan-ledger-mono">{initials(book.name)}</span>
-                    <div className="min-w-0">
-                      <h3 className="text-[13px] font-semibold text-slate-900 leading-tight">{book.name}</h3>
-                      <p className="text-[10px] text-slate-500 mt-0.5 truncate">
-                        {book.archived ? 'Archived · ' : ''}{book.pinned ? 'Pinned · ' : ''}{role} · {book.currency}
-                        {stat ? ` · ${stat.entries}` : ''}
-                        {stat && stat.lastMonthOut > 0 ? ` · ${stat.monthOut >= stat.lastMonthOut ? '↑' : '↓'} vs last` : ''}
-                      </p>
-                    </div>
-                    <span className="text-right shrink-0">
-                      <span className={`byjan-money block text-[13px] font-semibold tabular-nums leading-none ${!stat ? 'text-slate-400' : 'text-slate-900'}`}>
+            <>
+              <div className="px-3 pt-3">
+                <ListControls
+                  query={bookList.query}
+                  onQuery={bookList.setQuery}
+                  page={bookList.page}
+                  totalPages={bookList.totalPages}
+                  onPage={bookList.setPage}
+                  pageSize={bookList.pageSize}
+                  onPageSize={bookList.setPageSize}
+                  total={bookList.filtered.length}
+                  placeholder="Search ledgers"
+                />
+              </div>
+              <div className="mt-1">
+                {bookList.pageRows.map((book) => {
+                  const role = book.roles[currentUser!.uid]?.role || 'viewer';
+                  const stat = bookStats[book.id];
+                  const symbol = getCurrencySymbol(book.currency);
+                  return (
+                    <Link to={`/book/${book.id}`} key={book.id} className="byjan-desk-row">
+                      <span className="byjan-ledger-mono">{initials(book.name)}</span>
+                      <div className="min-w-0">
+                        <p className="text-[13px] font-semibold text-[#0B1F3A] truncate">{book.name}</p>
+                        <p className="text-[11px] text-slate-500 truncate">
+                          {book.archived ? 'Archived · ' : ''}{role} · {book.currency}{stat ? ` · ${stat.entries}` : ''}
+                        </p>
+                      </div>
+                      <span className="byjan-money text-[13px] font-semibold tabular-nums text-[#0B1F3A]">
                         {stat ? `${stat.net < 0 ? '−' : ''}${symbol}${Math.abs(stat.net).toLocaleString()}` : '—'}
                       </span>
-                      {stat && (
-                        <svg className="byjan-spark mt-1 ml-auto" viewBox="0 0 64 18" aria-hidden>
-                          <polyline
-                            fill="rgba(11,31,58,0.06)"
-                            stroke="#0B1F3A"
-                            strokeWidth="1.5"
-                            points={`0,18 ${stat.spark.map((v, i) => `${(i / Math.max(stat.spark.length - 1, 1)) * 64},${17 - (v / maxSpark) * 14}`).join(' ')} 64,18`}
-                          />
-                        </svg>
-                      )}
-                    </span>
-                  </Link>
-                );
-              })}
-            </div>
-            </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            </>
           )}
         </section>
 
         {!expensesOnly && (
-        <section className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-semibold text-slate-900 flex items-center gap-2"><Sparkles className="w-4 h-4 text-teal-700" /> Books</h2>
-            <Link to="/books" className="inline-flex items-center gap-1 text-sm font-semibold text-teal-800 hover:underline min-h-10">
-              Open <ArrowRight className="w-4 h-4" />
+        <section className="byjan-desk">
+          <div className="byjan-desk-head">
+            <div>
+              <h2 className="text-sm font-semibold text-[#0B1F3A]">Books</h2>
+              {tenant?.name && <p className="text-[11px] text-slate-500 mt-0.5">{tenant.name}</p>}
+            </div>
+            <Link to="/books" className="text-xs font-semibold text-[#0B1F3A] hover:underline inline-flex items-center gap-1">
+              Open <ArrowRight className="w-3.5 h-3.5" />
             </Link>
           </div>
-          {tenant?.name && <p className="text-xs text-slate-500 -mt-1">{tenant.name}</p>}
-          <div className="grid sm:grid-cols-2 gap-2">
-            {BOOKS_TREE.map((branch) => (
-              <Link key={branch.id} to={branch.href} className="byjan-desk-tile byjan-lift">
-                <span className="byjan-ledger-mono">{branch.name.slice(0, 2)}</span>
-                <div className="min-w-0">
-                  <h3 className="text-[13px] font-semibold text-slate-900">{branch.name}</h3>
-                  <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-2">{branch.blurb}</p>
-                  <p className="text-[10px] text-slate-400 mt-1">{branch.items.length} tools</p>
-                </div>
-              </Link>
-            ))}
-          </div>
+          {BOOKS_TREE.map((branch) => (
+            <Link key={branch.id} to={branch.href} className="byjan-desk-row byjan-book-row">
+              <span className="byjan-ledger-mono">{branch.name.slice(0, 2)}</span>
+              <div className="min-w-0">
+                <p className="text-[13px] font-semibold text-[#0B1F3A] truncate">{branch.name}</p>
+                <p className="text-[11px] text-slate-500 truncate">{branch.blurb}</p>
+              </div>
+            </Link>
+          ))}
         </section>
         )}
       </div>

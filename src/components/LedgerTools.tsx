@@ -1,13 +1,16 @@
 import React, { useMemo, useState } from 'react';
 import { Loader2, Repeat, Zap } from 'lucide-react';
-import { createExpense } from '../lib/expenses';
+import { createExpense, softDeleteExpense } from '../lib/expenses';
 import { updateLedger } from '../lib/ledgers';
 import {
   advanceIso,
   dueRecurringPosts,
   isoDay,
+  lastMatchFor,
   newId,
   applyCategoryRules,
+  parseManyLines,
+  parseQuickLine,
   readCategoryRules,
   readLastQuick,
   readRecurring,
@@ -57,6 +60,12 @@ export default function LedgerTools({
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState(lastQuick.category || categories[0] || 'Uncategorized');
   const [merchant, setMerchant] = useState(lastQuick.merchant || '');
+  const [method, setMethod] = useState(lastQuick.method || 'cash');
+  const [when, setWhen] = useState(isoDay());
+  const [line, setLine] = useState('');
+  const [lastPosted, setLastPosted] = useState<string[]>([]);
+  const recent = expenses.slice(0, 4);
+  const topMerchants = merchants.slice(0, 4);
   const descriptions = useMemo(
     () => Array.from(new Set(expenses.map((exp) => String(exp.description || '').trim()).filter(Boolean))).slice(0, 40),
     [expenses],
@@ -87,16 +96,16 @@ export default function LedgerTools({
     const day = String(payload.date || isoDay());
     if (lockBefore && day < lockBefore) {
       onToast(`This ledger is locked before ${lockBefore}.`, 'error');
-      return;
+      return false;
     }
     const cap = Number(book.dailyCap || 0);
     const extra = String(payload.entryType || 'out') === 'out' ? Number(payload.amount || 0) : 0;
     if (wouldBreakDailyCap(expenses, cap, extra, day) && !window.confirm(`This would go past the daily cap of ${currencySymbol}${cap.toLocaleString()}. Record anyway?`)) {
-      return;
+      return false;
     }
     try {
       const auto = applyCategoryRules(String(payload.description || ''), String(payload.merchant || ''), readCategoryRules(book));
-      await createExpense(bookId, {
+      const created = await createExpense(bookId, {
         ...payload,
         category: payload.category || auto || 'Uncategorized',
         paidByName: enteredBy,
@@ -105,38 +114,59 @@ export default function LedgerTools({
         enteredByEmail,
         status: Number(payload.amount || 0) > 0 ? 'recorded' : 'draft',
       }, { force: Boolean(payload.recurringRuleId) });
+      if (created?.id) setLastPosted((ids) => [String(created.id), ...ids].slice(0, 8));
       await onRefresh();
       onToast(label, 'success');
+      return true;
     } catch (err: any) {
       onToast(err?.message || 'Could not save that entry', 'error');
-      throw err;
+      return false;
+    }
+  };
+
+  const postParsed = async (rows: Array<Record<string, unknown>>, label: string) => {
+    setBusy('quick');
+    try {
+      for (const row of rows) {
+        const ok = await record(row, label);
+        if (ok === false) return;
+      }
+      writeLastQuick(bookId, { category, merchant, method });
+      setAmount('');
+      setDescription('');
+      setLine('');
+    } finally {
+      setBusy('');
     }
   };
 
   const quickAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    const value = Number(amount);
-    if (!description.trim() || !Number.isFinite(value) || value <= 0) {
-      onToast('Add an amount and a short description.', 'error');
+    const pasted = parseManyLines(line);
+    if (pasted.length > 1) {
+      await postParsed(pasted.map((row) => ({ ...row, category: applyCategoryRules(row.description, row.merchant, readCategoryRules(book)) || category })), `${pasted.length} entries recorded`);
       return;
     }
-    setBusy('quick');
-    try {
-      await record({
-        amount: value,
-        description: description.trim(),
-        category,
-        entryType: kind,
-        date: isoDay(),
-        merchant,
-        paymentMethod: 'cash',
-      }, 'Entry recorded');
-      writeLastQuick(bookId, { category, merchant });
-      setAmount('');
-      setDescription('');
-    } finally {
-      setBusy('');
+    const parsed = parseQuickLine(line) || (amount && description.trim() ? {
+      amount: Number(amount),
+      description: description.trim(),
+      merchant,
+      entryType: kind,
+      date: when,
+      paymentMethod: method,
+    } : null);
+    if (!parsed || !Number(parsed.amount)) {
+      onToast('Type like “swiggy 349 yesterday” or fill amount and description.', 'error');
+      return;
     }
+    const prior = lastMatchFor(expenses, parsed.description);
+    await postParsed([{
+      ...parsed,
+      category: applyCategoryRules(parsed.description, parsed.merchant, readCategoryRules(book)) || prior?.category || category,
+      merchant: parsed.merchant || prior?.merchant || merchant,
+      paymentMethod: parsed.paymentMethod || method,
+      date: parsed.date || when,
+    }], 'Entry recorded');
   };
 
   const applyTemplate = async (tpl: EntryTemplate) => {
@@ -250,41 +280,127 @@ export default function LedgerTools({
           inputMode="decimal"
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
-          placeholder={`${currencySymbol}0.00`}
-          className="byjan-input !w-24 sm:!w-28"
+          placeholder={`${currencySymbol}0`}
+          className="byjan-input !w-20 sm:!w-24"
           aria-label="Amount"
         />
         <input
+          value={line}
+          onChange={(e) => {
+            setLine(e.target.value);
+            const parsed = parseQuickLine(e.target.value);
+            if (parsed) {
+              setAmount(String(parsed.amount));
+              setDescription(parsed.description);
+              setKind(parsed.entryType);
+              setWhen(parsed.date);
+              if (parsed.merchant) setMerchant(parsed.merchant);
+              if (parsed.paymentMethod) setMethod(parsed.paymentMethod);
+            }
+          }}
+          onPaste={(e) => {
+            const text = e.clipboardData.getData('text');
+            if (text.includes('\n') && parseManyLines(text).length > 1) {
+              e.preventDefault();
+              setLine(text);
+            }
+          }}
+          placeholder="swiggy 349 yesterday · or paste a UPI SMS"
+          className="byjan-input flex-1 min-w-[160px]"
           list="ledger-descriptions"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="Quick add — rent, milk, salary"
-          className="byjan-input flex-1 min-w-[140px]"
         />
         <datalist id="ledger-descriptions">
           {descriptions.map((name) => <option key={name} value={name} />)}
         </datalist>
-        <select value={category} onChange={(e) => setCategory(e.target.value)} className="byjan-filter !w-[140px] hidden sm:block">
+        <select value={category} onChange={(e) => setCategory(e.target.value)} className="byjan-filter !w-[120px] hidden md:block">
           {categories.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
         </select>
-        <input
-          list="ledger-merchants"
-          value={merchant}
-          onChange={(e) => setMerchant(e.target.value)}
-          placeholder="Merchant"
-          className="byjan-input !w-[140px] hidden md:block"
-        />
-        <datalist id="ledger-merchants">
-          {merchants.map((name) => <option key={name} value={name} />)}
-        </datalist>
-        <button type="button" className="byjan-btn-ghost !h-9 !px-2 hidden sm:inline-flex" onClick={() => void saveCurrentAsTemplate()} disabled={busy === 'tpl'} title="Save as template">
-          Save
-        </button>
         <button type="submit" disabled={busy === 'quick'} className="byjan-btn !h-9">
           {busy === 'quick' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
           Add
         </button>
       </form>
+      <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+        <button type="button" className="byjan-chip" data-on={when === isoDay()} onClick={() => setWhen(isoDay())}>Today</button>
+        <button type="button" className="byjan-chip" data-on={when !== isoDay()} onClick={() => { const d = new Date(); d.setDate(d.getDate() - 1); setWhen(isoDay(d)); }}>Yesterday</button>
+        {(['upi', 'card', 'cash'] as const).map((row) => (
+          <button key={row} type="button" className="byjan-chip" data-on={method === row} onClick={() => setMethod(row)}>{row.toUpperCase()}</button>
+        ))}
+        <button type="button" className="byjan-chip hidden sm:inline-flex" onClick={() => void saveCurrentAsTemplate()} disabled={busy === 'tpl'}>Save</button>
+        <button
+          type="button"
+          className="byjan-chip"
+          onClick={async () => {
+            try {
+              const text = await navigator.clipboard.readText();
+              const rows = parseManyLines(text);
+              if (!rows.length) {
+                onToast('Clipboard has no amount I can read.', 'error');
+                return;
+              }
+              setLine(text);
+              await postParsed(rows.map((row) => ({ ...row, category })), rows.length > 1 ? `${rows.length} entries recorded` : 'Entry recorded');
+            } catch {
+              onToast('Allow clipboard access, then try again.', 'error');
+            }
+          }}
+        >
+          Paste
+        </button>
+        {lastPosted[0] && (
+          <button
+            type="button"
+            className="byjan-chip"
+            onClick={async () => {
+              const id = lastPosted[0];
+              await softDeleteExpense(bookId, id);
+              setLastPosted((ids) => ids.slice(1));
+              await onRefresh();
+              onToast('Last entry undone.', 'success');
+            }}
+          >
+            Undo last
+          </button>
+        )}
+        {recent.map((exp) => (
+          <button
+            key={String(exp.id)}
+            type="button"
+            className="byjan-chip"
+            disabled={Boolean(busy)}
+            onClick={() => void postParsed([{
+              amount: Number(exp.amount || 0),
+              description: exp.description,
+              category: exp.category,
+              entryType: exp.entryType || 'out',
+              date: when,
+              merchant: exp.merchant || '',
+              paymentMethod: exp.paymentMethod || method,
+            }], 'Repeated')}
+          >
+            {String(exp.description || 'Entry').slice(0, 16)} {currencySymbol}{Number(exp.amount || 0).toLocaleString()}
+          </button>
+        ))}
+        {topMerchants.map((name) => (
+          <button
+            key={name}
+            type="button"
+            className="byjan-chip"
+            onClick={() => {
+              const prior = lastMatchFor(expenses, name);
+              setMerchant(name);
+              setLine(prior ? `${name} ${prior.amount}` : name);
+              if (prior) {
+                setAmount(String(prior.amount || ''));
+                setDescription(String(prior.description || name));
+                setCategory(String(prior.category || category));
+              }
+            }}
+          >
+            {name}
+          </button>
+        ))}
+      </div>
 
       {(templates.length > 0 || dueCount > 0 || ruleOpen) && (
       <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
