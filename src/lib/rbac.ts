@@ -70,7 +70,7 @@ export async function fetchRbacSession(displayName = '') {
   return payload.session;
 }
 
-export async function fetchRbacMembers() {
+export async function fetchRbacMembers(input: { query?: string; page?: number; pageSize?: number } = {}) {
   return apiPost<{
     org: RbacOrg;
     member: RbacMember;
@@ -78,7 +78,16 @@ export async function fetchRbacMembers() {
     roles: RbacRole[];
     permissions: string[];
     permissionCatalog: RbacPermission[];
-  }>('/api/rbac', { op: 'listMembers' });
+    total: number;
+    page: number;
+    pageSize: number;
+    totalPages: number;
+  }>('/api/rbac', {
+    op: 'listMembers',
+    query: input.query || '',
+    page: input.page || 1,
+    pageSize: input.pageSize || 25,
+  });
 }
 
 export async function fetchRbacInvites() {
@@ -86,11 +95,36 @@ export async function fetchRbacInvites() {
   return payload.invites || [];
 }
 
-export async function inviteRbacMember(email: string, roleId: string) {
+export async function inviteRbacMember(email: string, roleId: string, permissionIds: string[] = []) {
   return apiPost<{ joined: boolean; uid?: string; invite?: RbacInvite }>('/api/rbac', {
     op: 'inviteMember',
     email,
     roleId,
+    permissionIds,
+  });
+}
+
+export async function createRbacUser(input: {
+  email: string;
+  displayName?: string;
+  password?: string;
+  roleId: string;
+  permissionIds?: string[];
+}) {
+  return apiPost<{
+    joined: boolean;
+    uid?: string;
+    provisioned?: boolean;
+    grantIds?: string[];
+    member?: RbacMember | null;
+    invite?: RbacInvite;
+  }>('/api/rbac', {
+    op: 'createUser',
+    email: input.email,
+    displayName: input.displayName || '',
+    password: input.password || '',
+    roleId: input.roleId,
+    permissionIds: input.permissionIds || [],
   });
 }
 

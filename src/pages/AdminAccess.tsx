@@ -6,10 +6,10 @@ import { RBAC_PERMISSIONS } from '../lib/rbac-catalog';
 import {
   cancelRbacInvite,
   createRbacRole,
+  createRbacUser,
   deleteRbacRole,
   fetchRbacInvites,
   fetchRbacMembers,
-  inviteRbacMember,
   removeRbacMember,
   renameRbacOrg,
   setMemberPrivileges,
@@ -22,6 +22,8 @@ import {
 } from '../lib/rbac';
 
 type Mode = 'defaults' | 'people' | 'roles';
+
+const PEOPLE_PAGE_SIZE = 25;
 
 const TOOL_LABELS: Record<string, string> = {
   app: 'App',
@@ -239,67 +241,98 @@ export default function AdminAccess() {
     return 'roles';
   });
   const [loading, setLoading] = useState(true);
+  const [listBusy, setListBusy] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [members, setMembers] = useState<RbacMember[]>([]);
+  const [memberTotal, setMemberTotal] = useState(0);
+  const [memberPage, setMemberPage] = useState(1);
+  const [memberTotalPages, setMemberTotalPages] = useState(1);
   const [roles, setRoles] = useState<RbacRole[]>([]);
   const [invites, setInvites] = useState<RbacInvite[]>([]);
   const [catalog, setCatalog] = useState<RbacPermission[]>(
     () => (session?.permissionCatalog?.length ? session.permissionCatalog : [...RBAC_PERMISSIONS]),
   );
   const [orgName, setOrgName] = useState('');
+  const [queryInput, setQueryInput] = useState('');
   const [query, setQuery] = useState('');
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteRoleId, setInviteRoleId] = useState('');
   const [busy, setBusy] = useState('');
   const [selectedUid, setSelectedUid] = useState('');
   const [selectedRoleId, setSelectedRoleId] = useState('');
   const [creatingRole, setCreatingRole] = useState(false);
+  const [creatingUser, setCreatingUser] = useState(false);
   const [roleDraft, setRoleDraft] = useState({ name: '', description: '', permissionIds: [] as string[] });
   const [grantDraft, setGrantDraft] = useState<string[]>([]);
+  const [createDraft, setCreateDraft] = useState({
+    email: '',
+    displayName: '',
+    password: '',
+    roleId: '',
+    permissionIds: [] as string[],
+  });
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const next = queryInput.trim();
+      setQuery((curr) => {
+        if (curr === next) return curr;
+        setMemberPage(1);
+        return next;
+      });
+    }, 320);
+    return () => window.clearTimeout(timer);
+  }, [queryInput]);
+
+  const applyMemberPayload = useCallback((memberPayload: Awaited<ReturnType<typeof fetchRbacMembers>>, keepSelection = true) => {
+    setMembers(memberPayload.members);
+    setMemberTotal(memberPayload.total || 0);
+    setMemberPage(memberPayload.page || 1);
+    setMemberTotalPages(memberPayload.totalPages || 1);
+    setRoles(memberPayload.roles);
+    setCatalog(
+      memberPayload.permissionCatalog?.length
+        ? memberPayload.permissionCatalog
+        : session?.permissionCatalog?.length
+          ? session.permissionCatalog
+          : [...RBAC_PERMISSIONS],
+    );
+    setOrgName(memberPayload.org.name);
+
+    const external = memberPayload.roles.find((r) => r.key === 'external');
+    setSelectedRoleId((curr) => curr || external?.id || memberPayload.roles[0]?.id || '');
+    setCreateDraft((curr) => ({
+      ...curr,
+      roleId: curr.roleId || external?.id || memberPayload.roles[0]?.id || '',
+    }));
+    setSelectedUid((curr) => {
+      if (keepSelection && curr && memberPayload.members.some((m) => m.uid === curr)) return curr;
+      if (keepSelection && curr && !memberPayload.members.some((m) => m.uid === curr)) return curr;
+      const firstAssignable =
+        memberPayload.members.find((m) => m.roleKey !== 'super_user' && m.status === 'active')
+        || memberPayload.members.find((m) => m.roleKey !== 'super_user')
+        || memberPayload.members[0];
+      return firstAssignable?.uid || '';
+    });
+  }, [session?.permissionCatalog]);
+
+  const loadMembers = useCallback(async (opts?: { page?: number; query?: string; silent?: boolean }) => {
+    const page = opts?.page ?? memberPage;
+    const q = opts?.query ?? query;
+    if (opts?.silent) setListBusy(true);
+    else setLoading(true);
     setLoadError('');
     try {
-      // Always keep a product feature tree available, even if member listing fails.
       if (session?.permissionCatalog?.length) {
         setCatalog(session.permissionCatalog);
       } else {
         setCatalog((curr) => (curr.length ? curr : [...RBAC_PERMISSIONS]));
       }
 
-      const memberPayload = await fetchRbacMembers();
-      setMembers(memberPayload.members);
-      setRoles(memberPayload.roles);
-      setCatalog(
-        memberPayload.permissionCatalog?.length
-          ? memberPayload.permissionCatalog
-          : session?.permissionCatalog?.length
-            ? session.permissionCatalog
-            : [...RBAC_PERMISSIONS],
-      );
-      setOrgName(memberPayload.org.name);
-
-      const external = memberPayload.roles.find((r) => r.key === 'external');
-      setSelectedRoleId((curr) => curr || external?.id || memberPayload.roles[0]?.id || '');
-      setInviteRoleId((curr) => {
-        if (curr) return curr;
-        return (
-          external?.id
-          || memberPayload.roles.find((r) => !r.isSystem)?.id
-          || memberPayload.roles[0]?.id
-          || ''
-        );
+      const memberPayload = await fetchRbacMembers({
+        query: q,
+        page,
+        pageSize: PEOPLE_PAGE_SIZE,
       });
-      setSelectedUid((curr) => {
-        if (curr && memberPayload.members.some((m) => m.uid === curr)) return curr;
-        const firstAssignable =
-          memberPayload.members.find((m) => m.roleKey !== 'super_user' && m.status === 'active')
-          || memberPayload.members.find((m) => m.roleKey !== 'super_user')
-          || memberPayload.members[0];
-        return firstAssignable?.uid || '';
-      });
-
+      applyMemberPayload(memberPayload, true);
       if (canUsers) setInvites(await fetchRbacInvites().catch(() => []));
     } catch (err: any) {
       const message = err?.message || 'Failed to load access settings';
@@ -309,12 +342,15 @@ export default function AdminAccess() {
       else setCatalog([...RBAC_PERMISSIONS]);
     } finally {
       setLoading(false);
+      setListBusy(false);
     }
-  }, [addToast, canUsers, session?.permissionCatalog]);
+  }, [addToast, applyMemberPayload, canUsers, memberPage, query, session?.permissionCatalog]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void loadMembers({ page: memberPage, query, silent: !loading && members.length > 0 });
+    // Intentionally keyed to search/page — loadMembers identity changes with those values.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [memberPage, query]);
 
   const externalRole = useMemo(() => roles.find((r) => r.key === 'external') || null, [roles]);
   const selectedRole = useMemo(
@@ -361,14 +397,6 @@ export default function AdminAccess() {
     setGrantDraft([...(selectedMember.grantIds || [])]);
   }, [selectedMember]);
 
-  const filteredMembers = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return members;
-    return members.filter((m) =>
-      [m.displayName, m.email, m.roleName, m.status].some((v) => String(v || '').toLowerCase().includes(q)),
-    );
-  }, [members, query]);
-
   const defaultsTree = useMemo(() => buildTree(catalog, true), [catalog]);
   const rolesTree = useMemo(() => {
     const hideAdmin = !selectedRole || selectedRole.key !== 'super_user';
@@ -379,9 +407,16 @@ export default function AdminAccess() {
   const roleLockedIds = useMemo(() => new Set(memberRole?.permissionIds || []), [memberRole]);
   const grantSelected = useMemo(() => new Set(grantDraft), [grantDraft]);
   const roleSelected = useMemo(() => new Set(roleDraft.permissionIds), [roleDraft.permissionIds]);
+  const createSelected = useMemo(() => new Set(createDraft.permissionIds), [createDraft.permissionIds]);
+  const createRole = useMemo(
+    () => roles.find((r) => r.id === createDraft.roleId) || null,
+    [roles, createDraft.roleId],
+  );
+  const createRoleLockedIds = useMemo(() => new Set(createRole?.permissionIds || []), [createRole]);
 
   const superLocked = Boolean(selectedRole?.key === 'super_user');
   const memberIsSuper = selectedMember?.roleKey === 'super_user';
+  const createIsSuper = createRole?.key === 'super_user';
 
   const segments = useMemo(() => {
     const items: { id: Mode; label: string; show: boolean }[] = [
@@ -411,18 +446,60 @@ export default function AdminAccess() {
     setGrantDraft((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
-  const onInvite = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!canUsers) return;
-    setBusy('invite');
+  const toggleCreateGrant = (id: string) => {
+    if (createIsSuper || createRoleLockedIds.has(id)) return;
+    setCreateDraft((prev) => ({
+      ...prev,
+      permissionIds: prev.permissionIds.includes(id)
+        ? prev.permissionIds.filter((x) => x !== id)
+        : [...prev.permissionIds, id],
+    }));
+  };
+
+  const startCreateUser = () => {
+    setCreatingUser(true);
+    setSelectedUid('');
+    setCreateDraft((prev) => ({
+      email: '',
+      displayName: '',
+      password: '',
+      roleId: prev.roleId || externalRole?.id || roles[0]?.id || '',
+      permissionIds: [],
+    }));
+  };
+
+  const onCreateUser = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!canUsers || !createDraft.email || !createDraft.roleId) return;
+    setBusy('create-user');
     try {
-      const result = await inviteRbacMember(inviteEmail, inviteRoleId);
-      addToast(result.joined ? 'Member added to the organization' : 'Invite created — they join on next sign-in', 'success');
-      setInviteEmail('');
-      await load();
+      const result = await createRbacUser({
+        email: createDraft.email,
+        displayName: createDraft.displayName,
+        password: createDraft.password,
+        roleId: createDraft.roleId,
+        permissionIds: createIsSuper ? [] : createDraft.permissionIds.filter((id) => !isAdminPerm(id)),
+      });
+      if (result.joined) {
+        addToast(
+          result.provisioned
+            ? 'User created with login, role, and features'
+            : 'User added with role and features',
+          'success',
+        );
+        if (result.uid) setSelectedUid(result.uid);
+      } else {
+        addToast('Invite saved — role and features apply on their first sign-in', 'success');
+      }
+      setCreatingUser(false);
+      setCreateDraft((prev) => ({ ...prev, email: '', displayName: '', password: '', permissionIds: [] }));
+      setQueryInput('');
+      setQuery('');
+      setMemberPage(1);
+      await loadMembers({ page: 1, query: '', silent: false });
       await refresh();
     } catch (err: any) {
-      addToast(err?.message || 'Invite failed', 'error');
+      addToast(err?.message || 'Could not create user', 'error');
     } finally {
       setBusy('');
     }
@@ -434,7 +511,7 @@ export default function AdminAccess() {
       await renameRbacOrg(orgName);
       addToast('Organization name updated', 'success');
       await refresh();
-      await load();
+      await loadMembers({ silent: true });
     } catch (err: any) {
       addToast(err?.message || 'Could not rename organization', 'error');
     } finally {
@@ -447,7 +524,7 @@ export default function AdminAccess() {
     try {
       await updateRbacMember(uid, { roleId });
       addToast('Role updated', 'success');
-      await load();
+      await loadMembers({ silent: true });
       await refresh();
     } catch (err: any) {
       addToast(err?.message || 'Could not update role', 'error');
@@ -462,7 +539,7 @@ export default function AdminAccess() {
     try {
       await updateRbacMember(member.uid, { status: next });
       addToast(next === 'active' ? 'Member re-enabled' : 'Member disabled', 'success');
-      await load();
+      await loadMembers({ silent: true });
     } catch (err: any) {
       addToast(err?.message || 'Could not update member', 'error');
     } finally {
@@ -477,7 +554,7 @@ export default function AdminAccess() {
       await removeRbacMember(uid);
       addToast('Member removed', 'success');
       if (selectedUid === uid) setSelectedUid('');
-      await load();
+      await loadMembers({ silent: true });
     } catch (err: any) {
       addToast(err?.message || 'Could not remove member', 'error');
     } finally {
@@ -490,7 +567,7 @@ export default function AdminAccess() {
     try {
       await cancelRbacInvite(inviteId);
       addToast('Invite cancelled', 'success');
-      await load();
+      await loadMembers({ silent: true });
     } catch (err: any) {
       addToast(err?.message || 'Could not cancel invite', 'error');
     } finally {
@@ -505,7 +582,7 @@ export default function AdminAccess() {
       const result = await setMemberPrivileges(selectedMember.uid, grantDraft.filter((id) => !isAdminPerm(id)));
       setGrantDraft(result.grantIds || []);
       addToast('Privileges saved', 'success');
-      await load();
+      await loadMembers({ silent: true });
       await refresh();
     } catch (err: any) {
       addToast(err?.message || 'Could not save privileges', 'error');
@@ -554,7 +631,7 @@ export default function AdminAccess() {
         });
         addToast('Role saved', 'success');
       }
-      await load();
+      await loadMembers({ silent: true });
       await refresh();
     } catch (err: any) {
       addToast(err?.message || 'Could not save role', 'error');
@@ -573,7 +650,7 @@ export default function AdminAccess() {
         permissionIds: roleDraft.permissionIds.filter((id) => !isAdminPerm(id)),
       });
       addToast('Default privileges updated', 'success');
-      await load();
+      await loadMembers({ silent: true });
       await refresh();
     } catch (err: any) {
       addToast(err?.message || 'Could not save defaults', 'error');
@@ -590,7 +667,7 @@ export default function AdminAccess() {
       await deleteRbacRole(selectedRole.id);
       addToast('Role deleted', 'success');
       setSelectedRoleId(externalRole?.id || '');
-      await load();
+      await loadMembers({ silent: true });
       await refresh();
     } catch (err: any) {
       addToast(err?.message || 'Could not delete role', 'error');
@@ -638,9 +715,9 @@ export default function AdminAccess() {
       {loadError ? (
         <div className="rbac-panel rbac-banner" style={{ marginBottom: 12 }}>
           <p className="rbac-panel-sub" style={{ margin: 0 }}>
-            {loadError} — feature tree may still work from cache. Try Refresh.
+            {loadError}
           </p>
-          <button type="button" className="rbac-ghost" onClick={() => void load()}>
+          <button type="button" className="rbac-ghost" onClick={() => void loadMembers({ silent: false })}>
             Retry
           </button>
         </div>
@@ -690,19 +767,29 @@ export default function AdminAccess() {
             <div className="rbac-search">
               <Search className="rbac-search-icon" />
               <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search people"
+                value={queryInput}
+                onChange={(e) => setQueryInput(e.target.value)}
+                placeholder="Search by name, email, or role"
                 aria-label="Search people"
               />
             </div>
+            <div className="rbac-list-meta">
+              <span>
+                {memberTotal.toLocaleString()} {memberTotal === 1 ? 'person' : 'people'}
+                {query ? ` matching “${query}”` : ''}
+              </span>
+              {listBusy ? <Loader2 className="rbac-spin rbac-spin-sm" /> : null}
+            </div>
             <div className="rbac-person-list">
-              {filteredMembers.map((member) => (
+              {members.map((member) => (
                 <button
                   key={member.uid}
                   type="button"
-                  className={`rbac-person${selectedUid === member.uid ? ' is-active' : ''}`}
-                  onClick={() => setSelectedUid(member.uid)}
+                  className={`rbac-person${!creatingUser && selectedUid === member.uid ? ' is-active' : ''}`}
+                  onClick={() => {
+                    setCreatingUser(false);
+                    setSelectedUid(member.uid);
+                  }}
                 >
                   <span className="rbac-avatar">{initials(member.displayName, member.email)}</span>
                   <span className="rbac-person-copy">
@@ -714,51 +801,46 @@ export default function AdminAccess() {
                   </span>
                 </button>
               ))}
-              {filteredMembers.length === 0 && (
+              {members.length === 0 && (
                 <p className="rbac-empty">
-                  {members.length === 0
-                    ? 'No people listed yet. Invite someone below — or open Access again after users have signed up so they sync into this list.'
-                    : 'No people match your search.'}
+                  {query
+                    ? 'No people match this search.'
+                    : 'No people yet. Create a user to assign a role and features.'}
                 </p>
               )}
             </div>
 
-            {canUsers && (
-              <form className="rbac-invite" onSubmit={onInvite}>
-                <div className="rbac-invite-head">
-                  <UserPlus className="rbac-invite-icon" />
-                  <div>
-                    <h3 className="rbac-panel-title">Invite</h3>
-                    <p className="rbac-panel-sub">Existing accounts join immediately.</p>
-                  </div>
-                </div>
-                <label className="rbac-field">
-                  <span>Email</span>
-                  <input
-                    required
-                    type="email"
-                    value={inviteEmail}
-                    onChange={(e) => setInviteEmail(e.target.value)}
-                    placeholder="name@company.com"
-                  />
-                </label>
-                <label className="rbac-field">
-                  <span>Role</span>
-                  <select value={inviteRoleId} onChange={(e) => setInviteRoleId(e.target.value)}>
-                    {roles.map((role) => (
-                      <option key={role.id} value={role.id}>
-                        {role.name}
-                        {role.key === 'external' ? ' · signup default' : ''}
-                        {role.key === 'super_user' ? ' · platform' : ''}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button type="submit" className="rbac-primary" disabled={busy === 'invite'}>
-                  {busy === 'invite' ? <Loader2 className="rbac-spin" /> : null}
-                  Send invite
+            {memberTotalPages > 1 && (
+              <div className="rbac-pager">
+                <button
+                  type="button"
+                  className="rbac-ghost"
+                  disabled={memberPage <= 1 || listBusy}
+                  onClick={() => setMemberPage((p) => Math.max(1, p - 1))}
+                >
+                  Previous
                 </button>
-              </form>
+                <span className="rbac-pager-label">
+                  Page {memberPage} of {memberTotalPages}
+                </span>
+                <button
+                  type="button"
+                  className="rbac-ghost"
+                  disabled={memberPage >= memberTotalPages || listBusy}
+                  onClick={() => setMemberPage((p) => Math.min(memberTotalPages, p + 1))}
+                >
+                  Next
+                </button>
+              </div>
+            )}
+
+            {canUsers && (
+              <div className="rbac-invite">
+                <button type="button" className="rbac-ghost rbac-new-role" onClick={startCreateUser}>
+                  <UserPlus className="w-4 h-4" />
+                  Create user
+                </button>
+              </div>
             )}
 
             {invites.length > 0 && (
@@ -785,8 +867,103 @@ export default function AdminAccess() {
           </aside>
 
           <section className="rbac-panel rbac-detail">
-            {!selectedMember ? (
-              <p className="rbac-empty">Select a person to edit privileges.</p>
+            {creatingUser ? (
+              <form onSubmit={(e) => void onCreateUser(e)}>
+                <div className="rbac-panel-head">
+                  <div>
+                    <h2 className="font-display rbac-panel-title">Create user</h2>
+                    <p className="rbac-panel-sub">
+                      Assign a role and optional extra features. With a password they can sign in immediately;
+                      without one, an invite applies the same access on first sign-in.
+                    </p>
+                  </div>
+                  <div className="rbac-detail-actions">
+                    <button
+                      type="button"
+                      className="rbac-ghost"
+                      onClick={() => setCreatingUser(false)}
+                    >
+                      Cancel
+                    </button>
+                    <button type="submit" className="rbac-primary" disabled={busy === 'create-user'}>
+                      {busy === 'create-user' ? <Loader2 className="rbac-spin" /> : null}
+                      Save user
+                    </button>
+                  </div>
+                </div>
+
+                <div className="rbac-role-fields">
+                  <label className="rbac-field">
+                    <span>Email</span>
+                    <input
+                      required
+                      type="email"
+                      value={createDraft.email}
+                      onChange={(e) => setCreateDraft((prev) => ({ ...prev, email: e.target.value }))}
+                      placeholder="name@company.com"
+                    />
+                  </label>
+                  <label className="rbac-field">
+                    <span>Display name</span>
+                    <input
+                      value={createDraft.displayName}
+                      onChange={(e) => setCreateDraft((prev) => ({ ...prev, displayName: e.target.value }))}
+                      placeholder="Optional"
+                    />
+                  </label>
+                  <label className="rbac-field">
+                    <span>Temporary password</span>
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      value={createDraft.password}
+                      onChange={(e) => setCreateDraft((prev) => ({ ...prev, password: e.target.value }))}
+                      placeholder="Optional · min 8 characters"
+                    />
+                  </label>
+                  <label className="rbac-field">
+                    <span>Role</span>
+                    <select
+                      value={createDraft.roleId}
+                      onChange={(e) => setCreateDraft((prev) => ({ ...prev, roleId: e.target.value }))}
+                    >
+                      {roles.map((role) => (
+                        <option key={role.id} value={role.id}>
+                          {role.name}
+                          {role.key === 'external' ? ' · signup default' : ''}
+                          {role.key === 'super_user' ? ' · platform' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                {createIsSuper ? (
+                  <p className="rbac-banner">
+                    Super users already hold every privilege. Extra feature toggles are not needed.
+                  </p>
+                ) : (
+                  <>
+                    <div className="rbac-panel-head rbac-panel-head-tight">
+                      <div>
+                        <h3 className="rbac-section-label">Extra features for this person</h3>
+                        <p className="rbac-panel-sub">
+                          Role privileges stay locked on. Turn on anything else they need beyond the role.
+                        </p>
+                      </div>
+                    </div>
+                    <PrivilegeTree
+                      tree={peopleTree}
+                      selectedIds={createSelected}
+                      lockedIds={createRoleLockedIds}
+                      lockedHint="from role"
+                      onToggle={toggleCreateGrant}
+                    />
+                  </>
+                )}
+              </form>
+            ) : !selectedMember ? (
+              <p className="rbac-empty">Search for a person, or create a user to assign role and features.</p>
             ) : (
               <>
                 <div className="rbac-panel-head">

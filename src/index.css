@@ -1521,11 +1521,71 @@ html[data-density="compact"] h1 {
   box-shadow: 0 0 0 3px rgba(18, 184, 168, 0.18);
 }
 
+.rbac-list-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 16px 0;
+  font-size: 0.75rem;
+  color: var(--rbac-muted);
+}
+
+.rbac-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px 4px;
+  border-top: 1px solid var(--rbac-line);
+}
+
+.rbac-pager-label {
+  font-size: 0.75rem;
+  color: var(--rbac-muted);
+  white-space: nowrap;
+}
+
+.rbac-spin-sm {
+  width: 14px;
+  height: 14px;
+}
+
 .rbac-person-list {
   display: flex;
   flex-direction: column;
   padding: 8px 0;
   flex: 1;
+}
+
+.rbac-list-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 16px 0;
+  font-size: 0.75rem;
+  color: var(--rbac-muted);
+}
+
+.rbac-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px 4px;
+  border-top: 1px solid var(--rbac-line);
+}
+
+.rbac-pager-label {
+  font-size: 0.75rem;
+  color: var(--rbac-muted);
+  white-space: nowrap;
+}
+
+.rbac-spin-sm {
+  width: 14px;
+  height: 14px;
 }
 
 .rbac-person {

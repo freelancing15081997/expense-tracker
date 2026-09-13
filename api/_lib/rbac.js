@@ -412,6 +412,60 @@ async function applyInviteBooksGrants(sql, orgId, uid, inviteData) {
     `;
   }
 }
+async function applyInvitePrivilegeGrants(sql, orgId, uid, inviteData) {
+  const data = inviteData && typeof inviteData === "object" ? inviteData : {};
+  await applyInviteBooksGrants(sql, orgId, uid, inviteData);
+  const catalog = new Set(RBAC_PERMISSIONS.map((p) => p.id));
+  const raw = Array.isArray(data.permissionIds) ? data.permissionIds : Array.isArray(data.grants) ? data.grants : [];
+  const grants = raw.map((g) => text(g)).filter((id) => catalog.has(id) && !isAdminPermission(id));
+  for (const permissionId of grants) {
+    await sql`
+      INSERT INTO org_member_grants (org_id, uid, permission_id, granted_by, created_at)
+      VALUES (${orgId}, ${uid}, ${permissionId}, ${text(data.invitedBy) || uid}, NOW())
+      ON CONFLICT DO NOTHING
+    `;
+  }
+}
+var FIREBASE_WEB_API_KEY = process.env.FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY || "AIzaSyDQUXdMTTUOONPbua5cWm75Jn-7-SkRwjE";
+async function provisionFirebaseAuthUser(input) {
+  const res = await fetch(
+    `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FIREBASE_WEB_API_KEY}`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        email: input.email,
+        password: input.password,
+        displayName: input.displayName,
+        returnSecureToken: false
+      })
+    }
+  );
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok || !payload.localId) {
+    const msg = String(payload.error?.message || "Could not create login for this user");
+    if (msg.includes("EMAIL_EXISTS")) {
+      throw Object.assign(new ApiError(409, "That email already has a login. Search People or use Invite instead."), {
+        code: "EMAIL_EXISTS"
+      });
+    }
+    throw new ApiError(400, msg.replace(/_/g, " ").toLowerCase());
+  }
+  return { uid: text(payload.localId), email: emailOf(payload.email || input.email) };
+}
+async function replaceMemberGrants(sql, orgId, uid, grantedBy, permissionIds) {
+  const catalog = new Set(RBAC_PERMISSIONS.map((p) => p.id));
+  const next = [...new Set(permissionIds.map((id) => text(id)).filter(Boolean))].filter((id) => catalog.has(id) && !isAdminPermission(id));
+  await sql`DELETE FROM org_member_grants WHERE org_id = ${orgId} AND uid = ${uid}`;
+  for (const permissionId of next) {
+    await sql`
+      INSERT INTO org_member_grants (org_id, uid, permission_id, granted_by, created_at)
+      VALUES (${orgId}, ${uid}, ${permissionId}, ${grantedBy}, NOW())
+      ON CONFLICT DO NOTHING
+    `;
+  }
+  return next;
+}
 var LEGACY_PRIVILEGED_ROLE_KEYS = /* @__PURE__ */ new Set(["owner", "admin", "manager", "accountant", "contributor", "viewer"]);
 async function migrateLegacyPlatformMembership(sql, user, email, roles) {
   const member = await getMember(sql, PLATFORM_ORG_ID, user.uid);
@@ -486,7 +540,7 @@ async function ensureUserOrg(user, displayName = "") {
           status = 'active',
           updated_at = NOW()
       `;
-      await applyInviteBooksGrants(sql, PLATFORM_ORG_ID, user.uid, invite.data);
+      await applyInvitePrivilegeGrants(sql, PLATFORM_ORG_ID, user.uid, invite.data);
       await sql`
         UPDATE org_invites
         SET status = 'accepted', updated_at = NOW(),
@@ -625,19 +679,21 @@ async function syncRegisteredUsersIntoPlatform(sql) {
   const externalRoleId = text(roles.external);
   const superRoleId = text(roles.super_user);
   if (!externalRoleId) return;
-  const registered = rows(
+  const missing = rows(
     await sql`
-      SELECT id, email, display_name, data
-      FROM users
-      ORDER BY updated_at DESC NULLS LAST
-      LIMIT 5000
+      SELECT u.id, u.email, u.display_name, u.data
+      FROM users u
+      WHERE NOT EXISTS (
+        SELECT 1 FROM org_members m
+        WHERE m.org_id = ${PLATFORM_ORG_ID} AND m.uid = u.id
+      )
+      ORDER BY u.updated_at DESC NULLS LAST
+      LIMIT 500
     `
   );
-  for (const u of registered) {
+  for (const u of missing) {
     const uid = text(u.id);
     if (!uid) continue;
-    const existing = await getMember(sql, PLATFORM_ORG_ID, uid);
-    if (existing) continue;
     const data = u.data && typeof u.data === "object" ? u.data : {};
     const email = emailOf(u.email || data.email);
     const label = text(u.display_name || data.displayName) || email.split("@")[0] || "User";
@@ -659,6 +715,7 @@ async function syncRegisteredUsersIntoPlatform(sql) {
           WHERE p.org_id = ${PLATFORM_ORG_ID} AND p.uid = m.uid
         )
       ORDER BY m.uid, m.updated_at DESC NULLS LAST
+      LIMIT 200
     `
   );
   for (const row of legacy) {
@@ -677,22 +734,64 @@ async function syncRegisteredUsersIntoPlatform(sql) {
     await remappedAllLegacyMembers(sql);
   }
 }
-async function listOrgMembers(user) {
+async function listOrgMembers(user, input = {}) {
   const session = await requireAnyOrgPermission(user, ["admin.access", "admin.users", "admin.roles"]);
   const sql = await sqlReady();
   await syncRegisteredUsersIntoPlatform(sql);
-  const list = rows(
+  const pageSize = Math.min(100, Math.max(10, Number(input.pageSize) || 25));
+  const page = Math.max(1, Number(input.page) || 1);
+  const offset = (page - 1) * pageSize;
+  const q = text(input.query).trim().toLowerCase();
+  const like = q ? `%${q}%` : "";
+  const countRow = q ? rows(
     await sql`
-      SELECT m.org_id, m.uid, m.role_id, m.email, m.display_name, m.status, m.invited_by,
-        m.created_at, m.updated_at, r.key AS role_key, r.name AS role_name
-      FROM org_members m
-      LEFT JOIN rbac_roles r ON r.id = m.role_id
-      WHERE m.org_id = ${session.org.id}
-      ORDER BY
-        CASE m.status WHEN 'active' THEN 0 WHEN 'invited' THEN 1 ELSE 2 END,
-        CASE COALESCE(r.key, '') WHEN 'super_user' THEN 0 WHEN 'external' THEN 1 ELSE 2 END,
-        COALESCE(NULLIF(m.display_name, ''), m.email) ASC
-    `
+          SELECT COUNT(*) AS count
+          FROM org_members m
+          LEFT JOIN rbac_roles r ON r.id = m.role_id
+          WHERE m.org_id = ${session.org.id}
+            AND (
+              lower(COALESCE(m.email, '')) LIKE ${like}
+              OR lower(COALESCE(m.display_name, '')) LIKE ${like}
+              OR lower(COALESCE(r.name, '')) LIKE ${like}
+              OR lower(COALESCE(r.key, '')) LIKE ${like}
+            )
+        `
+  )[0] : rows(
+    await sql`SELECT COUNT(*) AS count FROM org_members WHERE org_id = ${session.org.id}`
+  )[0];
+  const total = Number(countRow?.count || 0);
+  const list = q ? rows(
+    await sql`
+          SELECT m.org_id, m.uid, m.role_id, m.email, m.display_name, m.status, m.invited_by,
+            m.created_at, m.updated_at, r.key AS role_key, r.name AS role_name
+          FROM org_members m
+          LEFT JOIN rbac_roles r ON r.id = m.role_id
+          WHERE m.org_id = ${session.org.id}
+            AND (
+              lower(COALESCE(m.email, '')) LIKE ${like}
+              OR lower(COALESCE(m.display_name, '')) LIKE ${like}
+              OR lower(COALESCE(r.name, '')) LIKE ${like}
+              OR lower(COALESCE(r.key, '')) LIKE ${like}
+            )
+          ORDER BY
+            CASE m.status WHEN 'active' THEN 0 WHEN 'invited' THEN 1 ELSE 2 END,
+            CASE COALESCE(r.key, '') WHEN 'super_user' THEN 0 WHEN 'external' THEN 1 ELSE 2 END,
+            COALESCE(NULLIF(m.display_name, ''), m.email) ASC
+          LIMIT ${pageSize} OFFSET ${offset}
+        `
+  ) : rows(
+    await sql`
+          SELECT m.org_id, m.uid, m.role_id, m.email, m.display_name, m.status, m.invited_by,
+            m.created_at, m.updated_at, r.key AS role_key, r.name AS role_name
+          FROM org_members m
+          LEFT JOIN rbac_roles r ON r.id = m.role_id
+          WHERE m.org_id = ${session.org.id}
+          ORDER BY
+            CASE m.status WHEN 'active' THEN 0 WHEN 'invited' THEN 1 ELSE 2 END,
+            CASE COALESCE(r.key, '') WHEN 'super_user' THEN 0 WHEN 'external' THEN 1 ELSE 2 END,
+            COALESCE(NULLIF(m.display_name, ''), m.email) ASC
+          LIMIT ${pageSize} OFFSET ${offset}
+        `
   );
   const members = [];
   for (const row of list) {
@@ -712,7 +811,14 @@ async function listOrgMembers(user) {
       grantIds: await memberGrants(sql, session.org.id, uid)
     });
   }
-  return { ...session, members };
+  return {
+    ...session,
+    members,
+    total,
+    page,
+    pageSize,
+    totalPages: Math.max(1, Math.ceil(total / pageSize))
+  };
 }
 async function listOrgInvites(user) {
   const session = await requireOrgPermission(user, "admin.users");
@@ -762,6 +868,10 @@ async function countActiveSuperUsers(sql, orgId) {
   )[0];
   return Number(row?.count || 0);
 }
+function sanitizeExtraPermissionIds(permissionIds) {
+  const catalog = new Set(RBAC_PERMISSIONS.map((p) => p.id));
+  return [...new Set((Array.isArray(permissionIds) ? permissionIds : []).map((id) => text(id)).filter(Boolean))].filter((id) => catalog.has(id) && !isAdminPermission(id));
+}
 async function inviteOrgMember(user, input) {
   const session = await requireOrgPermission(user, "admin.users");
   const sql = await sqlReady();
@@ -770,6 +880,10 @@ async function inviteOrgMember(user, input) {
   const role = await assertRoleInOrg(sql, session.org.id, text(input.roleId));
   if (text(role.key) === "super_user" && session.member.roleKey !== "super_user") {
     throw new ApiError(403, "Only a super user can invite another super user");
+  }
+  const extraGrants = sanitizeExtraPermissionIds(input.permissionIds);
+  if (extraGrants.length && session.member.roleKey !== "super_user") {
+    throw new ApiError(403, "Only a super user can assign per-user privileges");
   }
   const existingMember = rows(
     await sql`
@@ -800,6 +914,9 @@ async function inviteOrgMember(user, input) {
         status = 'active',
         updated_at = NOW()
     `;
+    if (extraGrants.length) {
+      await replaceMemberGrants(sql, session.org.id, text(existingUser.id), user.uid, extraGrants);
+    }
     await ledgerUpsertUser(text(existingUser.id), { orgId: session.org.id, email }, true);
     return { joined: true, uid: text(existingUser.id) };
   }
@@ -817,7 +934,13 @@ async function inviteOrgMember(user, input) {
     )
     VALUES (
       ${id}, ${session.org.id}, ${email}, ${text(role.id)}, 'pending', ${user.uid}, ${token},
-      ${JSON.stringify({ orgName: session.org.name, roleKey: text(role.key), roleName: text(role.name) })}::jsonb,
+      ${JSON.stringify({
+    orgName: session.org.name,
+    roleKey: text(role.key),
+    roleName: text(role.name),
+    invitedBy: user.uid,
+    permissionIds: extraGrants
+  })}::jsonb,
       NOW(), NOW(), ${expires}::timestamptz
     )
   `;
@@ -836,6 +959,88 @@ async function inviteOrgMember(user, input) {
       expiresAt: expires
     }
   };
+}
+async function createOrgUser(user, input) {
+  const session = await requireOrgPermission(user, "admin.users");
+  const sql = await sqlReady();
+  const email = emailOf(input.email);
+  if (!email || !email.includes("@")) throw new ApiError(400, "Valid email required");
+  const displayName = text(input.displayName).trim() || email.split("@")[0] || "User";
+  const password = text(input.password);
+  const role = await assertRoleInOrg(sql, session.org.id, text(input.roleId));
+  if (text(role.key) === "super_user" && session.member.roleKey !== "super_user") {
+    throw new ApiError(403, "Only a super user can assign the super user role");
+  }
+  const extraGrants = sanitizeExtraPermissionIds(input.permissionIds);
+  if (extraGrants.length && session.member.roleKey !== "super_user") {
+    throw new ApiError(403, "Only a super user can assign per-user privileges");
+  }
+  const existingMember = rows(
+    await sql`
+      SELECT uid, status FROM org_members
+      WHERE org_id = ${session.org.id} AND lower(COALESCE(email, '')) = ${email}
+      LIMIT 1
+    `
+  )[0];
+  if (existingMember && text(existingMember.status) === "active") {
+    throw new ApiError(409, "That user is already a member \u2014 search People to edit them");
+  }
+  let uid = "";
+  let provisioned = false;
+  if (password) {
+    if (password.length < 8) throw new ApiError(400, "Password must be at least 8 characters");
+    try {
+      const created = await provisionFirebaseAuthUser({ email, password, displayName });
+      uid = created.uid;
+      provisioned = true;
+    } catch (err) {
+      if (err?.code === "EMAIL_EXISTS" || String(err?.message || "").includes("already has a login")) {
+        const existingUser = rows(
+          await sql`SELECT id FROM users WHERE lower(COALESCE(email, '')) = ${email} LIMIT 1`
+        )[0];
+        if (!existingUser?.id) {
+          throw new ApiError(409, "That email already has a login. Leave password blank to invite, or search People after they sign in once.");
+        }
+        uid = text(existingUser.id);
+      } else {
+        throw err;
+      }
+    }
+  } else {
+    const existingUser = rows(
+      await sql`SELECT id FROM users WHERE lower(COALESCE(email, '')) = ${email} LIMIT 1`
+    )[0];
+    if (existingUser?.id) uid = text(existingUser.id);
+  }
+  if (uid) {
+    await ledgerUpsertUser(uid, { orgId: session.org.id, email, displayName }, true);
+    await sql`
+      INSERT INTO org_members (org_id, uid, role_id, email, display_name, status, invited_by, updated_at)
+      VALUES (
+        ${session.org.id}, ${uid}, ${text(role.id)},
+        ${email}, ${displayName}, 'active', ${user.uid}, NOW()
+      )
+      ON CONFLICT (org_id, uid) DO UPDATE SET
+        role_id = EXCLUDED.role_id,
+        email = EXCLUDED.email,
+        display_name = EXCLUDED.display_name,
+        status = 'active',
+        updated_at = NOW()
+    `;
+    const grantIds = await replaceMemberGrants(sql, session.org.id, uid, user.uid, extraGrants);
+    return {
+      joined: true,
+      uid,
+      provisioned,
+      grantIds,
+      member: await getMember(sql, session.org.id, uid)
+    };
+  }
+  return inviteOrgMember(user, {
+    email,
+    roleId: text(role.id),
+    permissionIds: extraGrants
+  });
 }
 async function updateOrgMember(user, input) {
   const session = await requireOrgPermission(user, "admin.users");
@@ -1140,6 +1345,7 @@ export {
   RBAC_PERMISSIONS,
   cancelOrgInvite,
   createCustomRole,
+  createOrgUser,
   deleteCustomRole,
   ensureRbacSchema,
   ensureUserOrg,
