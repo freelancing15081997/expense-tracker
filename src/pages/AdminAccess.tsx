@@ -231,9 +231,10 @@ export default function AdminAccess() {
   const { session, can, refresh } = useRbac();
   const { addToast } = useToast();
 
-  const canAccess = can('admin.access');
-  const canUsers = can('admin.users');
-  const canRoles = can('admin.roles');
+  // Super users only — Default external must never open this console.
+  const canAccess = Boolean(session?.isSuperUser) && can('admin.access');
+  const canUsers = Boolean(session?.isSuperUser) && can('admin.users');
+  const canRoles = Boolean(session?.isSuperUser) && can('admin.roles');
 
   const [mode, setMode] = useState<Mode>(() => {
     if (canAccess || canUsers) return 'people';

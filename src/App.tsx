@@ -33,8 +33,12 @@ const GuestRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 };
 
 const PermissionRoute: React.FC<{ anyOf: string[]; children: React.ReactNode }> = ({ anyOf, children }) => {
-  const { loading, canAny } = useRbac();
+  const { loading, session, canAny } = useRbac();
   if (loading) return <AppLoader title="Byjan" message="Loading your access." />;
+  // Access console is super-user only; ignore leaked admin.* on default roles.
+  if (anyOf.includes('admin.access') && !session?.isSuperUser) {
+    return <Navigate to="/" replace />;
+  }
   if (!canAny(anyOf)) return <Navigate to="/" replace />;
   return <>{children}</>;
 };

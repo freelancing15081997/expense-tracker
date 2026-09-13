@@ -338,7 +338,7 @@ async function effectivePermissions(sql, orgId, uid, roleId, roleKey = "") {
   }
   const fromRole = await rolePermissions(sql, roleId);
   const grants = await memberGrants(sql, orgId, uid);
-  return [.../* @__PURE__ */ new Set([...fromRole, ...grants])];
+  return [.../* @__PURE__ */ new Set([...fromRole, ...grants])].filter((id) => !isAdminPermission(id));
 }
 async function listRoles(sql, orgId) {
   const list = rows(
@@ -521,22 +521,24 @@ async function migrateLegacyPlatformMembership(sql, user, email, roles) {
   return member;
 }
 async function stripAdminFromNonSuperRoles(sql, orgId) {
-  const rows_ = rows(
-    await sql`
-      SELECT r.id AS role_id, r.key
-      FROM rbac_roles r
-      WHERE r.org_id = ${orgId} AND r.key <> 'super_user'
-    `
-  );
-  for (const row of rows_) {
-    await sql`
-      DELETE FROM rbac_role_permissions rp
-      USING rbac_permissions p
-      WHERE rp.role_id = ${text(row.role_id)}
-        AND rp.permission_id = p.id
-        AND p.id LIKE 'admin.%'
-    `;
-  }
+  await sql`
+    DELETE FROM rbac_role_permissions rp
+    USING rbac_roles r
+    WHERE rp.role_id = r.id
+      AND r.org_id = ${orgId}
+      AND r.key <> 'super_user'
+      AND rp.permission_id LIKE 'admin.%'
+  `;
+  await sql`
+    DELETE FROM org_member_grants g
+    USING org_members m
+    LEFT JOIN rbac_roles r ON r.id = m.role_id
+    WHERE g.org_id = ${orgId}
+      AND g.uid = m.uid
+      AND m.org_id = ${orgId}
+      AND COALESCE(r.key, '') <> 'super_user'
+      AND g.permission_id LIKE 'admin.%'
+  `;
 }
 async function ensureUserOrg(user, displayName = "") {
   const sql = await sqlReady();
