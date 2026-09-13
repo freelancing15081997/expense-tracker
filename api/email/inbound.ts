@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { postgresUrl, cleanPath, ledgerGet, ledgerSet, ledgerInsertIfNew, ledgerList, ledgerLiveExpenseByHash, ledgerResolveInboundSlug, ledgerSaveExpense } from '../_pg-tables.js';
+import { postgresUrl, cleanPath, ledgerGet, ledgerSet, ledgerInsertIfNew, ledgerList, ledgerLiveExpenseByHash, ledgerResolveInboundSlug, ledgerSaveExpense, ledgerSoftDeleteExpense } from '../_pg-tables.js';
 
 const R2_REGION = 'auto';
 const R2_SERVICE = 's3';
@@ -220,6 +220,8 @@ function parseBookIdLocal(local: string) {
   return match ? match[1] : '';
 }
 
+type EmailAction = 'create' | 'revert' | 'update' | 'return';
+
 type ParsedReceipt = {
   amount: number;
   date: string;
@@ -238,6 +240,11 @@ type ParsedReceipt = {
   fundSource?: string;
   /** Free-text amount adjustments or splits mentioned in the email. */
   adjustments?: string;
+  /**
+   * What Byjan should do with an existing ledger line:
+   * create (default), revert (soft-delete), update (patch fields), return (undo purchase or patch).
+   */
+  action?: EmailAction;
 };
 
 const CATEGORY_RULES: Array<{ category: string; pattern: RegExp }> = [
@@ -422,6 +429,45 @@ function composeNotes(parts: Array<string | undefined | null>) {
   return [...new Set(parts.map((row) => String(row || '').trim()).filter(Boolean))].join('\n').slice(0, 800);
 }
 
+/** Strip revert/update command phrases so matching can focus on the original item text. */
+function stripActionPhrases(text: string) {
+  return String(text || '')
+    .replace(/\b((?:i\s+)?(?:need(?:s|ed)?(?:\s+to)?|want(?:s|ed)?(?:\s+to)?|please|kindly|pls)\s+)?(revert|rollback|roll\s*back|undo|remove|delete|cancel)(?:\s+(?:this|that|it|the))?(?:\s+(?:entr(?:y|ies)|record|expense|transaction))?\b/gi, ' ')
+    .replace(/\b(please\s+)?(update|correct|revise|edit|change)\s+(the\s+)?(amount|description|entr(?:y|ies)|record|expense|category|notes?)(?:\s+to\s+[^\n.!?]{1,40})?/gi, ' ')
+    .replace(/\b(?:or|and)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Detect whether the email asks to create a new line, revert/remove an existing one,
+ * update fields on an existing one, or process a product return/refund against a prior entry.
+ */
+export function emailActionFrom(text: string): EmailAction {
+  const hay = String(text || '');
+  // Natural "need revert / rollback this" language — do not require the word "entry".
+  if (
+    /\b(revert|rollback|roll\s*backs?|undo)\b/i.test(hay)
+    || /\b(need(?:s|ed)?(?:\s+to)?|want(?:s|ed)?(?:\s+to)?|please|kindly|pls)\s+(remove|delete|cancel)\b/i.test(hay)
+    || /\b(remove|delete|cancel)\b.{0,40}\b(entr(?:y|ies)|record|expense|transaction|this|it|above|previous|same)\b/i.test(hay)
+    || /\b(entr(?:y|ies)|record|expense)\b.{0,40}\b(remove|delete|cancel)\b/i.test(hay)
+  ) {
+    return 'revert';
+  }
+  // Explicit field corrections on an existing entry (not a brand-new "paid for X, please adjust Y" note).
+  if (/\b(update|correct|revise|edit|change)\b.{0,50}\b(amount|description|entr(?:y|ies)|record|expense|category|notes?)\b/i.test(hay)
+    || /\b(change|update|correct|revise)\s+(the\s+)?amount\b/i.test(hay)
+    || /\bnew\s+amount\b|\bamount\s+(?:should\s+be|is\s+now|to)\b/i.test(hay)
+    || (/\b(please\s+)?(update|correct|revise|edit)\b/i.test(hay) && /\b(entr(?:y|ies)|record|expense)\b/i.test(hay))) {
+    return 'update';
+  }
+  // Product return / refund against a prior purchase.
+  if (/\b(return(?:ed|ing)?|refund(?:ed|s)?|money\s*back|cash\s*back|item\s+returned|goods\s+returned)\b/i.test(hay)) {
+    return 'return';
+  }
+  return 'create';
+}
+
 /**
  * Fast, deterministic summary of the sender's email intent (no model call).
  * Captures what was paid for, where funds came from, returns, and adjustments.
@@ -439,7 +485,18 @@ export function summarizeEmailIntent(body: string, subject = ''): ParsedReceipt 
   const date = parseIsoDate(hay) || new Date().toISOString().split('T')[0];
   const category = categoryFromText(hay);
   const entryType = entryTypeFrom(hay);
-  const description = (paidFor || subjectClean || merchant || 'Inbound email')
+  const action = emailActionFrom(hay);
+  // For revert/update emails, keep the original item wording (commands stripped) as the description
+  // so we can match the earlier entry even when there is no image or amount.
+  const cleanedItemText = stripActionPhrases(hay);
+  const description = (
+    paidFor
+    || (action !== 'create' ? cleanedItemText : '')
+    || subjectClean
+    || merchant
+    || cleanedItemText
+    || 'Inbound email'
+  )
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 140);
@@ -460,6 +517,7 @@ export function summarizeEmailIntent(body: string, subject = ''): ParsedReceipt 
     fundSource: fundSource || undefined,
     adjustments: adjustments || undefined,
     notes: notes || undefined,
+    action,
   };
 }
 
@@ -492,6 +550,7 @@ export function parseReceiptFields(text: string, extras?: { subject?: string; fi
     fundSource: intent.fundSource,
     adjustments: intent.adjustments,
     notes: intent.notes,
+    action: intent.action || emailActionFrom(hay),
   };
 }
 
@@ -554,6 +613,7 @@ function preferParsed(primary: ParsedReceipt, secondary: ParsedReceipt): ParsedR
     notes: composeNotes([primary.notes, secondary.notes]) || undefined,
     fundSource: primary.fundSource || secondary.fundSource,
     adjustments: primary.adjustments || secondary.adjustments,
+    action: (primary.action && primary.action !== 'create' ? primary.action : secondary.action) || 'create',
   };
 }
 
@@ -622,6 +682,15 @@ function asParsed(value: any, fallback: ParsedReceipt): ParsedReceipt {
     adjustments && !String(value.notes || '').toLowerCase().includes('adjust') ? `Adjustment: ${adjustments}` : '',
     fallback.notes,
   ]);
+  const rawAction = String(value.action || value.intent || '').toLowerCase();
+  const action: EmailAction =
+    rawAction === 'revert' || rawAction === 'delete' || rawAction === 'remove'
+      ? 'revert'
+      : rawAction === 'update' || rawAction === 'edit' || rawAction === 'correct'
+        ? 'update'
+        : rawAction === 'return' || rawAction === 'refund'
+          ? 'return'
+          : (fallback.action || 'create');
   return {
     amount: amount || fallback.amount,
     date,
@@ -638,6 +707,7 @@ function asParsed(value: any, fallback: ParsedReceipt): ParsedReceipt {
     notes: notes || undefined,
     fundSource: fundSource || fallback.fundSource,
     adjustments: adjustments || fallback.adjustments,
+    action,
   };
 }
 
@@ -702,16 +772,21 @@ async function parseDocumentWithGemini(
   const maxBytes = 3 * 1024 * 1024;
   const payloadBytes = bytes.length > maxBytes ? bytes.subarray(0, maxBytes) : bytes;
   const prompt = `You are Byjan's ledger clerk. Read this receipt, bill, invoice, tax invoice, UPI screenshot, bank slip, or photo.
-Also use the sender's email context (may describe what was paid for, where money came from, returns/refunds, or amount adjustments).
+Also use the sender's email context (may describe what was paid for, where money came from, returns/refunds, amount adjustments, or requests to update/remove an existing entry).
 Email context (may be empty): ${emailContext.slice(0, 1200)}
 Return JSON only with keys:
 amount (number), taxAmount (number), currency, date (YYYY-MM-DD), merchant, description, paidFor, category
 (Fuel, Groceries, Meals, Travel, Utilities, Health, Shopping, Software Subscriptions, or Uncategorized),
 entryType (out|in), documentType (receipt|bill|invoice), invoiceNumber, paymentMethod (cash|card|upi|bank|wallet),
-fundSource (where money came from), adjustments (any split/adjust instructions, verbatim short), notes.
+fundSource (where money came from), adjustments (any split/adjust instructions, verbatim short), notes,
+action (create|revert|update|return).
 Rules:
 - Prefer the email's "paid for / description / return" wording for description when present.
 - entryType=in for refunds, returns with money back, reimbursements received; otherwise out.
+- action=revert when the sender asks to remove/delete/undo an existing entry.
+- action=update when the sender asks to correct amount/description/notes on an existing entry.
+- action=return when an item was returned/refunded against a prior purchase.
+- action=create for a normal new expense/income.
 - Never invent amounts. Prefer grand total / amount paid / net payable from the document, unless the email clearly states the ledger amount to post.
 - Put adjustment / split instructions into adjustments (and notes) without dropping them.
 - Keep fundSource short (e.g. "HDFC UPI", "cash", "company card").
@@ -779,11 +854,16 @@ ${cleanBody.slice(0, 3500)}
 Return JSON only with keys:
 amount (number), date (YYYY-MM-DD or empty), merchant, description, paidFor, category
 (Fuel, Groceries, Meals, Travel, Utilities, Health, Shopping, Software Subscriptions, or Uncategorized),
-entryType (out|in), paymentMethod (cash|card|upi|bank|wallet), fundSource, adjustments, notes.
+entryType (out|in), paymentMethod (cash|card|upi|bank|wallet), fundSource, adjustments, notes,
+action (create|revert|update|return).
 Rules:
 - description = short what it was paid for (or returned for).
 - fundSource = where the money came from (account/UPI/cash/card) when mentioned.
 - entryType=in for return/refund/money back; otherwise out.
+- action=revert when the sender asks to remove/delete/undo an existing entry.
+- action=update when the sender asks to correct amount/description/notes on an existing entry.
+- action=return when an item was returned/refunded against a prior purchase.
+- action=create for a normal new expense/income.
 - adjustments = any instruction to split/adjust part of the amount for another purpose, keep close to the sender's words.
 - Never invent amounts. If no amount is stated, set amount to 0.`;
 
@@ -1237,8 +1317,13 @@ function isUnusableDocument(parsed: ParsedReceipt, body: string, ocrPreview: str
   const hasEmailIntent = Boolean(parsed.fundSource || parsed.adjustments || paidForFrom(`${parsed.description}\n${body}`));
   const failedParse = parseEngine === 'gemini-failed' || parseEngine === 'none' || ocrPreview.startsWith('gemini_error:');
   // Body-only emails (no attachment) with amount + description are valid entries.
+  // Revert/update/return requests are also valid even without a clear amount yet.
+  const action = parsed.action || emailActionFrom(`${parsed.description}\n${body}`);
+  if (!hasFile && (action === 'revert' || action === 'update' || action === 'return') && (parsed.description || hasEmailIntent || !thinBody)) {
+    return false;
+  }
   if (!hasFile && parsed.amount > 0 && (parsed.description || hasEmailIntent)) return false;
-  if (noAmount && noMerchant && parsed.category === 'Uncategorized' && (thinBody || failedParse || !hasFile) && !hasEmailIntent) {
+  if (noAmount && noMerchant && parsed.category === 'Uncategorized' && (thinBody || failedParse || !hasFile) && !hasEmailIntent && action === 'create') {
     return true;
   }
   return false;
@@ -1370,7 +1455,7 @@ async function notifyMembers(
   mailbox: Mailbox,
   bookId: string,
   opts: {
-    kind: 'added' | 'rejected' | 'unreadable' | 'duplicate_pending' | 'duplicate_kept' | 'duplicate_added';
+    kind: 'added' | 'rejected' | 'unreadable' | 'duplicate_pending' | 'duplicate_kept' | 'duplicate_added' | 'reverted' | 'updated';
     sender: string;
     subjectLine?: string;
     amount?: string;
@@ -1438,6 +1523,22 @@ async function notifyMembers(
       intro: `${opts.sender} confirmed the latest file is different from the earlier receipt. Byjan recorded a new line.`,
       cta: 'View ledger',
       action: 'Duplicate confirmed as a new entry',
+    },
+    reverted: {
+      subject: `Entry removed · ${mailbox.name}`,
+      kicker: 'Ledger notice',
+      title: `An entry was removed from ${mailbox.name}`,
+      intro: `${opts.sender} emailed a return/remove request. Byjan matched an existing entry and removed it from the ledger.`,
+      cta: 'Open ledger',
+      action: 'Entry reverted from inbound mail',
+    },
+    updated: {
+      subject: `Entry updated · ${mailbox.name}`,
+      kicker: 'Ledger notice',
+      title: `An entry was updated in ${mailbox.name}`,
+      intro: `${opts.sender} emailed a correction or adjustment. Byjan updated the matched ledger entry.`,
+      cta: 'View ledger',
+      action: 'Entry updated from inbound mail',
     },
   }[opts.kind];
   const html = wrapByjanEmail({
@@ -1740,18 +1841,239 @@ async function saveExpenseRecord(bookId: string, expense: Record<string, unknown
   return saved.expense;
 }
 
-async function rollbackExpense(bookId: string, expenseId: string, actor: string) {
-  const current = await docGet(`books/${bookId}/expenses/${expenseId}`);
-  if (!current || current.deleted === true || current.status === 'deleted') return false;
-  await docSet(`books/${bookId}/expenses/${expenseId}`, {
-    ...current,
-    deleted: true,
-    deletedAt: new Date().toISOString(),
-    deletedBy: actor,
-    status: 'deleted',
-    rollbackReason: 'Sender confirmed this was the same receipt as an existing entry',
+async function updateExpenseRecord(bookId: string, expense: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const saved = await ledgerSaveExpense(bookId, { ...expense, id: String(expense.id) }, { insertOnly: false });
+  await mergeCategory(bookId, String(saved.expense.category || '')).catch(() => undefined);
+  return saved.expense;
+}
+
+function textOverlapScore(a: string, b: string) {
+  const left = new Set(normText(a).split(' ').filter((part) => part.length >= 3));
+  const right = new Set(normText(b).split(' ').filter((part) => part.length >= 3));
+  if (!left.size || !right.size) return 0;
+  let hits = 0;
+  for (const part of left) if (right.has(part)) hits += 1;
+  return hits / Math.max(left.size, right.size);
+}
+
+/**
+ * Find an existing live expense that an inbound revert/update/return email is referring to.
+ * Works without an image: uses amount when present, otherwise description / prior email body text.
+ */
+async function findExpenseForEmailAction(
+  bookId: string,
+  parsed: ParsedReceipt,
+  extras?: { subject?: string; body?: string; senderEmail?: string },
+) {
+  const expenses = await listLedgerExpenses(bookId);
+  if (!expenses.length) return null;
+  const amount = Number(parsed.amount || 0);
+  const action = parsed.action || 'create';
+  // Prefer the original item wording, with revert/update commands stripped out.
+  const rawMatchText = stripActionPhrases(
+    [extras?.subject || '', extras?.body || '', parsed.description || '', parsed.merchant || ''].join('\n'),
+  );
+  const wantDesc = normText(rawMatchText || parsed.description);
+  const wantMerchant = normText(parsed.merchant);
+  const senderEmail = String(extras?.senderEmail || '').trim().toLowerCase();
+  let best: { expense: Record<string, unknown>; score: number } | null = null;
+  for (const row of expenses) {
+    let score = 0;
+    const rowAmount = Number(row.amount || 0);
+    if (amount > 0 && Math.abs(rowAmount - amount) < 0.009) score += 4;
+    else if (amount > 0 && rowAmount > 0 && Math.abs(rowAmount - amount) / amount <= 0.02) score += 2;
+    if (wantMerchant && sameMerchant(wantMerchant, normText(row.merchant))) score += 3;
+    const rowHay = [row.description, row.merchant, row.emailBody, row.emailSubject, row.notes]
+      .map((part) => String(part || ''))
+      .join('\n');
+    const descScore = Math.max(
+      textOverlapScore(wantDesc, rowHay),
+      textOverlapScore(wantDesc, String(row.description || '')),
+      textOverlapScore(wantMerchant, String(row.description || '')),
+      textOverlapScore(normText(parsed.description), String(row.description || '')),
+    );
+    score += descScore * 5;
+    // Exact / near-exact description match without amount (common for text-only revert emails).
+    const rowDesc = normText(row.description);
+    if (wantDesc && rowDesc && (wantDesc === rowDesc || rowDesc.includes(wantDesc) || wantDesc.includes(rowDesc))) {
+      score += 3;
+    }
+    if (parsed.date && String(row.date || '') === parsed.date) score += 1;
+    if (senderEmail) {
+      const rowSender = String(row.enteredByEmail || row.paidByName || row.enteredBy || '').trim().toLowerCase();
+      if (rowSender && rowSender === senderEmail) score += 1.5;
+    }
+    // Prefer newer entries when scores tie.
+    const ageBoost = isRecentTimestamp(row.createdAt || row.date, 90 * 24 * 60 * 60 * 1000) ? 0.5 : 0;
+    score += ageBoost;
+    if (!best || score > best.score) best = { expense: row, score };
+  }
+  // Revert/update emails are often text-only with no amount — accept a lower bar when
+  // description overlap is clearly present.
+  const minScore = (action === 'revert' || action === 'update') && amount <= 0 ? 2.5 : 4.5;
+  if (best && best.score >= minScore) return best.expense;
+
+  // Pure "please revert this" with almost no item text → fall back to this sender's newest live entry.
+  const leftover = wantDesc.replace(/\b(this|that|it|the|a|an|please|kindly|pls|need|want|to)\b/g, ' ').replace(/\s+/g, ' ').trim();
+  if ((action === 'revert' || action === 'update') && leftover.length < 4) {
+    const fromSender = expenses.filter((row) => {
+      if (!senderEmail) return true;
+      const rowSender = String(row.enteredByEmail || row.paidByName || row.enteredBy || '').trim().toLowerCase();
+      return rowSender === senderEmail;
+    });
+    const recent = fromSender
+      .slice()
+      .sort((a, b) => Date.parse(String(b.createdAt || b.date || '')) - Date.parse(String(a.createdAt || a.date || '')))[0];
+    if (recent && isRecentTimestamp(recent.createdAt || recent.date, 14 * 24 * 60 * 60 * 1000)) {
+      return recent;
+    }
+  }
+  return null;
+}
+
+function shouldPatchOnReturn(parsed: ParsedReceipt, body: string) {
+  const hay = `${parsed.adjustments || ''}\n${body}`;
+  return /\b(update|correct|revise|change|adjust|new\s+amount|amount\s+(?:should\s+be|to|is\s+now)|partial\s+return)\b/i.test(hay);
+}
+
+async function applyEmailLedgerAction(opts: {
+  mailbox: Mailbox;
+  bookId: string;
+  seenKey: string;
+  eventId: string;
+  member: { uid: string; email: string };
+  subject: string;
+  body: string;
+  parsed: ParsedReceipt;
+  target: Record<string, unknown>;
+  receipt: { path: string; name: string; contentType: string; bytes: Buffer } | null;
+  messageId: string;
+  parseEngine: string;
+}) {
+  const { mailbox, bookId, seenKey, eventId, member, subject, body, parsed, target, receipt, messageId, parseEngine } = opts;
+  const action = parsed.action || 'create';
+  const emailBodyAsIs = clipQuoted(body).slice(0, 8000);
+  const targetId = String(target.id || '');
+
+  // Full undo: soft-delete the matched entry (remove / revert / full return).
+  if (action === 'revert' || (action === 'return' && !shouldPatchOnReturn(parsed, body))) {
+    const ok = await ledgerSoftDeleteExpense(bookId, targetId, member.uid);
+    if (!ok) {
+      await markFlow(bookId, eventId, 'not_posted', {
+        status: 'action_failed',
+        reason: 'Could not revert the matched entry',
+        expenseId: targetId,
+        action,
+      });
+      return { skipped: 'revert failed', bookId, expenseId: targetId, action };
+    }
+    await docSet(seenKey, { id: targetId, bookId, at: new Date().toISOString(), status: 'reverted', action });
+    await markFlow(bookId, eventId, 'reverted', {
+      status: 'reverted',
+      expenseId: targetId,
+      amount: target.amount,
+      description: target.description,
+      action,
+      parseEngine,
+    });
+    await notifyMembers(mailbox, bookId, {
+      kind: 'reverted',
+      sender: member.email,
+      subjectLine: subject,
+      amount: moneyLabel(mailbox.currency, target.amount),
+      category: String(target.category || ''),
+      description: String(target.description || parsed.description || ''),
+      paidBy: member.email,
+      fileName: receipt?.name || '',
+      reason: action === 'return'
+        ? 'Byjan matched a returned item to an existing entry and removed that entry from the ledger.'
+        : 'Byjan removed the matched ledger entry as requested in the email.',
+      inboundEventId: eventId,
+    }).catch(() => undefined);
+    await markFlow(bookId, eventId, 'team_notified', { teamNotified: true });
+    return {
+      ok: true,
+      action: 'reverted',
+      bookId,
+      expenseId: targetId,
+      amount: Number(target.amount || 0),
+      description: target.description,
+      parseEngine,
+    };
+  }
+
+  // Update / partial return: patch the matched entry with summarized fields.
+  const nextAmount = Number(parsed.amount) > 0 ? Number(parsed.amount) : Number(target.amount || 0);
+  const nextNotes = composeNotes([
+    String(target.notes || ''),
+    parsed.notes,
+    parsed.fundSource ? `Paid from: ${parsed.fundSource}` : '',
+    parsed.adjustments ? `Adjustment: ${parsed.adjustments}` : '',
+    action === 'return' ? 'Updated from inbound return email' : 'Updated from inbound email',
+  ]);
+  const patched = {
+    ...target,
+    amount: nextAmount,
+    description: parsed.description || target.description,
+    category: parsed.category && parsed.category !== 'Uncategorized' ? parsed.category : target.category,
+    entryType: parsed.entryType || target.entryType,
+    date: parsed.date || target.date,
+    merchant: parsed.merchant || target.merchant || null,
+    paymentMethod: parsed.paymentMethod || target.paymentMethod || null,
+    fundSource: parsed.fundSource || target.fundSource || null,
+    adjustments: parsed.adjustments || target.adjustments || null,
+    notes: nextNotes || null,
+    status: nextAmount > 0 ? 'recorded' : 'draft',
+    lastEditedBy: member.email,
+    lastEditedByUid: member.uid,
+    lastEditedAt: new Date().toISOString(),
+    emailSubject: subject || target.emailSubject || null,
+    emailBody: emailBodyAsIs || target.emailBody || null,
+    source: 'email',
+    emailAction: action,
+    emailMessageId: messageId,
+    receiptPath: receipt?.path || target.receiptPath || null,
+    receiptName: receipt?.name || target.receiptName || null,
+    parseEngine,
+  };
+  const saved = await updateExpenseRecord(bookId, patched);
+  await docSet(seenKey, { id: saved.id, bookId, at: new Date().toISOString(), status: 'updated', action });
+  await markFlow(bookId, eventId, 'updated', {
+    status: 'updated',
+    expenseId: saved.id,
+    amount: saved.amount,
+    description: saved.description,
+    action,
+    parseEngine,
   });
-  return true;
+  await notifyMembers(mailbox, bookId, {
+    kind: 'updated',
+    sender: member.email,
+    subjectLine: subject,
+    amount: moneyLabel(mailbox.currency, saved.amount),
+    category: String(saved.category || ''),
+    description: String(saved.description || ''),
+    paidBy: member.email,
+    fileName: receipt?.name || '',
+    reason: action === 'return'
+      ? 'Byjan matched a return/adjustment email to an existing entry and updated that entry.'
+      : 'Byjan updated the matched ledger entry from the inbound email.',
+    inboundEventId: eventId,
+  }).catch(() => undefined);
+  await markFlow(bookId, eventId, 'team_notified', { teamNotified: true });
+  return {
+    ok: true,
+    action: 'updated',
+    bookId,
+    expenseId: saved.id,
+    amount: Number(saved.amount || 0),
+    description: saved.description,
+    parseEngine,
+  };
+}
+
+async function rollbackExpense(bookId: string, expenseId: string, actor: string) {
+  return ledgerSoftDeleteExpense(bookId, expenseId, actor);
 }
 
 function decisionPage(title: string, intro: string, rows: Array<{ label: string; value: string }>, ok: boolean) {
@@ -2366,15 +2688,13 @@ async function processItem(item: any) {
 
   await markFlow(bookId, eventId, 'reading', { hasFile: Boolean(receipt?.path), receiptName: receipt?.name || null });
   const hash = receipt?.bytes ? fileHash(receipt.bytes) : '';
+  // Keep hash matches for later — do not treat them as duplicates yet, because the email
+  // may ask to revert/update/return that same receipt.
   let match = await findMatchingReceipt(bookId, hash, undefined, eventId);
   if (match?.expenseId) {
     const live = await loadLiveExpense(bookId, match.expenseId);
-    if (live) {
-      return holdAsDuplicate({
-        mailbox, bookId, seenKey, eventId, hash, member, subject, match: { expenseId: String(live.id), expense: live }, parsed: {}, receipt, messageId,
-      });
-    }
-    match = null;
+    if (!live) match = null;
+    else match = { ...match, expense: live };
   }
 
   // Fast path: rule-based email intent, then optional short Gemini text summarize in parallel with the attachment.
@@ -2451,6 +2771,56 @@ async function processItem(item: any) {
       }
     }
   }
+
+  // If the email asks to revert / update / return an existing entry, do that instead of creating a new one.
+  // Always re-read action from the raw email so AI/document parse cannot turn a revert into a create.
+  const action = emailActionFrom(`${subject}\n${body}`) || parsed.action || 'create';
+  parsed.action = action;
+  if (action === 'revert' || action === 'update' || action === 'return') {
+    let target = match?.expenseId ? await loadLiveExpense(bookId, match.expenseId) : null;
+    if (!target) target = await findExpenseForEmailAction(bookId, parsed, { subject, body, senderEmail: member.email });
+    if (target) {
+      return applyEmailLedgerAction({
+        mailbox,
+        bookId,
+        seenKey,
+        eventId,
+        member: { uid: member.uid, email: member.email },
+        subject,
+        body,
+        parsed,
+        target,
+        receipt,
+        messageId,
+        parseEngine,
+      });
+    }
+    // Return/refund with no matching purchase → fall through and create a money-in entry.
+    // Explicit revert/update with no match → do not invent a new row.
+    if (action === 'revert' || action === 'update') {
+      await docSet(seenKey, { bookId, at: new Date().toISOString(), status: 'no_match', action });
+      await markFlow(bookId, eventId, 'not_posted', {
+        status: 'no_match',
+        reason: action === 'revert'
+          ? 'Could not find a matching entry to remove'
+          : 'Could not find a matching entry to update',
+        action,
+      });
+      await notifyMembers(mailbox, bookId, {
+        kind: 'unreadable',
+        sender: member.email,
+        subjectLine: subject,
+        fileName: receipt?.name || '',
+        reason: action === 'revert'
+          ? 'Byjan could not find a matching ledger entry to remove. Nothing was changed.'
+          : 'Byjan could not find a matching ledger entry to update. Nothing was changed.',
+        inboundEventId: eventId,
+      }).catch(() => undefined);
+      await markFlow(bookId, eventId, 'team_notified', { teamNotified: true });
+      return { skipped: `no matching entry to ${action}`, bookId, from: member.email, action };
+    }
+  }
+
   if (match?.expenseId) {
     const live = await loadLiveExpense(bookId, match.expenseId);
     if (live) {
