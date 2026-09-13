@@ -53,6 +53,14 @@ jobs:
         run: |
           echo "sdk.dir=$ANDROID_HOME" > android/local.properties
 
+      - name: Create gradle.properties
+        run: |
+          cat > android/gradle.properties << EOF
+          android.useAndroidX=true
+          android.enableJetifier=true
+          org.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m
+          EOF
+
       - name: Grant execute permission for gradlew
         run: chmod +x android/gradlew
 
