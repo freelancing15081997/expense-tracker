@@ -236,7 +236,7 @@ export default function AdminAccess() {
   const canRoles = can('admin.roles');
 
   const [mode, setMode] = useState<Mode>(() => {
-    if (canUsers) return 'people';
+    if (canAccess || canUsers) return 'people';
     if (canRoles) return 'defaults';
     return 'roles';
   });
@@ -283,33 +283,35 @@ export default function AdminAccess() {
   }, [queryInput]);
 
   const applyMemberPayload = useCallback((memberPayload: Awaited<ReturnType<typeof fetchRbacMembers>>, keepSelection = true) => {
-    setMembers(memberPayload.members);
-    setMemberTotal(memberPayload.total || 0);
-    setMemberPage(memberPayload.page || 1);
-    setMemberTotalPages(memberPayload.totalPages || 1);
-    setRoles(memberPayload.roles);
+    const nextMembers = Array.isArray(memberPayload?.members) ? memberPayload.members : [];
+    const nextRoles = Array.isArray(memberPayload?.roles) ? memberPayload.roles : [];
+    setMembers(nextMembers);
+    setMemberTotal(Number(memberPayload?.total) || 0);
+    setMemberPage(Number(memberPayload?.page) || 1);
+    setMemberTotalPages(Number(memberPayload?.totalPages) || 1);
+    setRoles(nextRoles);
     setCatalog(
-      memberPayload.permissionCatalog?.length
+      memberPayload?.permissionCatalog?.length
         ? memberPayload.permissionCatalog
         : session?.permissionCatalog?.length
           ? session.permissionCatalog
           : [...RBAC_PERMISSIONS],
     );
-    setOrgName(memberPayload.org.name);
+    setOrgName(memberPayload?.org?.name || '');
 
-    const external = memberPayload.roles.find((r) => r.key === 'external');
-    setSelectedRoleId((curr) => curr || external?.id || memberPayload.roles[0]?.id || '');
+    const external = nextRoles.find((r) => r.key === 'external');
+    setSelectedRoleId((curr) => curr || external?.id || nextRoles[0]?.id || '');
     setCreateDraft((curr) => ({
       ...curr,
-      roleId: curr.roleId || external?.id || memberPayload.roles[0]?.id || '',
+      roleId: curr.roleId || external?.id || nextRoles[0]?.id || '',
     }));
     setSelectedUid((curr) => {
-      if (keepSelection && curr && memberPayload.members.some((m) => m.uid === curr)) return curr;
-      if (keepSelection && curr && !memberPayload.members.some((m) => m.uid === curr)) return curr;
+      if (keepSelection && curr && nextMembers.some((m) => m.uid === curr)) return curr;
+      if (keepSelection && curr && !nextMembers.some((m) => m.uid === curr)) return curr;
       const firstAssignable =
-        memberPayload.members.find((m) => m.roleKey !== 'super_user' && m.status === 'active')
-        || memberPayload.members.find((m) => m.roleKey !== 'super_user')
-        || memberPayload.members[0];
+        nextMembers.find((m) => m.roleKey !== 'super_user' && m.status === 'active')
+        || nextMembers.find((m) => m.roleKey !== 'super_user')
+        || nextMembers[0];
       return firstAssignable?.uid || '';
     });
   }, [session?.permissionCatalog]);
@@ -421,11 +423,12 @@ export default function AdminAccess() {
   const segments = useMemo(() => {
     const items: { id: Mode; label: string; show: boolean }[] = [
       { id: 'defaults', label: 'Defaults', show: canRoles },
-      { id: 'people', label: 'People', show: canUsers },
+      // Anyone who can open Access can see People; mutations still require admin.users.
+      { id: 'people', label: 'People', show: canAccess || canUsers },
       { id: 'roles', label: 'Roles', show: canRoles },
     ];
     return items.filter((i) => i.show);
-  }, [canRoles, canUsers]);
+  }, [canAccess, canRoles, canUsers]);
 
   useEffect(() => {
     if (!segments.some((s) => s.id === mode) && segments[0]) setMode(segments[0].id);
@@ -803,9 +806,11 @@ export default function AdminAccess() {
               ))}
               {members.length === 0 && (
                 <p className="rbac-empty">
-                  {query
-                    ? 'No people match this search.'
-                    : 'No people yet. Create a user to assign a role and features.'}
+                  {loadError
+                    ? 'Could not load people. Use Retry above.'
+                    : query
+                      ? 'No people match this search.'
+                      : 'No people in the platform org yet. Create a user, or ask teammates to sign in once so they appear here.'}
                 </p>
               )}
             </div>

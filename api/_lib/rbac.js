@@ -306,7 +306,36 @@ async function memberGrants(sql, orgId, uid) {
     `
   ).map((r) => text(r.permission_id)).filter(Boolean);
 }
-async function effectivePermissions(sql, orgId, uid, roleId) {
+async function memberGrantsByUid(sql, orgId, uids) {
+  const map = /* @__PURE__ */ new Map();
+  for (const uid of uids) map.set(uid, []);
+  if (!uids.length) return map;
+  const grantRows = rows(
+    await sql`
+      SELECT uid, permission_id FROM org_member_grants
+      WHERE org_id = ${orgId} AND uid = ANY(${uids})
+    `
+  );
+  for (const row of grantRows) {
+    const uid = text(row.uid);
+    const list = map.get(uid) || [];
+    list.push(text(row.permission_id));
+    map.set(uid, list);
+  }
+  return map;
+}
+async function effectivePermissions(sql, orgId, uid, roleId, roleKey = "") {
+  if (roleKey === "super_user") {
+    return RBAC_PERMISSIONS.map((p) => p.id);
+  }
+  if (!roleKey && roleId) {
+    const role = rows(
+      await sql`SELECT key FROM rbac_roles WHERE id = ${roleId} LIMIT 1`
+    )[0];
+    if (text(role?.key) === "super_user") {
+      return RBAC_PERMISSIONS.map((p) => p.id);
+    }
+  }
   const fromRole = await rolePermissions(sql, roleId);
   const grants = await memberGrants(sql, orgId, uid);
   return [.../* @__PURE__ */ new Set([...fromRole, ...grants])];
@@ -645,7 +674,7 @@ async function getRbacSession(user, displayName = "") {
   return {
     org,
     member,
-    permissions: await effectivePermissions(sql, orgId, user.uid, member.roleId),
+    permissions: await effectivePermissions(sql, orgId, user.uid, member.roleId, member.roleKey),
     roles: await listRoles(sql, orgId),
     permissionCatalog: RBAC_PERMISSIONS,
     isSuperUser: member.roleKey === "super_user"
@@ -688,7 +717,7 @@ async function syncRegisteredUsersIntoPlatform(sql) {
         WHERE m.org_id = ${PLATFORM_ORG_ID} AND m.uid = u.id
       )
       ORDER BY u.updated_at DESC NULLS LAST
-      LIMIT 500
+      LIMIT 5000
     `
   );
   for (const u of missing) {
@@ -715,7 +744,7 @@ async function syncRegisteredUsersIntoPlatform(sql) {
           WHERE p.org_id = ${PLATFORM_ORG_ID} AND p.uid = m.uid
         )
       ORDER BY m.uid, m.updated_at DESC NULLS LAST
-      LIMIT 200
+      LIMIT 2000
     `
   );
   for (const row of legacy) {
@@ -737,7 +766,11 @@ async function syncRegisteredUsersIntoPlatform(sql) {
 async function listOrgMembers(user, input = {}) {
   const session = await requireAnyOrgPermission(user, ["admin.access", "admin.users", "admin.roles"]);
   const sql = await sqlReady();
-  await syncRegisteredUsersIntoPlatform(sql);
+  try {
+    await syncRegisteredUsersIntoPlatform(sql);
+  } catch (err) {
+    console.error("[rbac] syncRegisteredUsersIntoPlatform failed", err);
+  }
   const pageSize = Math.min(100, Math.max(10, Number(input.pageSize) || 25));
   const page = Math.max(1, Number(input.page) || 1);
   const offset = (page - 1) * pageSize;
@@ -794,6 +827,8 @@ async function listOrgMembers(user, input = {}) {
         `
   );
   const members = [];
+  const uids = list.map((row) => text(row.uid)).filter(Boolean);
+  const grantsByUid = await memberGrantsByUid(sql, session.org.id, uids);
   for (const row of list) {
     const uid = text(row.uid);
     members.push({
@@ -808,7 +843,7 @@ async function listOrgMembers(user, input = {}) {
       invitedBy: text(row.invited_by),
       createdAt: text(row.created_at),
       updatedAt: text(row.updated_at),
-      grantIds: await memberGrants(sql, session.org.id, uid)
+      grantIds: grantsByUid.get(uid) || []
     });
   }
   return {
@@ -1337,7 +1372,7 @@ async function setMemberPrivileges(user, input) {
     ok: true,
     uid: targetUid,
     grantIds: await memberGrants(sql, session.org.id, targetUid),
-    effectiveIds: await effectivePermissions(sql, session.org.id, targetUid, member.roleId)
+    effectiveIds: await effectivePermissions(sql, session.org.id, targetUid, member.roleId, member.roleKey)
   };
 }
 export {
