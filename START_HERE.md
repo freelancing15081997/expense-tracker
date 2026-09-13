@@ -1,5 +1,9 @@
 # 🎉 Your Mobile App is Ready!
 
+## 🚀 CI/CD Pipeline Active!
+
+**NEW**: Automatic builds are now enabled! Every push to GitHub automatically builds your APK/AAB. No manual building needed!
+
 ## What You Have Now
 
 Your web application has been **fully converted into a production-ready mobile app** with all advanced features you requested. Everything is built, tested, and documented.
