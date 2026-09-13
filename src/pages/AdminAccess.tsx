@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronRight, Loader2, Plus, Search, Shield, Trash2, UserPlus } from 'lucide-react';
 import { useRbac } from '../context/RbacContext';
 import { useToast } from '../context/ToastContext';
+import { RBAC_PERMISSIONS } from '../lib/rbac-catalog';
 import {
   cancelRbacInvite,
   createRbacRole,
@@ -152,6 +153,11 @@ function PrivilegeTree({
 
   return (
     <div className="rbac-tree">
+      {tree.length === 0 ? (
+        <p className="rbac-empty">
+          No features loaded yet. Refresh Access & roles, or confirm you still have admin access.
+        </p>
+      ) : null}
       {tree.map((node) => {
         const toolOpen = openTools[node.tool] !== false;
         const toolPermIds = node.features.flatMap((f) => f.permissions.map((p) => p.id));
@@ -228,15 +234,18 @@ export default function AdminAccess() {
   const canRoles = can('admin.roles');
 
   const [mode, setMode] = useState<Mode>(() => {
-    if (canRoles) return 'defaults';
     if (canUsers) return 'people';
+    if (canRoles) return 'defaults';
     return 'roles';
   });
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [members, setMembers] = useState<RbacMember[]>([]);
   const [roles, setRoles] = useState<RbacRole[]>([]);
   const [invites, setInvites] = useState<RbacInvite[]>([]);
-  const [catalog, setCatalog] = useState<RbacPermission[]>([]);
+  const [catalog, setCatalog] = useState<RbacPermission[]>(
+    () => (session?.permissionCatalog?.length ? session.permissionCatalog : [...RBAC_PERMISSIONS]),
+  );
   const [orgName, setOrgName] = useState('');
   const [query, setQuery] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
@@ -250,11 +259,25 @@ export default function AdminAccess() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError('');
     try {
+      // Always keep a product feature tree available, even if member listing fails.
+      if (session?.permissionCatalog?.length) {
+        setCatalog(session.permissionCatalog);
+      } else {
+        setCatalog((curr) => (curr.length ? curr : [...RBAC_PERMISSIONS]));
+      }
+
       const memberPayload = await fetchRbacMembers();
       setMembers(memberPayload.members);
       setRoles(memberPayload.roles);
-      setCatalog(memberPayload.permissionCatalog || []);
+      setCatalog(
+        memberPayload.permissionCatalog?.length
+          ? memberPayload.permissionCatalog
+          : session?.permissionCatalog?.length
+            ? session.permissionCatalog
+            : [...RBAC_PERMISSIONS],
+      );
       setOrgName(memberPayload.org.name);
 
       const external = memberPayload.roles.find((r) => r.key === 'external');
@@ -270,16 +293,24 @@ export default function AdminAccess() {
       });
       setSelectedUid((curr) => {
         if (curr && memberPayload.members.some((m) => m.uid === curr)) return curr;
-        return memberPayload.members[0]?.uid || '';
+        const firstAssignable =
+          memberPayload.members.find((m) => m.roleKey !== 'super_user' && m.status === 'active')
+          || memberPayload.members.find((m) => m.roleKey !== 'super_user')
+          || memberPayload.members[0];
+        return firstAssignable?.uid || '';
       });
 
       if (canUsers) setInvites(await fetchRbacInvites().catch(() => []));
     } catch (err: any) {
-      addToast(err?.message || 'Failed to load access settings', 'error');
+      const message = err?.message || 'Failed to load access settings';
+      setLoadError(message);
+      addToast(message, 'error');
+      if (session?.permissionCatalog?.length) setCatalog(session.permissionCatalog);
+      else setCatalog([...RBAC_PERMISSIONS]);
     } finally {
       setLoading(false);
     }
-  }, [addToast, canUsers]);
+  }, [addToast, canUsers, session?.permissionCatalog]);
 
   useEffect(() => {
     void load();
@@ -604,6 +635,17 @@ export default function AdminAccess() {
         </div>
       </header>
 
+      {loadError ? (
+        <div className="rbac-panel rbac-banner" style={{ marginBottom: 12 }}>
+          <p className="rbac-panel-sub" style={{ margin: 0 }}>
+            {loadError} — feature tree may still work from cache. Try Refresh.
+          </p>
+          <button type="button" className="rbac-ghost" onClick={() => void load()}>
+            Retry
+          </button>
+        </div>
+      ) : null}
+
       {loading ? (
         <div className="rbac-panel rbac-loading">
           <Loader2 className="rbac-spin" />
@@ -613,9 +655,10 @@ export default function AdminAccess() {
         <section className="rbac-panel">
           <div className="rbac-panel-head">
             <div>
-              <h2 className="font-display rbac-panel-title">Default external</h2>
+              <h2 className="font-display rbac-panel-title">Default product features</h2>
               <p className="rbac-panel-sub">
-                Every new signup inherits this matrix. Admin console privileges stay reserved for super users.
+                Turn on App / Expense Tracker / Books features here so every Default external user gets them.
+                Then use People to give one person extra features on top.
               </p>
             </div>
             {canRoles && (
@@ -671,7 +714,13 @@ export default function AdminAccess() {
                   </span>
                 </button>
               ))}
-              {filteredMembers.length === 0 && <p className="rbac-empty">No people match.</p>}
+              {filteredMembers.length === 0 && (
+                <p className="rbac-empty">
+                  {members.length === 0
+                    ? 'No people listed yet. Invite someone below — or open Access again after users have signed up so they sync into this list.'
+                    : 'No people match your search.'}
+                </p>
+              )}
             </div>
 
             {canUsers && (
@@ -798,9 +847,10 @@ export default function AdminAccess() {
                   <>
                     <div className="rbac-panel-head rbac-panel-head-tight">
                       <div>
-                        <h3 className="rbac-section-label">Extra privileges</h3>
+                        <h3 className="rbac-section-label">Feature access for this person</h3>
                         <p className="rbac-panel-sub">
-                          Switches locked as “from role” are inherited. Extra grants stack on top.
+                          Expand App, Expense Tracker, or Books. Locked switches are already on from their role —
+                          turn on extra features here, then Save privileges.
                         </p>
                       </div>
                       {canUsers && (

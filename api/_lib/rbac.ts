@@ -722,9 +722,78 @@ export async function userHasPermission(user: ApiUser, permissionId: string) {
   }
 }
 
+/**
+ * Bring every registered Neon user (and any active legacy-org member) into org_platform
+ * so Access → People can list and grant features without waiting for each person to re-login.
+ */
+async function syncRegisteredUsersIntoPlatform(sql: Sql) {
+  await ensurePlatformOrg(sql, '');
+  const roles = await seedSystemRoles(sql, PLATFORM_ORG_ID);
+  const externalRoleId = text(roles.external);
+  const superRoleId = text(roles.super_user);
+  if (!externalRoleId) return;
+
+  const registered = rows<{ id: string; email: string | null; display_name: string | null; data: unknown }>(
+    await sql`
+      SELECT id, email, display_name, data
+      FROM users
+      ORDER BY updated_at DESC NULLS LAST
+      LIMIT 5000
+    `,
+  );
+  for (const u of registered) {
+    const uid = text(u.id);
+    if (!uid) continue;
+    const existing = await getMember(sql, PLATFORM_ORG_ID, uid);
+    if (existing) continue;
+    const data = (u.data && typeof u.data === 'object' ? u.data : {}) as Record<string, unknown>;
+    const email = emailOf(u.email || data.email);
+    const label = text(u.display_name || data.displayName) || email.split('@')[0] || 'User';
+    const roleId = isAllowlistedSuper(email) && superRoleId ? superRoleId : externalRoleId;
+    await sql`
+      INSERT INTO org_members (org_id, uid, role_id, email, display_name, status, invited_by, updated_at)
+      VALUES (${PLATFORM_ORG_ID}, ${uid}, ${roleId}, ${email}, ${label}, 'active', ${uid}, NOW())
+      ON CONFLICT (org_id, uid) DO NOTHING
+    `;
+  }
+
+  const legacy = rows<{ uid: string; email: string | null; display_name: string | null }>(
+    await sql`
+      SELECT DISTINCT ON (m.uid) m.uid, m.email, m.display_name
+      FROM org_members m
+      WHERE m.status = 'active'
+        AND m.org_id <> ${PLATFORM_ORG_ID}
+        AND NOT EXISTS (
+          SELECT 1 FROM org_members p
+          WHERE p.org_id = ${PLATFORM_ORG_ID} AND p.uid = m.uid
+        )
+      ORDER BY m.uid, m.updated_at DESC NULLS LAST
+    `,
+  );
+  for (const row of legacy) {
+    const uid = text(row.uid);
+    if (!uid) continue;
+    const email = emailOf(row.email);
+    const label = text(row.display_name) || email.split('@')[0] || 'User';
+    const roleId = isAllowlistedSuper(email) && superRoleId ? superRoleId : externalRoleId;
+    await sql`
+      INSERT INTO org_members (org_id, uid, role_id, email, display_name, status, invited_by, updated_at)
+      VALUES (${PLATFORM_ORG_ID}, ${uid}, ${roleId}, ${email}, ${label}, 'active', ${uid}, NOW())
+      ON CONFLICT (org_id, uid) DO NOTHING
+    `;
+  }
+
+  if (typeof remappedAllLegacyMembers === 'function') {
+    await remappedAllLegacyMembers(sql);
+  }
+}
+
 export async function listOrgMembers(user: ApiUser) {
-  const session = await requireOrgPermission(user, 'admin.users');
+  // Super users open Access with admin.access; listing must not hard-require admin.users alone.
+  const session = await requireAnyOrgPermission(user, ['admin.access', 'admin.users', 'admin.roles']);
   const sql = await sqlReady();
+  await syncRegisteredUsersIntoPlatform(sql);
+
   const list = rows<{
     org_id: string;
     uid: string;
@@ -735,17 +804,18 @@ export async function listOrgMembers(user: ApiUser) {
     invited_by: string;
     created_at: string;
     updated_at: string;
-    role_key: string;
-    role_name: string;
+    role_key: string | null;
+    role_name: string | null;
   }>(
     await sql`
       SELECT m.org_id, m.uid, m.role_id, m.email, m.display_name, m.status, m.invited_by,
         m.created_at, m.updated_at, r.key AS role_key, r.name AS role_name
       FROM org_members m
-      JOIN rbac_roles r ON r.id = m.role_id
+      LEFT JOIN rbac_roles r ON r.id = m.role_id
       WHERE m.org_id = ${session.org.id}
       ORDER BY
         CASE m.status WHEN 'active' THEN 0 WHEN 'invited' THEN 1 ELSE 2 END,
+        CASE COALESCE(r.key, '') WHEN 'super_user' THEN 0 WHEN 'external' THEN 1 ELSE 2 END,
         COALESCE(NULLIF(m.display_name, ''), m.email) ASC
     `,
   );
@@ -756,8 +826,8 @@ export async function listOrgMembers(user: ApiUser) {
       orgId: text(row.org_id),
       uid,
       roleId: text(row.role_id),
-      roleKey: text(row.role_key),
-      roleName: text(row.role_name),
+      roleKey: text(row.role_key) || 'external',
+      roleName: text(row.role_name) || 'Default external',
       email: emailOf(row.email),
       displayName: text(row.display_name),
       status: text(row.status) || 'active',
