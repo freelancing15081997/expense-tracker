@@ -13,3 +13,25 @@ storage_requirements.txt
 vercel.env
 error.txt
 .vercel
+
+# Android / Mobile
+android/.gradle
+android/build/
+android/captures/
+android/.idea
+android/local.properties
+android/*.iml
+android/app/build/
+android/app/release/
+android/app/debug/
+android/app/google-services.json
+android/app/*.keystore
+android/app/*.jks
+android/gradle.properties
+!android/gradle.properties.template
+
+# iOS (for future)
+ios/App/Podfile.lock
+ios/App/Pods/
+ios/App/build/
+ios/App/GoogleService-Info.plist
