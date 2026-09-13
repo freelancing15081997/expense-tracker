@@ -35,7 +35,7 @@ function iconWell(active: boolean) {
 
 export default function AppSidebar({ expanded, pinned, tenant, userProfile, onLogout, onTogglePin }: AppSidebarProps) {
   const location = useLocation();
-  const { can, canAny, canAccessPath } = useRbac();
+  const { session, can, canAny, canAccessPath } = useRbac();
   const booksWrapRef = useRef<HTMLDivElement>(null);
   const [booksFlyout, setBooksFlyout] = useState(false);
   const [mobileBooks, setMobileBooks] = useState(location.pathname.startsWith('/books'));
@@ -57,7 +57,8 @@ export default function AppSidebar({ expanded, pinned, tenant, userProfile, onLo
   })).filter((group) => group.items.length > 0);
   const filteredQuickCreate = BOOKS_QUICK_CREATE.filter((item) => canAccessPath(item.href));
   const showSettings = canAny(['settings.view', 'settings.manage']);
-  const showAdmin = can('admin.access');
+  // Super users only — never show from a leaked admin.* grant on Default external.
+  const showAdmin = Boolean(session?.isSuperUser) && can('admin.access');
 
   useEffect(() => {
     setMobileBooks(onBooks);

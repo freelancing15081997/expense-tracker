@@ -3,6 +3,7 @@ import { ApiError, apiJson, withDomainApi } from './_pg-tables.js';
 import {
   cancelOrgInvite,
   createCustomRole,
+  createOrgUser,
   deleteCustomRole,
   getRbacSession,
   grantBooksFeatures,
@@ -12,6 +13,7 @@ import {
   removeOrgMember,
   renameOrg,
   revokeBooksFeatures,
+  setMemberPrivileges,
   updateCustomRole,
   updateOrgMember,
 } from './_lib/rbac.js';
@@ -27,7 +29,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (op === 'listMembers') {
-      const payload = await listOrgMembers(user);
+      const payload = await listOrgMembers(user, {
+        query: body.query != null ? String(body.query) : '',
+        page: body.page != null ? Number(body.page) : 1,
+        pageSize: body.pageSize != null ? Number(body.pageSize) : 25,
+      });
       apiJson(res as any, 200, {
         org: payload.org,
         member: payload.member,
@@ -35,6 +41,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         roles: payload.roles,
         permissions: payload.permissions,
         permissionCatalog: payload.permissionCatalog,
+        total: payload.total,
+        page: payload.page,
+        pageSize: payload.pageSize,
+        totalPages: payload.totalPages,
       });
       return;
     }
@@ -49,6 +59,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       apiJson(res as any, 200, await inviteOrgMember(user, {
         email: String(body.email || ''),
         roleId: String(body.roleId || ''),
+        permissionIds: Array.isArray(body.permissionIds) ? body.permissionIds.map(String) : [],
+      }));
+      return;
+    }
+
+    if (op === 'createUser') {
+      apiJson(res as any, 200, await createOrgUser(user, {
+        email: String(body.email || ''),
+        displayName: body.displayName != null ? String(body.displayName) : '',
+        password: body.password != null ? String(body.password) : '',
+        roleId: String(body.roleId || ''),
+        permissionIds: Array.isArray(body.permissionIds) ? body.permissionIds.map(String) : [],
       }));
       return;
     }
@@ -120,6 +142,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       apiJson(res as any, 200, await revokeBooksFeatures(user, {
         uid: String(body.uid || ''),
         permissionIds: Array.isArray(body.permissionIds) ? body.permissionIds.map(String) : undefined,
+      }));
+      return;
+    }
+
+    if (op === 'setMemberPrivileges') {
+      apiJson(res as any, 200, await setMemberPrivileges(user, {
+        uid: String(body.uid || ''),
+        permissionIds: Array.isArray(body.permissionIds) ? body.permissionIds.map(String) : [],
       }));
       return;
     }

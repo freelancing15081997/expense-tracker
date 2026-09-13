@@ -337,10 +337,43 @@ async function memberGrants(sql: Sql, orgId: string, uid: string) {
   ).map((r) => text(r.permission_id)).filter(Boolean);
 }
 
-async function effectivePermissions(sql: Sql, orgId: string, uid: string, roleId: string) {
+async function memberGrantsByUid(sql: Sql, orgId: string, uids: string[]) {
+  const map = new Map<string, string[]>();
+  for (const uid of uids) map.set(uid, []);
+  if (!uids.length) return map;
+  const grantRows = rows<{ uid: string; permission_id: string }>(
+    await sql`
+      SELECT uid, permission_id FROM org_member_grants
+      WHERE org_id = ${orgId} AND uid = ANY(${uids})
+    `,
+  );
+  for (const row of grantRows) {
+    const uid = text(row.uid);
+    const list = map.get(uid) || [];
+    list.push(text(row.permission_id));
+    map.set(uid, list);
+  }
+  return map;
+}
+
+async function effectivePermissions(sql: Sql, orgId: string, uid: string, roleId: string, roleKey = '') {
+  // Super users always get the full catalog — never depend on a partially seeded role matrix.
+  if (roleKey === 'super_user') {
+    return RBAC_PERMISSIONS.map((p) => p.id);
+  }
+  if (!roleKey && roleId) {
+    const role = rows<{ key: string }>(
+      await sql`SELECT key FROM rbac_roles WHERE id = ${roleId} LIMIT 1`,
+    )[0];
+    if (text(role?.key) === 'super_user') {
+      return RBAC_PERMISSIONS.map((p) => p.id);
+    }
+  }
   const fromRole = await rolePermissions(sql, roleId);
   const grants = await memberGrants(sql, orgId, uid);
-  return [...new Set([...fromRole, ...grants])];
+  // Non-super users must never receive admin.* — otherwise Access & roles appears in the nav
+  // and then fails when they open it.
+  return [...new Set([...fromRole, ...grants])].filter((id) => !isAdminPermission(id));
 }
 
 
@@ -478,6 +511,84 @@ async function applyInviteBooksGrants(sql: Sql, orgId: string, uid: string, invi
   }
 }
 
+async function applyInvitePrivilegeGrants(sql: Sql, orgId: string, uid: string, inviteData: unknown) {
+  const data = (inviteData && typeof inviteData === 'object' ? inviteData : {}) as Record<string, unknown>;
+  await applyInviteBooksGrants(sql, orgId, uid, inviteData);
+  const catalog = new Set(RBAC_PERMISSIONS.map((p) => p.id));
+  const raw = Array.isArray(data.permissionIds)
+    ? data.permissionIds
+    : Array.isArray(data.grants)
+      ? data.grants
+      : [];
+  const grants = raw
+    .map((g) => text(g))
+    .filter((id) => catalog.has(id) && !isAdminPermission(id));
+  for (const permissionId of grants) {
+    await sql`
+      INSERT INTO org_member_grants (org_id, uid, permission_id, granted_by, created_at)
+      VALUES (${orgId}, ${uid}, ${permissionId}, ${text(data.invitedBy) || uid}, NOW())
+      ON CONFLICT DO NOTHING
+    `;
+  }
+}
+
+const FIREBASE_WEB_API_KEY =
+  process.env.FIREBASE_API_KEY
+  || process.env.VITE_FIREBASE_API_KEY
+  || 'AIzaSyDQUXdMTTUOONPbua5cWm75Jn-7-SkRwjE';
+
+async function provisionFirebaseAuthUser(input: { email: string; password: string; displayName: string }) {
+  const res = await fetch(
+    `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FIREBASE_WEB_API_KEY}`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        email: input.email,
+        password: input.password,
+        displayName: input.displayName,
+        returnSecureToken: false,
+      }),
+    },
+  );
+  const payload = (await res.json().catch(() => ({}))) as {
+    localId?: string;
+    email?: string;
+    error?: { message?: string };
+  };
+  if (!res.ok || !payload.localId) {
+    const msg = String(payload.error?.message || 'Could not create login for this user');
+    if (msg.includes('EMAIL_EXISTS')) {
+      throw Object.assign(new ApiError(409, 'That email already has a login. Search People or use Invite instead.'), {
+        code: 'EMAIL_EXISTS',
+      });
+    }
+    throw new ApiError(400, msg.replace(/_/g, ' ').toLowerCase());
+  }
+  return { uid: text(payload.localId), email: emailOf(payload.email || input.email) };
+}
+
+async function replaceMemberGrants(
+  sql: Sql,
+  orgId: string,
+  uid: string,
+  grantedBy: string,
+  permissionIds: string[],
+) {
+  const catalog = new Set(RBAC_PERMISSIONS.map((p) => p.id));
+  const next = [...new Set(permissionIds.map((id) => text(id)).filter(Boolean))]
+    .filter((id) => catalog.has(id) && !isAdminPermission(id));
+  await sql`DELETE FROM org_member_grants WHERE org_id = ${orgId} AND uid = ${uid}`;
+  for (const permissionId of next) {
+    await sql`
+      INSERT INTO org_member_grants (org_id, uid, permission_id, granted_by, created_at)
+      VALUES (${orgId}, ${uid}, ${permissionId}, ${grantedBy}, NOW())
+      ON CONFLICT DO NOTHING
+    `;
+  }
+  return next;
+}
+
 
 /** Legacy personal-org roles from the first RBAC cut. Existing members keep those role_ids until remapped. */
 const LEGACY_PRIVILEGED_ROLE_KEYS = new Set(['owner', 'admin', 'manager', 'accountant', 'contributor', 'viewer']);
@@ -514,22 +625,26 @@ async function migrateLegacyPlatformMembership(sql: Sql, user: ApiUser, email: s
 }
 
 async function stripAdminFromNonSuperRoles(sql: Sql, orgId: string) {
-  const rows_ = rows<{ role_id: string; key: string }>(
-    await sql`
-      SELECT r.id AS role_id, r.key
-      FROM rbac_roles r
-      WHERE r.org_id = ${orgId} AND r.key <> 'super_user'
-    `,
-  );
-  for (const row of rows_) {
-    await sql`
-      DELETE FROM rbac_role_permissions rp
-      USING rbac_permissions p
-      WHERE rp.role_id = ${text(row.role_id)}
-        AND rp.permission_id = p.id
-        AND p.id LIKE 'admin.%'
-    `;
-  }
+  // Delete by permission_id prefix so we do not depend on rbac_permissions join matching.
+  await sql`
+    DELETE FROM rbac_role_permissions rp
+    USING rbac_roles r
+    WHERE rp.role_id = r.id
+      AND r.org_id = ${orgId}
+      AND r.key <> 'super_user'
+      AND rp.permission_id LIKE 'admin.%'
+  `;
+  // Also clear any leftover admin.* per-user grants on non-super members.
+  await sql`
+    DELETE FROM org_member_grants g
+    USING org_members m
+    LEFT JOIN rbac_roles r ON r.id = m.role_id
+    WHERE g.org_id = ${orgId}
+      AND g.uid = m.uid
+      AND m.org_id = ${orgId}
+      AND COALESCE(r.key, '') <> 'super_user'
+      AND g.permission_id LIKE 'admin.%'
+  `;
 }
 
 
@@ -566,7 +681,7 @@ export async function ensureUserOrg(user: ApiUser, displayName = ''): Promise<st
           status = 'active',
           updated_at = NOW()
       `;
-      await applyInviteBooksGrants(sql, PLATFORM_ORG_ID, user.uid, invite.data);
+      await applyInvitePrivilegeGrants(sql, PLATFORM_ORG_ID, user.uid, invite.data);
       await sql`
         UPDATE org_invites
         SET status = 'accepted', updated_at = NOW(),
@@ -690,7 +805,7 @@ export async function getRbacSession(user: ApiUser, displayName = ''): Promise<R
   return {
     org,
     member,
-    permissions: await effectivePermissions(sql, orgId, user.uid, member.roleId),
+    permissions: await effectivePermissions(sql, orgId, user.uid, member.roleId, member.roleKey),
     roles: await listRoles(sql, orgId),
     permissionCatalog: RBAC_PERMISSIONS,
     isSuperUser: member.roleKey === 'super_user',
@@ -722,48 +837,203 @@ export async function userHasPermission(user: ApiUser, permissionId: string) {
   }
 }
 
-export async function listOrgMembers(user: ApiUser) {
-  const session = await requireOrgPermission(user, 'admin.users');
-  const sql = await sqlReady();
-  const list = rows<{
-    org_id: string;
-    uid: string;
-    role_id: string;
-    email: string;
-    display_name: string;
-    status: string;
-    invited_by: string;
-    created_at: string;
-    updated_at: string;
-    role_key: string;
-    role_name: string;
-  }>(
+/**
+ * Bring every registered Neon user (and any active legacy-org member) into org_platform
+ * so Access → People can list and grant features without waiting for each person to re-login.
+ */
+async function syncRegisteredUsersIntoPlatform(sql: Sql) {
+  await ensurePlatformOrg(sql, '');
+  const roles = await seedSystemRoles(sql, PLATFORM_ORG_ID);
+  const externalRoleId = text(roles.external);
+  const superRoleId = text(roles.super_user);
+  if (!externalRoleId) return;
+
+  // Backfill every Neon user missing from the platform org (large batches so People is never empty).
+  const missing = rows<{ id: string; email: string | null; display_name: string | null; data: unknown }>(
     await sql`
-      SELECT m.org_id, m.uid, m.role_id, m.email, m.display_name, m.status, m.invited_by,
-        m.created_at, m.updated_at, r.key AS role_key, r.name AS role_name
-      FROM org_members m
-      JOIN rbac_roles r ON r.id = m.role_id
-      WHERE m.org_id = ${session.org.id}
-      ORDER BY
-        CASE m.status WHEN 'active' THEN 0 WHEN 'invited' THEN 1 ELSE 2 END,
-        COALESCE(NULLIF(m.display_name, ''), m.email) ASC
+      SELECT u.id, u.email, u.display_name, u.data
+      FROM users u
+      WHERE NOT EXISTS (
+        SELECT 1 FROM org_members m
+        WHERE m.org_id = ${PLATFORM_ORG_ID} AND m.uid = u.id
+      )
+      ORDER BY u.updated_at DESC NULLS LAST
+      LIMIT 5000
     `,
   );
-  return {
-    ...session,
-    members: list.map((row): MemberRecord => ({
+  for (const u of missing) {
+    const uid = text(u.id);
+    if (!uid) continue;
+    const data = (u.data && typeof u.data === 'object' ? u.data : {}) as Record<string, unknown>;
+    const email = emailOf(u.email || data.email);
+    const label = text(u.display_name || data.displayName) || email.split('@')[0] || 'User';
+    const roleId = isAllowlistedSuper(email) && superRoleId ? superRoleId : externalRoleId;
+    await sql`
+      INSERT INTO org_members (org_id, uid, role_id, email, display_name, status, invited_by, updated_at)
+      VALUES (${PLATFORM_ORG_ID}, ${uid}, ${roleId}, ${email}, ${label}, 'active', ${uid}, NOW())
+      ON CONFLICT (org_id, uid) DO NOTHING
+    `;
+  }
+
+  const legacy = rows<{ uid: string; email: string | null; display_name: string | null }>(
+    await sql`
+      SELECT DISTINCT ON (m.uid) m.uid, m.email, m.display_name
+      FROM org_members m
+      WHERE m.status = 'active'
+        AND m.org_id <> ${PLATFORM_ORG_ID}
+        AND NOT EXISTS (
+          SELECT 1 FROM org_members p
+          WHERE p.org_id = ${PLATFORM_ORG_ID} AND p.uid = m.uid
+        )
+      ORDER BY m.uid, m.updated_at DESC NULLS LAST
+      LIMIT 2000
+    `,
+  );
+  for (const row of legacy) {
+    const uid = text(row.uid);
+    if (!uid) continue;
+    const email = emailOf(row.email);
+    const label = text(row.display_name) || email.split('@')[0] || 'User';
+    const roleId = isAllowlistedSuper(email) && superRoleId ? superRoleId : externalRoleId;
+    await sql`
+      INSERT INTO org_members (org_id, uid, role_id, email, display_name, status, invited_by, updated_at)
+      VALUES (${PLATFORM_ORG_ID}, ${uid}, ${roleId}, ${email}, ${label}, 'active', ${uid}, NOW())
+      ON CONFLICT (org_id, uid) DO NOTHING
+    `;
+  }
+
+  if (typeof remappedAllLegacyMembers === 'function') {
+    await remappedAllLegacyMembers(sql);
+  }
+}
+
+export async function listOrgMembers(
+  user: ApiUser,
+  input: { query?: string; page?: number; pageSize?: number } = {},
+) {
+  // Super users open Access with admin.access; listing must not hard-require admin.users alone.
+  const session = await requireAnyOrgPermission(user, ['admin.access', 'admin.users', 'admin.roles']);
+  const sql = await sqlReady();
+  // Never let backfill failures blank the People list — still return existing org_members.
+  try {
+    await syncRegisteredUsersIntoPlatform(sql);
+  } catch (err) {
+    console.error('[rbac] syncRegisteredUsersIntoPlatform failed', err);
+  }
+
+  const pageSize = Math.min(100, Math.max(10, Number(input.pageSize) || 25));
+  const page = Math.max(1, Number(input.page) || 1);
+  const offset = (page - 1) * pageSize;
+  const q = text(input.query).trim().toLowerCase();
+  const like = q ? `%${q}%` : '';
+
+  const countRow = q
+    ? rows<{ count: string | number }>(
+        await sql`
+          SELECT COUNT(*) AS count
+          FROM org_members m
+          LEFT JOIN rbac_roles r ON r.id = m.role_id
+          WHERE m.org_id = ${session.org.id}
+            AND (
+              lower(COALESCE(m.email, '')) LIKE ${like}
+              OR lower(COALESCE(m.display_name, '')) LIKE ${like}
+              OR lower(COALESCE(r.name, '')) LIKE ${like}
+              OR lower(COALESCE(r.key, '')) LIKE ${like}
+            )
+        `,
+      )[0]
+    : rows<{ count: string | number }>(
+        await sql`SELECT COUNT(*) AS count FROM org_members WHERE org_id = ${session.org.id}`,
+      )[0];
+  const total = Number(countRow?.count || 0);
+
+  const list = q
+    ? rows<{
+        org_id: string;
+        uid: string;
+        role_id: string;
+        email: string;
+        display_name: string;
+        status: string;
+        invited_by: string;
+        created_at: string;
+        updated_at: string;
+        role_key: string | null;
+        role_name: string | null;
+      }>(
+        await sql`
+          SELECT m.org_id, m.uid, m.role_id, m.email, m.display_name, m.status, m.invited_by,
+            m.created_at, m.updated_at, r.key AS role_key, r.name AS role_name
+          FROM org_members m
+          LEFT JOIN rbac_roles r ON r.id = m.role_id
+          WHERE m.org_id = ${session.org.id}
+            AND (
+              lower(COALESCE(m.email, '')) LIKE ${like}
+              OR lower(COALESCE(m.display_name, '')) LIKE ${like}
+              OR lower(COALESCE(r.name, '')) LIKE ${like}
+              OR lower(COALESCE(r.key, '')) LIKE ${like}
+            )
+          ORDER BY
+            CASE m.status WHEN 'active' THEN 0 WHEN 'invited' THEN 1 ELSE 2 END,
+            CASE COALESCE(r.key, '') WHEN 'super_user' THEN 0 WHEN 'external' THEN 1 ELSE 2 END,
+            COALESCE(NULLIF(m.display_name, ''), m.email) ASC
+          LIMIT ${pageSize} OFFSET ${offset}
+        `,
+      )
+    : rows<{
+        org_id: string;
+        uid: string;
+        role_id: string;
+        email: string;
+        display_name: string;
+        status: string;
+        invited_by: string;
+        created_at: string;
+        updated_at: string;
+        role_key: string | null;
+        role_name: string | null;
+      }>(
+        await sql`
+          SELECT m.org_id, m.uid, m.role_id, m.email, m.display_name, m.status, m.invited_by,
+            m.created_at, m.updated_at, r.key AS role_key, r.name AS role_name
+          FROM org_members m
+          LEFT JOIN rbac_roles r ON r.id = m.role_id
+          WHERE m.org_id = ${session.org.id}
+          ORDER BY
+            CASE m.status WHEN 'active' THEN 0 WHEN 'invited' THEN 1 ELSE 2 END,
+            CASE COALESCE(r.key, '') WHEN 'super_user' THEN 0 WHEN 'external' THEN 1 ELSE 2 END,
+            COALESCE(NULLIF(m.display_name, ''), m.email) ASC
+          LIMIT ${pageSize} OFFSET ${offset}
+        `,
+      );
+
+  const members: MemberRecord[] = [];
+  const uids = list.map((row) => text(row.uid)).filter(Boolean);
+  const grantsByUid = await memberGrantsByUid(sql, session.org.id, uids);
+  for (const row of list) {
+    const uid = text(row.uid);
+    members.push({
       orgId: text(row.org_id),
-      uid: text(row.uid),
+      uid,
       roleId: text(row.role_id),
-      roleKey: text(row.role_key),
-      roleName: text(row.role_name),
+      roleKey: text(row.role_key) || 'external',
+      roleName: text(row.role_name) || 'Default external',
       email: emailOf(row.email),
       displayName: text(row.display_name),
       status: text(row.status) || 'active',
       invitedBy: text(row.invited_by),
       createdAt: text(row.created_at),
       updatedAt: text(row.updated_at),
-    })),
+      grantIds: grantsByUid.get(uid) || [],
+    });
+  }
+  return {
+    ...session,
+    members,
+    total,
+    page,
+    pageSize,
+    totalPages: Math.max(1, Math.ceil(total / pageSize)),
   };
 }
 
@@ -830,7 +1100,17 @@ async function countActiveSuperUsers(sql: Sql, orgId: string) {
   return Number(row?.count || 0);
 }
 
-export async function inviteOrgMember(user: ApiUser, input: { email: string; roleId: string }) {
+function sanitizeExtraPermissionIds(permissionIds: unknown) {
+  const catalog = new Set(RBAC_PERMISSIONS.map((p) => p.id));
+  return [...new Set((Array.isArray(permissionIds) ? permissionIds : []).map((id) => text(id)).filter(Boolean))]
+    .filter((id) => catalog.has(id) && !isAdminPermission(id));
+}
+
+export async function inviteOrgMember(user: ApiUser, input: {
+  email: string;
+  roleId: string;
+  permissionIds?: string[];
+}) {
   const session = await requireOrgPermission(user, 'admin.users');
   const sql = await sqlReady();
   const email = emailOf(input.email);
@@ -838,6 +1118,10 @@ export async function inviteOrgMember(user: ApiUser, input: { email: string; rol
   const role = await assertRoleInOrg(sql, session.org.id, text(input.roleId));
   if (text(role.key) === 'super_user' && session.member.roleKey !== 'super_user') {
     throw new ApiError(403, 'Only a super user can invite another super user');
+  }
+  const extraGrants = sanitizeExtraPermissionIds(input.permissionIds);
+  if (extraGrants.length && session.member.roleKey !== 'super_user') {
+    throw new ApiError(403, 'Only a super user can assign per-user privileges');
   }
 
   const existingMember = rows<{ uid: string; status: string }>(
@@ -871,6 +1155,9 @@ export async function inviteOrgMember(user: ApiUser, input: { email: string; rol
         status = 'active',
         updated_at = NOW()
     `;
+    if (extraGrants.length) {
+      await replaceMemberGrants(sql, session.org.id, text(existingUser.id), user.uid, extraGrants);
+    }
     await ledgerUpsertUser(text(existingUser.id), { orgId: session.org.id, email }, true);
     return { joined: true as const, uid: text(existingUser.id) };
   }
@@ -889,7 +1176,13 @@ export async function inviteOrgMember(user: ApiUser, input: { email: string; rol
     )
     VALUES (
       ${id}, ${session.org.id}, ${email}, ${text(role.id)}, 'pending', ${user.uid}, ${token},
-      ${JSON.stringify({ orgName: session.org.name, roleKey: text(role.key), roleName: text(role.name) })}::jsonb,
+      ${JSON.stringify({
+        orgName: session.org.name,
+        roleKey: text(role.key),
+        roleName: text(role.name),
+        invitedBy: user.uid,
+        permissionIds: extraGrants,
+      })}::jsonb,
       NOW(), NOW(), ${expires}::timestamptz
     )
   `;
@@ -908,6 +1201,106 @@ export async function inviteOrgMember(user: ApiUser, input: { email: string; rol
       expiresAt: expires,
     } satisfies InviteRecord,
   };
+}
+
+/**
+ * Super / admin.users: create or invite a person with a role and optional extra features.
+ * With a password, provisions Firebase Auth + Neon membership immediately.
+ * Without a password, joins existing Neon users or creates a pending invite that applies grants on first sign-in.
+ */
+export async function createOrgUser(user: ApiUser, input: {
+  email: string;
+  displayName?: string;
+  password?: string;
+  roleId: string;
+  permissionIds?: string[];
+}) {
+  const session = await requireOrgPermission(user, 'admin.users');
+  const sql = await sqlReady();
+  const email = emailOf(input.email);
+  if (!email || !email.includes('@')) throw new ApiError(400, 'Valid email required');
+  const displayName = text(input.displayName).trim() || email.split('@')[0] || 'User';
+  const password = text(input.password);
+  const role = await assertRoleInOrg(sql, session.org.id, text(input.roleId));
+  if (text(role.key) === 'super_user' && session.member.roleKey !== 'super_user') {
+    throw new ApiError(403, 'Only a super user can assign the super user role');
+  }
+  const extraGrants = sanitizeExtraPermissionIds(input.permissionIds);
+  if (extraGrants.length && session.member.roleKey !== 'super_user') {
+    throw new ApiError(403, 'Only a super user can assign per-user privileges');
+  }
+
+  const existingMember = rows<{ uid: string; status: string }>(
+    await sql`
+      SELECT uid, status FROM org_members
+      WHERE org_id = ${session.org.id} AND lower(COALESCE(email, '')) = ${email}
+      LIMIT 1
+    `,
+  )[0];
+  if (existingMember && text(existingMember.status) === 'active') {
+    throw new ApiError(409, 'That user is already a member — search People to edit them');
+  }
+
+  let uid = '';
+  let provisioned = false;
+
+  if (password) {
+    if (password.length < 8) throw new ApiError(400, 'Password must be at least 8 characters');
+    try {
+      const created = await provisionFirebaseAuthUser({ email, password, displayName });
+      uid = created.uid;
+      provisioned = true;
+    } catch (err: any) {
+      if (err?.code === 'EMAIL_EXISTS' || String(err?.message || '').includes('already has a login')) {
+        const existingUser = rows<{ id: string }>(
+          await sql`SELECT id FROM users WHERE lower(COALESCE(email, '')) = ${email} LIMIT 1`,
+        )[0];
+        if (!existingUser?.id) {
+          throw new ApiError(409, 'That email already has a login. Leave password blank to invite, or search People after they sign in once.');
+        }
+        uid = text(existingUser.id);
+      } else {
+        throw err;
+      }
+    }
+  } else {
+    const existingUser = rows<{ id: string }>(
+      await sql`SELECT id FROM users WHERE lower(COALESCE(email, '')) = ${email} LIMIT 1`,
+    )[0];
+    if (existingUser?.id) uid = text(existingUser.id);
+  }
+
+  if (uid) {
+    await ledgerUpsertUser(uid, { orgId: session.org.id, email, displayName }, true);
+    await sql`
+      INSERT INTO org_members (org_id, uid, role_id, email, display_name, status, invited_by, updated_at)
+      VALUES (
+        ${session.org.id}, ${uid}, ${text(role.id)},
+        ${email}, ${displayName}, 'active', ${user.uid}, NOW()
+      )
+      ON CONFLICT (org_id, uid) DO UPDATE SET
+        role_id = EXCLUDED.role_id,
+        email = EXCLUDED.email,
+        display_name = EXCLUDED.display_name,
+        status = 'active',
+        updated_at = NOW()
+    `;
+    const grantIds = await replaceMemberGrants(sql, session.org.id, uid, user.uid, extraGrants);
+    return {
+      joined: true as const,
+      uid,
+      provisioned,
+      grantIds,
+      member: await getMember(sql, session.org.id, uid),
+    };
+  }
+
+  // No account yet — pending invite carries role + feature grants for first sign-in.
+  return inviteOrgMember(user, {
+    email,
+    roleId: text(role.id),
+    permissionIds: extraGrants,
+  });
 }
 
 export async function updateOrgMember(user: ApiUser, input: { uid: string; roleId?: string; status?: string }) {
@@ -1207,6 +1600,44 @@ export async function revokeBooksFeatures(user: ApiUser, input: { uid: string; p
     `;
   }
   return { ok: true, permissionIds: await memberGrants(sql, session.org.id, targetUid) };
+}
+
+/**
+ * Super-user only: replace a member's extra privilege grants (on top of their role).
+ * Admin.* cannot be granted here — promote the member to Super user instead.
+ */
+export async function setMemberPrivileges(user: ApiUser, input: { uid: string; permissionIds?: string[] }) {
+  const session = await requireOrgPermission(user, 'admin.users');
+  if (session.member.roleKey !== 'super_user') {
+    throw new ApiError(403, 'Only a super user can edit per-user privileges');
+  }
+  const sql = await sqlReady();
+  const targetUid = text(input.uid);
+  if (!targetUid) throw new ApiError(400, 'User required');
+  const member = await getMember(sql, session.org.id, targetUid);
+  if (!member) throw new ApiError(404, 'Member not found');
+  if (member.roleKey === 'super_user') {
+    throw new ApiError(400, 'Super users already have every privilege');
+  }
+
+  const catalog = new Set(RBAC_PERMISSIONS.map((p) => p.id));
+  const next = [...new Set((input.permissionIds || []).map((id) => text(id)).filter(Boolean))]
+    .filter((id) => catalog.has(id) && !isAdminPermission(id));
+
+  await sql`DELETE FROM org_member_grants WHERE org_id = ${session.org.id} AND uid = ${targetUid}`;
+  for (const permissionId of next) {
+    await sql`
+      INSERT INTO org_member_grants (org_id, uid, permission_id, granted_by, created_at)
+      VALUES (${session.org.id}, ${targetUid}, ${permissionId}, ${user.uid}, NOW())
+      ON CONFLICT DO NOTHING
+    `;
+  }
+  return {
+    ok: true as const,
+    uid: targetUid,
+    grantIds: await memberGrants(sql, session.org.id, targetUid),
+    effectiveIds: await effectivePermissions(sql, session.org.id, targetUid, member.roleId, member.roleKey),
+  };
 }
 
 
