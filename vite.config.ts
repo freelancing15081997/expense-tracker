@@ -13,6 +13,20 @@ export default defineConfig(() => {
         '@': path.resolve(__dirname, '.'),
       },
     },
+    build: {
+      outDir: 'dist',
+      sourcemap: false,
+      minify: 'terser' as const,
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            'vendor': ['react', 'react-dom', 'react-router-dom'],
+            'firebase': ['firebase/app', 'firebase/auth'],
+            'ui': ['framer-motion', 'lucide-react'],
+          }
+        }
+      }
+    },
     preview: {
       headers: {
         'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
