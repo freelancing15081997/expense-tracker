@@ -16,7 +16,7 @@ export default defineConfig(() => {
     build: {
       outDir: 'dist',
       sourcemap: false,
-      minify: 'terser',
+      minify: 'terser' as const,
       rollupOptions: {
         output: {
           manualChunks: {

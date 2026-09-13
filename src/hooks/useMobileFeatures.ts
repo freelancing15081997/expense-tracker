@@ -31,15 +31,21 @@ export function useMobileFeatures() {
       const token = CapacitorService.getPushToken();
       setPushToken(token);
 
-      const networkListener = Network.addListener('networkStatusChange', (status) => {
+      let listenerHandle: any;
+      
+      Network.addListener('networkStatusChange', (status) => {
         setNetworkStatus({
           connected: status.connected,
           connectionType: status.connectionType,
         });
+      }).then(handle => {
+        listenerHandle = handle;
       });
 
       return () => {
-        networkListener.remove();
+        if (listenerHandle && listenerHandle.remove) {
+          listenerHandle.remove();
+        }
       };
     }
   }, []);
