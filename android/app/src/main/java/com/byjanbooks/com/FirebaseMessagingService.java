@@ -1,4 +1,4 @@
-package com.byjan.app;
+package com.byjanbooks.com;
 
 import android.app.NotificationChannel;
 import android.app.NotificationManager;

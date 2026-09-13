@@ -1,4 +1,4 @@
-package com.byjan.app;
+package com.byjanbooks.com;
 
 import com.getcapacitor.BridgeActivity;
 
