@@ -5,7 +5,7 @@
   "functions": {
     "api/kv.ts": { "maxDuration": 30, "includeFiles": "api/_pg-tables.js" },
     "api/invites.ts": { "maxDuration": 15, "includeFiles": "api/_pg-tables.js" },
-    "api/tracker.ts": { "maxDuration": 15, "includeFiles": "api/_pg-tables.js" },
+    "api/tracker.ts": { "maxDuration": 30, "includeFiles": "api/_pg-tables.js,api/_lib/**" },
     "api/migrate.ts": { "maxDuration": 60, "includeFiles": "api/_pg-tables.js" },
     "api/email/send.ts": { "maxDuration": 30 },
     "api/email/send-report.ts": { "maxDuration": 60 },

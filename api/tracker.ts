@@ -36,11 +36,17 @@ import {
   ledgerList,
   withDomainApi,
 } from './_pg-tables.js';
-import { sendFcm } from './_lib/fcm';
 import { emailIsSuperUser } from './_lib/super-users.js';
-import { checkExpenseIdempotency, handleMoney, storeExpenseIdempotency } from './_lib/money-handlers.js';
 
 type Domain = 'ledgers' | 'expenses' | 'notifications' | 'me' | 'books' | 'money';
+
+async function moneyModule() {
+  return import('./_lib/money-handlers.js');
+}
+
+async function pushModule() {
+  return import('./_lib/fcm.js');
+}
 
 function domainFrom(req: VercelRequest): Domain | '' {
   const raw = req.query?.domain;
@@ -243,10 +249,15 @@ async function handleExpenses(req: VercelRequest, res: VercelResponse) {
       await ledgerRequireWriter(bookId, user.uid);
       const idempotencyKey = String(body.idempotencyKey || '').trim();
       if (idempotencyKey) {
-        const cached = await checkExpenseIdempotency(bookId, user.uid, idempotencyKey);
-        if (cached?.expense) {
-          apiJson(res, 200, { expense: cached.expense, idempotent: true });
-          return;
+        try {
+          const { checkExpenseIdempotency } = await moneyModule();
+          const cached = await checkExpenseIdempotency(bookId, user.uid, idempotencyKey);
+          if (cached?.expense) {
+            apiJson(res, 200, { expense: cached.expense, idempotent: true });
+            return;
+          }
+        } catch {
+          /* idempotency optional if money module unavailable */
         }
       }
       const input = body.expense && typeof body.expense === 'object' && !Array.isArray(body.expense)
@@ -277,7 +288,12 @@ async function handleExpenses(req: VercelRequest, res: VercelResponse) {
         entityId: String(saved.expense.id),
       });
       if (idempotencyKey) {
-        await storeExpenseIdempotency(bookId, user.uid, idempotencyKey, { expense: saved.expense });
+        try {
+          const { storeExpenseIdempotency } = await moneyModule();
+          await storeExpenseIdempotency(bookId, user.uid, idempotencyKey, { expense: saved.expense });
+        } catch {
+          /* ignore */
+        }
       }
       apiJson(res, 200, { expense: saved.expense });
       return;
@@ -388,11 +404,16 @@ async function handleNotifications(req: VercelRequest, res: VercelResponse) {
       const profile = await ledgerGetUser(targetUid);
       const pushToken = String(profile?.pushToken || '');
       if (pushToken) {
-        void sendFcm(pushToken, {
-          title: String(body.bookName || 'Byjan'),
-          body: `${String(body.senderName || user.email)} ${String(body.action || 'updated the book').toLowerCase()}`,
-          data: { bookId, url: `/#/book/${bookId}` },
-        });
+        try {
+          const { sendFcm } = await pushModule();
+          void sendFcm(pushToken, {
+            title: String(body.bookName || 'Byjan'),
+            body: `${String(body.senderName || user.email)} ${String(body.action || 'updated the book').toLowerCase()}`,
+            data: { bookId, url: `/#/book/${bookId}` },
+          });
+        } catch {
+          /* push is best-effort */
+        }
       }
       apiJson(res, 200, { notification });
       return;
@@ -779,7 +800,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (domain === 'notifications') return handleNotifications(req, res);
   if (domain === 'me') return handleMe(req, res);
   if (domain === 'books') return handleBooks(req, res);
-  if (domain === 'money') return handleMoney(req, res);
+  if (domain === 'money') {
+    try {
+      const { handleMoney } = await moneyModule();
+      return handleMoney(req, res);
+    } catch (err) {
+      const origin = String(req.headers.origin || '');
+      res.setHeader('Access-Control-Allow-Origin', origin || '*');
+      if (origin) res.setHeader('Access-Control-Allow-Credentials', 'true');
+      apiJson(res, 500, { error: err instanceof Error ? err.message : 'Money API unavailable' });
+      return;
+    }
+  }
 
   const origin = String(req.headers.origin || '');
   res.setHeader('Access-Control-Allow-Origin', origin || '*');

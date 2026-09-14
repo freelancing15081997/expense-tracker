@@ -278,48 +278,51 @@ async function ensureLedgerSchema(sql: Sql) {
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`;
   await sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS receipt_hash TEXT`;
-  await sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS amount_paise NUMERIC(18,0)`;
-  await sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS tx_type TEXT`;
-  await sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS financial_status TEXT`;
-  await sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS processing_status TEXT`;
-  await sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS account_id TEXT`;
-  await sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS linked_expense_id TEXT`;
+  try {
+    await sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS amount_paise NUMERIC(18,0)`;
+    await sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS tx_type TEXT`;
+    await sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS financial_status TEXT`;
+    await sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS processing_status TEXT`;
+    await sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS account_id TEXT`;
+    await sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS linked_expense_id TEXT`;
+    await sql`UPDATE expenses SET amount_paise = ROUND(COALESCE(amount, 0) * 100) WHERE amount_paise IS NULL`;
+    await sql`UPDATE expenses SET tx_type = COALESCE(NULLIF(data->>'txType',''), CASE
+        WHEN entry_type = 'in' THEN 'INCOME'
+        WHEN entry_type = 'transfer' THEN 'TRANSFER'
+        ELSE 'EXPENSE'
+      END)
+      WHERE tx_type IS NULL OR tx_type = ''`;
+    await sql`UPDATE expenses SET financial_status = COALESCE(NULLIF(data->>'financialStatus',''), CASE WHEN status = 'draft' THEN 'DRAFT' ELSE 'CONFIRMED' END)
+      WHERE financial_status IS NULL OR financial_status = ''`;
+    await sql`UPDATE expenses SET processing_status = COALESCE(NULLIF(data->>'processingStatus',''), 'COMPLETED')
+      WHERE processing_status IS NULL OR processing_status = ''`;
+    await sql`CREATE INDEX IF NOT EXISTS expenses_book_paise_idx ON expenses (book_id, amount_paise)`;
+    await sql`CREATE TABLE IF NOT EXISTS idempotency_records (
+      key TEXT PRIMARY KEY,
+      book_id TEXT NOT NULL,
+      uid TEXT NOT NULL,
+      response JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`;
+    await sql`CREATE INDEX IF NOT EXISTS idempotency_book_idx ON idempotency_records (book_id, uid, created_at DESC)`;
+    await sql`CREATE TABLE IF NOT EXISTS capture_events (
+      id TEXT PRIMARY KEY,
+      book_id TEXT NOT NULL,
+      uid TEXT NOT NULL,
+      processing_status TEXT NOT NULL DEFAULT 'INGESTED',
+      financial_status TEXT NOT NULL DEFAULT 'DRAFT',
+      data JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`;
+    await sql`CREATE INDEX IF NOT EXISTS capture_events_book_idx ON capture_events (book_id, updated_at DESC)`;
+  } catch {
+    // money schema extensions are best-effort so core ledger APIs stay up
+  }
   await sql`UPDATE expenses SET receipt_hash = NULLIF(BTRIM(COALESCE(data->>'receiptHash', '')), '') WHERE receipt_hash IS NULL`;
-  await sql`UPDATE expenses SET amount_paise = ROUND(COALESCE(amount, 0) * 100)
-    WHERE amount_paise IS NULL`;
-  await sql`UPDATE expenses SET tx_type = COALESCE(NULLIF(data->>'txType',''), CASE
-      WHEN entry_type = 'in' THEN 'INCOME'
-      WHEN entry_type = 'transfer' THEN 'TRANSFER'
-      ELSE 'EXPENSE'
-    END)
-    WHERE tx_type IS NULL OR tx_type = ''`;
-  await sql`UPDATE expenses SET financial_status = COALESCE(NULLIF(data->>'financialStatus',''), CASE WHEN status = 'draft' THEN 'DRAFT' ELSE 'CONFIRMED' END)
-    WHERE financial_status IS NULL OR financial_status = ''`;
-  await sql`UPDATE expenses SET processing_status = COALESCE(NULLIF(data->>'processingStatus',''), 'COMPLETED')
-    WHERE processing_status IS NULL OR processing_status = ''`;
   await sql`CREATE INDEX IF NOT EXISTS expenses_book_idx ON expenses (book_id, updated_at DESC)`;
   await sql`CREATE INDEX IF NOT EXISTS expenses_book_amount_idx ON expenses (book_id, amount)`;
-  await sql`CREATE INDEX IF NOT EXISTS expenses_book_paise_idx ON expenses (book_id, amount_paise)`;
   await sql`CREATE INDEX IF NOT EXISTS expenses_book_live_idx ON expenses (book_id, deleted, updated_at DESC)`;
-  await sql`CREATE TABLE IF NOT EXISTS idempotency_records (
-    key TEXT PRIMARY KEY,
-    book_id TEXT NOT NULL,
-    uid TEXT NOT NULL,
-    response JSONB NOT NULL DEFAULT '{}'::jsonb,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )`;
-  await sql`CREATE INDEX IF NOT EXISTS idempotency_book_idx ON idempotency_records (book_id, uid, created_at DESC)`;
-  await sql`CREATE TABLE IF NOT EXISTS capture_events (
-    id TEXT PRIMARY KEY,
-    book_id TEXT NOT NULL,
-    uid TEXT NOT NULL,
-    processing_status TEXT NOT NULL DEFAULT 'INGESTED',
-    financial_status TEXT NOT NULL DEFAULT 'DRAFT',
-    data JSONB NOT NULL DEFAULT '{}'::jsonb,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )`;
-  await sql`CREATE INDEX IF NOT EXISTS capture_events_book_idx ON capture_events (book_id, updated_at DESC)`;
   try {
     await sql`CREATE UNIQUE INDEX IF NOT EXISTS expenses_live_receipt_hash_idx ON expenses (book_id, receipt_hash) WHERE deleted = false AND receipt_hash IS NOT NULL AND receipt_hash <> ''`;
   } catch {

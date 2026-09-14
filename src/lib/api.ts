@@ -33,13 +33,20 @@ function looksLikeHtml(value: string) {
   return trimmed.startsWith('<') || /^<!doctype/i.test(trimmed);
 }
 
-function decodeBody(data: unknown): Record<string, unknown> {
-  if (data == null || data === '') return {};
+function decodeBody(data: unknown, status = 0): Record<string, unknown> {
+  if (data == null || data === '') {
+    if (status >= 400) {
+      throw failPayload(status || 502, { error: status >= 500 ? 'Server error. Please try again in a moment.' : 'Empty server response. Try again.' });
+    }
+    return {};
+  }
   if (Array.isArray(data)) return { docs: data };
   if (typeof data === 'object') return data as Record<string, unknown>;
   if (typeof data !== 'string') return {};
   const trimmed = data.trim();
-  if (!trimmed) return {};
+  if (!trimmed) {
+    throw failPayload(status || 502, { error: status >= 500 ? 'Server error. Please try again in a moment.' : 'Empty server response. Try again.' });
+  }
   if (looksLikeHtml(trimmed)) {
     throw failPayload(502, {
       error: 'The app reached a web page instead of the API. Check your connection and try again.',
@@ -52,7 +59,7 @@ function decodeBody(data: unknown): Record<string, unknown> {
     return { data: parsed };
   } catch (err) {
     if (err && typeof err === 'object' && 'status' in err) throw err;
-    throw failPayload(502, { error: 'The server returned an invalid response. Try again.' });
+    throw failPayload(status >= 500 ? status : 502, { error: status >= 500 ? 'Server error. Please try again in a moment.' : 'The server returned an invalid response. Try again.' });
   }
 }
 
@@ -65,7 +72,7 @@ function cleanHeaders(headers: Record<string, string>) {
 }
 
 async function fromHttp(status: number, data: unknown) {
-  const payload = decodeBody(data);
+  const payload = decodeBody(data, status);
   if (status < 200 || status >= 300) throw failPayload(status, payload);
   return payload;
 }
