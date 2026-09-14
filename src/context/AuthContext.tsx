@@ -2,10 +2,14 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, onAuthStateChanged } from 'firebase/auth';
 import { auth, googleRedirectReady } from '../lib/firebase';
 import { getMe, upsertMe } from '../lib/me';
+import { MEMBER_FEATURES, type FeatureMap } from '../lib/features';
+import { emailIsSuperUser } from '../lib/super-users';
 import { setStoreUser } from '../lib/store';
+import { apiUrl } from '../lib/api';
 import { authHeaders } from '../lib/auth-client';
 import { startSessionGuard } from '../lib/session';
 import AppLoader from '../components/AppLoader';
+import { CapacitorService } from '../lib/capacitor';
 
 export interface UserProfile {
   uid: string;
@@ -16,12 +20,15 @@ export interface UserProfile {
   createdAt?: any;
   photoURL?: string;
   appPrefs?: Record<string, unknown>;
+  features?: FeatureMap;
+  isSuperUser?: boolean;
 }
 
 interface AuthContextType {
   currentUser: User | null;
   userProfile: UserProfile | null;
   loading: boolean;
+  isSuperUser: boolean;
   refreshUserProfile: () => Promise<void>;
 }
 
@@ -29,6 +36,7 @@ const AuthContext = createContext<AuthContextType>({
   currentUser: null,
   userProfile: null,
   loading: true,
+  isSuperUser: false,
   refreshUserProfile: async () => undefined,
 });
 
@@ -36,7 +44,7 @@ export const useAuth = () => useContext(AuthContext);
 
 async function copyLegacyBooks() {
   const headers = await authHeaders({ 'content-type': 'application/json' });
-  await fetch('/api/migrate', { method: 'POST', headers }).catch(() => undefined);
+  await fetch(apiUrl('/api/migrate'), { method: 'POST', headers }).catch(() => undefined);
 }
 
 function profileFromSnap(user: User, data: Record<string, unknown> | null | undefined): UserProfile {
@@ -45,6 +53,8 @@ function profileFromSnap(user: User, data: Record<string, unknown> | null | unde
     email: user.email || '',
     displayName: user.displayName || user.email?.split('@')[0] || 'User',
     defaultCurrency: 'INR',
+    features: MEMBER_FEATURES,
+    isSuperUser: emailIsSuperUser(user.email),
   };
   if (!data) return base;
   return {
@@ -55,6 +65,8 @@ function profileFromSnap(user: User, data: Record<string, unknown> | null | unde
     createdAt: data.createdAt,
     photoURL: data.photoURL ? String(data.photoURL) : undefined,
     appPrefs: data.appPrefs && typeof data.appPrefs === 'object' ? data.appPrefs as Record<string, unknown> : undefined,
+    features: data.features && typeof data.features === 'object' ? data.features as FeatureMap : MEMBER_FEATURES,
+    isSuperUser: emailIsSuperUser(String(data.email || user.email || '')),
   };
 }
 
@@ -90,6 +102,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setStoreUser('');
           setUserProfile(null);
           setLoading(false);
+          void CapacitorService.hideSplashScreen();
           return;
         }
         setStoreUser(user.uid);
@@ -108,6 +121,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUserProfile(profileFromSnap(user, null));
         } finally {
           setLoading(false);
+          void CapacitorService.hideSplashScreen();
+          void CapacitorService.bindAccount(user.uid);
         }
       });
     });
@@ -119,8 +134,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   return (
-    <AuthContext.Provider value={{ currentUser, userProfile, loading, refreshUserProfile }}>
-      {loading ? <AppLoader title="Byjan" message="Checking your session." /> : children}
+    <AuthContext.Provider value={{ currentUser, userProfile, loading, isSuperUser: emailIsSuperUser(currentUser?.email || userProfile?.email), refreshUserProfile }}>
+      {loading ? <AppLoader overlay title="Byjan" message="Checking your session." /> : children}
     </AuthContext.Provider>
   );
 };

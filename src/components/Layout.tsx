@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { logout } from '../lib/firebase';
-import { Bell, CheckCircle2, Menu, X, Mail } from 'lucide-react';
+import { Bell, CheckCircle2, X, Mail, LayoutDashboard, BookOpen, Settings, BookText } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { listNotifications, markNotificationRead } from '../lib/notifications';
@@ -10,8 +10,12 @@ import { warmSearchCatalog } from '../lib/search-catalog';
 import BrandLogo from './BrandLogo';
 import GlobalSearch, { SearchTrigger } from './GlobalSearch';
 import AppSidebar from './AppSidebar';
+import AccountMenu from './AccountMenu';
 import WorkspaceSwitcher from './WorkspaceSwitcher';
+import FeatureTour from './FeatureTour';
 import { useBooksTenantMeta } from '../lib/tenant';
+import { CapacitorService } from '../lib/capacitor';
+import { useFeatures } from '../lib/use-features';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -19,6 +23,7 @@ function cn(...inputs: ClassValue[]) {
 
 export default function Layout() {
   const { currentUser, userProfile } = useAuth();
+  const { on: hasFeature } = useFeatures();
   const location = useLocation();
   const tenant = useBooksTenantMeta();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -37,6 +42,8 @@ export default function Layout() {
   };
   const [notificationsPanelOpen, setNotificationsPanelOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
+  const knownNotifIds = useRef<Set<string>>(new Set());
+  const notifReady = useRef(false);
 
   useEffect(() => {
     setMobileMenuOpen(false);
@@ -48,7 +55,7 @@ export default function Layout() {
     } catch { /* ignore */ }
   }, []);
 
-  const loadNotifications = () => {
+  const loadNotifications = (opts?: { silent?: boolean }) => {
     if (!currentUser) return;
     listNotifications().then((notifs) => {
       const millis = (value: any) => {
@@ -62,6 +69,19 @@ export default function Layout() {
         return 0;
       };
       notifs.sort((a, b) => millis(b.createdAt) - millis(a.createdAt));
+      if (notifReady.current) {
+        const fresh = notifs.filter((row) => row?.id && !row.read && !knownNotifIds.current.has(String(row.id)));
+        if (fresh[0] && document.visibilityState === 'visible') {
+          void CapacitorService.alertIncoming({
+            title: String(fresh[0].bookName || 'Byjan'),
+            body: `${fresh[0].senderName || 'Someone'} ${String(fresh[0].action || 'updated the book').toLowerCase()}`,
+            bookId: String(fresh[0].bookId || ''),
+            foreground: true,
+          });
+        }
+      }
+      knownNotifIds.current = new Set(notifs.map((row) => String(row.id || '')).filter(Boolean));
+      notifReady.current = true;
       setNotifications(notifs);
     }).catch((err) => {
       if ((err as { code?: string }).code !== 'resource-exhausted') console.error(err);
@@ -69,16 +89,36 @@ export default function Layout() {
   };
 
   useEffect(() => {
+    notifReady.current = false;
+    knownNotifIds.current = new Set();
     loadNotifications();
     if (currentUser?.uid) void warmSearchCatalog(currentUser.uid);
+    if (!currentUser?.uid) return;
+    const tick = window.setInterval(() => {
+      if (document.visibilityState === 'visible') loadNotifications({ silent: true });
+    }, 12000);
+    const onVis = () => {
+      if (document.visibilityState === 'visible') loadNotifications({ silent: true });
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      window.clearInterval(tick);
+      document.removeEventListener('visibilitychange', onVis);
+    };
   }, [currentUser?.uid]);
 
   const openNotifications = () => {
+    void CapacitorService.hapticTick();
     setNotificationsPanelOpen(true);
     loadNotifications();
   };
 
   const unreadCount = notifications.filter((n) => !n.read).length;
+  const onHome = location.pathname === '/';
+  const onBooks = location.pathname.startsWith('/books');
+  const onSettings = location.pathname === '/settings';
+  const onLedger = location.pathname.startsWith('/book/');
+  const onLedgers = location.pathname === '/expenses' || onLedger;
 
   const handleMarkAsRead = async (id: string) => {
     try {
@@ -92,10 +132,10 @@ export default function Layout() {
     <div className="h-full w-full flex flex-col md:flex-row font-sans text-[#0F172A] overflow-hidden bg-transparent">
       <GlobalSearch />
 
-      <div className="md:hidden byjan-glass border-b border-white/50 flex items-center justify-between px-3 py-2.5 z-50">
-        <Link to="/" className="flex items-center gap-2" title="Main dashboard">
-          <BrandLogo size="sm" />
-          <span className="font-bold text-slate-900">Byjan</span>
+      <div className="md:hidden bg-white border-b border-slate-200/80 flex items-center justify-between px-3 py-2.5 z-[80] pt-[max(0.6rem,env(safe-area-inset-top))]">
+        <Link to="/" className="flex items-center gap-2.5" title="Home">
+          <BrandLogo size="sm" className="!w-10 !h-10" />
+          <span className="font-display font-semibold text-[17px] text-[#0B1F3A] tracking-tight">Byjan</span>
         </Link>
         <div className="flex items-center gap-1">
           <WorkspaceSwitcher variant="header" />
@@ -107,15 +147,9 @@ export default function Layout() {
             title="Notifications"
           >
             <Bell className="w-5 h-5" />
-            {unreadCount > 0 && <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full" />}
+            {unreadCount > 0 && <span className="ios-notify-badge">{unreadCount > 9 ? '9+' : unreadCount}</span>}
           </button>
-          <button
-            type="button"
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="w-10 h-10 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 flex items-center justify-center"
-          >
-            {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-          </button>
+          <AccountMenu />
         </div>
       </div>
 
@@ -143,7 +177,7 @@ export default function Layout() {
       </aside>
 
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-        <div className="hidden md:flex relative z-[70] shrink-0 items-center gap-3 px-5 h-14 byjan-glass border-b border-white/50">
+        <div className="hidden md:flex relative z-[80] shrink-0 items-center gap-3 px-5 h-14 bg-white border-b border-slate-200">
           <WorkspaceSwitcher variant="header" />
           <div className="flex-1 flex justify-center min-w-0">
             <div className="w-full max-w-2xl">
@@ -157,71 +191,72 @@ export default function Layout() {
             title="Notifications"
           >
             <Bell className="w-5 h-5" />
-            {unreadCount > 0 && <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full" />}
+            {unreadCount > 0 && <span className="ios-notify-badge">{unreadCount > 9 ? '9+' : unreadCount}</span>}
           </button>
+          <AccountMenu />
         </div>
         <main className={cn(
-          'flex-1 min-h-0',
+          'flex-1 min-h-0 ios-page',
           location.pathname.startsWith('/book')
-            ? 'overflow-hidden flex flex-col'
-            : 'overflow-y-auto p-4 md:p-6 lg:p-8'
+            ? 'overflow-hidden flex flex-col pb-[calc(4.75rem+env(safe-area-inset-bottom))] md:pb-0'
+            : 'overflow-y-auto p-3 md:p-6 lg:p-8 pb-[calc(5.25rem+env(safe-area-inset-bottom))] md:pb-8'
         )}>
           <Outlet />
         </main>
       </div>
 
+      <FeatureTour />
+
       {notificationsPanelOpen && (
         <>
           <div
-            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40"
+            className="ios-sheet-dim"
             onClick={() => setNotificationsPanelOpen(false)}
           />
-          <div className="fixed inset-y-0 right-0 w-full max-w-sm bg-white z-50 flex flex-col shadow-[-12px_0_40px_-16px_rgba(11,31,58,0.28)]">
-            <div className="p-4 border-b flex items-center justify-between bg-slate-50">
-              <h2 className="font-semibold flex items-center gap-2 text-slate-800">
-                <Bell className="w-5 h-5 text-slate-500" />
-                Notifications
-              </h2>
+          <div className="ios-notify-sheet">
+            <div className="ios-notify-handle" aria-hidden />
+            <div className="ios-notify-head">
+              <div>
+                <p className="ios-notify-kicker">Inbox</p>
+                <h2 className="ios-notify-title">Notifications</h2>
+              </div>
               <button
                 type="button"
                 onClick={() => setNotificationsPanelOpen(false)}
-                className="w-9 h-9 rounded-xl border border-slate-200 bg-white text-slate-500 hover:text-slate-700 flex items-center justify-center"
+                className="ios-notify-close"
+                aria-label="Close notifications"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50/50">
+            <div className="ios-notify-list">
               {notifications.length === 0 ? (
-                <div className="text-center text-slate-400 text-sm py-8">No notifications yet.</div>
+                <div className="ios-notify-empty">No alerts yet. When a teammate adds an entry, it rings here.</div>
               ) : (
                 notifications.map((notif) => (
                     <Link
                       key={notif.id}
                       to={notif.bookId ? `/book/${notif.bookId}` : '#'}
                       onClick={() => {
+                        void CapacitorService.hapticTick();
                         setNotificationsPanelOpen(false);
                         if (!notif.read) void handleMarkAsRead(notif.id);
                       }}
-                      className={cn(
-                        'block p-3 rounded-xl border text-sm text-left',
-                        notif.read ? 'bg-white border-slate-200 hover:border-slate-300' : 'bg-indigo-50/50 border-indigo-200 hover:border-indigo-300'
-                      )}
+                      className={cn('ios-notify-row', !notif.read && 'is-unread')}
                     >
-                    <div className="flex justify-between items-start mb-1">
-                      <span className="font-semibold text-slate-800 flex items-center gap-1.5">
-                        {notif.kind === 'inbound' ? <Mail className="w-3.5 h-3.5 text-slate-400" /> : null}
-                        {notif.bookName}
-                      </span>
-                      {!notif.read && (
-                        <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); void handleMarkAsRead(notif.id); }} className="text-indigo-600 hover:text-indigo-700" title="Mark as read">
-                          <CheckCircle2 className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                    <p className="text-slate-600"><span className="font-medium text-slate-700">{notif.senderName}</span> {String(notif.action || '').toLowerCase()}.</p>
-                    <p className="text-slate-500 mt-1 text-xs">{notif.detail}</p>
-                    {notif.ledgerMail ? <p className="text-[11px] text-slate-400 mt-1">Send entries to {notif.ledgerMail}</p> : null}
-                    {notif.bookId ? <p className="text-indigo-600 mt-2 text-xs font-semibold">Open ledger →</p> : null}
+                    <span className="ios-notify-glyph">
+                      {notif.kind === 'inbound' ? <Mail className="w-4 h-4" /> : <Bell className="w-4 h-4" />}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="ios-notify-book">{notif.bookName || 'Money book'}</span>
+                      <span className="ios-notify-copy"><b>{notif.senderName || 'Someone'}</b> {String(notif.action || 'updated the book').toLowerCase()}.</span>
+                      {notif.detail ? <span className="ios-notify-detail">{notif.detail}</span> : null}
+                    </span>
+                    {!notif.read && (
+                      <button type="button" className="ios-notify-read" onClick={(e) => { e.preventDefault(); e.stopPropagation(); void handleMarkAsRead(notif.id); }} title="Mark as read">
+                        <CheckCircle2 className="w-4 h-4" />
+                      </button>
+                    )}
                     </Link>
                 ))
               )}
@@ -229,6 +264,29 @@ export default function Layout() {
           </div>
         </>
       )}
+
+      <nav className="dash-tabbar md:hidden" aria-label="Primary">
+        <Link to="/" className="dash-tab" data-on={onHome} onClick={() => void CapacitorService.hapticTick()}>
+          <LayoutDashboard className="w-5 h-5" />
+          Home
+        </Link>
+        {hasFeature('money') && (
+          <Link to="/expenses" className="dash-tab" data-on={onLedgers} onClick={() => void CapacitorService.hapticTick()}>
+            <BookText className="w-5 h-5" />
+            Money
+          </Link>
+        )}
+        {hasFeature('business') && (
+          <Link to="/books" className="dash-tab" data-on={onBooks} onClick={() => void CapacitorService.hapticTick()}>
+            <BookOpen className="w-5 h-5" />
+            Business
+          </Link>
+        )}
+        <Link to="/settings" className="dash-tab" data-on={onSettings} onClick={() => void CapacitorService.hapticTick()}>
+          <Settings className="w-5 h-5" />
+          Settings
+        </Link>
+      </nav>
     </div>
   );
 }

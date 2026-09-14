@@ -15,7 +15,7 @@ import com.google.firebase.messaging.RemoteMessage;
 
 public class FirebaseMessagingService extends com.google.firebase.messaging.FirebaseMessagingService {
     private static final String TAG = "FCMService";
-    private static final String CHANNEL_ID = "byjan_default_channel";
+    private static final String CHANNEL_ID = "byjan_alerts";
 
     @Override
     public void onMessageReceived(RemoteMessage remoteMessage) {
@@ -25,13 +25,16 @@ public class FirebaseMessagingService extends com.google.firebase.messaging.Fire
             Log.d(TAG, "Message data payload: " + remoteMessage.getData());
         }
 
+        String title = null;
+        String body = null;
         if (remoteMessage.getNotification() != null) {
-            Log.d(TAG, "Message Notification Body: " + remoteMessage.getNotification().getBody());
-            sendNotification(
-                remoteMessage.getNotification().getTitle(),
-                remoteMessage.getNotification().getBody()
-            );
+            title = remoteMessage.getNotification().getTitle();
+            body = remoteMessage.getNotification().getBody();
         }
+        if (title == null) title = remoteMessage.getData().get("title");
+        if (body == null) body = remoteMessage.getData().get("body");
+        if (body == null) body = "New update in a money book";
+        sendNotification(title, body);
     }
 
     @Override
@@ -62,6 +65,8 @@ public class FirebaseMessagingService extends com.google.firebase.messaging.Fire
             .setContentText(messageBody)
             .setAutoCancel(true)
             .setSound(defaultSoundUri)
+            .setVibrate(new long[] { 0, 180, 80, 180 })
+            .setDefaults(NotificationCompat.DEFAULT_SOUND | NotificationCompat.DEFAULT_VIBRATE)
             .setContentIntent(pendingIntent)
             .setPriority(NotificationCompat.PRIORITY_HIGH);
 
@@ -73,7 +78,10 @@ public class FirebaseMessagingService extends com.google.firebase.messaging.Fire
                 "Byjan Notifications",
                 NotificationManager.IMPORTANCE_HIGH
             );
-            channel.setDescription("Financial notifications from Byjan");
+            channel.setDescription("When a teammate adds or changes an entry");
+            channel.enableVibration(true);
+            channel.setVibrationPattern(new long[] { 0, 180, 80, 180 });
+            channel.setSound(defaultSoundUri, null);
             notificationManager.createNotificationChannel(channel);
         }
 

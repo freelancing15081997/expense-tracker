@@ -92,7 +92,7 @@ export default function BooksSettings() {
         <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 text-sm space-y-1">
           <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">This workspace</p>
           <p>Company: <strong>{tenant?.name}</strong></p>
-          <p className="text-slate-600">Create another isolated company or subsidiary from <Link className="underline" to="/books/companies">Companies</Link>. Switch from the Workspace menu in the header. Expense Tracker ledgers stay separate.</p>
+          <p className="text-slate-600">Create another isolated company or subsidiary from <Link className="underline" to="/books/companies">Companies</Link>. Switch from the Workspace menu in the header. Ledgers stay separate from Books.</p>
         </div>
         {logoUrl && (
           <div className="w-20 h-20 rounded-2xl border border-[#E5E7EB] overflow-hidden bg-white">

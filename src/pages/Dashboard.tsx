@@ -1,21 +1,22 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { createLedger, listLedgers } from '../lib/ledgers';
 import { listAllExpenses } from '../lib/expenses';
 import { useBooksTenantMeta } from '../lib/tenant';
 import { getCurrencySymbol } from '../lib/currency';
 import { initials, readRecentLedgers, sparkDays } from '../lib/ledger-advanced';
 import { formatIndianAmount, workspaceBridges } from '../lib/bridge-automations';
-import { Plus, Check, X, Users, Building2, ChevronRight, BookOpen } from 'lucide-react';
+import { Plus, Check, X, Users, Building2, ArrowUpRight, RefreshCw, Wallet, TrendingUp, Receipt, BookOpen, BookText, Shield, ChevronRight } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
-import AppLoader from '../components/AppLoader';
 import { ListControls, usePagedList } from '../components/ListControls';
-import { BOOKS_TREE } from '../books/catalog/modules';
+import { FeatureIcon } from '../books/ui/icons';
 import { acceptLedgerInvite, declineLedgerInvite, listLedgerInvites, type LedgerInvite } from '../lib/invites';
 import { clearStoreCache } from '../lib/store';
+import { roleLabel } from '../lib/plain-language';
+import { useFeatures } from '../lib/use-features';
 
 interface BookItem {
   id: string;
@@ -33,9 +34,11 @@ type BookStat = { net: number; monthOut: number; lastMonthOut: number; entries: 
 type InviteItem = LedgerInvite;
 
 export default function Dashboard() {
-  const { currentUser, userProfile } = useAuth();
+  const { currentUser, userProfile, isSuperUser } = useAuth();
+  const { on: hasFeature, anyOn: hasAnyFeature, canSeeMoney, tree: businessTree } = useFeatures();
   const { addToast } = useToast();
   const location = useLocation();
+  const navigate = useNavigate();
   const tenant = useBooksTenantMeta();
   const expensesOnly = location.pathname.startsWith('/expenses');
   const [books, setBooks] = useState<BookItem[]>([]);
@@ -51,6 +54,8 @@ export default function Dashboard() {
   });
   const [invites, setInvites] = useState<InviteItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [statsReady, setStatsReady] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [showNewBook, setShowNewBook] = useState(false);
   const [newBookName, setNewBookName] = useState('');
   const [newCurrency, setNewCurrency] = useState('');
@@ -60,13 +65,38 @@ export default function Dashboard() {
   const [bridges, setBridges] = useState<ReturnType<typeof workspaceBridges> | null>(null);
   const recentIds = readRecentLedgers();
 
-  const fetchData = async () => {
+  const emptyStats = {
+    totalIn: 0,
+    totalOut: 0,
+    monthIn: 0,
+    monthOut: 0,
+    reimbursable: 0,
+    entries: 0,
+    uncategorized: 0,
+    userActivity: {} as Record<string, number>,
+  };
+
+  const fetchData = async (opts?: { silent?: boolean }) => {
     if (!currentUser || !userProfile) return;
     try {
-      setLoading(true);
+      if (!opts?.silent) {
+        setLoading(true);
+        setStatsReady(false);
+      }
+      setLoadError('');
+      if (!canSeeMoney) {
+        setBooks([]);
+        setBookStats({});
+        setBridges(null);
+        setGlobalStats(emptyStats);
+        setInvites([]);
+        setStatsReady(true);
+        setLoading(false);
+        return;
+      }
       const fetchedBooks = (await listLedgers()).map((book) => ({
         id: book.id,
-        name: String(book.name || 'Ledger'),
+        name: String(book.name || 'Money book'),
         ownerId: String(book.ownerId || ''),
         currency: String(book.currency || 'INR'),
         pinned: Boolean(book.pinned),
@@ -77,6 +107,7 @@ export default function Dashboard() {
       setBooks(fetchedBooks);
       setLoading(false);
 
+      try {
       let tIn = 0; let tOut = 0; let monthIn = 0; let monthOut = 0; let reimbursable = 0; let uncategorized = 0;
       const monthKey = new Date().toISOString().slice(0, 7);
       let activity: Record<string, number> = {};
@@ -136,14 +167,28 @@ export default function Dashboard() {
       }
 
       setInvites(await listLedgerInvites());
-    } catch (err) { console.error("Fetch API error:", err); } finally {
+      } catch (err) {
+        console.error('Ledger extras error:', err);
+      } finally {
+        setStatsReady(true);
+      }
+    } catch (err) {
+      console.error('Fetch API error:', err);
+      setLoadError(err instanceof Error ? err.message : 'Could not load your workspace.');
+    } finally {
       setLoading(false);
+      setStatsReady(true);
     }
   };
 
   useEffect(() => {
-    fetchData();
-  }, [currentUser?.uid, userProfile?.email]);
+    void fetchData();
+  }, [currentUser?.uid, canSeeMoney, userProfile?.features]);
+
+  useEffect(() => {
+    const main = document.querySelector('main');
+    if (main) main.scrollTo({ top: 0 });
+  }, [location.pathname]);
 
   useEffect(() => {
     if (userProfile?.defaultCurrency && !newCurrency) {
@@ -159,8 +204,12 @@ export default function Dashboard() {
       await createLedger({ name: newBookName, currency: newCurrency });
       setNewBookName('');
       setShowNewBook(false);
-      fetchData();
-    } catch (err) { console.error("Fetch API error:", err); } finally {
+      addToast('Money book created', 'success');
+      void fetchData({ silent: true });
+    } catch (err) {
+      console.error('Fetch API error:', err);
+      addToast(err instanceof Error ? err.message : 'Could not create money book', 'error');
+    } finally {
       setCreating(false);
     }
   };
@@ -194,7 +243,7 @@ export default function Dashboard() {
       await declineLedgerInvite(inviteId);
       fetchData();
     } catch (err) {
-      console.error("Fetch API error:", err);
+      console.error('Fetch API error:', err);
       addToast('Could not decline that invitation', 'error');
     } finally {
       setDecliningId(null);
@@ -214,136 +263,91 @@ export default function Dashboard() {
   const hour = new Date().getHours();
   const hello = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   const firstName = String(userProfile?.displayName || currentUser?.email || 'there').split(' ')[0];
+  const uid = currentUser?.uid || '';
+  const myRoleOn = (book: BookItem) => book.roles[uid]?.role || (book.ownerId === uid ? 'owner' : 'viewer');
+  const managedBooks = visibleBooks.filter((book) => ['owner'].includes(myRoleOn(book)) || book.ownerId === uid);
+  const isBusinessOwner = Boolean(tenant && uid && tenant.ownerId === uid);
+  const openPeople = (bookId: string, event?: React.MouseEvent) => {
+    event?.preventDefault();
+    event?.stopPropagation();
+    navigate(`/book/${bookId}`, { state: { openPeople: true } });
+  };
+  const peopleCount = (book: BookItem) => Math.max(Object.keys(book.roles || {}).length, book.ownerId ? 1 : 0);
 
   const renderLedgerCard = (book: BookItem) => {
-    const role = book.roles[currentUser!.uid]?.role || 'viewer';
+    const role = myRoleOn(book);
     const stat = bookStats[book.id];
     const symbol = getCurrencySymbol(book.currency);
     const maxSpark = Math.max(...(stat?.spark || [1]), 1);
+    const people = peopleCount(book);
+    const canManage = role === 'owner' || role === 'admin';
     return (
-      <Link to={`/book/${book.id}`} key={book.id} className="byjan-ledger-tile byjan-lift" title={`${book.name} · ${role} · net ${stat ? `${stat.net < 0 ? '−' : ''}${symbol}${Math.abs(stat.net).toLocaleString()}` : 'loading'}`}>
-        <span className="byjan-ledger-mono">{initials(book.name)}</span>
-        <div className="min-w-0">
-          <h3 className="text-[15px] font-semibold text-[#0B1F3A] leading-tight tracking-tight">{book.name}</h3>
-          <p className="text-[12px] text-slate-500 mt-0.5 truncate">
-            {book.archived ? 'Archived · ' : ''}{book.pinned ? 'Pinned · ' : ''}{role} · {book.currency}
-            {stat ? ` · ${stat.entries}` : ''}
-          </p>
-        </div>
-        <span className="text-right shrink-0">
-          <span className="byjan-money block text-[15px] font-semibold tabular-nums leading-none text-[#0B1F3A]">
-            {stat ? `${stat.net < 0 ? '−' : ''}${symbol}${Math.abs(stat.net).toLocaleString()}` : '—'}
-          </span>
-          {stat && (
-            <svg className="byjan-spark mt-1.5 ml-auto" viewBox="0 0 64 18" aria-hidden>
-              <polyline
-                fill="rgba(11,31,58,0.06)"
-                stroke="#0B1F3A"
-                strokeWidth="1.5"
-                points={`0,18 ${stat.spark.map((v, i) => `${(i / Math.max(stat.spark.length - 1, 1)) * 64},${17 - (v / maxSpark) * 14}`).join(' ')} 64,18`}
-              />
-            </svg>
-          )}
+      <div key={book.id} className="dash-ledger">
+        <Link to={`/book/${book.id}`} className="dash-ledger-main">
+          <span className="dash-ledger-mark">{initials(book.name)}</span>
+          <div className="min-w-0">
+            <h3 className="text-[15px] font-semibold text-[#0B1F3A] leading-tight tracking-tight">{book.name}</h3>
+            <p className="text-[12px] text-slate-500 mt-0.5 truncate">
+              {book.archived ? 'Archived · ' : ''}{roleLabel(role)} · {people} {people === 1 ? 'person' : 'people'}
+              {stat ? ` · ${stat.entries} records` : ''}
+            </p>
+          </div>
+        </Link>
+        <span className="text-right shrink-0 flex flex-col items-end gap-1.5">
+          {canSeeMoney ? (
+            <>
+              <span className="byjan-money block text-[15px] font-semibold tabular-nums leading-none text-[#0B1F3A]">
+                {stat ? `${stat.net < 0 ? '−' : ''}${symbol}${Math.abs(stat.net).toLocaleString()}` : '—'}
+              </span>
+              {canManage ? (
+                <button type="button" className="dash-people-btn" onClick={(event) => openPeople(book.id, event)}>
+                  <Users className="w-3.5 h-3.5" /> People
+                </button>
+              ) : stat ? (
+                <svg className="byjan-spark" viewBox="0 0 64 18" aria-hidden>
+                  <polyline
+                    fill="rgba(11,31,58,0.06)"
+                    stroke="#12B8A8"
+                    strokeWidth="1.5"
+                    points={`0,18 ${stat.spark.map((v, i) => `${(i / Math.max(stat.spark.length - 1, 1)) * 64},${17 - (v / maxSpark) * 14}`).join(' ')} 64,18`}
+                  />
+                </svg>
+              ) : null}
+            </>
+          ) : canManage ? (
+            <button type="button" className="dash-people-btn" onClick={(event) => openPeople(book.id, event)}>
+              <Users className="w-3.5 h-3.5" /> People
+            </button>
+          ) : null}
         </span>
-      </Link>
+      </div>
     );
   };
 
-  return (
-    <div className="max-w-6xl mx-auto space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <p className="ios-caption">{hello}</p>
-          <h1 className="font-display text-[26px] font-semibold tracking-[-0.03em] text-[#0B1F3A] truncate">{firstName}</h1>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {!expensesOnly && (
-            <Link to="/books" className="byjan-btn-ghost !h-9 !rounded-full">
-              <BookOpen className="w-4 h-4" />
-              Books
-            </Link>
-          )}
-          <button onClick={() => setShowNewBook(true)} className="byjan-btn !h-9 !rounded-full">
-            <Plus className="w-4 h-4" />
-            New ledger
-          </button>
-        </div>
-      </div>
-
-      {books.length > 0 && (
-        <>
-          <div className="byjan-stat-grid">
-            {[
-              { label: 'Net', value: formatIndianAmount(net, currency), tip: 'Money in minus money out across every ledger you can open.' },
-              { label: 'In', value: formatIndianAmount(globalStats.totalIn, currency), tip: 'All recorded money in, all time.' },
-              { label: 'Out / mo', value: formatIndianAmount(globalStats.monthOut, currency), tip: 'Money out recorded this calendar month.' },
-              { label: 'In / mo', value: formatIndianAmount(globalStats.monthIn, currency), tip: 'Money in recorded this calendar month.' },
-              { label: 'Entries', value: String(globalStats.entries), tip: 'Live entries, not including deleted rows.' },
-              { label: 'Open', value: String(globalStats.uncategorized), tip: `${globalStats.uncategorized} uncategorized. ${formatIndianAmount(globalStats.reimbursable, currency)} still reimbursable.` },
-            ].map((item) => (
-              <div key={item.label} className="byjan-stat" title={item.tip}>
-                <span className="byjan-stat-label">{item.label}</span>
-                <span className="byjan-stat-value byjan-money">{item.value}</span>
-              </div>
-            ))}
-          </div>
-          {bridges && (bridges.tds || bridges.gstGaps || bridges.dues.length || bridges.fest || bridges.mix.cashShare >= 40 || globalStats.uncategorized > 0) && (
-            <div className="ios-group">
-              {globalStats.uncategorized > 0 && (
-                <div className="ios-row" title="Entries with no category — email capture and UPI paste still land here if the merchant is new.">
-                  <span className="text-[14px] text-[#0B1F3A]">{globalStats.uncategorized} uncategorized</span>
-                </div>
-              )}
-              {bridges.tds > 0 && (
-                <div className="ios-row" title="Outgoing payments that look like 194C / 194I / 194J. Open the ledger Studio → India to mark them.">
-                  <span className="text-[14px] text-[#0B1F3A]">{bridges.tds} TDS watch</span>
-                </div>
-              )}
-              {bridges.gstGaps > 0 && (
-                <div className="ios-row" title="GST was applied but there is no receipt — ITC claims usually fail without it.">
-                  <span className="text-[14px] text-[#0B1F3A]">{bridges.gstGaps} GST rows need a receipt</span>
-                </div>
-              )}
-              {bridges.mix.cashShare >= 40 && (
-                <div className="ios-row" title="Cash is still a large share this month. Useful for households that mix UPI and cash.">
-                  <span className="text-[14px] text-[#0B1F3A]">{bridges.mix.cashShare}% cash this month</span>
-                </div>
-              )}
-              {bridges.dues.length > 0 && (
-                <div className="ios-row" title="Typical household bills not seen this month yet: rent, maid, society, power, school.">
-                  <span className="text-[14px] text-[#0B1F3A]">Missing {bridges.dues.slice(0, 4).join(', ')}</span>
-                </div>
-              )}
-              {bridges.fest && (
-                <div className="ios-row" title="Festival or payday window — spend usually jumps here and generic apps never name it.">
-                  <span className="text-[14px] text-[#0B1F3A]">{bridges.fest.name}</span>
-                </div>
-              )}
-            </div>
-          )}
-        </>
-      )}
-
-      <Dialog.Root open={showNewBook} onOpenChange={setShowNewBook}>
+  const createDialog = (
+      <Dialog.Root open={showNewBook} onOpenChange={(next) => { if (!creating) setShowNewBook(next); }}>
         <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 bg-slate-900/40 z-50 backdrop-blur-sm" />
-          <Dialog.Content className="byjan-panel fixed left-[50%] top-[50%] z-50 grid w-full max-w-md translate-x-[-50%] translate-y-[-50%] gap-4 p-5">
+          <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 z-[90]" />
+          <Dialog.Content
+            className="fixed left-[50%] top-[50%] z-[100] grid w-[calc(100%-1.5rem)] max-w-md translate-x-[-50%] translate-y-[-50%] gap-4 p-5 rounded-[22px] bg-white border border-slate-200 shadow-[0_28px_72px_-18px_rgba(11,31,58,0.42)]"
+            onCloseAutoFocus={(event) => event.preventDefault()}
+          >
             <div className="flex items-center justify-between">
-              <Dialog.Title className="text-lg font-bold text-slate-900">Create New Expense Tracker</Dialog.Title>
+              <Dialog.Title className="text-lg font-bold text-slate-900">New money book</Dialog.Title>
               <Dialog.Close className="text-slate-400 hover:text-slate-700 rounded-md p-1"><X className="w-4 h-4"/></Dialog.Close>
             </div>
             <form onSubmit={handleCreateBook} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Expense Tracker Name</label>
-                <input 
+                <label className="block text-sm font-medium text-slate-700 mb-1">Name</label>
+                <input
                   type="text" required autoFocus
                   value={newBookName} onChange={e => setNewBookName(e.target.value)}
                   className="byjan-input"
-                  placeholder="e.g. Acme Corp Q3"
+                  placeholder="e.g. Home, Shop, Travel"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Base Currency</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Currency</label>
                 <Select value={newCurrency} onValueChange={setNewCurrency}>
                   <SelectTrigger className="w-full border-slate-300">
                     <SelectValue />
@@ -355,7 +359,6 @@ export default function Dashboard() {
                     <SelectItem value="GBP">GBP (£)</SelectItem>
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-slate-500 mt-1">Default pulled from your Settings.</p>
               </div>
               <div className="flex justify-end gap-2 pt-2">
                 <Dialog.Close asChild>
@@ -363,61 +366,262 @@ export default function Dashboard() {
                 </Dialog.Close>
                 <button type="submit" disabled={creating || !newBookName.trim()} className="byjan-btn">
                   {creating && <span className="app-loader-ring app-loader-ring-sm" />}
-                  Create Expense Tracker
+                  Create book
                 </button>
               </div>
             </form>
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
+  );
 
-      {invites.length > 0 && (
-        <div className="space-y-3">
-          <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500 flex items-center gap-1.5">
-            <Users className="w-4 h-4 text-zinc-600" />
-            Pending Invitations
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {invites.map(invite => (
-              <div key={invite.id} className="byjan-card byjan-lift p-4 flex flex-col gap-3">
-                <div>
-                  <h3 className="font-semibold text-slate-900 text-sm truncate">{invite.bookName}</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">Invited as <span className="font-semibold text-slate-700 capitalize">{invite.role}</span></p>
+  const inviteBlock = canSeeMoney && invites.length > 0 && (
+        <div className="space-y-2">
+          <h2 className="dash-section-label"><Users className="w-3.5 h-3.5" /> Invitations</h2>
+          <div className="space-y-2">
+            {invites.map((invite) => (
+              <div key={invite.id} className="dash-invite">
+                <div className="min-w-0">
+                  <p className="font-semibold text-[#0B1F3A] truncate">{invite.bookName}</p>
+                  <p className="text-xs text-slate-500">Invited as {roleLabel(invite.role)}</p>
                 </div>
-                <div className="flex items-center gap-2 mt-auto pt-1">
-                  <button onClick={() => handleAcceptInvite(invite)} disabled={Boolean(acceptingId || decliningId)} className="byjan-btn flex-1 text-xs">
+                <div className="flex gap-2 shrink-0">
+                  <button onClick={() => handleAcceptInvite(invite)} disabled={Boolean(acceptingId || decliningId)} className="byjan-btn !h-8 text-xs">
                     {acceptingId === invite.id ? <span className="app-loader-ring app-loader-ring-sm" /> : <Check className="w-3.5 h-3.5" />}
-                    {acceptingId === invite.id ? 'Joining' : 'Accept'}
+                    Accept
                   </button>
-                  <button onClick={() => handleDeclineInvite(invite.id)} disabled={Boolean(acceptingId || decliningId)} className="byjan-btn-ghost flex-1 text-xs">
-                    {decliningId === invite.id ? <span className="app-loader-ring app-loader-ring-sm" /> : <X className="w-3.5 h-3.5" />}
-                    {decliningId === invite.id ? 'Declining' : 'Decline'}
+                  <button onClick={() => handleDeclineInvite(invite.id)} disabled={Boolean(acceptingId || decliningId)} className="byjan-btn-ghost !h-8 text-xs">
+                    Decline
                   </button>
                 </div>
               </div>
             ))}
           </div>
         </div>
+  );
+
+  if (!expensesOnly) {
+    return (
+      <div className="dash-shell dash-shell-home ios-page">
+        {createDialog}
+        <section className="dash-hero dash-hero-home">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">Command center</p>
+          <div className="mt-2 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[12px] font-medium text-white/65">{hello}</p>
+              <h1 className="font-display text-[28px] sm:text-[34px] font-semibold tracking-[-0.04em] text-white truncate">{firstName}</h1>
+              <p className="text-[13px] text-white/70 mt-1">
+                {!hasAnyFeature
+                  ? 'Your admin has not turned on any features for you yet.'
+                  : hasFeature('business')
+                    ? 'Capture spend once. Money stays in Money. Business stays in Business.'
+                    : canSeeMoney
+                      ? 'Give Byjan a receipt, UPI SMS, or a short line. It records it in your money book.'
+                      : 'Open Business from the tabs when you need invoices and GST.'}
+              </p>
+            </div>
+            {isSuperUser && (
+              <Link to="/access" className="dash-super-badge">
+                <Shield className="w-3.5 h-3.5" /> Super user
+              </Link>
+            )}
+          </div>
+          {hasAnyFeature ? (
+          <div className="dash-home-stats">
+            {canSeeMoney && (
+            <div className="dash-home-stat">
+              <span>Balance</span>
+              <strong>{loading || !statsReady ? '…' : formatIndianAmount(net, currency)}</strong>
+            </div>
+            )}
+            {canSeeMoney && (
+            <Link to="/expenses" className="dash-home-stat">
+              <span>Money books</span>
+              <strong>{visibleBooks.length}</strong>
+            </Link>
+            )}
+            {(canSeeMoney || hasFeature('business')) && (
+            <div className="dash-home-stat">
+              <span>{canSeeMoney ? 'Shared with' : 'Business'}</span>
+              <strong>{canSeeMoney ? managedBooks.length : (isBusinessOwner ? 1 : 0)}</strong>
+            </div>
+            )}
+          </div>
+          ) : (
+          <div className="mt-4 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-[13px] text-white/80">
+            No Money or Business access is turned on. Ask your super user to enable features for you.
+          </div>
+          )}
+          <div className="dash-dest-grid">
+            {hasFeature('money') && (
+            <Link to="/expenses" className="dash-dest">
+              <span className="dash-dest-icon"><BookText className="w-5 h-5" /></span>
+              <strong>Money</strong>
+              <span>UPI, receipts, daily spend</span>
+            </Link>
+            )}
+            {hasFeature('money') && (
+            <Link to="/reports" className="dash-dest">
+              <span className="dash-dest-icon"><Receipt className="w-5 h-5" /></span>
+              <strong>Reports</strong>
+              <span>Trends, budgets, insights</span>
+            </Link>
+            )}
+            {hasFeature('business') && (
+            <Link to="/books" className="dash-dest">
+              <span className="dash-dest-icon"><BookOpen className="w-5 h-5" /></span>
+              <strong>Business</strong>
+              <span>Invoices, bills, GST</span>
+            </Link>
+            )}
+          </div>
+        </section>
+
+        {hasFeature('money') && visibleBooks.length > 0 && (
+          <section>
+            <div className="flex items-center justify-between dash-section-label">
+              <span>Money books</span>
+              <Link to="/expenses" className="text-[#0B1F3A] font-semibold text-xs">See all</Link>
+            </div>
+            <div className="dash-continue">
+              {(recentBooks.length ? recentBooks : visibleBooks).slice(0, 4).map((book) => (
+                <Link key={book.id} to={`/book/${book.id}`} className="dash-continue-card">
+                  <span className="dash-ledger-mark !w-10 !h-10 !text-[12px]">{initials(book.name)}</span>
+                  <span className="min-w-0">
+                    <span className="block font-semibold text-[13px] text-[#0B1F3A] truncate">{book.name}</span>
+                    <span className="block text-[11px] text-slate-500">{roleLabel(myRoleOn(book))} · tap to open</span>
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-slate-300 ml-auto" />
+                </Link>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {inviteBlock}
+
+        {hasFeature('business') && businessTree.length > 0 && (
+        <section>
+          <div className="flex items-center justify-between dash-section-label">
+            <span>Business{tenant?.name ? ` · ${tenant.name}` : ''}</span>
+            <Link to="/books" className="text-[#0B1F3A] font-semibold">Open business</Link>
+          </div>
+          <div className="dash-books-grid">
+            {businessTree.filter((branch) => branch.id !== 'dashboard').map((branch) => (
+              <Link key={branch.id} to={branch.href} className="dash-book-link" title={branch.blurb}>
+                <span className="dash-book-link-icon">
+                  <FeatureIcon href={branch.href} className="w-5 h-5" />
+                </span>
+                <span className="min-w-0">
+                  <span className="dash-book-link-name">{branch.name}</span>
+                  <span className="dash-book-link-blurb">{branch.blurb}</span>
+                </span>
+              </Link>
+            ))}
+          </div>
+        </section>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="dash-shell ios-page">
+      {createDialog}
+      <section className="dash-hero dash-hero-money">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">Money</p>
+        <div className="mt-2 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="font-display text-[26px] sm:text-[30px] font-semibold tracking-[-0.04em] text-white">Money books</h1>
+            <p className="text-[13px] text-white/70 mt-1">Add money out, money in, or a transfer. Paste a UPI SMS when you can.</p>
+          </div>
+          <button type="button" onClick={() => setShowNewBook(true)} className="dash-hero-cta">
+            <Plus className="w-4 h-4" />
+            New
+          </button>
+        </div>
+        {canSeeMoney && (
+        <div className="mt-5 flex items-end justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/50">Balance</p>
+            <p className="font-display text-[32px] sm:text-[36px] font-semibold tracking-[-0.04em] text-white tabular-nums leading-none mt-1">
+              {loading || !statsReady ? <span className="dash-skel dash-skel-money" /> : formatIndianAmount(net, currency)}
+            </p>
+          </div>
+          <div className="text-right text-[12px] text-white/70 space-y-0.5">
+            <p>{loading || !statsReady ? 'Updating totals' : `${globalStats.entries} expenses`}</p>
+            <p>{visibleBooks.length} books</p>
+          </div>
+        </div>
+        )}
+      </section>
+
+      {canSeeMoney && books.length > 0 && (
+        <div className="dash-kpis">
+          {[
+            { label: 'Money in', value: formatIndianAmount(globalStats.totalIn, currency), icon: TrendingUp },
+            { label: 'Money out', value: formatIndianAmount(globalStats.totalOut, currency), icon: ArrowUpRight },
+            { label: 'This month', value: formatIndianAmount(globalStats.monthOut, currency), icon: Wallet },
+            { label: 'Needs a category', value: String(globalStats.uncategorized), icon: Receipt },
+          ].map((item) => (
+            <div key={item.label} className="dash-kpi-card">
+              <item.icon className="w-4 h-4 text-[#12B8A8]" />
+              <span className="dash-kpi-label">{item.label}</span>
+              <span className="dash-kpi-value byjan-money">{!statsReady ? <span className="dash-skel dash-skel-line" /> : item.value}</span>
+            </div>
+          ))}
+        </div>
       )}
 
-      <div className={expensesOnly ? 'space-y-4' : 'grid lg:grid-cols-[1.15fr_0.85fr] gap-6 items-start'}>
-        <section>
-          <div className="flex items-center justify-between gap-2 ios-section-label">
-            <span>{expensesOnly ? 'Ledgers' : 'Ledgers'}</span>
-            <span className="flex items-center gap-2">
+      {canSeeMoney && bridges && (bridges.tds || bridges.gstGaps || bridges.dues.length || bridges.fest || bridges.mix.cashShare >= 40 || globalStats.uncategorized > 0) && (
+        <div className="dash-chips">
+          {globalStats.uncategorized > 0 && <span className="dash-chip">{globalStats.uncategorized} need a category</span>}
+          {bridges.tds > 0 && <span className="dash-chip">{bridges.tds} TDS watch</span>}
+          {bridges.gstGaps > 0 && <span className="dash-chip">{bridges.gstGaps} GST need receipt</span>}
+          {bridges.mix.cashShare >= 40 && <span className="dash-chip">{bridges.mix.cashShare}% cash</span>}
+          {bridges.dues.length > 0 && <span className="dash-chip">Missing {bridges.dues.slice(0, 2).join(', ')}</span>}
+          {bridges.fest && <span className="dash-chip">{bridges.fest.name}</span>}
+        </div>
+      )}
+
+      {inviteBlock}
+
+      {!canSeeMoney ? (
+        <div className="dash-empty">
+          <p className="font-semibold text-[#0B1F3A]">Money is turned off for your account</p>
+          <p className="text-sm text-slate-500 mt-1">Ask your super user to enable Money if you need access to money books.</p>
+        </div>
+      ) : (
+      <section className="space-y-3">
+          <div className="flex items-center justify-between gap-2 dash-section-label">
+            <span>Money books</span>
+            <span className="flex items-center gap-2 font-normal">
               {books.some((book) => book.archived) && (
                 <button type="button" className="byjan-chip" data-on={showArchived} onClick={() => setShowArchived((v) => !v)}>Archived</button>
               )}
-              {recentBooks[0] && <span className="font-normal">Last opened {recentBooks[0].name}</span>}
+              {recentBooks[0] && <span className="hidden sm:inline">Last opened {recentBooks[0].name}</span>}
             </span>
           </div>
           {loading ? (
-            <AppLoader title="Ledgers" message="Loading the books you can open." />
+            <div className="dash-ledger-list" aria-busy="true" aria-label="Loading money books">
+              {[0, 1, 2].map((row) => <div key={row} className="dash-ledger dash-skel-card" />)}
+            </div>
+          ) : loadError && books.length === 0 ? (
+            <div className="dash-empty">
+              <p className="font-semibold text-[#0B1F3A]">Could not load your money books</p>
+              <p className="text-sm text-slate-500 mt-1">{loadError}</p>
+              <button type="button" onClick={() => void fetchData()} className="byjan-btn mt-4">
+                <RefreshCw className="w-4 h-4" /> Retry
+              </button>
+            </div>
           ) : books.length === 0 ? (
-            <div className="ios-widget text-center py-10">
+            <div className="dash-empty">
               <Building2 className="w-8 h-8 text-slate-300 mx-auto mb-3" />
-              <h3 className="text-[15px] font-semibold text-[#0B1F3A]">No ledgers yet</h3>
-              <p className="ios-caption mt-1">Create one or wait for an invitation.</p>
+              <h3 className="text-[15px] font-semibold text-[#0B1F3A]">No money books yet</h3>
+              <p className="ios-caption mt-1">A money book is a shared list of money in and money out. Create one, then add your first record.</p>
+              <button type="button" onClick={() => setShowNewBook(true)} className="byjan-btn mt-4">
+                <Plus className="w-4 h-4" /> New money book
+              </button>
             </div>
           ) : (
             <div className="space-y-3">
@@ -430,37 +634,15 @@ export default function Dashboard() {
                 pageSize={bookList.pageSize}
                 onPageSize={bookList.setPageSize}
                 total={bookList.filtered.length}
-                placeholder="Search ledgers"
+                placeholder="Search money books"
               />
-              <div className={expensesOnly ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3' : 'grid grid-cols-1 sm:grid-cols-2 gap-3'}>
+              <div className="dash-ledger-list">
                 {bookList.pageRows.map(renderLedgerCard)}
               </div>
             </div>
           )}
-        </section>
-
-        {!expensesOnly && (
-        <section>
-          <div className="flex items-center justify-between ios-section-label">
-            <span>Books{tenant?.name ? ` · ${tenant.name}` : ''}</span>
-            <Link to="/books" className="text-[#0B1F3A] font-semibold">Open</Link>
-          </div>
-          <div className="ios-group">
-            {BOOKS_TREE.map((branch) => (
-              <Link key={branch.id} to={branch.href} className="ios-row" title={branch.blurb}>
-                <span className="ios-glyph">{branch.name.slice(0, 2)}</span>
-                <span className="min-w-0">
-                  <span className="block text-[16px] font-medium text-[#0B1F3A] tracking-tight truncate">{branch.name}</span>
-                  <span className="block text-[12px] text-[#8e8e93] truncate">{branch.blurb}</span>
-                </span>
-                <ChevronRight className="ios-chevron w-5 h-5" />
-              </Link>
-            ))}
-          </div>
-        </section>
-        )}
-      </div>
+      </section>
+      )}
     </div>
   );
 }
-

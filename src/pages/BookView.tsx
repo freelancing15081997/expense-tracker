@@ -1,8 +1,9 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useFeatures } from '../lib/use-features';
 import { useToast } from '../context/ToastContext';
 import {
   addLedgerMailEvent,
@@ -15,7 +16,8 @@ import {
   updateLedger,
 } from '../lib/ledgers';
 import { createExpense, listExpenses, softDeleteExpense, updateExpense } from '../lib/expenses';
-import { createNotification } from '../lib/notifications';
+import { notifyLedgerMembers } from '../lib/notify-team';
+import { CapacitorService } from '../lib/capacitor';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send, Copy, CopyPlus, Paperclip, Mail, Megaphone, Shield, Pin, PinOff, SlidersHorizontal, ArrowUpDown, Star } from 'lucide-react';
@@ -27,6 +29,7 @@ import { format } from 'date-fns';
 import { getCurrencySymbol } from '../lib/currency';
 import { bookInboundAddress, ledgerAppLink, openInviteButtonHtml, openLedgerButtonHtml, wrapByjanEmailHtml } from '../lib/inbound-mail';
 import { createLedgerInvite, memberEmails } from '../lib/invites';
+import { apiUrl } from '../lib/api';
 import { authHeaders } from '../lib/auth-client';
 import { ReceiptModal, attachmentKind } from '../components/ReceiptModal';
 import { EventMailTrack, emailStatusClass, emailStatusLabel, resolvedStatus } from '../components/EmailActivityFlow';
@@ -46,6 +49,17 @@ import {
   touchRecentLedger,
   wouldBreakDailyCap,
 } from '../lib/ledger-advanced';
+import { roleLabel } from '../lib/plain-language';
+import { MONEY_KIND_OPTIONS, newMoneyId, readAccounts, readSettlements, readUserRules, toPaise, type TxType } from '../lib/money-core';
+import { buildEvidenceTrail, learnRuleFromCorrection } from '../lib/money-helpers';
+import { uploadLedgerReceipt } from '../lib/money-receipts';
+import { buildEqualPersonSplits, formatSettlementLine, peopleFromBook, suggestSettlements } from '../lib/money-splits';
+import { enqueueOfflineExpense, flushOfflineQueue, isLikelyOfflineError, listOfflineQueue } from '../lib/money-offline';
+import { buildCapturePreview } from '../lib/money-capture';
+import CapturePreviewSheet from '../components/CapturePreviewSheet';
+import { readPendingCapture } from '../components/ShareIntentListener';
+import { CameraSource } from '@capacitor/camera';
+import { Network } from '@capacitor/network';
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -111,9 +125,32 @@ function expenseDateLabel(exp: any) {
   return exp?.date || '';
 }
 
+function moneyKindMeta(entryType?: string, txType?: string) {
+  const tx = String(txType || '').toUpperCase();
+  if (tx === 'REFUND') return { label: 'Refund', cls: 'money-kind-in', sign: '+' };
+  if (tx === 'REVERSAL') return { label: 'Reversal', cls: 'money-kind-out', sign: '−' };
+  if (tx === 'CREDIT_CARD_PAYMENT') return { label: 'Card payment', cls: 'money-kind-xfer', sign: '' };
+  if (tx === 'CASH_WITHDRAWAL') return { label: 'Cash out', cls: 'money-kind-xfer', sign: '' };
+  if (tx === 'CASH_DEPOSIT') return { label: 'Cash in', cls: 'money-kind-in', sign: '+' };
+  if (entryType === 'in') return { label: 'Money in', cls: 'money-kind-in', sign: '+' };
+  if (entryType === 'transfer') return { label: 'Transfer', cls: 'money-kind-xfer', sign: '' };
+  return { label: 'Money out', cls: 'money-kind-out', sign: '−' };
+}
+
+function entryEvidence(exp: any) {
+  const trail = buildEvidenceTrail(exp || {});
+  if (trail.length > 1) return trail.slice(0, 2).map((s) => s.detail).join(' · ');
+  if (exp?.source === 'email') return 'Source: Email';
+  if (exp?.receiptPath) return 'Receipt attached';
+  if (exp?.status === 'draft') return 'Needs your confirm';
+  return '';
+}
+
 export default function BookView() {
   const { bookId } = useParams();
+  const location = useLocation();
   const { currentUser, userProfile } = useAuth();
+  const { on: hasFeature } = useFeatures();
   const [book, setBook] = useState<any>(null);
   const [expenses, setExpenses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -122,12 +159,13 @@ export default function BookView() {
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
-  const [isMembersModalOpen, setIsMembersModalOpen] = useState(false);
+  const [isMembersModalOpen, setIsMembersModalOpen] = useState(() => Boolean((location.state as { openPeople?: boolean } | null)?.openPeople));
   const [inboundAddress, setInboundAddress] = useState('');
   const [editingExpense, setEditingExpense] = useState<any>(null);
   
   // Form State
   const [entryType, setEntryType] = useState<'in' | 'out' | 'transfer'>('out');
+  const [txType, setTxType] = useState<TxType>('EXPENSE');
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
@@ -135,10 +173,16 @@ export default function BookView() {
   const [entryDate, setEntryDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [merchant, setMerchant] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [accountId, setAccountId] = useState('cash');
   const [notes, setNotes] = useState('');
   const [reimbursable, setReimbursable] = useState(false);
   const [billable, setBillable] = useState(false);
+  const [splitWithTeam, setSplitWithTeam] = useState(false);
   const [tags, setTags] = useState('');
+  const [receiptMeta, setReceiptMeta] = useState<{ receiptPath?: string; receiptName?: string } | null>(null);
+  const [capturePreview, setCapturePreview] = useState<ReturnType<typeof buildCapturePreview> | null>(null);
+  const [uploadingReceipt, setUploadingReceipt] = useState(false);
+  const [offlineCount, setOfflineCount] = useState(0);
   const [typeFilter, setTypeFilter] = useState('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -365,6 +409,38 @@ export default function BookView() {
   }, [bookId]);
 
   useEffect(() => {
+    if (!bookId) return;
+    setOfflineCount(listOfflineQueue(bookId).length);
+    const pending = readPendingCapture();
+    if (pending?.text) {
+      const preview = buildCapturePreview(pending.text, pending.source === 'share' ? 'share' : 'sms', expenses, [], readUserRules(book, currentUser?.uid || ''));
+      setCapturePreview(preview);
+    }
+    const sync = async () => {
+      const status = await Network.getStatus().catch(() => ({ connected: true }));
+      if (!status.connected) return;
+      const results = await flushOfflineQueue(bookId);
+      const ok = results.filter((r) => r.ok);
+      if (ok.length) {
+        setOfflineCount(listOfflineQueue(bookId).length);
+        addToast(`Synced ${ok.length} offline ${ok.length === 1 ? 'entry' : 'entries'}`, 'success');
+        for (const row of ok) if (row.expense) applyExpenseLocal(row.expense);
+      }
+    };
+    void sync();
+    const handle = Network.addListener('networkStatusChange', (status) => {
+      if (status.connected) void sync();
+    });
+    return () => { void handle.then((h) => h.remove()); };
+  }, [bookId]);
+
+  useEffect(() => {
+    if ((location.state as { openPeople?: boolean } | null)?.openPeople) {
+      setIsMembersModalOpen(true);
+    }
+  }, [location.state, bookId]);
+
+  useEffect(() => {
     const density = localStorage.getItem('byjan.density') || '';
     if (density) document.documentElement.dataset.density = density;
     if (localStorage.getItem('byjan.privacy') === '1') document.documentElement.dataset.privacy = 'on';
@@ -375,7 +451,7 @@ export default function BookView() {
       const typing = target && (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable);
       if (key === '/' && !typing) {
         event.preventDefault();
-        document.querySelector<HTMLInputElement>('input[placeholder="Search entries"]')?.focus();
+        document.querySelector<HTMLInputElement>('[data-ledger-search]')?.focus();
         return;
       }
       if (typing) return;
@@ -515,12 +591,12 @@ export default function BookView() {
     };
   }, [filtersOpen, updateFilterPos]);
 
-  if (loading) return <AppLoader title="Ledger" message="Opening entries and balances." />;
+  if (loading) return <AppLoader title="Money book" message="Opening records and balances." />;
   if (!book) return <div className="p-8 text-center text-sm text-slate-500">Book not found or access denied.</div>;
 
   const myRole = book.roles?.[currentUser!.uid]?.role || (book.ownerId === currentUser!.uid ? 'owner' : 'viewer');
-  const canWrite = ['owner', 'admin', 'contributor'].includes(myRole);
-  const canManageUsers = ['owner', 'admin'].includes(myRole);
+  const canWrite = ['owner', 'admin', 'contributor'].includes(myRole) && hasFeature('money_add');
+  const canManageUsers = ['owner', 'admin'].includes(myRole) && hasFeature('money_people');
   const isAuditor = myRole === 'auditor';
 
   const expenseCategories = expenses.map((exp) => String(exp.category || '')).filter(Boolean);
@@ -563,6 +639,7 @@ export default function BookView() {
   const openNewExpense = () => {
     setEditingExpense(null);
     setEntryType('out');
+    setTxType('EXPENSE');
     setAmount('');
     setDescription('');
     setCategory(categoryOptions[0] || '');
@@ -570,10 +647,13 @@ export default function BookView() {
     setEntryDate(new Date().toISOString().split('T')[0]);
     setMerchant('');
     setPaymentMethod('cash');
+    setAccountId(readAccounts(book)[0]?.id || 'cash');
     setNotes('');
     setReimbursable(false);
     setBillable(false);
+    setSplitWithTeam(false);
     setTags('');
+    setReceiptMeta(null);
     setIsExpenseModalOpen(true);
   };
 
@@ -594,7 +674,7 @@ export default function BookView() {
     setOpeningReceiptId(exp.id);
     setReceiptPreview({ url: '', title, kind: 'image' });
     try {
-      const res = await fetch(`/api/blob/file?path=${encodeURIComponent(exp.receiptPath)}`, { headers: await authHeaders() });
+      const res = await fetch(apiUrl(`/api/blob/file?path=${encodeURIComponent(exp.receiptPath)}`), { headers: await authHeaders() });
       if (!res.ok) throw new Error('Could not open attachment');
       const blob = await res.blob();
       const fileName = String(exp.receiptName || exp.receiptPath.split('/').pop() || title);
@@ -663,7 +743,7 @@ export default function BookView() {
     try {
       const pdfBase64 = generatePDF(true).split(',')[1];
       const { authHeaders } = await import('../lib/auth-client');
-      const res = await fetch('/api/email/send-report', {
+      const res = await fetch(apiUrl('/api/email/send-report'), {
         method: 'POST',
         headers: await authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
@@ -689,6 +769,7 @@ export default function BookView() {
   const openEditExpense = (exp: any) => {
     setEditingExpense(exp);
     setEntryType(exp.entryType || exp.entryType || 'out');
+    setTxType((exp.txType as TxType) || (exp.entryType === 'in' ? 'INCOME' : exp.entryType === 'transfer' ? 'TRANSFER' : 'EXPENSE'));
     setAmount(exp.amount.toString());
     setDescription(exp.description);
     if (categoryOptions.includes(exp.category)) {
@@ -701,10 +782,13 @@ export default function BookView() {
     setEntryDate(String(exp.date || new Date().toISOString().split('T')[0]));
     setMerchant(String(exp.merchant || ''));
     setPaymentMethod(String(exp.paymentMethod || 'cash'));
+    setAccountId(String(exp.accountId || 'cash'));
     setNotes(String(exp.notes || ''));
     setReimbursable(Boolean(exp.reimbursable));
     setBillable(Boolean(exp.billable));
+    setSplitWithTeam(Array.isArray(exp.personSplits) && exp.personSplits.length > 0);
     setTags(String(exp.tags || ''));
+    setReceiptMeta(exp.receiptPath ? { receiptPath: String(exp.receiptPath), receiptName: String(exp.receiptName || '') } : null);
     setIsExpenseModalOpen(true);
   };
 
@@ -737,25 +821,18 @@ export default function BookView() {
   };
 
   const notifyTeamMembers = async (action: string, detail: string, customSubject?: string, htmlOverride?: string) => {
-    // 1. In-app notifications
-    const uidsToNotify = Object.keys(book.roles).filter(uid => uid !== currentUser?.uid);
-    for (const uid of uidsToNotify) {
-      try {
-        await createNotification({
-          userId: uid,
-          bookId: bookId || book.id,
-          bookName: book.name,
-          kind: htmlOverride ? 'announcement' : 'entry',
-          action,
-          detail,
-          senderName: userProfile?.displayName || currentUser?.email,
-          ledgerMail: inboundAddress || bookInboundAddress(book),
-          link: ledgerAppLink(bookId || book.id),
-        });
-      } catch (err) {
-        console.error("Failed to add notification:", err);
-      }
-    }
+    await notifyLedgerMembers({
+      roles: book.roles,
+      actorUid: currentUser?.uid,
+      bookId: bookId || book.id,
+      bookName: book.name,
+      action,
+      detail,
+      senderName: userProfile?.displayName || currentUser?.email,
+      kind: htmlOverride ? 'announcement' : 'entry',
+      ledgerMail: inboundAddress || bookInboundAddress(book),
+      link: ledgerAppLink(bookId || book.id),
+    });
 
     // 2. Email notifications (Now sent reliably via our Node backend)
     const emails = memberEmails(book.roles); 
@@ -818,74 +895,147 @@ export default function BookView() {
       setIsSaving(false);
       return;
     }
+    const personSplits = splitWithTeam ? buildEqualPersonSplits(Number(amount || 0), book) : undefined;
+    const amountPaise = toPaise(Number(amount || 0));
+    const evidenceReasons = [
+      `Type: ${txType}`,
+      receiptMeta?.receiptPath ? 'Receipt evidence attached' : '',
+      splitWithTeam ? 'Split equally with team' : '',
+    ].filter(Boolean);
     try {
       if (editingExpense) {
         const nextStatus = Number(amount) > 0 ? 'recorded' : 'draft';
+        const beforeCategory = String(editingExpense.category || '');
         const updated = await updateExpense(bookId, editingExpense.id, {
           amount: Number(amount),
+          amountPaise,
           description,
           category: finalCategory,
           entryType: entryType,
+          txType,
           date: entryDate,
           merchant,
           paymentMethod,
+          accountId,
           notes,
           reimbursable,
           billable,
           tags,
+          personSplits,
+          receiptPath: receiptMeta?.receiptPath || editingExpense.receiptPath,
+          receiptName: receiptMeta?.receiptName || editingExpense.receiptName,
+          evidenceReasons,
+          financialStatus: nextStatus === 'draft' ? 'DRAFT' : 'CONFIRMED',
+          processingStatus: 'COMPLETED',
           status: nextStatus,
           lastEditedBy: userProfile?.displayName || currentUser?.email,
           lastEditedByUid: currentUser?.uid || '',
         });
-        await persistLedgerCategory(finalCategory);
-        applyExpenseLocal(updated || { ...editingExpense, amount: Number(amount), description, category: finalCategory, entryType, date: entryDate, merchant, paymentMethod, notes, reimbursable, billable, tags, status: nextStatus });
-        addToast('Entry updated successfully!', 'success');
+        if (beforeCategory && beforeCategory !== finalCategory && currentUser?.uid) {
+          const nextRules = learnRuleFromCorrection({
+            beforeCategory,
+            afterCategory: finalCategory,
+            merchant,
+            description,
+            existing: readUserRules(book, currentUser.uid),
+          });
+          const map = { ...(book.userMoneyRules && typeof book.userMoneyRules === 'object' ? book.userMoneyRules as Record<string, unknown> : {}), [currentUser.uid]: nextRules };
+          const nextBook = await updateLedger(bookId, { userMoneyRules: map });
+          setBook(nextBook);
+        }
+        applyExpenseLocal(updated || { ...editingExpense, amount: Number(amount), description, category: finalCategory, entryType, txType, date: entryDate, merchant, paymentMethod, accountId, notes, reimbursable, billable, tags, personSplits, status: nextStatus });
         setIsExpenseModalOpen(false);
+        addToast('Entry updated successfully!', 'success');
+        persistLedgerCategory(finalCategory).catch(console.error);
         notifyTeamMembers('Edited an entry', `Updated ${entryType === 'in' ? 'money in' : 'money out'} for "${description}" to ${getCurrencySymbol(book.currency)} ${amount} in category "${finalCategory}"`, `${userProfile?.displayName || currentUser?.email} updated "${description}" to ${getCurrencySymbol(book.currency)}${amount} in ${book.name}`).catch(console.error);
       } else {
         const payload = {
           amount: Number(amount),
+          amountPaise,
           description,
           category: finalCategory,
           entryType: entryType,
+          txType,
           date: entryDate,
           merchant,
           paymentMethod,
+          accountId,
           notes,
           reimbursable,
           billable,
           tags,
+          personSplits,
+          receiptPath: receiptMeta?.receiptPath,
+          receiptName: receiptMeta?.receiptName,
+          evidenceReasons,
+          captureSource: receiptMeta?.receiptPath ? 'receipt' : 'manual',
+          financialStatus: Number(amount) > 0 ? 'CONFIRMED' : 'DRAFT',
+          processingStatus: 'COMPLETED',
           paidByName: userProfile?.displayName || currentUser?.email,
           enteredBy: userProfile?.displayName || currentUser?.email,
           enteredByUid: currentUser?.uid || '',
           enteredByEmail: currentUser?.email || '',
           status: Number(amount) > 0 ? 'recorded' : 'draft',
+          idempotencyKey: newMoneyId('exp'),
         };
         let created: any = null;
         try {
-          created = await createExpense(bookId, payload);
+          created = await createExpense(bookId, payload, { idempotencyKey: String(payload.idempotencyKey) });
         } catch (err: any) {
+          if (isLikelyOfflineError(err)) {
+            enqueueOfflineExpense(bookId, payload);
+            setOfflineCount(listOfflineQueue(bookId).length);
+            applyExpenseLocal({ ...payload, id: payload.idempotencyKey, offlineQueued: true });
+            setIsExpenseModalOpen(false);
+            addToast('Saved offline — will sync when you are back online', 'success');
+            setIsSaving(false);
+            return;
+          }
           if (err?.status === 409 && window.confirm('A similar entry already exists on this ledger. Save it anyway?')) {
-            created = await createExpense(bookId, payload, { force: true });
+            created = await createExpense(bookId, payload, { force: true, idempotencyKey: String(payload.idempotencyKey) });
           } else {
             throw err;
           }
         }
-        await persistLedgerCategory(finalCategory);
         if (created) applyExpenseLocal(created);
-        addToast('Entry recorded successfully!', 'success');
-        setCurrentPage(1);
         setIsExpenseModalOpen(false);
         setAmount('');
         setDescription('');
         setCustomCatInput('');
         setCategory(finalCategory);
+        setReceiptMeta(null);
+        setCurrentPage(1);
+        addToast('Entry recorded successfully!', 'success');
+        persistLedgerCategory(finalCategory).catch(console.error);
+        void CapacitorService.hapticImpact();
         notifyTeamMembers('Added a new entry', `Recorded ${entryType === 'in' ? 'money in' : 'money out'} of ${getCurrencySymbol(book.currency)} ${amount} for "${description}" in category "${finalCategory}"`, `${userProfile?.displayName || currentUser?.email} added "${description}" (${getCurrencySymbol(book.currency)}${amount}) to ${book.name}`).catch(console.error);
       }
     } catch (err) {
       console.error(err);
       addToast(err instanceof Error ? err.message : 'Error saving expense', 'error');
     } finally { setIsSaving(false); }
+  };
+
+  const attachReceiptFromCamera = async (source: CameraSource = CameraSource.Prompt) => {
+    if (!bookId || !canWrite) return;
+    setUploadingReceipt(true);
+    try {
+      await CapacitorService.requestCameraPermission();
+      const photo = await CapacitorService.takePicture({ source, quality: 85 });
+      const dataUrl = photo.dataUrl || (photo.base64String ? `data:image/jpeg;base64,${photo.base64String}` : '');
+      if (!dataUrl) throw new Error('No photo data');
+      const uploaded = await uploadLedgerReceipt(bookId, {
+        dataUrl,
+        fileName: `receipt-${Date.now()}.jpg`,
+        mimeType: 'image/jpeg',
+      });
+      setReceiptMeta(uploaded);
+      addToast('Receipt attached', 'success');
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : 'Could not attach receipt', 'error');
+    } finally {
+      setUploadingReceipt(false);
+    }
   };
 
   const handleDeleteExpense = async (id: string, description: string) => {
@@ -980,7 +1130,7 @@ export default function BookView() {
   const sendEmailNotification = async (toEmail: string, subject: string, message: string, meta?: { action?: string }) => {
     try {
       const { authHeaders } = await import('../lib/auth-client');
-      const res = await fetch('/api/email/send', {
+      const res = await fetch(apiUrl('/api/email/send'), {
         method: 'POST',
         headers: await authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
@@ -1242,22 +1392,33 @@ export default function BookView() {
     <>
       <div className="h-full min-h-0 flex flex-col">
       <Tabs.Root value={ledgerTab} onValueChange={setLedgerTab} className="h-full min-h-0 flex flex-col">
-        <div className="shrink-0 px-4 md:px-6 lg:px-8 pt-2 pb-2 byjan-glass border-b border-white/50">
+        <div className="shrink-0 px-4 md:px-6 lg:px-8 pt-2 pb-2 bg-white border-b border-slate-200">
         <div className="max-w-6xl mx-auto">
-      <div className="flex items-center justify-between gap-2 mb-1">
-        <div className="flex items-center gap-2 min-w-0">
-          <Link to="/expenses" className="p-1 text-slate-400 hover:text-slate-700" title="Back">
-            <ArrowLeft className="w-4 h-4" />
+      <div className="flex flex-col gap-2 mb-1">
+        <div className="flex items-start gap-2 min-w-0">
+          <Link to="/expenses" className="mt-0.5 p-1.5 -ml-1 text-slate-400 hover:text-slate-700 rounded-lg" title="Back to money books">
+            <ArrowLeft className="w-5 h-5" />
           </Link>
-          <h1 className="text-base font-bold text-slate-900 truncate">{book.name}</h1>
-          <button type="button" onClick={() => void togglePinned()} className="p-1 text-slate-400 hover:text-[#0B1F3A]" title={book.pinned ? 'Unpin ledger' : 'Pin ledger'}>
-            {book.pinned ? <Pin className="w-4 h-4 text-[#12B8A8]" /> : <PinOff className="w-4 h-4" />}
-          </button>
-          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-zinc-50 text-zinc-700 uppercase border border-zinc-100">
-            {myRole}
-          </span>
-        </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Money book</p>
+            <h1 className="text-[18px] sm:text-[20px] font-display font-semibold text-[#0B1F3A] truncate leading-tight">{book.name}</h1>
+            <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 uppercase">
+                {roleLabel(myRole)}
+              </span>
+              {offlineCount > 0 && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+                  {offlineCount} offline
+                </span>
+              )}
+              <Link to="/reports" className="text-[10px] font-semibold text-[#12B8A8]">Reports</Link>
+              <button type="button" onClick={() => void togglePinned()} className="text-[10px] font-semibold text-slate-500 inline-flex items-center gap-1" title={book.pinned ? 'Unpin book' : 'Pin book'}>
+                {book.pinned ? <Pin className="w-3 h-3 text-[#12B8A8]" /> : <PinOff className="w-3 h-3" />}
+                {book.pinned ? 'Pinned' : 'Pin'}
+              </button>
+            </div>
+          </div>
+          <div className="hidden md:flex items-center gap-2 shrink-0">
           <button
             type="button"
             onClick={() => setIsAnnounceOpen(true)}
@@ -1269,10 +1430,11 @@ export default function BookView() {
           </button>
           <button 
             onClick={() => setIsMembersModalOpen(true)}
-            className="byjan-btn-ghost !px-2 !py-1.5"
+            className={canManageUsers ? 'byjan-btn !px-2 !py-1.5' : 'byjan-btn-ghost !px-2 !py-1.5'}
           >
-            <Users className="w-4 h-4 text-slate-400" />
-            <span className="hidden sm:inline">Team</span>
+            <Users className="w-4 h-4" />
+            <span className="hidden sm:inline">People & access</span>
+            <span className="sm:hidden">People</span>
           </button>
           {myRole === 'owner' && (
             <button
@@ -1290,30 +1452,51 @@ export default function BookView() {
             <button 
               type="button"
               data-add-entry
-              onClick={openNewExpense}
-              className="byjan-btn !px-3 sm:!px-4 !py-1.5"
-              title="Add entry (N)"
+              onClick={() => { void CapacitorService.hapticTick(); openNewExpense(); }}
+              className="btn-entry-form"
+              title="Add expense with full details"
             >
               <Plus className="w-4 h-4" />
-              <span className="hidden sm:inline">Add Entry</span>
-              <span className="sm:hidden">Add</span>
+              <span>Add expense</span>
             </button>
           )}
           </div>
         </div>
+        {canWrite && (
+        <div className="flex md:hidden items-center gap-2">
+          <button
+            type="button"
+            data-add-entry
+            onClick={() => { void CapacitorService.hapticTick(); openNewExpense(); }}
+            className="btn-entry-form flex-1 !h-11"
+          >
+            <Plus className="w-4 h-4" />
+            Add expense
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsMembersModalOpen(true)}
+            className="byjan-btn-ghost !h-11 !px-3 shrink-0"
+            title="Share this money book"
+          >
+            <Users className="w-4 h-4" />
+          </button>
+        </div>
+        )}
+      </div>
 
         <Tabs.List className="flex gap-5 border-b border-slate-200/60 overflow-x-auto">
           <Tabs.Trigger value="ledger" className="pb-1.5 text-[13px] font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B1F3A] data-[state=active]:border-b-2 data-[state=active]:border-[#12B8A8] transition-colors whitespace-nowrap">
-            Ledger
+            Expenses
           </Tabs.Trigger>
           <Tabs.Trigger value="email" className="pb-1.5 text-[13px] font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B1F3A] data-[state=active]:border-b-2 data-[state=active]:border-[#12B8A8] transition-colors whitespace-nowrap">
             Email
           </Tabs.Trigger>
           <Tabs.Trigger value="analytics" className="pb-1.5 text-[13px] font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B1F3A] data-[state=active]:border-b-2 data-[state=active]:border-[#12B8A8] transition-colors whitespace-nowrap">
-            Analytics
+            Reports
           </Tabs.Trigger>
           <Tabs.Trigger value="audit" className="pb-1.5 text-[13px] font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B1F3A] data-[state=active]:border-b-2 data-[state=active]:border-[#12B8A8] transition-colors whitespace-nowrap">
-            Audit
+            History
           </Tabs.Trigger>
         </Tabs.List>
 
@@ -1325,15 +1508,15 @@ export default function BookView() {
                 <p className={cn('byjan-stat-value byjan-money', balance >= 0 ? 'text-emerald-700' : 'text-slate-800')}>{balance < 0 ? '−' : ''}{getCurrencySymbol(book.currency)}{Math.abs(balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
               </div>
               <div className="byjan-stat">
-                <p className="byjan-stat-label">Out</p>
+                <p className="byjan-stat-label">Money out</p>
                 <p className="byjan-stat-value byjan-money text-slate-800">{getCurrencySymbol(book.currency)}{totalOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
               </div>
               <div className="byjan-stat">
-                <p className="byjan-stat-label">In</p>
-                <p className="byjan-stat-value byjan-money text-slate-800">{getCurrencySymbol(book.currency)}{totalIn.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                <p className="byjan-stat-label">Money in</p>
+                <p className="byjan-stat-value byjan-money text-emerald-700">{getCurrencySymbol(book.currency)}{totalIn.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
               </div>
               <div className="byjan-stat">
-                <p className="byjan-stat-label">Month</p>
+                <p className="byjan-stat-label">This month</p>
                 <p className="byjan-stat-value byjan-money text-[#0B1F3A]">{getCurrencySymbol(book.currency)}{monthOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
               </div>
             </div>
@@ -1357,7 +1540,8 @@ export default function BookView() {
                 <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                 <input
                   type="search"
-                  placeholder="Search entries"
+                  placeholder="Merchant, category, notes"
+                  data-ledger-search
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
@@ -1482,6 +1666,8 @@ export default function BookView() {
             onAdded={applyExpenseLocal}
             onRemoved={dropExpensesLocal}
             onToast={(message, kind) => addToast(message, kind || 'success')}
+            onNotifyTeam={(action, detail) => void notifyTeamMembers(action, detail)}
+            onOpenFullForm={() => { void CapacitorService.hapticTick(); openNewExpense(); }}
           />
           <div className="flex flex-wrap items-center gap-2 mb-2">
             <LedgerStudio
@@ -1746,77 +1932,84 @@ export default function BookView() {
             </div>
 
             {/* Compact Mobile View */}
-            <div className="md:hidden flex flex-col gap-3 p-3 bg-white/30">
+            <div className="md:hidden flex flex-col gap-2.5 pt-1">
               {paginatedExpenses.length === 0 ? (
-                <div className="p-5 text-center text-sm text-slate-500 bg-white rounded-lg border border-slate-200">No entries found.</div>
+                <div className="p-8 text-center text-sm text-slate-500 bg-white rounded-2xl border border-slate-200">No entries found.</div>
               ) : (
-                paginatedExpenses.map((exp) => (
+                paginatedExpenses.map((exp) => {
+                  const kind = moneyKindMeta(exp.entryType, exp.txType);
+                  const why = entryEvidence(exp);
+                  return (
                   <div
                     key={exp.id}
                     className={cn(
-                      'p-2.5 byjan-card flex flex-col gap-1.5',
+                      'entry-card-mobile',
                       exp.flagged && 'byjan-row-flag',
                       anomalySet.has(exp.id) && 'byjan-row-anomaly',
                     )}
                   >
-                    <div className="flex justify-between items-start gap-2">
+                    <div className="flex justify-between items-start gap-3">
                       {canWrite && (
-                        <input type="checkbox" className="mt-1" aria-label={`Select ${exp.description}`} checked={selectedIds.includes(exp.id)} onChange={() => toggleSelected(exp.id)} />
+                        <input type="checkbox" className="mt-1.5" aria-label={`Select ${exp.description}`} checked={selectedIds.includes(exp.id)} onChange={() => toggleSelected(exp.id)} />
                       )}
-                      <div className="font-semibold text-slate-900 text-[14px] leading-tight flex-1">
-                        {exp.description}
-                        {exp.source === 'email' && (
-                          <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-sky-50 text-sky-800 border border-sky-200" title={String(exp.emailSubject || 'From inbound email')}>Email</span>
-                        )}
-                        {exp.status === 'draft' && (
-                          <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">Needs review</span>
-                        )}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className={cn('money-kind', kind.cls)}>{kind.label}</span>
+                          {exp.source === 'email' && (
+                            <span className="money-evidence" title={String(exp.emailSubject || 'From inbound email')}>Email</span>
+                          )}
+                          {exp.status === 'draft' && (
+                            <span className="money-evidence money-evidence-warn">Needs review</span>
+                          )}
+                        </div>
+                        <p className="entry-card-title">{exp.description}</p>
                       </div>
-                      <div className={cn("byjan-money font-semibold text-[14px] whitespace-nowrap", exp.entryType === 'in' ? "text-emerald-700" : "text-slate-900")}>{exp.entryType === 'in' ? '+' : exp.entryType === 'transfer' ? '' : '−'}{getCurrencySymbol(book.currency)} {exp.amount.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
+                      <div className={cn('entry-card-amount byjan-money', kind.cls)}>{kind.sign}{getCurrencySymbol(book.currency)}{Number(exp.amount || 0).toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
                     </div>
-                    <div className="flex justify-between items-end mt-1">
-                      <div className="flex flex-col gap-1 text-[11px] text-slate-500">
-                        <span className="flex items-center gap-1.5">{expenseDateLabel(exp)}{exp.merchant ? ` · ${exp.merchant}` : ''}</span>
-                        <span className="flex items-center gap-1.5">{exp.category || 'Uncategorized'}{exp.paymentMethod ? ` · ${exp.paymentMethod}` : ''}</span>
-                        <span className="flex items-center gap-1.5">{exp.enteredBy || exp.paidByName}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {canWrite && (
-                          <>
-                            {exp.receiptPath && (
-                              <button
-                                type="button"
-                                onClick={() => void openReceipt(exp)}
-                                disabled={openingReceiptId === exp.id}
-                                className="p-1.5 bg-slate-50 text-slate-500 hover:text-teal-700 rounded-md border border-slate-200 disabled:opacity-70"
-                                title="Open attachment"
-                              >
-                                {openingReceiptId === exp.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Paperclip className="w-3.5 h-3.5" />}
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => void updateExpense(bookId!, exp.id, { flagged: !exp.flagged }).then(() => refreshExpenses())}
-                              className={cn('p-1.5 rounded-md border min-w-9 min-h-9', exp.flagged ? 'text-amber-500 border-amber-200 bg-amber-50' : 'bg-white/70 text-slate-500 border-white/70')}
-                              title={exp.flagged ? 'Unflag' : 'Flag'}
-                            >
-                              <Star className="w-3.5 h-3.5" fill={exp.flagged ? 'currentColor' : 'none'} />
-                            </button>
-                            <button onClick={() => void duplicateExpense(exp)} disabled={bulkBusy === exp.id} className="p-1.5 bg-white/70 text-slate-500 hover:text-zinc-600 rounded-md border border-white/70 min-w-9 min-h-9">
-                              {bulkBusy === exp.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CopyPlus className="w-3.5 h-3.5" />}
-                            </button>
-                            <button onClick={() => openEditExpense(exp)} className="p-1.5 bg-white/70 text-slate-500 hover:text-zinc-600 rounded-md border border-white/70 min-w-9 min-h-9">
-                              <PenSquare className="w-3.5 h-3.5" />
-                            </button>
-                            <button onClick={() => handleDeleteExpense(exp.id, exp.description)} disabled={isDeleting === exp.id} className="p-1.5 bg-slate-50 text-slate-500 hover:text-rose-600 rounded-md border border-slate-200">
-                              {isDeleting === exp.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                            </button>
-                          </>
+                    <p className="entry-card-meta">
+                      {expenseDateLabel(exp)}
+                      {exp.merchant ? ` · ${exp.merchant}` : ''}
+                      {` · ${exp.category || 'Uncategorized'}`}
+                      {exp.paymentMethod ? ` · ${exp.paymentMethod}` : ''}
+                    </p>
+                    {why ? <p className="entry-card-why">{why}{exp.enteredBy || exp.paidByName ? ` · ${exp.enteredBy || exp.paidByName}` : ''}</p> : (
+                      <p className="entry-card-why">{exp.enteredBy || exp.paidByName}</p>
+                    )}
+                    {canWrite && (
+                      <div className="entry-card-actions">
+                        {exp.receiptPath && (
+                          <button
+                            type="button"
+                            onClick={() => void openReceipt(exp)}
+                            disabled={openingReceiptId === exp.id}
+                            className="entry-card-action"
+                            title="Open attachment"
+                          >
+                            {openingReceiptId === exp.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Paperclip className="w-3.5 h-3.5" />}
+                          </button>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => void updateExpense(bookId!, exp.id, { flagged: !exp.flagged }).then(() => refreshExpenses())}
+                          className={cn('entry-card-action', exp.flagged && 'is-on')}
+                          title={exp.flagged ? 'Unflag' : 'Flag'}
+                        >
+                          <Star className="w-3.5 h-3.5" fill={exp.flagged ? 'currentColor' : 'none'} />
+                        </button>
+                        <button type="button" onClick={() => void duplicateExpense(exp)} disabled={bulkBusy === exp.id} className="entry-card-action" title="Duplicate">
+                          {bulkBusy === exp.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CopyPlus className="w-3.5 h-3.5" />}
+                        </button>
+                        <button type="button" onClick={() => openEditExpense(exp)} className="entry-card-action" title="Edit">
+                          <PenSquare className="w-3.5 h-3.5" />
+                        </button>
+                        <button type="button" onClick={() => handleDeleteExpense(exp.id, exp.description)} disabled={isDeleting === exp.id} className="entry-card-action is-danger" title="Delete">
+                          {isDeleting === exp.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                        </button>
                       </div>
-                    </div>
+                    )}
                   </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
@@ -2017,13 +2210,23 @@ export default function BookView() {
       </Tabs.Root>
 
       {/* Expense Edit/Add Modal */}
-      <Dialog.Root open={isExpenseModalOpen} onOpenChange={setIsExpenseModalOpen}>
+      <Dialog.Root open={isExpenseModalOpen} onOpenChange={(next) => { if (!isSaving) setIsExpenseModalOpen(next); }}>
         <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 bg-slate-900/40 z-50 backdrop-blur-sm" />
-          <Dialog.Content className="byjan-panel fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 p-5 max-h-[90vh] overflow-y-auto">
+          <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 z-[90]" />
+          <Dialog.Content
+            className="record-sheet fixed z-[100] grid gap-4 p-5 max-h-[90vh] overflow-y-auto bg-white border border-slate-200 shadow-[0_28px_72px_-18px_rgba(11,31,58,0.42)]"
+            onCloseAutoFocus={(event) => event.preventDefault()}
+          >
+            <div className="record-sheet-handle md:hidden" aria-hidden />
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <Dialog.Title className="text-base font-bold text-slate-900">
-                {editingExpense ? 'Edit Entry' : 'Record Expense'}
+              <Dialog.Title className="text-lg font-bold text-slate-900">
+                {editingExpense
+                  ? 'Edit expense'
+                  : entryType === 'in'
+                    ? 'Add income'
+                    : entryType === 'transfer'
+                      ? 'Add transfer'
+                      : 'Add expense'}
               </Dialog.Title>
               <Dialog.Close className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors">
                 <X className="h-4 w-4" />
@@ -2031,35 +2234,30 @@ export default function BookView() {
             </div>
             
                         <form onSubmit={handleSaveExpense} className="space-y-4">
-              <div className="flex bg-slate-100 p-1 rounded-lg">
-                <button 
-                  type="button"
-                  onClick={() => setEntryType('out')}
-                  className={cn("flex-1 py-1.5 text-sm font-semibold rounded-md transition-colors", entryType === 'out' ? "bg-white text-rose-600 shadow-sm" : "text-slate-500 hover:text-slate-700")}
-                >
-                  Money Out
-                </button>
-                <button 
-                  type="button"
-                  onClick={() => setEntryType('in')}
-                  className={cn("flex-1 py-1.5 text-sm font-semibold rounded-md transition-colors", entryType === 'in' ? "bg-white text-emerald-600 shadow-sm" : "text-slate-500 hover:text-slate-700")}
-                >
-                  Money In
-                </button>
-                <button 
-                  type="button"
-                  onClick={() => setEntryType('transfer')}
-                  className={cn("flex-1 py-1.5 text-sm font-semibold rounded-md transition-colors", entryType === 'transfer' ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700")}
-                >
-                  Transfer
-                </button>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {MONEY_KIND_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.txType}
+                    type="button"
+                    onClick={() => { setTxType(opt.txType); setEntryType(opt.entryType); }}
+                    className={cn(
+                      'rounded-xl border px-2 py-2 text-left text-[12px] font-semibold transition-colors',
+                      txType === opt.txType ? 'border-[#0B1F3A] bg-[#0B1F3A] text-white' : 'border-slate-200 text-slate-600',
+                    )}
+                  >
+                    <span className="block">{opt.label}</span>
+                    <span className={cn('block text-[10px] font-normal', txType === opt.txType ? 'text-white/70' : 'text-slate-400')}>{opt.hint}</span>
+                  </button>
+                ))}
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">Amount ({getCurrencySymbol(book.currency)})</label>
                 <input 
                   type="number" step="0.01" required autoFocus
                   value={amount} onChange={e=>setAmount(e.target.value)} 
-                  className="byjan-input" 
+                  className="byjan-input money-amount-input"
+                  inputMode="decimal"
+                  placeholder="0.00"
                 />
               </div>
               <div>
@@ -2068,7 +2266,7 @@ export default function BookView() {
                   type="text" required 
                   value={description} onChange={e=>setDescription(e.target.value)} 
                   className="byjan-input" 
-                  placeholder="e.g. Server Hosting"
+                  placeholder="e.g. Swiggy, rent, salary"
                 />
                 {editingExpense?.source === 'email' ? (
                   <p className="mt-1 text-[11px] text-slate-500">From inbound email — you can update this description anytime.</p>
@@ -2091,6 +2289,14 @@ export default function BookView() {
                   ) : null}
                 </div>
               ) : null}
+              {editingExpense && buildEvidenceTrail(editingExpense).length > 0 && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-1">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Why Byjan?</p>
+                  {buildEvidenceTrail(editingExpense).map((step, i) => (
+                    <p key={`${step.label}-${i}`} className="text-[12px] text-slate-600"><span className="font-semibold text-slate-700">{step.label}:</span> {step.detail}</p>
+                  ))}
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">Category</label>
                 <Select value={category} onValueChange={setCategory}>
@@ -2128,6 +2334,22 @@ export default function BookView() {
                   </select>
                 </div>
               </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Account</label>
+                  <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="byjan-input">
+                    {readAccounts(book).map((acct) => (
+                      <option key={acct.id} value={acct.id}>{acct.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-col justify-end">
+                  <button type="button" className="byjan-btn-ghost !h-10 w-full" disabled={uploadingReceipt} onClick={() => void attachReceiptFromCamera()}>
+                    {uploadingReceipt ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}
+                    {receiptMeta?.receiptPath ? 'Receipt attached' : 'Scan receipt'}
+                  </button>
+                </div>
+              </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">Merchant / payee</label>
                 <input list="entry-merchants" type="text" value={merchant} onChange={(e) => setMerchant(e.target.value)} className="byjan-input" placeholder="e.g. Amazon, landlord" />
@@ -2154,6 +2376,10 @@ export default function BookView() {
                   <input type="checkbox" checked={billable} onChange={(e) => setBillable(e.target.checked)} />
                   Billable to client
                 </label>
+                <label className="inline-flex items-center gap-2">
+                  <input type="checkbox" checked={splitWithTeam} onChange={(e) => setSplitWithTeam(e.target.checked)} />
+                  Split equally with team
+                </label>
               </div>
               <div className="pt-2 flex justify-end gap-2">
                 <Dialog.Close asChild>
@@ -2161,7 +2387,7 @@ export default function BookView() {
                 </Dialog.Close>
                 <button type="submit" disabled={isSaving} className="byjan-btn">
                   {isSaving && <span className="app-loader-ring app-loader-ring-sm" />}
-                  {isSaving ? (editingExpense ? 'Saving changes' : 'Recording entry') : (editingExpense ? 'Save Changes' : 'Record Entry')}
+                  {isSaving ? (editingExpense ? 'Saving…' : 'Adding…') : (editingExpense ? 'Save changes' : 'Add expense')}
                 </button>
               </div>
             </form>
@@ -2171,8 +2397,8 @@ export default function BookView() {
 
       <Dialog.Root open={isAnnounceOpen} onOpenChange={setIsAnnounceOpen}>
         <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 bg-slate-900/40 z-50 backdrop-blur-sm" />
-          <Dialog.Content className="byjan-panel fixed left-[50%] top-[50%] z-50 grid w-full max-w-md translate-x-[-50%] translate-y-[-50%] gap-4 p-5">
+          <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 z-[90]" />
+          <Dialog.Content className="fixed left-[50%] top-[50%] z-[100] grid w-full max-w-md translate-x-[-50%] translate-y-[-50%] gap-4 p-5 rounded-[22px] bg-white border border-slate-200 shadow-[0_28px_72px_-18px_rgba(11,31,58,0.42)]">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <Dialog.Title className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <Megaphone className="w-4 h-4 text-slate-500" /> Announce to the team
@@ -2217,11 +2443,11 @@ export default function BookView() {
       {/* Members Modal */}
       <Dialog.Root open={isMembersModalOpen} onOpenChange={setIsMembersModalOpen}>
         <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 bg-slate-900/40 z-50 backdrop-blur-sm" />
-          <Dialog.Content className="byjan-panel fixed left-[50%] top-[50%] z-50 flex flex-col w-full max-w-lg max-h-[85vh] translate-x-[-50%] translate-y-[-50%] overflow-hidden">
+          <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 z-[90]" />
+          <Dialog.Content className="fixed left-[50%] top-[50%] z-[100] flex flex-col w-full max-w-lg max-h-[85vh] translate-x-[-50%] translate-y-[-50%] overflow-hidden rounded-[22px] bg-white border border-slate-200 shadow-[0_28px_72px_-18px_rgba(11,31,58,0.42)]">
             <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
               <Dialog.Title className="text-base font-bold text-slate-900 flex items-center gap-2">
-                <Users className="w-4 h-4 text-slate-500" /> Team Members
+                <Users className="w-4 h-4 text-slate-500" /> People & access
               </Dialog.Title>
               <Dialog.Close className="rounded-md p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700 transition-colors">
                 <X className="h-4 w-4" />
@@ -2233,7 +2459,7 @@ export default function BookView() {
                 <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
                   <Mail className="w-3.5 h-3.5" /> Receipt by email
                 </p>
-                <p className="text-sm text-slate-600 leading-relaxed">Any member can send a receipt or entry to this unique ledger address. Byjan records it automatically and notifies this team. Full receive/send status is on the Email Activity tab.</p>
+                <p className="text-sm text-slate-600 leading-relaxed">Anyone in this book can send a receipt to this email. Byjan saves it and tells the group.</p>
                 <div className="flex items-center gap-2">
                   <code className="flex-1 text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 truncate">{inboundAddress || bookInboundAddress(book)}</code>
                   <button type="button" className="byjan-btn-ghost !px-2.5" onClick={() => void copyInboundAddress()}>
@@ -2284,14 +2510,14 @@ export default function BookView() {
                         data.role === 'auditor' ? "bg-amber-50 text-amber-700 border-amber-200" :
                         "bg-slate-50 text-slate-700 border-slate-200"
                       )}>
-                        {data.role}
+                        {roleLabel(data.role)}
                       </span>
                       
                       {(canManageUsers || uid === currentUser?.uid) && (
                         <button
                           onClick={() => handleRemoveMember(uid, uid === currentUser?.uid)}
                           className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                          title={uid === currentUser?.uid ? "Leave Ledger" : "Remove Member"}
+                          title={uid === currentUser?.uid ? "Leave this book" : "Remove person"}
                         >
                           {uid === currentUser?.uid ? (
                             <LogOut className="w-4 h-4" />
@@ -2309,7 +2535,7 @@ export default function BookView() {
             {canManageUsers && (
               <div className="p-4 border-t border-slate-200 bg-slate-50">
                 <h3 className="font-semibold text-slate-900 text-sm mb-2 flex items-center gap-1.5">
-                  <UserPlus className="w-3.5 h-3.5 text-slate-500"/> Invite Colleague
+                  <UserPlus className="w-3.5 h-3.5 text-slate-500"/> Invite someone
                 </h3>
                 <form onSubmit={handleInvite} className="flex flex-col sm:flex-row gap-2">
                   <input 
@@ -2322,10 +2548,10 @@ export default function BookView() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="admin">Admin</SelectItem>
-                      <SelectItem value="contributor">Contributor</SelectItem>
-                      <SelectItem value="auditor">Auditor</SelectItem>
-                      <SelectItem value="viewer">Viewer</SelectItem>
+                      <SelectItem value="admin">Manager</SelectItem>
+                      <SelectItem value="contributor">Can add</SelectItem>
+                      <SelectItem value="auditor">Can check</SelectItem>
+                      <SelectItem value="viewer">Can view</SelectItem>
                     </SelectContent>
                   </Select>
                   <button type="submit" disabled={inviting} className="byjan-btn">
@@ -2352,6 +2578,21 @@ export default function BookView() {
             setReceiptPreview(null);
             setOpeningReceiptId(null);
           }}
+        />
+      )}
+
+      {bookId && (
+        <CapturePreviewSheet
+          open={Boolean(capturePreview)}
+          preview={capturePreview}
+          bookId={bookId}
+          currency={String(book?.currency || 'INR')}
+          onClose={() => setCapturePreview(null)}
+          onConfirmed={(expense) => {
+            applyExpenseLocal(expense);
+            setCapturePreview(null);
+          }}
+          onToast={addToast}
         />
       )}
 

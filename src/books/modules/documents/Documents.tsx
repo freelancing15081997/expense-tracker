@@ -215,13 +215,12 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
     >
       {savingHint && <p className="text-xs text-slate-500">{savingHint}</p>}
       {open && !quickOpen && (
-        <Card className="p-5 space-y-6">
+        <RecordFlyout
+          title={editingId ? `Edit ${profile.singular.toLowerCase()}` : profile.createLabel}
+          subtitle={profile.formIntro}
+          onClose={() => setOpen(false)}
+        >
           <form onSubmit={submit} className="space-y-6">
-            <section>
-              <p className="text-[10px] uppercase tracking-[0.16em] text-[#12B8A8] font-semibold">{profile.singular}</p>
-              <h2 className="font-display text-xl mt-1">{editingId ? `Edit ${profile.singular.toLowerCase()}` : profile.createLabel}</h2>
-              <p className="text-sm text-[#6B7280] mt-1">{profile.formIntro}</p>
-            </section>
             <section className="grid md:grid-cols-3 gap-3">
               {partyKind && (
                 <Field label={profile.partyLabel}>
@@ -387,7 +386,7 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
               {error && <p className="text-sm text-rose-600">{error}</p>}
             </div>
           </form>
-        </Card>
+        </RecordFlyout>
       )}
       {quickOpen && partyKind && (
         <Card className="p-5 space-y-4">

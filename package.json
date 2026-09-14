@@ -11,6 +11,7 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "test:books": "tsx scripts/books-flow-test.ts",
+    "test:money": "tsx scripts/money-test.ts",
     "start": "node --dns-result-order=ipv4first dist/server.cjs",
     "migrate:firestore": "node scripts/migrate-firestore-to-postgres.mjs",
     "neon:export": "node scripts/export-neon-import.mjs",
@@ -25,6 +26,7 @@
     "mobile:run:android": "npm run build && npx cap sync android && npx cap run android"
   },
   "dependencies": {
+    "@capacitor-firebase/authentication": "^8.5.1",
     "@capacitor/android": "^8.5.2",
     "@capacitor/app": "^8.1.1",
     "@capacitor/browser": "^8.0.4",

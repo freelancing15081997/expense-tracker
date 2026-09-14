@@ -74,7 +74,7 @@ export default function Journals() {
       actions={can('post') && <IconBtn action="create" onClick={() => setOpen(true)}>New journal</IconBtn>}
     >
       {open && (
-        <Card className="p-4 space-y-3">
+        <RecordFlyout title="New journal" subtitle="Posted journals are immutable." onClose={() => setOpen(false)}>
           <form onSubmit={submit} className="space-y-3">
             <div className="grid md:grid-cols-2 gap-3">
               <Field label="Date"><DateField value={date} onChange={setDate} required /></Field>
@@ -115,7 +115,7 @@ export default function Journals() {
               {error && <p className="text-sm text-rose-600">{error}</p>}
             </div>
           </form>
-        </Card>
+        </RecordFlyout>
       )}
       <Card>
         {journals.length === 0 ? <Empty text="No journals yet. Post an invoice, bill, expense, or manual entry." /> : (

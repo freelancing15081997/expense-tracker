@@ -244,10 +244,40 @@ async function ensureLedgerSchema(sql) {
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`;
   await sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS receipt_hash TEXT`;
+  await sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS amount_paise NUMERIC(18,0)`;
+  await sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS tx_type TEXT`;
+  await sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS financial_status TEXT`;
+  await sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS processing_status TEXT`;
+  await sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS account_id TEXT`;
+  await sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS linked_expense_id TEXT`;
   await sql`UPDATE expenses SET receipt_hash = NULLIF(BTRIM(COALESCE(data->>'receiptHash', '')), '') WHERE receipt_hash IS NULL`;
+  await sql`UPDATE expenses SET amount_paise = ROUND(COALESCE(amount, 0) * 100) WHERE amount_paise IS NULL`;
+  await sql`UPDATE expenses SET tx_type = COALESCE(NULLIF(data->>'txType',''), CASE WHEN entry_type = 'in' THEN 'INCOME' WHEN entry_type = 'transfer' THEN 'TRANSFER' ELSE 'EXPENSE' END) WHERE tx_type IS NULL OR tx_type = ''`;
+  await sql`UPDATE expenses SET financial_status = COALESCE(NULLIF(data->>'financialStatus',''), CASE WHEN status = 'draft' THEN 'DRAFT' ELSE 'CONFIRMED' END) WHERE financial_status IS NULL OR financial_status = ''`;
+  await sql`UPDATE expenses SET processing_status = COALESCE(NULLIF(data->>'processingStatus',''), 'COMPLETED') WHERE processing_status IS NULL OR processing_status = ''`;
   await sql`CREATE INDEX IF NOT EXISTS expenses_book_idx ON expenses (book_id, updated_at DESC)`;
   await sql`CREATE INDEX IF NOT EXISTS expenses_book_amount_idx ON expenses (book_id, amount)`;
+  await sql`CREATE INDEX IF NOT EXISTS expenses_book_paise_idx ON expenses (book_id, amount_paise)`;
   await sql`CREATE INDEX IF NOT EXISTS expenses_book_live_idx ON expenses (book_id, deleted, updated_at DESC)`;
+  await sql`CREATE TABLE IF NOT EXISTS idempotency_records (
+    key TEXT PRIMARY KEY,
+    book_id TEXT NOT NULL,
+    uid TEXT NOT NULL,
+    response JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`;
+  await sql`CREATE INDEX IF NOT EXISTS idempotency_book_idx ON idempotency_records (book_id, uid, created_at DESC)`;
+  await sql`CREATE TABLE IF NOT EXISTS capture_events (
+    id TEXT PRIMARY KEY,
+    book_id TEXT NOT NULL,
+    uid TEXT NOT NULL,
+    processing_status TEXT NOT NULL DEFAULT 'INGESTED',
+    financial_status TEXT NOT NULL DEFAULT 'DRAFT',
+    data JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`;
+  await sql`CREATE INDEX IF NOT EXISTS capture_events_book_idx ON capture_events (book_id, updated_at DESC)`;
   try {
     await sql`CREATE UNIQUE INDEX IF NOT EXISTS expenses_live_receipt_hash_idx ON expenses (book_id, receipt_hash) WHERE deleted = false AND receipt_hash IS NOT NULL AND receipt_hash <> ''`;
   } catch {
@@ -810,30 +840,42 @@ async function ledgerSet(path, data, insertOnly = false) {
     const bookId = parts[1];
     const created = ts(obj.createdAt);
     const hash = text(obj.receiptHash) || null;
+    const entryType = text(obj.entryType || obj.type) || "out";
+    const amountValue = num(obj.amount);
+    const amountPaise = Number.isFinite(Number(obj.amountPaise)) ? Math.round(Number(obj.amountPaise)) : Math.round(amountValue * 100);
+    const txType = text(obj.txType) || (entryType === "in" ? "INCOME" : entryType === "transfer" ? "TRANSFER" : "EXPENSE");
+    const financialStatus = text(obj.financialStatus) || (text(obj.status) === "draft" ? "DRAFT" : "CONFIRMED");
+    const processingStatus = text(obj.processingStatus) || "COMPLETED";
+    const accountId = text(obj.accountId) || null;
+    const linkedExpenseId = text(obj.linkedExpenseId) || null;
     if (insertOnly) {
       const rows = await sql`
-        INSERT INTO expenses (id, book_id, amount, description, category, entry_type, entry_date, paid_by_name, status, deleted, receipt_hash, data, created_at, updated_at)
+        INSERT INTO expenses (id, book_id, amount, amount_paise, description, category, entry_type, tx_type, entry_date, paid_by_name, status, financial_status, processing_status, account_id, linked_expense_id, deleted, receipt_hash, data, created_at, updated_at)
         VALUES (
-          ${id}, ${bookId}, ${num(obj.amount)}, ${text(obj.description)}, ${text(obj.category)},
-          ${text(obj.entryType || obj.type) || "out"}, ${text(obj.date)}, ${text(obj.paidByName)},
-          ${text(obj.status)}, ${flag(obj)}, ${hash}, ${payload}::jsonb, ${created}::timestamptz, NOW()
+          ${id}, ${bookId}, ${amountValue}, ${amountPaise}, ${text(obj.description)}, ${text(obj.category)},
+          ${entryType}, ${txType}, ${text(obj.date)}, ${text(obj.paidByName)},
+          ${text(obj.status)}, ${financialStatus}, ${processingStatus}, ${accountId}, ${linkedExpenseId},
+          ${flag(obj)}, ${hash}, ${payload}::jsonb, ${created}::timestamptz, NOW()
         )
         ON CONFLICT (id) DO NOTHING RETURNING id
       `;
       return asRows(rows).length > 0;
     }
     await sql`
-      INSERT INTO expenses (id, book_id, amount, description, category, entry_type, entry_date, paid_by_name, status, deleted, receipt_hash, data, created_at, updated_at)
+      INSERT INTO expenses (id, book_id, amount, amount_paise, description, category, entry_type, tx_type, entry_date, paid_by_name, status, financial_status, processing_status, account_id, linked_expense_id, deleted, receipt_hash, data, created_at, updated_at)
       VALUES (
-        ${id}, ${bookId}, ${num(obj.amount)}, ${text(obj.description)}, ${text(obj.category)},
-        ${text(obj.entryType || obj.type) || "out"}, ${text(obj.date)}, ${text(obj.paidByName)},
-        ${text(obj.status)}, ${flag(obj)}, ${hash}, ${payload}::jsonb, ${created}::timestamptz, NOW()
+        ${id}, ${bookId}, ${amountValue}, ${amountPaise}, ${text(obj.description)}, ${text(obj.category)},
+        ${entryType}, ${txType}, ${text(obj.date)}, ${text(obj.paidByName)},
+        ${text(obj.status)}, ${financialStatus}, ${processingStatus}, ${accountId}, ${linkedExpenseId},
+        ${flag(obj)}, ${hash}, ${payload}::jsonb, ${created}::timestamptz, NOW()
       )
       ON CONFLICT (id) DO UPDATE SET
-        book_id = EXCLUDED.book_id, amount = EXCLUDED.amount, description = EXCLUDED.description,
-        category = EXCLUDED.category, entry_type = EXCLUDED.entry_type, entry_date = EXCLUDED.entry_date,
-        paid_by_name = EXCLUDED.paid_by_name, status = EXCLUDED.status, deleted = EXCLUDED.deleted,
-        receipt_hash = COALESCE(EXCLUDED.receipt_hash, expenses.receipt_hash),
+        book_id = EXCLUDED.book_id, amount = EXCLUDED.amount, amount_paise = EXCLUDED.amount_paise,
+        description = EXCLUDED.description, category = EXCLUDED.category, entry_type = EXCLUDED.entry_type,
+        tx_type = EXCLUDED.tx_type, entry_date = EXCLUDED.entry_date, paid_by_name = EXCLUDED.paid_by_name,
+        status = EXCLUDED.status, financial_status = EXCLUDED.financial_status, processing_status = EXCLUDED.processing_status,
+        account_id = EXCLUDED.account_id, linked_expense_id = EXCLUDED.linked_expense_id,
+        deleted = EXCLUDED.deleted, receipt_hash = COALESCE(EXCLUDED.receipt_hash, expenses.receipt_hash),
         data = EXCLUDED.data, updated_at = NOW()
     `;
     return true;
@@ -1524,7 +1566,8 @@ function applyApiCors(req, res) {
   res.setHeader("Access-Control-Allow-Origin", origin || "*");
   if (origin) res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader("Access-Control-Allow-Methods", "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Authorization,Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Authorization,Content-Type,X-Tenant-Id,X-Book-Id,X-File-Id,X-File-Ext,X-File-Name,X-Content-Type,Accept");
+  res.setHeader("Vary", "Origin");
 }
 function apiJson(res, status, payload) {
   res.statusCode = status;

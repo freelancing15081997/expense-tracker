@@ -7,18 +7,34 @@ const config: CapacitorConfig = {
   server: {
     androidScheme: 'https',
     iosScheme: 'https',
-    hostname: 'app.byjan.com',
-    cleartext: false
+    hostname: 'localhost',
+    cleartext: false,
+    allowNavigation: [
+      'easypado.com',
+      'www.easypado.com',
+      '*.easypado.com',
+      'byjan.com',
+      '*.byjan.com',
+      '*.googleapis.com',
+      '*.gstatic.com',
+      '*.firebaseapp.com',
+      '*.firebaseio.com',
+    ],
   },
   plugins: {
+    CapacitorHttp: {
+      enabled: true,
+    },
+    FirebaseAuthentication: {
+      skipNativeAuth: true,
+      providers: ['google.com'],
+    },
     SplashScreen: {
-      launchShowDuration: 2000,
+      launchShowDuration: 2200,
+      launchAutoHide: false,
       backgroundColor: '#0B1F3A',
-      showSpinner: true,
-      androidSpinnerStyle: 'large',
-      iosSpinnerStyle: 'large',
-      spinnerColor: '#ffffff',
-      androidScaleType: 'CENTER_CROP',
+      showSpinner: false,
+      androidScaleType: 'CENTER_INSIDE',
       splashFullScreen: true,
       splashImmersive: true,
     },
@@ -29,7 +45,7 @@ const config: CapacitorConfig = {
       resizeOnFullScreen: true,
     },
     StatusBar: {
-      style: 'dark',
+      style: 'LIGHT',
       backgroundColor: '#0B1F3A',
     },
     LocalNotifications: {
@@ -41,7 +57,7 @@ const config: CapacitorConfig = {
   android: {
     allowMixedContent: false,
     captureInput: true,
-    webContentsDebuggingEnabled: false,
+    webContentsDebuggingEnabled: true,
   }
 };
 

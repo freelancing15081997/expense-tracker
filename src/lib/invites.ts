@@ -79,7 +79,8 @@ export async function acceptLedgerInvite(opts: {
     const who = opts.displayName || opts.email;
     const bookName = payload.bookName || opts.invite.bookName;
     const bookId = payload.bookId || opts.invite.bookId;
-    const res = await fetch('/api/email/send', {
+    const { apiUrl } = await import('./api');
+    const res = await fetch(apiUrl('/api/email/send'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

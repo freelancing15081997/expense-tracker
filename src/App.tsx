@@ -10,7 +10,11 @@ import Dashboard from './pages/Dashboard';
 import BookView from './pages/BookView';
 import InviteAccept from './pages/InviteAccept';
 import Settings from './pages/Settings';
+import AccessControl from './pages/AccessControl';
+import MoneyReports from './pages/MoneyReports';
 import Layout from './components/Layout';
+import FeatureGate, { SuperUserGate } from './components/FeatureGate';
+import ShareIntentListener from './components/ShareIntentListener';
 
 import { peekReturnTo } from './lib/return-to';
 
@@ -18,14 +22,14 @@ const BooksApp = lazy(() => import('./books/app/BooksApp'));
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentUser, loading } = useAuth();
-  if (loading) return <AppLoader title="Byjan" message="Checking your session." />;
+  if (loading) return <AppLoader overlay title="Byjan" message="Checking your session." />;
   if (!currentUser) return <Navigate to="/login" replace />;
   return <>{children}</>;
 };
 
 const GuestRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentUser, loading } = useAuth();
-  if (loading) return <AppLoader title="Byjan" message="Checking your session." />;
+  if (loading) return <AppLoader overlay title="Byjan" message="Checking your session." />;
   if (currentUser) return <Navigate to={peekReturnTo()} replace />;
   return <>{children}</>;
 };
@@ -36,16 +40,19 @@ export default function App() {
       <AppPrefsProvider>
         <ToastProvider>
           <HashRouter>
+            <ShareIntentListener />
             <Routes>
               <Route path="/login" element={<GuestRoute><Login /></GuestRoute>} />
               <Route path="/register" element={<GuestRoute><Register /></GuestRoute>} />
               <Route path="/invite/:inviteId" element={<InviteAccept />} />
               <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
                 <Route index element={<Dashboard />} />
-                <Route path="expenses" element={<Dashboard />} />
-                <Route path="book/:bookId" element={<BookView />} />
+                <Route path="access" element={<SuperUserGate><AccessControl /></SuperUserGate>} />
+                <Route path="expenses" element={<FeatureGate feature="money"><Dashboard /></FeatureGate>} />
+                <Route path="book/:bookId" element={<FeatureGate feature="money"><BookView /></FeatureGate>} />
+                <Route path="reports" element={<FeatureGate feature="money"><MoneyReports /></FeatureGate>} />
                 <Route path="settings" element={<Settings />} />
-                <Route path="books/*" element={<Suspense fallback={<AppLoader title="Books" message="Opening your company workspace." />}><BooksApp /></Suspense>} />
+                <Route path="books/*" element={<FeatureGate feature="business"><Suspense fallback={<AppLoader title="Business" message="Opening your company accounts." />}><BooksApp /></Suspense></FeatureGate>} />
               </Route>
             </Routes>
           </HashRouter>

@@ -5,7 +5,7 @@ import { getBooksSearchHits, setBooksSearchHits, type SearchHit } from './search
 
 export type CatalogHit = SearchHit;
 
-const FEATURES: CatalogHit[] = [...BOOKS_QUICK_CREATE, ...BOOKS_FLAT_LINKS, { name: 'Main Dashboard', href: '/' }, { name: 'Expense Tracker', href: '/expenses' }, { name: 'Settings', href: '/settings' }]
+const FEATURES: CatalogHit[] = [...BOOKS_QUICK_CREATE, ...BOOKS_FLAT_LINKS, { name: 'Main Dashboard', href: '/' }, { name: 'Money books', href: '/expenses' }, { name: 'Settings', href: '/settings' }]
   .filter((item, i, arr) => arr.findIndex((x) => x.href === item.href) === i)
   .map((item) => ({
     id: item.href,

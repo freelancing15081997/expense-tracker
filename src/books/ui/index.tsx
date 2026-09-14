@@ -42,7 +42,7 @@ export function PageShell({
         </div>
       )}
       {embedded && (subtitle || actions) && (
-        <div className="shrink-0 px-4 md:px-6 py-2.5 border-b border-white/50 byjan-glass flex flex-col sm:flex-row sm:items-center gap-2">
+        <div className="shrink-0 px-4 md:px-6 py-2.5 border-b border-slate-200 bg-white flex flex-col sm:flex-row sm:items-center gap-2">
           {subtitle && <p className="text-sm text-slate-500 flex-1 min-w-0">{subtitle}</p>}
           {actions && <div className="flex flex-wrap gap-2 shrink-0">{actions}</div>}
         </div>

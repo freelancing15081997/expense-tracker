@@ -76,12 +76,11 @@ export default function Parties({ kind }: { kind: PartyKind }) {
     >
       <div className="space-y-5">
         {open && (
-          <Card className="p-5 space-y-5">
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.16em] text-[#12B8A8] font-semibold">{editing ? 'Edit' : 'New'} {kind}</p>
-              <h2 className="font-display text-xl mt-1">{editing ? editing.name : kind === 'customer' ? 'Add customer' : 'Add vendor'}</h2>
-              <p className="text-sm text-slate-500 mt-1">{kind === 'customer' ? 'Receivable master: who you bill, credit limit, and invoice address.' : 'Payable master: who you buy from, payment terms, and remit-from address.'}</p>
-            </div>
+          <RecordFlyout
+            title={editing ? editing.name : kind === 'customer' ? 'Add customer' : 'Add vendor'}
+            subtitle={kind === 'customer' ? 'Receivable master: who you bill, credit limit, and invoice address.' : 'Payable master: who you buy from, payment terms, and remit-from address.'}
+            onClose={() => { setOpen(false); setEditing(null); }}
+          >
             <div key={formKey}>
             <PartyForm
               kind={kind}
@@ -90,7 +89,7 @@ export default function Parties({ kind }: { kind: PartyKind }) {
               onSaved={() => { setOpen(false); setEditing(null); }}
             />
             </div>
-          </Card>
+          </RecordFlyout>
         )}
 
         <Card>
