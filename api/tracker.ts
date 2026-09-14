@@ -36,16 +36,38 @@ import {
   ledgerList,
   withDomainApi,
 } from './_pg-tables.js';
-import { emailIsSuperUser } from './_lib/super-users.js';
+
+function parseSuperEmails(raw: string) {
+  return String(raw || '')
+    .split(/[,;\s]+/)
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function emailIsSuperUser(email?: string | null) {
+  const needle = String(email || '').trim().toLowerCase();
+  if (!needle) return false;
+  const builtin = ['pujaribadrinath@gmail.com', 'byjanbooks@gmail.com'];
+  const extra = parseSuperEmails(String(process.env.SUPER_USER_EMAILS || process.env.VITE_SUPER_USER_EMAILS || ''));
+  return [...new Set([...builtin, ...extra])].includes(needle);
+}
 
 type Domain = 'ledgers' | 'expenses' | 'notifications' | 'me' | 'books' | 'money';
 
 async function moneyModule() {
-  return import('./_lib/money-handlers.js');
+  try {
+    return await import('./_lib/money-handlers.js');
+  } catch (err) {
+    throw new ApiError(500, err instanceof Error ? err.message : 'Money module unavailable');
+  }
 }
 
 async function pushModule() {
-  return import('./_lib/fcm.js');
+  try {
+    return await import('./_lib/fcm.js');
+  } catch {
+    return { sendFcm: async () => undefined };
+  }
 }
 
 function domainFrom(req: VercelRequest): Domain | '' {
