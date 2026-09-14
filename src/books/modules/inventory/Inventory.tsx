@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useBooks } from '../../context/BooksProvider';
 import { parseMoney, parseQty, parseQtyDelta } from '../../core/money';
-import { btnGhost, btnPrimary, Card, Field, IconBtn, inputClass, Money, PageShell, Status } from '../../ui';
+import { btnGhost, btnPrimary, Card, Field, IconBtn, inputClass, Money, PageShell, RecordFlyout, Status } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
 import type { Product } from '../../core/types';
 
@@ -28,7 +28,7 @@ export default function Inventory() {
       actions={can('create') && <IconBtn action="create" onClick={() => setOpen(true)}>New product</IconBtn>}
     >
       {open && (
-        <Card className="p-4">
+        <RecordFlyout title="New product" onClose={() => setOpen(false)}>
           <form
             className="grid md:grid-cols-3 gap-3"
             onSubmit={async (e) => {
@@ -76,7 +76,7 @@ export default function Inventory() {
             </div>
             {error && <p className="text-sm text-rose-600 md:col-span-3">{error}</p>}
           </form>
-        </Card>
+        </RecordFlyout>
       )}
       <PagedTable<Product> rows={products} empty="No products yet." minWidth="min-w-[860px]">
         {(slice) => (

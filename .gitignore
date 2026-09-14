@@ -24,7 +24,7 @@ android/*.iml
 android/app/build/
 android/app/release/
 android/app/debug/
-android/app/google-services.json
+# android/app/google-services.json  # Temporarily allowing for development
 android/app/*.keystore
 android/app/*.jks
 android/gradle.properties

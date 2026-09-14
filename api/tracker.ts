@@ -36,18 +36,21 @@ import {
   ledgerList,
   withDomainApi,
 } from './_pg-tables.js';
+import { sendFcm } from './_lib/fcm';
+import { emailIsSuperUser } from './_lib/super-users.js';
+import { checkExpenseIdempotency, handleMoney, storeExpenseIdempotency } from './_lib/money-handlers.js';
 
-type Domain = 'ledgers' | 'expenses' | 'notifications' | 'me' | 'books';
+type Domain = 'ledgers' | 'expenses' | 'notifications' | 'me' | 'books' | 'money';
 
 function domainFrom(req: VercelRequest): Domain | '' {
   const raw = req.query?.domain;
   const query = Array.isArray(raw) ? raw[0] : raw;
   const hinted = String(query || '').trim();
-  if (hinted === 'ledgers' || hinted === 'expenses' || hinted === 'notifications' || hinted === 'me' || hinted === 'books') return hinted;
+  if (hinted === 'ledgers' || hinted === 'expenses' || hinted === 'notifications' || hinted === 'me' || hinted === 'books' || hinted === 'money') return hinted;
   try {
     const path = new URL(req.url || '/', 'https://local.invalid').pathname;
     const part = path.split('/').filter(Boolean)[1] || '';
-    if (part === 'ledgers' || part === 'expenses' || part === 'notifications' || part === 'me' || part === 'books') return part;
+    if (part === 'ledgers' || part === 'expenses' || part === 'notifications' || part === 'me' || part === 'books' || part === 'money') return part;
   } catch {
     // fall through
   }
@@ -238,6 +241,14 @@ async function handleExpenses(req: VercelRequest, res: VercelResponse) {
       const bookId = String(body.bookId || '').trim();
       if (!bookId) throw new ApiError(400, 'Missing ledger');
       await ledgerRequireWriter(bookId, user.uid);
+      const idempotencyKey = String(body.idempotencyKey || '').trim();
+      if (idempotencyKey) {
+        const cached = await checkExpenseIdempotency(bookId, user.uid, idempotencyKey);
+        if (cached?.expense) {
+          apiJson(res, 200, { expense: cached.expense, idempotent: true });
+          return;
+        }
+      }
       const input = body.expense && typeof body.expense === 'object' && !Array.isArray(body.expense)
         ? body.expense as Record<string, unknown>
         : {};
@@ -252,6 +263,9 @@ async function handleExpenses(req: VercelRequest, res: VercelResponse) {
         enteredByEmail: user.email,
         createdAt: String(input.createdAt || now),
         status: Number(input.amount || 0) > 0 ? (input.status || 'recorded') : 'draft',
+        financialStatus: input.financialStatus || 'CONFIRMED',
+        processingStatus: input.processingStatus || 'COMPLETED',
+        idempotencyKey: idempotencyKey || undefined,
       }, { insertOnly: true });
       await mergeCategory(bookId, String(saved.expense.category || '')).catch(() => undefined);
       await ledgerAudit({
@@ -262,6 +276,9 @@ async function handleExpenses(req: VercelRequest, res: VercelResponse) {
         entityType: 'expense',
         entityId: String(saved.expense.id),
       });
+      if (idempotencyKey) {
+        await storeExpenseIdempotency(bookId, user.uid, idempotencyKey, { expense: saved.expense });
+      }
       apiJson(res, 200, { expense: saved.expense });
       return;
     }
@@ -336,6 +353,18 @@ async function handleNotifications(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
+    if (op === 'registerPush') {
+      const token = String(body.token || '').trim();
+      if (!token) throw new ApiError(400, 'Missing token');
+      await ledgerUpsertUser(user.uid, {
+        pushToken: token,
+        pushPlatform: String(body.platform || ''),
+        pushUpdatedAt: new Date().toISOString(),
+      }, true);
+      apiJson(res, 200, { ok: true });
+      return;
+    }
+
     if (op === 'create') {
       const targetUid = String(body.userId || '').trim();
       const bookId = String(body.bookId || '').trim();
@@ -356,6 +385,15 @@ async function handleNotifications(req: VercelRequest, res: VercelResponse) {
         createdAt: new Date().toISOString(),
         read: false,
       });
+      const profile = await ledgerGetUser(targetUid);
+      const pushToken = String(profile?.pushToken || '');
+      if (pushToken) {
+        void sendFcm(pushToken, {
+          title: String(body.bookName || 'Byjan'),
+          body: `${String(body.senderName || user.email)} ${String(body.action || 'updated the book').toLowerCase()}`,
+          data: { bookId, url: `/#/book/${bookId}` },
+        });
+      }
       apiJson(res, 200, { notification });
       return;
     }
@@ -364,20 +402,129 @@ async function handleNotifications(req: VercelRequest, res: VercelResponse) {
   });
 }
 
+const ACCESS_FEATURE_KEYS = [
+  'money',
+  'money_add',
+  'money_people',
+  'business',
+  'sales',
+  'buying',
+  'bank',
+  'accounts',
+  'operations',
+  'tax',
+  'reports',
+  'company_settings',
+] as const;
+
+const MEMBER_FEATURE_DEFAULTS: Record<string, boolean> = {
+  money: true,
+  money_add: true,
+  money_people: true,
+  business: false,
+  sales: false,
+  buying: false,
+  bank: false,
+  accounts: false,
+  operations: false,
+  tax: false,
+  reports: false,
+  company_settings: false,
+};
+
+function sanitizeAccessFeatures(raw: unknown, superUser = false) {
+  const next: Record<string, boolean> = {};
+  for (const key of ACCESS_FEATURE_KEYS) {
+    next[key] = superUser ? true : Boolean(MEMBER_FEATURE_DEFAULTS[key]);
+  }
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    const rec = raw as Record<string, unknown>;
+    for (const key of ACCESS_FEATURE_KEYS) {
+      if (Object.prototype.hasOwnProperty.call(rec, key)) next[key] = Boolean(rec[key]);
+    }
+  }
+  return next;
+}
+
+function bookRoles(book: Record<string, unknown>) {
+  const roles = book.roles;
+  if (!roles || typeof roles !== 'object' || Array.isArray(roles)) return {} as Record<string, { role?: string; email?: string }>;
+  return roles as Record<string, { role?: string; email?: string }>;
+}
+
+function actorCanSetFeatures(actorEmail: string, targetUid: string) {
+  if (!emailIsSuperUser(actorEmail)) return false;
+  return Boolean(targetUid);
+}
+
 async function handleMe(req: VercelRequest, res: VercelResponse) {
   await withDomainApi(req, res, async (user, body) => {
     const op = String(body.op || 'get');
 
     if (op === 'get') {
       const profile = await ledgerGetUser(user.uid);
-      apiJson(res, 200, { user: profile || { uid: user.uid, email: user.email } });
+      const base = profile || { uid: user.uid, email: user.email };
+      const superUser = emailIsSuperUser(user.email);
+      apiJson(res, 200, { user: { ...base, isSuperUser: superUser, features: sanitizeAccessFeatures(profile?.features, superUser) } });
+      return;
+    }
+
+    if (op === 'people') {
+      if (!emailIsSuperUser(user.email)) throw new ApiError(403, 'Only a super user can view access people.');
+      const books = await ledgerListBooksForUser(user.uid);
+      const ids = new Set<string>();
+      const emails: Record<string, string> = {};
+      for (const book of books) {
+        const roles = bookRoles(book);
+        for (const [uid, row] of Object.entries(roles)) {
+          ids.add(uid);
+          if (row?.email) emails[uid] = String(row.email);
+        }
+        if (book.ownerId) ids.add(String(book.ownerId));
+      }
+      const people = await Promise.all([...ids].map(async (uid) => {
+        const profile = await ledgerGetUser(uid);
+        const email = String(profile?.email || emails[uid] || '');
+        return {
+          uid,
+          email,
+          displayName: String(profile?.displayName || email.split('@')[0] || 'Person'),
+          features: sanitizeAccessFeatures(profile?.features),
+        };
+      }));
+      people.sort((a, b) => a.displayName.localeCompare(b.displayName) || a.email.localeCompare(b.email));
+      apiJson(res, 200, { people });
+      return;
+    }
+
+    if (op === 'setFeatures') {
+      const targetUid = String(body.userId || body.targetUid || '').trim();
+      if (!targetUid) throw new ApiError(400, 'Missing person');
+      if (targetUid === user.uid) throw new ApiError(400, 'You cannot change your own access.');
+      if (!actorCanSetFeatures(user.email, targetUid)) {
+        throw new ApiError(403, 'Only a super user can change access.');
+      }
+      const features = sanitizeAccessFeatures(body.features);
+      const saved = await ledgerUpsertUser(targetUid, {
+        features,
+        updatedAt: new Date().toISOString(),
+      }, true);
+      await ledgerAudit({
+        actorUid: user.uid,
+        actorEmail: user.email,
+        action: 'user.features',
+        entityType: 'user',
+        entityId: targetUid,
+      });
+      apiJson(res, 200, { user: { ...saved, features } });
       return;
     }
 
     if (op === 'upsert') {
       const patch = body.patch && typeof body.patch === 'object' && !Array.isArray(body.patch)
-        ? body.patch as Record<string, unknown>
+        ? { ...(body.patch as Record<string, unknown>) }
         : {};
+      delete patch.features;
       const saved = await ledgerUpsertUser(user.uid, {
         ...patch,
         uid: user.uid,
@@ -632,6 +779,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (domain === 'notifications') return handleNotifications(req, res);
   if (domain === 'me') return handleMe(req, res);
   if (domain === 'books') return handleBooks(req, res);
+  if (domain === 'money') return handleMoney(req, res);
 
   const origin = String(req.headers.origin || '');
   res.setHeader('Access-Control-Allow-Origin', origin || '*');

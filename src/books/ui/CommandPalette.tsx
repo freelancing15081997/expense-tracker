@@ -5,10 +5,12 @@ import { BOOKS_FLAT_LINKS, BOOKS_QUICK_CREATE } from '../nav';
 import { FeatureIcon } from './icons';
 import { documentHref } from '../../lib/search-index';
 import { getRuntimePrefs } from '../../lib/app-prefs';
+import { useFeatures } from '../../lib/use-features';
 
 export default function CommandPalette() {
   const navigate = useNavigate();
   const books = useBooks();
+  const { allowsHref } = useFeatures();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
 
@@ -34,6 +36,7 @@ export default function CommandPalette() {
     const needle = q.trim().toLowerCase();
     const screens = [...BOOKS_QUICK_CREATE, ...BOOKS_FLAT_LINKS].reduce<{ name: string; href: string; hint: string }[]>((acc, item) => {
       if (acc.some((x) => x.href === item.href)) return acc;
+      if (!allowsHref(item.href)) return acc;
       if (!needle || item.name.toLowerCase().includes(needle)) acc.push({ name: item.name, href: item.href, hint: 'Feature' });
       return acc;
     }, []);
@@ -41,22 +44,27 @@ export default function CommandPalette() {
     if (needle.length >= 2) {
       for (const d of books.documents) {
         if (d.number.toLowerCase().includes(needle) || d.memo.toLowerCase().includes(needle)) {
-          records.push({ name: d.number, href: documentHref(d.kind, d.id), hint: d.kind.replace('_', ' ') });
+          const href = documentHref(d.kind, d.id);
+          if (!allowsHref(href)) continue;
+          records.push({ name: d.number, href, hint: d.kind.replace('_', ' ') });
         }
       }
       for (const p of books.parties) {
         if (p.name.toLowerCase().includes(needle)) {
-          records.push({ name: p.name, href: `${p.kind === 'vendor' ? '/books/vendors' : '/books/customers'}?open=${p.id}`, hint: p.kind });
+          const href = `${p.kind === 'vendor' ? '/books/vendors' : '/books/customers'}?open=${p.id}`;
+          if (!allowsHref(href)) continue;
+          records.push({ name: p.name, href, hint: p.kind });
         }
       }
       for (const a of books.accounts) {
         if (a.code.includes(needle) || a.name.toLowerCase().includes(needle)) {
+          if (!allowsHref('/books/ledger')) continue;
           records.push({ name: `${a.code} ${a.name}`, href: `/books/ledger/${a.id}`, hint: 'ledger' });
         }
       }
     }
     return [...screens, ...records].slice(0, 14);
-  }, [q, books.accounts, books.documents, books.parties]);
+  }, [q, books.accounts, books.documents, books.parties, allowsHref]);
 
   if (!open) return null;
   return (

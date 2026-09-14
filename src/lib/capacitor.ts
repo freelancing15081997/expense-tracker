@@ -1,8 +1,9 @@
 import { Capacitor } from '@capacitor/core';
+import { apiUrl } from './api';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { PushNotifications } from '@capacitor/push-notifications';
 import { App } from '@capacitor/app';
-import { Haptics, ImpactStyle } from '@capacitor/haptics';
+import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
 import { Keyboard } from '@capacitor/keyboard';
 import { Network } from '@capacitor/network';
 import { SplashScreen } from '@capacitor/splash-screen';
@@ -24,18 +25,15 @@ export const isWeb = platform === 'web';
 export class CapacitorService {
   private static pushToken: string | null = null;
   private static initialized = false;
+  private static boundUid = '';
+  private static lastAlertAt = 0;
 
   static async initialize() {
     if (this.initialized || !isMobile) return;
     
     try {
-      await SplashScreen.show({
-        showDuration: 2000,
-        autoHide: true,
-      });
-
       if (isAndroid) {
-        await StatusBar.setStyle({ style: Style.Dark });
+        await StatusBar.setStyle({ style: Style.Light });
         await StatusBar.setBackgroundColor({ color: '#0B1F3A' });
       }
 
@@ -44,9 +42,13 @@ export class CapacitorService {
       await this.checkNetworkStatus();
       
       this.initialized = true;
+      window.setTimeout(() => {
+        void SplashScreen.hide({ fadeOutDuration: 360 });
+      }, 2400);
       console.log('Capacitor initialized successfully');
     } catch (error) {
       console.error('Error initializing Capacitor:', error);
+      void SplashScreen.hide({ fadeOutDuration: 200 }).catch(() => undefined);
     }
   }
 
@@ -65,6 +67,7 @@ export class CapacitorService {
       }
 
       await PushNotifications.register();
+      await this.ensureAlertChannel();
 
       PushNotifications.addListener('registration', (token) => {
         console.log('Push registration success, token:', token.value);
@@ -90,33 +93,59 @@ export class CapacitorService {
     }
   }
 
+  static async bindAccount(uid?: string) {
+    this.boundUid = String(uid || '');
+    if (this.pushToken) await this.savePushToken(this.pushToken);
+    else if (isMobile) {
+      try { await PushNotifications.register(); } catch { /* ignore */ }
+    }
+  }
+
+  private static async ensureAlertChannel() {
+    try {
+      await LocalNotifications.createChannel({
+        id: 'byjan_alerts',
+        name: 'Ledger alerts',
+        description: 'When a teammate adds or changes an entry',
+        importance: 5,
+        visibility: 1,
+        sound: 'beep.wav',
+        vibration: true,
+        lights: true,
+      });
+    } catch {
+      /* web or already created */
+    }
+  }
+
   private static async savePushToken(token: string) {
     try {
-      const response = await fetch('/api/push-token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, platform }),
+      const { upsertMe } = await import('./me');
+      const { authHeaders } = await import('./auth-client');
+      const headers = await authHeaders({ 'content-type': 'application/json' });
+      if (!headers.Authorization) return;
+      await upsertMe({
+        pushToken: token,
+        pushPlatform: platform,
+        pushUpdatedAt: new Date().toISOString(),
       });
-      
-      if (!response.ok) {
-        console.error('Failed to save push token');
-      }
+      await fetch(apiUrl('/api/notifications'), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ op: 'registerPush', token, platform }),
+      }).catch(() => undefined);
     } catch (error) {
       console.error('Error saving push token:', error);
     }
   }
 
   private static handleIncomingNotification(notification: any) {
-    if (isAndroid) {
-      LocalNotifications.schedule({
-        notifications: [{
-          title: notification.title || 'Byjan',
-          body: notification.body || '',
-          id: Date.now(),
-          schedule: { at: new Date(Date.now() + 1000) },
-        }]
-      });
-    }
+    void this.alertIncoming({
+      title: String(notification?.title || notification?.notification?.title || 'Byjan'),
+      body: String(notification?.body || notification?.notification?.body || 'New update in a money book'),
+      bookId: String(notification?.data?.bookId || ''),
+      foreground: true,
+    });
   }
 
   private static handleNotificationAction(action: any) {
@@ -210,6 +239,53 @@ export class CapacitorService {
         console.error('Haptics error:', error);
       }
     }
+  }
+
+  static async hapticTick() {
+    await this.hapticImpact(ImpactStyle.Light);
+  }
+
+  static playAlertChime() {
+    try {
+      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(1320, ctx.currentTime + 0.08);
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.16, ctx.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.28);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.3);
+      osc.onended = () => { void ctx.close(); };
+    } catch {
+      /* audio not available */
+    }
+  }
+
+  static async alertIncoming(input: { title: string; body: string; bookId?: string; foreground?: boolean }) {
+    const now = Date.now();
+    if (now - this.lastAlertAt < 1200) return;
+    this.lastAlertAt = now;
+    this.playAlertChime();
+    if (isMobile) {
+      try {
+        await Haptics.notification({ type: NotificationType.Success });
+      } catch { /* ignore */ }
+      try {
+        await Haptics.vibrate({ duration: 220 });
+      } catch { /* ignore */ }
+    }
+    if (!isMobile || input.foreground) return;
+    await this.scheduleLocalNotification({
+      title: input.title,
+      body: input.body,
+      id: now % 2147483647,
+    });
   }
 
   static async hideKeyboard() {
@@ -315,7 +391,11 @@ export class CapacitorService {
       }
 
       await LocalNotifications.schedule({
-        notifications: [options]
+        notifications: [{
+          ...options,
+          channelId: 'byjan_alerts',
+          sound: 'beep.wav',
+        }]
       });
     } catch (error) {
       console.error('Error scheduling notification:', error);
@@ -327,8 +407,11 @@ export class CapacitorService {
   }
 
   static async hideSplashScreen() {
-    if (isMobile) {
-      await SplashScreen.hide();
+    if (!isMobile) return;
+    try {
+      await SplashScreen.hide({ fadeOutDuration: 280 });
+    } catch {
+      /* splash already gone */
     }
   }
 }
@@ -341,6 +424,7 @@ export {
   App,
   Haptics,
   ImpactStyle,
+  NotificationType,
   Keyboard,
   Network,
   SplashScreen,

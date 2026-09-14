@@ -27,12 +27,13 @@ export async function listAllExpenses() {
   };
 }
 
-export async function createExpense(bookId: string, expense: Record<string, unknown>, opts?: { force?: boolean }) {
+export async function createExpense(bookId: string, expense: Record<string, unknown>, opts?: { force?: boolean; idempotencyKey?: string }) {
   const payload = await apiPost<{ expense: LedgerExpense }>('/api/expenses', {
     op: 'create',
     bookId,
     expense,
     force: Boolean(opts?.force),
+    idempotencyKey: opts?.idempotencyKey || undefined,
   });
   return payload.expense;
 }

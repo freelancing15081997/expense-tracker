@@ -34,8 +34,9 @@ function uploadError(payload: { error?: string }, status: number) {
 }
 
 async function uploadViaServer(pathname: string, tenantId: string, fileId: string, file: File, meta: ReturnType<typeof inspectFile>) {
+  const { apiUrl } = await import('../../lib/api');
   const { authHeaders } = await import('../../lib/auth-client');
-  const res = await fetch('/api/blob/upload', {
+  const res = await fetch(apiUrl('/api/blob/upload'), {
     method: 'POST',
     headers: await authHeaders({
       'content-type': meta.contentType,
@@ -46,7 +47,11 @@ async function uploadViaServer(pathname: string, tenantId: string, fileId: strin
     }),
     body: file,
   });
-  const payload = await res.json().catch(() => ({ error: 'Upload failed' }));
+  const text = await res.text();
+  if (text.trimStart().startsWith('<')) throw new Error('Upload reached a web page instead of the API. Try again.');
+  const payload = (() => {
+    try { return JSON.parse(text || '{}'); } catch { return { error: 'Upload failed' }; }
+  })();
   if (!res.ok) throw new Error(uploadError(payload, res.status));
   const storedPath = String(payload.pathname || pathname);
   const url = String(payload.url || storedPath);
@@ -75,8 +80,9 @@ export async function booksFileUrl(path: string) {
     path.includes('blob.vercel-storage.com') ||
     path.includes('r2.cloudflarestorage.com');
   if (needsProxy) {
+    const { apiUrl } = await import('../../lib/api');
     const { authHeaders } = await import('../../lib/auth-client');
-    const res = await fetch(`/api/blob/file?path=${encodeURIComponent(path)}`, {
+    const res = await fetch(apiUrl(`/api/blob/file?path=${encodeURIComponent(path)}`), {
       headers: await authHeaders(),
     });
     if (!res.ok) throw new Error('File URL is unavailable. Re-upload the file.');
@@ -92,7 +98,8 @@ export async function booksFileUrl(path: string) {
 export async function removeBooksBlob(path: string) {
   if (!path || path.startsWith('firestore://')) return;
   if (!path.startsWith('http') && !path.startsWith('erp_workspaces/')) return;
-  await fetch('/api/blob/delete', {
+  const { apiUrl } = await import('../../lib/api');
+  await fetch(apiUrl('/api/blob/delete'), {
     method: 'POST',
     headers: await (await import('../../lib/auth-client')).authHeaders({ 'content-type': 'application/json' }),
     body: JSON.stringify({ url: path }),

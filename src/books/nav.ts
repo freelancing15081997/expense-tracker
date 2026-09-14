@@ -13,10 +13,10 @@ export const BOOKS_FLAT_LINKS = BOOKS_NAV.flatMap((group) => group.items);
 export const BOOKS_QUICK_CREATE = [
   { name: 'Invoice', href: '/books/invoices' },
   { name: 'Bill', href: '/books/bills' },
-  { name: 'Journal', href: '/books/journals' },
+  { name: 'Manual entry', href: '/books/journals' },
   { name: 'Customer', href: '/books/customers' },
-  { name: 'Vendor', href: '/books/vendors' },
-  { name: 'Expense', href: '/books/expenses' },
+  { name: 'Supplier', href: '/books/vendors' },
+  { name: 'Spend', href: '/books/expenses' },
   { name: 'Estimate', href: '/books/estimates' },
-  { name: 'Sales Order', href: '/books/sales-orders' },
+  { name: 'Order', href: '/books/sales-orders' },
 ];

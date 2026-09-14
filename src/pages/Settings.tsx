@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useAppPrefs } from '../context/AppPrefsContext';
+import { Link } from 'react-router-dom';
 import { upsertMe } from '../lib/me';
 import { listLedgerAudit } from '../lib/ledgers';
 import { Save, AlertCircle, CheckCircle2, Shield } from 'lucide-react';
@@ -38,7 +39,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 }
 
 export default function Settings() {
-  const { userProfile, refreshUserProfile } = useAuth();
+  const { userProfile, refreshUserProfile, isSuperUser } = useAuth();
   const tenant = useBooksTenantMeta();
   const { prefs, setPref, savePrefs } = useAppPrefs();
   const { addToast } = useToast();
@@ -102,24 +103,32 @@ export default function Settings() {
   return (
     <form onSubmit={handleSave} className="max-w-5xl mx-auto space-y-6 pb-10">
       <div>
-        <h1 className="font-display text-2xl font-semibold text-[#0B1F3A]">Settings</h1>
-        <p className="text-sm text-slate-500 mt-1">These preferences apply to the dashboard, Expense Tracker, and Books — not just the screen you are on.</p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Preferences</p>
+        <h1 className="font-display text-[28px] font-semibold tracking-[-0.04em] text-[#0B1F3A]">Settings</h1>
+        <p className="text-sm text-slate-500 mt-1">These options apply everywhere. Sign out is on your photo in the top-right.</p>
       </div>
 
-      {tenant && (
-        <div className="grid sm:grid-cols-2 gap-3">
-          <div className="byjan-card p-4">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Account</p>
-            <p className="text-sm font-semibold text-slate-900 mt-1">{userProfile?.email}</p>
-            <p className="text-xs text-slate-500 mt-1">Signed-in identity for every module.</p>
-          </div>
-          <div className="byjan-card p-4">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Books workspace</p>
-            <p className="text-sm font-semibold text-slate-900 mt-1">{tenant.name}</p>
-            <p className="text-xs text-slate-500 mt-1">Company letterhead still lives in Books → Settings.</p>
-          </div>
+      <div className="grid sm:grid-cols-2 gap-3">
+        <div className="byjan-card p-4">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Account</p>
+          <p className="text-sm font-semibold text-slate-900 mt-1 truncate">{userProfile?.displayName || 'Signed in'}</p>
+          <p className="text-xs text-slate-500 mt-1 truncate">{userProfile?.email}</p>
         </div>
-      )}
+        <div className="byjan-card p-4">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{tenant ? 'Business company' : 'Money books'}</p>
+          <p className="text-sm font-semibold text-slate-900 mt-1">{tenant?.name || 'Shared daily money'}</p>
+          <p className="text-xs text-slate-500 mt-1">{tenant ? 'Company letterhead lives in Business → Settings.' : 'Money books are for daily spend. Business is for invoices and GST.'}</p>
+        </div>
+        {isSuperUser && (
+        <Link to="/access" className="byjan-card p-4 sm:col-span-2 block">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 flex items-center gap-1.5">
+            <Shield className="w-3.5 h-3.5" /> Access & people
+          </p>
+          <p className="text-sm font-semibold text-slate-900 mt-1">Access & roles</p>
+          <p className="text-xs text-slate-500 mt-1">Search people and turn features on or off. Invite someone to a money book from that book’s People button.</p>
+        </Link>
+        )}
+      </div>
 
       {message && (
         <div className="bg-emerald-50 text-emerald-800 p-3 rounded-xl text-sm font-medium border border-emerald-200 flex items-center gap-2">
@@ -149,10 +158,10 @@ export default function Settings() {
       <section className="byjan-card overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-200 bg-[#F8FAFC]">
           <h2 className="text-base font-semibold text-slate-900">Regional</h2>
-          <p className="text-xs text-slate-500 mt-1">Number and date formatting for Books, Expense Tracker, search, and reports.</p>
+          <p className="text-xs text-slate-500 mt-1">Number and date formatting for Business, money books, search, and reports.</p>
         </div>
         <div className="p-5 grid md:grid-cols-2 gap-5">
-          <Field label="Default currency" hint="Used for new expense ledgers. Posted Books journals keep the workspace base currency.">
+          <Field label="Default currency" hint="Used when you create a new money book. Posted Business entries keep the company currency.">
             <Select value={prefs.defaultCurrency} onValueChange={(v) => setPref('defaultCurrency', v)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -287,8 +296,8 @@ export default function Settings() {
 
       <section className="byjan-card overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-200 bg-[#F8FAFC]">
-          <h2 className="text-base font-semibold text-slate-900">Expense Tracker categories</h2>
-          <p className="text-xs text-slate-500 mt-1">Saved on your account and shown in every ledger’s entry dropdown. Categories created inside one ledger stay on that ledger only.</p>
+          <h2 className="text-base font-semibold text-slate-900">Money book categories</h2>
+          <p className="text-xs text-slate-500 mt-1">Saved on your account and shown when you add a record. Categories created inside one book stay on that book only.</p>
         </div>
         <div className="p-5">
           <div className="flex gap-2 mb-4">
@@ -315,14 +324,14 @@ export default function Settings() {
         <div className="p-5 space-y-3 text-sm text-slate-600">
           <p>Idle sign-out after 30 minutes without activity. Maximum session length is 12 hours.</p>
           <p>Deleted entries leave your lists. Similar entries are checked before they are saved again.</p>
-          <p>Sign out is always visible on the sidebar. Firebase Auth remains the only sign-in method.</p>
+          <p>Use Sign out on your photo in the top-right.</p>
         </div>
       </section>
 
       <section className="byjan-card overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-200 bg-[#F8FAFC]">
           <h2 className="text-base font-semibold text-slate-900 flex items-center gap-2"><Shield className="w-4 h-4" /> Activity audit</h2>
-          <p className="text-xs text-slate-500 mt-1">Ledger and Books events you are allowed to see across every workspace you belong to.</p>
+          <p className="text-xs text-slate-500 mt-1">Money book and Business events you are allowed to see.</p>
         </div>
         <div className="p-5 space-y-2">
           {auditLoading ? (

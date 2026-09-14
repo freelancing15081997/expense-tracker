@@ -18,8 +18,9 @@ export function applyCors(req: IncomingMessage, res: ServerResponse) {
   res.setHeader('Access-Control-Allow-Methods', ALLOWED_API_METHODS);
   res.setHeader(
     'Access-Control-Allow-Headers',
-    'Authorization,Content-Type,X-CSRF-Token,X-Requested-With,Accept,Accept-Version,Content-Length,X-Tenant-Id,X-File-Id,X-File-Ext,X-File-Name,X-Content-Type,X-Api-Version',
+    'Authorization,Content-Type,X-CSRF-Token,X-Requested-With,Accept,Accept-Version,Content-Length,X-Tenant-Id,X-Book-Id,X-File-Id,X-File-Ext,X-File-Name,X-Content-Type,X-Api-Version,X-Inbound-Secret,X-Brevo-Secret',
   );
+  res.setHeader('Vary', 'Origin');
   res.setHeader('Allow', ALLOWED_API_METHODS);
   res.setHeader('Access-Control-Max-Age', '86400');
 }

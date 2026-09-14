@@ -1,8 +1,10 @@
+import { Capacitor } from '@capacitor/core';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import {
   getAuth,
   GoogleAuthProvider,
   getRedirectResult,
+  signInWithCredential,
   signInWithPopup,
   signInWithRedirect,
   createUserWithEmailAndPassword,
@@ -32,10 +34,36 @@ googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 export const googleRedirectReady = getRedirectResult(auth).catch(() => null);
 
+function googleSignInError(err: unknown) {
+  const anyErr = err as { code?: unknown; message?: unknown };
+  const code = String(anyErr?.code || '');
+  const message = String(anyErr?.message || '');
+  if (/10\b|DEVELOPER_ERROR|ApiException:\s*10/i.test(`${code} ${message}`)) {
+    return new Error('Google sign-in is not set up for this Android build. Add the debug SHA-1 fingerprint in Firebase and try again.');
+  }
+  if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request' || /12501|canceled|cancelled/i.test(message)) {
+    return new Error('Google sign-in was cancelled.');
+  }
+  return err instanceof Error ? err : new Error(message || 'Failed to sign in with Google');
+}
+
 export async function signInWithGoogle() {
   try {
     if (!sessionStorage.getItem('byjan.returnTo')) sessionStorage.setItem('byjan.returnTo', '/');
   } catch { /* private mode */ }
+
+  if (Capacitor.isNativePlatform()) {
+    const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
+    try {
+      const result = await FirebaseAuthentication.signInWithGoogle();
+      const idToken = result.credential?.idToken;
+      if (!idToken) throw new Error('Google sign-in did not return a token');
+      return await signInWithCredential(auth, GoogleAuthProvider.credential(idToken));
+    } catch (err) {
+      throw googleSignInError(err);
+    }
+  }
+
   try {
     return await signInWithPopup(auth, googleProvider);
   } catch (err: any) {
@@ -47,6 +75,14 @@ export async function signInWithGoogle() {
 }
 
 export async function logout() {
+  if (Capacitor.isNativePlatform()) {
+    try {
+      const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
+      await FirebaseAuthentication.signOut();
+    } catch {
+      /* native session may already be empty */
+    }
+  }
   await signOut(auth);
 }
 

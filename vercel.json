@@ -25,8 +25,9 @@
       "source": "/api/(.*)",
       "headers": [
         { "key": "Access-Control-Allow-Methods", "value": "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS" },
-        { "key": "Access-Control-Allow-Headers", "value": "Authorization,Content-Type,X-CSRF-Token,X-Requested-With,Accept,X-Tenant-Id,X-Book-Id,X-File-Id,X-File-Ext,X-File-Name,X-Content-Type,X-Inbound-Secret,X-Brevo-Secret,vercel-blob-api-version" },
-        { "key": "Access-Control-Allow-Credentials", "value": "true" }
+                        { "key": "Access-Control-Allow-Headers", "value": "Authorization,Content-Type,X-CSRF-Token,X-Requested-With,Accept,X-Tenant-Id,X-Book-Id,X-File-Id,X-File-Ext,X-File-Name,X-Content-Type,X-Inbound-Secret,X-Brevo-Secret,vercel-blob-api-version" },
+                        { "key": "Access-Control-Allow-Credentials", "value": "true" },
+                        { "key": "Vary", "value": "Origin" }
       ]
     }
   ],
@@ -35,6 +36,7 @@
     { "source": "/api/expenses", "destination": "/api/tracker?domain=expenses" },
     { "source": "/api/notifications", "destination": "/api/tracker?domain=notifications" },
     { "source": "/api/me", "destination": "/api/tracker?domain=me" },
+    { "source": "/api/money", "destination": "/api/tracker?domain=money" },
     { "source": "/api/books", "destination": "/api/tracker?domain=books" },
     { "source": "/api/auth/:path*", "destination": "/api" },
     { "source": "/neondb/auth/:path*", "destination": "/api" },

@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useBooks } from '../../context/BooksProvider';
 import { periodIdFromDate, parseMoney, todayISO } from '../../core/money';
-import { btnGhost, btnPrimary, Card, Field, IconBtn, inputClass, Money, PageShell } from '../../ui';
+import { btnGhost, btnPrimary, Card, Field, IconBtn, inputClass, Money, PageShell, RecordFlyout } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
 import type { BudgetLine } from '../../core/types';
 
@@ -33,7 +33,7 @@ export default function Budgets() {
       actions={can('create') && <IconBtn action="create" onClick={() => setOpen(true)}>Budget line</IconBtn>}
     >
       {open && (
-        <Card className="p-4">
+        <RecordFlyout title="Budget line" onClose={() => setOpen(false)}>
           <form
             className="grid md:grid-cols-3 gap-3"
             onSubmit={async (e) => {
@@ -63,7 +63,7 @@ export default function Budgets() {
             </div>
             {error && <p className="text-sm text-rose-600 md:col-span-3">{error}</p>}
           </form>
-        </Card>
+        </RecordFlyout>
       )}
       <PagedTable<BudgetLine> rows={budgets} empty="No budget lines yet.">
         {(slice) => (

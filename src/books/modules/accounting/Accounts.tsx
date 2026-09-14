@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useBooks } from '../../context/BooksProvider';
 import { useAppPrefs } from '../../../context/AppPrefsContext';
 import { signedBalance } from '../../engine/chartOfAccounts';
-import { btnGhost, btnPrimary, Card, Field, IconBtn, inputClass, Money, PageShell } from '../../ui';
+import { btnGhost, btnPrimary, Card, Field, IconBtn, inputClass, Money, PageShell, RecordFlyout } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
 import type { AccountType, FinanceAccount } from '../../core/types';
 
@@ -43,8 +43,8 @@ export default function Accounts() {
       actions={can('create') && <IconBtn action="create" onClick={() => setOpen(true)}>Add account</IconBtn>}
     >
       {open && (
-        <Card className="p-4">
-          <form className="grid md:grid-cols-4 gap-3" onSubmit={submit}>
+        <RecordFlyout title="Add account" subtitle="Parent accounts cannot be posted to." onClose={() => setOpen(false)}>
+          <form className="grid gap-3" onSubmit={submit}>
             <Field label="Code"><input className={inputClass} value={code} onChange={(e) => setCode(e.target.value)} placeholder="6000.50" required /></Field>
             <Field label="Name"><input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} required /></Field>
             <Field label="Type">
@@ -58,13 +58,13 @@ export default function Accounts() {
                 {accounts.filter((a) => !a.allowPosting).map((a) => <option key={a.id} value={a.id}>{a.code} {a.name}</option>)}
               </select>
             </Field>
-            <div className="md:col-span-4 flex gap-2 items-center">
+            <div className="flex gap-2 items-center">
               <IconBtn action="save" type="submit" busy={busy}>{busy ? 'Saving' : 'Save'}</IconBtn>
               <button type="button" className={btnGhost} onClick={() => setOpen(false)}>Cancel</button>
               {error && <p className="text-sm text-rose-600">{error}</p>}
             </div>
           </form>
-        </Card>
+        </RecordFlyout>
       )}
       <PagedTable<FinanceAccount> rows={prefs.showZeroBalances ? accounts : accounts.filter((a) => signedBalance(a) !== 0 || !a.allowPosting)} empty="No accounts yet.">
         {(slice) => (

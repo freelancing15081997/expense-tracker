@@ -28,6 +28,10 @@ import {
   type RecurringRule,
 } from '../lib/ledger-advanced';
 import { formatIndianAmount, gstSplit, guessedMerchant, tdsHint, workspaceBridges } from '../lib/bridge-automations';
+import { fromPaise, newMoneyId, readAccounts, readSavingsGoals, readSettlements, readUserRules, toPaise, type MoneyAccount, type SavingsGoal, type Settlement, type UserMoneyRule } from '../lib/money-core';
+import { detectAnomalies, detectCommitments } from '../lib/money-intelligence';
+import { formatSettlementLine, peopleFromBook, suggestSettlements } from '../lib/money-splits';
+import { flattenCategoryNames, readCategoryTree, type CategoryNode } from '../lib/money-helpers';
 
 type Props = {
   bookId: string;
@@ -121,6 +125,23 @@ export default function LedgerStudio(props: Props) {
   const [watch, setWatch] = useState('');
   const [moveTo, setMoveTo] = useState('');
   const [peers, setPeers] = useState<Array<{ id: string; name: string }>>([]);
+  const [accountName, setAccountName] = useState('');
+  const [goalName, setGoalName] = useState('');
+  const [goalTarget, setGoalTarget] = useState('');
+  const [ruleMatch, setRuleMatch] = useState('');
+  const [ruleCategory, setRuleCategory] = useState(props.categories[0] || 'Food');
+  const [subcatParent, setSubcatParent] = useState('');
+  const [subcatName, setSubcatName] = useState('');
+  const accounts = readAccounts(props.book);
+  const savingsGoals = readSavingsGoals(props.book);
+  const settlements = readSettlements(props.book);
+  const people = peopleFromBook(props.book);
+  const uid = props.enteredByUid;
+  const userRules = readUserRules(props.book, uid);
+  const categoryTree = readCategoryTree(props.book);
+  const anomalies = useMemo(() => detectAnomalies(props.expenses).slice(0, 4), [props.expenses]);
+  const commitments = useMemo(() => detectCommitments(props.expenses).slice(0, 4), [props.expenses]);
+  const suggested = useMemo(() => suggestSettlements(props.expenses, settlements, people), [props.expenses, settlements, people]);
   const rules = readCategoryRules(props.book);
   const templates = readTemplates(props.book);
   const recurring = readRecurring(props.book);
@@ -172,8 +193,8 @@ export default function LedgerStudio(props: Props) {
       {tab === 'glance' && (
         <div className="byjan-stat-grid !h-auto">
           {[
-            ['Out', money(insights.monthOut), 'This month money out'],
-            ['Last', money(insights.lastOut), 'Last month money out'],
+            ['Money out', money(insights.monthOut), 'This month money out'],
+            ['Last month', money(insights.lastOut), 'Last month money out'],
             ['WoW', `${wow.delta >= 0 ? '+' : ''}${Math.round(wow.delta)}%`, 'This week vs last week'],
             ['Dupes', String(insights.dupes), 'Possible duplicate clusters'],
             ['Cash', `${bridges.mix.cashShare}%`, 'Share of this month spent in cash'],
@@ -479,6 +500,170 @@ export default function LedgerStudio(props: Props) {
                 Save
               </button>
             </div>
+          </Section>
+
+          <Section title="Accounts & wallets">
+            {accounts.map((acct) => (
+              <div key={acct.id} className="ios-row text-[14px]">
+                <span>{acct.name}</span>
+                <span className="text-[#8e8e93] capitalize">{acct.kind.replace('_', ' ')}</span>
+              </div>
+            ))}
+            <div className="ios-row !gap-2">
+              <input className="byjan-input flex-1" placeholder="New account name" value={accountName} onChange={(e) => setAccountName(e.target.value)} />
+              <button
+                type="button"
+                className="byjan-btn-ghost !h-9"
+                onClick={() => {
+                  if (!accountName.trim()) return;
+                  const next: MoneyAccount = { id: newMoneyId('acct'), name: accountName.trim(), kind: 'custom', openingBalancePaise: 0 };
+                  void persist({ moneyAccounts: [...accounts, next] });
+                  setAccountName('');
+                }}
+              >
+                Add
+              </button>
+            </div>
+          </Section>
+
+          <Section title="Savings goals">
+            {savingsGoals.map((goal) => (
+              <div key={goal.id} className="ios-row text-[14px]">
+                <span>{goal.name}</span>
+                <span className="byjan-money text-[13px]">{props.currencySymbol}{fromPaise(goal.savedPaise).toLocaleString()} / {fromPaise(goal.targetPaise).toLocaleString()}</span>
+              </div>
+            ))}
+            <div className="ios-row !gap-2">
+              <input className="byjan-input flex-1" placeholder="Goal name" value={goalName} onChange={(e) => setGoalName(e.target.value)} />
+              <input className="byjan-input !w-24" inputMode="decimal" placeholder="Target" value={goalTarget} onChange={(e) => setGoalTarget(e.target.value)} />
+              <button
+                type="button"
+                className="byjan-btn-ghost !h-9"
+                onClick={() => {
+                  if (!goalName.trim() || !Number(goalTarget)) return;
+                  const next: SavingsGoal = { id: newMoneyId('goal'), name: goalName.trim(), targetPaise: toPaise(Number(goalTarget)), savedPaise: 0 };
+                  void persist({ savingsGoals: [...savingsGoals, next] });
+                  setGoalName('');
+                  setGoalTarget('');
+                }}
+              >
+                Add
+              </button>
+            </div>
+          </Section>
+
+          {(anomalies.length > 0 || commitments.length > 0) && (
+          <Section title="Insights">
+            {anomalies.map((row) => (
+              <p key={`${row.id}-${row.kind}`} className="ios-row text-[13px] text-amber-800">· {row.message}</p>
+            ))}
+            {commitments.map((row) => (
+              <p key={row.id} className="ios-row text-[13px] text-slate-600">· {row.label} ~{props.currencySymbol}{row.amount.toLocaleString()} ({row.cadence})</p>
+            ))}
+          </Section>
+          )}
+
+          <Section title="Your learning rules">
+            {userRules.map((rule) => (
+              <button
+                key={rule.id}
+                type="button"
+                className="ios-row w-full text-left"
+                onClick={() => {
+                  const next = userRules.filter((r) => r.id !== rule.id);
+                  const map = { ...(props.book.userMoneyRules && typeof props.book.userMoneyRules === 'object' ? props.book.userMoneyRules as Record<string, unknown> : {}), [uid]: next };
+                  void persist({ userMoneyRules: map });
+                }}
+              >
+                <span className="text-[14px]">{rule.match} → {rule.category}</span>
+                <span className="text-[12px] text-[#8e8e93]">Remove</span>
+              </button>
+            ))}
+            <div className="ios-row !gap-2">
+              <input className="byjan-input flex-1" placeholder="Match text" value={ruleMatch} onChange={(e) => setRuleMatch(e.target.value)} />
+              <input className="byjan-input !w-28" placeholder="Category" value={ruleCategory} onChange={(e) => setRuleCategory(e.target.value)} />
+              <button
+                type="button"
+                className="byjan-btn-ghost !h-9"
+                onClick={() => {
+                  if (!ruleMatch.trim() || !ruleCategory.trim() || !uid) return;
+                  const next: UserMoneyRule[] = [
+                    { id: newMoneyId('rule'), match: ruleMatch.trim(), field: 'any', category: ruleCategory.trim(), createdAt: new Date().toISOString() },
+                    ...userRules,
+                  ];
+                  const map = { ...(props.book.userMoneyRules && typeof props.book.userMoneyRules === 'object' ? props.book.userMoneyRules as Record<string, unknown> : {}), [uid]: next };
+                  void persist({ userMoneyRules: map });
+                  setRuleMatch('');
+                }}
+              >
+                Add
+              </button>
+            </div>
+          </Section>
+
+          <Section title="Categories & subcategories">
+            {categoryTree.filter((n) => !n.archived).slice(0, 12).map((node) => (
+              <div key={node.id} className="ios-row text-[14px]">
+                <span>{node.parentId ? `↳ ${node.name}` : node.name}</span>
+                <button
+                  type="button"
+                  className="text-[12px] text-[#8e8e93]"
+                  onClick={() => {
+                    const next = categoryTree.map((row) => row.id === node.id ? { ...row, archived: true } : row);
+                    void persist({ categoryTree: next, categories: flattenCategoryNames(next) });
+                  }}
+                >
+                  Archive
+                </button>
+              </div>
+            ))}
+            <div className="ios-row !gap-2">
+              <input className="byjan-input flex-1" placeholder="Parent (optional)" value={subcatParent} onChange={(e) => setSubcatParent(e.target.value)} />
+              <input className="byjan-input flex-1" placeholder="Category name" value={subcatName} onChange={(e) => setSubcatName(e.target.value)} />
+              <button
+                type="button"
+                className="byjan-btn-ghost !h-9"
+                onClick={() => {
+                  if (!subcatName.trim()) return;
+                  const parent = categoryTree.find((n) => n.name.toLowerCase() === subcatParent.trim().toLowerCase());
+                  const next: CategoryNode[] = [
+                    ...categoryTree,
+                    { id: newMoneyId('cat'), name: subcatName.trim(), parentId: parent?.id, order: categoryTree.length },
+                  ];
+                  void persist({ categoryTree: next, categories: flattenCategoryNames(next) });
+                  setSubcatName('');
+                  setSubcatParent('');
+                }}
+              >
+                Add
+              </button>
+            </div>
+          </Section>
+
+          <Section title="Settlements">
+            {settlements.map((row) => (
+              <div key={row.id} className="ios-row text-[13px]">
+                <span>{formatSettlementLine(row, people, props.currencySymbol)}</span>
+              </div>
+            ))}
+            {suggested.length === 0 && settlements.length === 0 && (
+              <p className="ios-row text-[13px] text-[#8e8e93]">Split expenses with the team to see who owes whom.</p>
+            )}
+            {suggested.map((row) => (
+              <button
+                key={row.id}
+                type="button"
+                className="ios-row w-full text-left"
+                onClick={() => {
+                  const next: Settlement[] = [...settlements, row];
+                  void persist({ settlements: next });
+                  props.onToast(`Settlement recorded: ${formatSettlementLine(row, people, props.currencySymbol)}`, 'success');
+                }}
+              >
+                <span className="text-[14px]">Record: {formatSettlementLine(row, people, props.currencySymbol)}</span>
+                <ChevronRight className="ios-chevron w-4 h-4" />
+              </button>
+            ))}
           </Section>
 
           <Section title="Watch & settle">

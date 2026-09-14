@@ -130,20 +130,14 @@ async function call(body: Record<string, unknown>) {
   const key = dedupe ? JSON.stringify(body) : '';
   if (key && pendingCalls.has(key)) return pendingCalls.get(key);
   const run = (async () => {
-    const { authHeaders } = await import('./auth-client');
-    const res = await fetch(storeUrl(body), {
-      method: 'POST',
-      credentials: 'include',
-      headers: await authHeaders({ 'content-type': 'application/json' }),
-      body: JSON.stringify(body),
-    });
-    const payload = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const err: any = new Error(payload.error || `Data request failed (${res.status})`);
-      err.code = res.status === 429 ? 'resource-exhausted' : 'failed';
+    const { apiPost } = await import('./api');
+    try {
+      return await apiPost(storeUrl(body), body);
+    } catch (error: any) {
+      const err: any = new Error(error?.message || 'Data request failed');
+      err.code = error?.status === 429 ? 'resource-exhausted' : 'failed';
       throw err;
     }
-    return payload;
   })();
   if (key) {
     pendingCalls.set(key, run);
@@ -162,14 +156,23 @@ function wrapDoc(id: string, data: any, path: string) {
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve(null), ms);
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve(null);
+    }, ms);
     promise.then((value) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
       resolve(value);
-    }).catch(() => {
+    }).catch((err) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
-      resolve(null);
+      reject(err);
     });
   });
 }
@@ -336,14 +339,14 @@ export async function getDoc(ref: DocRef) {
     return wrapDoc(ref.id, null, ref.path);
   }
   let data: Record<string, unknown> | null = cached?.data ?? null;
-  const payload = await withTimeout(call({ op: 'get', path: ref.path }), data ? 1200 : defaultKvMs(ref.path));
+  const payload = await withTimeout(call({ op: 'get', path: ref.path }), data ? 8000 : defaultKvMs(ref.path));
   if (payload?.data) data = payload.data;
   if (payload) {
     remember(ref.path, data);
   } else if (data) {
     remember(ref.path, data);
   } else {
-    const err: any = new Error('Books storage timed out. Retry.');
+    const err: any = new Error('Books is taking too long to respond. Check your connection and retry.');
     err.code = 'unavailable';
     throw err;
   }
@@ -417,11 +420,17 @@ export async function deleteDoc(ref: DocRef) {
 }
 
 function defaultKvMs(path: string) {
-  if (/\/inbound_events$/.test(path) || /\/email_events$/.test(path)) return 2500;
-  if (path.startsWith('books') || path === 'notifications' || path === 'invites' || path.startsWith('inbound_')) {
-    return 8000;
+  if (/\/inbound_events$/.test(path) || /\/email_events$/.test(path)) return 4000;
+  if (
+    path.startsWith('erp_workspaces/')
+    || path.startsWith('books')
+    || path === 'notifications'
+    || path === 'invites'
+    || path.startsWith('inbound_')
+  ) {
+    return 25000;
   }
-  return 2500;
+  return 12000;
 }
 
 export async function getDocs(source: { path: string; constraints?: Constraint[] }, opts?: { kvMs?: number; force?: boolean }): Promise<QuerySnapshot> {

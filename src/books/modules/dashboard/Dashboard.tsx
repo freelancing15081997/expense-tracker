@@ -6,11 +6,12 @@ import { FeatureIcon, Money, PageShell, Status, btnAccent, btnGhost } from '../.
 import { ChevronRight } from 'lucide-react';
 import { formatMoney, todayISO } from '../../core/money';
 import { BOOKS_QUICK_CREATE } from '../../nav';
-import { BOOKS_TREE } from '../../catalog/modules';
+import { useFeatures } from '../../../lib/use-features';
 import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 export default function Dashboard() {
   const { tenant, accounts, journals, documents, parties, currency, approvals, bankTxns } = useBooks();
+  const { allowsHref, tree } = useFeatures();
   const byKey = (key: string) => accounts.find((a) => a.systemKey === key);
 
   const cards = useMemo(() => {
@@ -41,7 +42,7 @@ export default function Dashboard() {
   return (
     <PageShell title={tenant?.name || 'Books'} subtitle="Balances, drafts, and what needs you next.">
       <div className="flex flex-wrap gap-2">
-        {BOOKS_QUICK_CREATE.map((item, index) => (
+        {BOOKS_QUICK_CREATE.filter((item) => allowsHref(item.href)).map((item, index) => (
           <Link key={item.href} to={item.href} className={`${index === 0 ? btnAccent : btnGhost} !rounded-full`}>
             <FeatureIcon href={item.href} className="w-3.5 h-3.5" />
             {item.name}
@@ -50,7 +51,7 @@ export default function Dashboard() {
       </div>
 
       <div className="byjan-stat-grid">
-        {cards.map((card) => (
+        {cards.filter((card) => allowsHref(card.href)).map((card) => (
           <Link
             key={card.label}
             to={card.href}
@@ -128,7 +129,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {BOOKS_TREE.map((branch) => (
+      {tree.map((branch) => (
         <div key={branch.id}>
           <p className="ios-section-label">{branch.name}</p>
           <div className="ios-group">

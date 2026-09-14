@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useLocation } from 'react-router-dom';
-import { ArrowRightLeft, BookOpen, ChevronRight, LayoutDashboard, LogOut, Pin, PinOff, Settings } from 'lucide-react';
+import { BookOpen, BookText, ChevronRight, LayoutDashboard, LogOut, Pin, PinOff, Settings, Shield } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import BrandLogo from './BrandLogo';
@@ -9,6 +9,9 @@ import { BOOKS_NAV, BOOKS_QUICK_CREATE } from '../books/nav';
 import { FeatureIcon, GroupIcon } from '../books/ui/icons';
 import type { BooksTenantMeta } from '../lib/tenant';
 import type { UserProfile } from '../context/AuthContext';
+import { useFeatures } from '../lib/use-features';
+import { useAuth } from '../context/AuthContext';
+import { emailIsSuperUser } from '../lib/super-users';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -34,6 +37,13 @@ function iconWell(active: boolean) {
 
 export default function AppSidebar({ expanded, pinned, tenant, userProfile, onLogout, onTogglePin }: AppSidebarProps) {
   const location = useLocation();
+  const { isSuperUser } = useAuth();
+  const { on: hasFeature, allowsHref } = useFeatures();
+  const showAccess = isSuperUser && emailIsSuperUser(userProfile?.email);
+  const booksNav = BOOKS_NAV
+    .map((group) => ({ ...group, items: group.items.filter((item) => allowsHref(item.href)) }))
+    .filter((group) => group.items.length > 0);
+  const quickCreate = BOOKS_QUICK_CREATE.filter((item) => allowsHref(item.href));
   const booksWrapRef = useRef<HTMLDivElement>(null);
   const [booksFlyout, setBooksFlyout] = useState(false);
   const [mobileBooks, setMobileBooks] = useState(location.pathname.startsWith('/books'));
@@ -43,6 +53,7 @@ export default function AppSidebar({ expanded, pinned, tenant, userProfile, onLo
   const onBooks = location.pathname === '/books' || location.pathname.startsWith('/books/');
   const onExpenses = location.pathname === '/expenses' || location.pathname.startsWith('/book/');
   const onHome = location.pathname === '/';
+  const onAccess = location.pathname === '/access';
   const onSettings = location.pathname === '/settings';
   const showText = expanded;
 
@@ -85,6 +96,7 @@ export default function AppSidebar({ expanded, pinned, tenant, userProfile, onLo
   }, []);
 
   const openBooksFlyout = () => {
+    if (typeof window !== 'undefined' && !window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
     if (closeTimer.current) window.clearTimeout(closeTimer.current);
     setBooksFlyout(true);
   };
@@ -135,17 +147,33 @@ export default function AppSidebar({ expanded, pinned, tenant, userProfile, onLo
           {showText && <span className={cn('text-[13.5px] font-semibold tracking-[-0.01em]', onHome ? 'text-[#0B1F3A]' : 'text-slate-600')}>Dashboard</span>}
         </Link>
 
+        {showAccess && (
+        <Link
+          to="/access"
+          title="Access and roles"
+          className={cn('group flex items-center rounded-2xl', showText ? 'gap-3 px-1.5 py-1' : 'justify-center py-0.5')}
+        >
+          <span className={iconWell(onAccess)}>
+            <Shield className="w-5 h-5" strokeWidth={2.2} />
+          </span>
+          {showText && <span className={cn('text-[13.5px] font-semibold tracking-[-0.01em]', onAccess ? 'text-[#0B1F3A]' : 'text-slate-600')}>Access</span>}
+        </Link>
+        )}
+
+        {hasFeature('money') && (
         <Link
           to="/expenses"
-          title="Expense Tracker"
+          title="Money books"
           className={cn('group flex items-center rounded-2xl', showText ? 'gap-3 px-1.5 py-1' : 'justify-center py-0.5')}
         >
           <span className={iconWell(onExpenses)}>
-            <ArrowRightLeft className="w-5 h-5" strokeWidth={2.2} />
+            <BookText className="w-5 h-5" strokeWidth={2.2} />
           </span>
-          {showText && <span className={cn('text-[13.5px] font-semibold tracking-[-0.01em]', onExpenses ? 'text-[#0B1F3A]' : 'text-slate-600')}>Expense Tracker</span>}
+          {showText && <span className={cn('text-[13.5px] font-semibold tracking-[-0.01em]', onExpenses ? 'text-[#0B1F3A]' : 'text-slate-600')}>Money</span>}
         </Link>
+        )}
 
+        {hasFeature('business') && (
         <div
           ref={booksWrapRef}
           className="relative"
@@ -155,13 +183,13 @@ export default function AppSidebar({ expanded, pinned, tenant, userProfile, onLo
           <div className={cn('flex items-center', showText ? 'gap-1' : 'justify-center')}>
             <Link
               to="/books"
-              title="Books"
+              title="Business"
               className={cn('group flex min-w-0 items-center rounded-2xl', showText ? 'flex-1 gap-3 px-1.5 py-1' : 'justify-center py-0.5')}
             >
               <span className={iconWell(onBooks)}>
                 <BookOpen className="w-5 h-5" strokeWidth={2.2} />
               </span>
-              {showText && <span className={cn('text-[13.5px] font-semibold truncate tracking-[-0.01em]', onBooks ? 'text-[#0B1F3A]' : 'text-slate-600')}>Books</span>}
+              {showText && <span className={cn('text-[13.5px] font-semibold truncate tracking-[-0.01em]', onBooks ? 'text-[#0B1F3A]' : 'text-slate-600')}>Business</span>}
             </Link>
             {showText && (
               <button
@@ -183,7 +211,7 @@ export default function AppSidebar({ expanded, pinned, tenant, userProfile, onLo
 
           {showText && (mobileBooks || onBooks) && (
             <div className="mt-1 space-y-2 pl-1 md:hidden">
-              {BOOKS_NAV.map((group) => (
+              {booksNav.map((group) => (
                 <div key={group.title}>
                   <p className="px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">{group.title}</p>
                   <div className="space-y-1">
@@ -204,6 +232,7 @@ export default function AppSidebar({ expanded, pinned, tenant, userProfile, onLo
             </div>
           )}
         </div>
+        )}
 
         <Link
           to="/settings"
@@ -246,22 +275,22 @@ export default function AppSidebar({ expanded, pinned, tenant, userProfile, onLo
       {booksFlyout && typeof document !== 'undefined' && createPortal(
         <div
           id="books-nav-flyout"
-          className="hidden md:block fixed z-[80] w-[min(560px,calc(100vw-96px))] max-h-[min(640px,calc(100vh-24px))] overflow-y-auto byjan-flyout p-4 pl-5 before:content-[''] before:absolute before:inset-y-0 before:-left-3 before:w-3"
+          className="hidden lg:block fixed z-[120] w-[min(560px,calc(100vw-96px))] max-h-[min(640px,calc(100vh-24px))] overflow-y-auto bg-white border border-slate-200 rounded-[22px] shadow-[0_28px_64px_-16px_rgba(11,31,58,0.38)] p-4 pl-5 before:content-[''] before:absolute before:inset-y-0 before:-left-3 before:w-3"
           style={{ top: flyoutPos.top, left: flyoutPos.left }}
           onMouseEnter={openBooksFlyout}
           onMouseLeave={scheduleCloseBooks}
         >
           <div className="flex items-start justify-between gap-3 mb-4 pb-3 border-b border-slate-100">
             <div>
-              <p className="font-display text-[17px] font-semibold tracking-[-0.02em] text-[#0B1F3A]">Books</p>
-              <p className="text-[12px] text-slate-500 mt-0.5">{tenant?.name || 'Workspace'} · accounting, sales, and control</p>
+              <p className="font-display text-[17px] font-semibold tracking-[-0.02em] text-[#0B1F3A]">Business</p>
+              <p className="text-[12px] text-slate-500 mt-0.5">{tenant?.name || 'Company'} · invoices, bills, and accounts</p>
             </div>
             <Link to="/books" className="h-9 px-3 rounded-xl bg-[#0B1F3A] text-white text-xs font-semibold inline-flex items-center">
               Open home
             </Link>
           </div>
           <div className="flex flex-wrap gap-2 mb-4">
-            {BOOKS_QUICK_CREATE.map((item) => (
+            {quickCreate.map((item) => (
               <Link
                 key={item.href}
                 to={item.href}
@@ -275,7 +304,7 @@ export default function AppSidebar({ expanded, pinned, tenant, userProfile, onLo
             ))}
           </div>
           <div className="grid sm:grid-cols-2 gap-4">
-            {BOOKS_NAV.map((group) => (
+            {booksNav.map((group) => (
               <section key={group.title}>
                 <p className="flex items-center gap-1.5 px-1 mb-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
                   <GroupIcon title={group.title} className="w-3.5 h-3.5" />

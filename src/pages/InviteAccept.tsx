@@ -5,6 +5,7 @@ import { logout } from '../lib/firebase';
 import { acceptLedgerInvite, declineLedgerInvite, peekLedgerInvite, type InvitePeek } from '../lib/invites';
 import { setReturnTo } from '../lib/return-to';
 import { clearStoreCache } from '../lib/store';
+import { roleLabel } from '../lib/plain-language';
 import BrandLogo from '../components/BrandLogo';
 import AppLoader from '../components/AppLoader';
 
@@ -81,8 +82,8 @@ export default function InviteAccept() {
     <div className="min-h-dvh bg-[#F5F7FA] flex items-center justify-center px-4">
       <div className="w-full max-w-md bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
         <BrandLogo size="sm" className="mb-4" />
-        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Ledger invitation</p>
-        <h1 className="text-xl font-bold text-slate-900 mt-1">Join a shared ledger</h1>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Invitation</p>
+        <h1 className="text-xl font-bold text-slate-900 mt-1">Join this money book</h1>
         {error && <p className="mt-3 text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{error}</p>}
 
         {peek?.status === 'auth_required' && (
@@ -103,8 +104,8 @@ export default function InviteAccept() {
 
         {peek?.status === 'already_member' && (
           <>
-            <p className="mt-3 text-sm text-slate-600">You already have access to this ledger.</p>
-            <button type="button" className="byjan-btn w-full mt-4" onClick={() => navigate(`/book/${peek.bookId}`)}>Open ledger</button>
+            <p className="mt-3 text-sm text-slate-600">You already have access to this money book.</p>
+            <button type="button" className="byjan-btn w-full mt-4" onClick={() => navigate(`/book/${peek.bookId}`)}>Open book</button>
           </>
         )}
 
@@ -119,7 +120,7 @@ export default function InviteAccept() {
         {peek?.status === 'ok' && peek.invite && (
           <>
             <p className="mt-3 text-sm text-slate-600">
-              You were invited to <b>{peek.invite.bookName}</b> as <span className="capitalize">{peek.invite.role}</span>.
+              You were invited to <b>{peek.invite.bookName}</b> as <span className="capitalize">{roleLabel(peek.invite.role)}</span>.
             </p>
             <div className="mt-4 flex gap-2">
               <button type="button" className="byjan-btn flex-1" disabled={Boolean(busy)} onClick={() => void accept()}>

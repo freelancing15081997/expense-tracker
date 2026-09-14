@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { getRuntimePrefs } from '../lib/app-prefs';
 import { querySearchCatalog, warmSearchCatalog, type CatalogHit } from '../lib/search-catalog';
 import { getCurrencySymbol } from '../lib/currency';
+import { useFeatures } from '../lib/use-features';
 
 export function openGlobalSearch() {
   window.dispatchEvent(new Event('byjan-open-search'));
@@ -70,6 +71,7 @@ export default function GlobalSearch() {
   const [results, setResults] = useState<CatalogHit[]>([]);
   const [loading, setLoading] = useState(false);
   const { currentUser } = useAuth();
+  const { allowsHref } = useFeatures();
   const navigate = useNavigate();
   const searchRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -114,15 +116,15 @@ export default function GlobalSearch() {
 
   useEffect(() => {
     if (!isOpen) return;
-    setResults(querySearchCatalog(searchQuery));
+    setResults(querySearchCatalog(searchQuery).filter((hit) => allowsHref(hit.href)));
     if (currentUser?.uid) {
       setLoading(true);
       void warmSearchCatalog(currentUser.uid).then(() => {
-        setResults(querySearchCatalog(searchQuery));
+        setResults(querySearchCatalog(searchQuery).filter((hit) => allowsHref(hit.href)));
         setLoading(false);
       }).catch(() => setLoading(false));
     }
-  }, [searchQuery, isOpen, currentUser?.uid]);
+  }, [searchQuery, isOpen, currentUser?.uid, allowsHref]);
 
   return (
     <div
@@ -190,7 +192,7 @@ export default function GlobalSearch() {
           )}
         </div>
         <div className="px-4 py-2 bg-slate-50 border-t border-slate-200 text-xs text-slate-500 flex items-center justify-between">
-          <span>Ledgers, entries, Books records, and features</span>
+          <span>Money books, records, business, and features</span>
           <span>Ctrl+K</span>
         </div>
       </div>

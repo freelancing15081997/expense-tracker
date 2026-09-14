@@ -1,0 +1,40 @@
+{
+  "project_info": {
+    "project_number": "450686107760",
+    "firebase_url": "https://gen-lang-client-0616065043-default-rtdb.firebaseio.com",
+    "project_id": "gen-lang-client-0616065043",
+    "storage_bucket": "gen-lang-client-0616065043.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:450686107760:android:38fbfcf6be18bd3b0734b5",
+        "android_client_info": {
+          "package_name": "com.byjanbooks.com"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "450686107760-hdlb65udu9lfo4u087ui439m13dtqkt5.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBLvHSzqgejS-5X9Uf9pRvMnnxdbCbDlZ0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "450686107760-hdlb65udu9lfo4u087ui439m13dtqkt5.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

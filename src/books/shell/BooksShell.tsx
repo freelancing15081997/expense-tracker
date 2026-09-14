@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, Navigate, useLocation } from 'react-router-dom';
 import { ChevronRight, Search, X } from 'lucide-react';
-import { BOOKS_TREE, branchByPath, moduleByPath } from '../catalog/modules';
+import { branchByPath, moduleByPath } from '../catalog/modules';
+import { useFeatures } from '../../lib/use-features';
 import { useBooks } from '../context/BooksProvider';
 import { BooksPageMode, FeatureIcon } from '../ui';
 import CommandPalette from '../ui/CommandPalette';
@@ -14,6 +15,7 @@ function itemActive(pathname: string, href: string) {
 function BooksNav({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
   const current = branchByPath(pathname);
   const [openId, setOpenId] = useState(current.id);
+  const { tree } = useFeatures();
 
   useEffect(() => {
     setOpenId(current.id);
@@ -21,7 +23,7 @@ function BooksNav({ pathname, onNavigate }: { pathname: string; onNavigate?: () 
 
   return (
     <nav className="space-y-5 px-3 pb-8">
-      {BOOKS_TREE.map((branch) => {
+      {tree.map((branch) => {
         const open = openId === branch.id;
         return (
           <section key={branch.id}>
@@ -67,6 +69,7 @@ function BooksNav({ pathname, onNavigate }: { pathname: string; onNavigate?: () 
 export default function BooksShell({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const { tenant } = useBooks();
+  const { allowsHref } = useFeatures();
   const module = moduleByPath(location.pathname);
   const current = branchByPath(location.pathname);
   const [browse, setBrowse] = useState(false);
@@ -75,12 +78,16 @@ export default function BooksShell({ children }: { children: React.ReactNode }) 
     setBrowse(false);
   }, [location.pathname]);
 
+  if (!allowsHref(location.pathname)) {
+    return <Navigate to={allowsHref('/books') ? '/books' : '/'} replace />;
+  }
+
   return (
     <div className="books-root h-full min-h-0 flex overflow-hidden text-[#0B1F3A]">
-      <aside className="books-aside hidden md:flex">
+      <aside className="books-aside hidden lg:flex">
         <div className="px-4 pt-4 pb-3">
-          <p className="text-[11px] font-semibold tracking-[0.16em] uppercase text-[#8e8e93]">Books</p>
-          <p className="mt-1 text-[17px] font-semibold tracking-tight truncate">{tenant?.name || 'Workspace'}</p>
+          <p className="text-[11px] font-semibold tracking-[0.16em] uppercase text-[#8e8e93]">Business</p>
+          <p className="mt-1 text-[17px] font-semibold tracking-tight truncate">{tenant?.name || 'Company'}</p>
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto">
           <BooksNav pathname={location.pathname} />
@@ -91,15 +98,15 @@ export default function BooksShell({ children }: { children: React.ReactNode }) 
         <header className="books-chrome shrink-0 z-30 px-4 md:px-5 min-h-14 py-2 flex items-center gap-3">
           <button
             type="button"
-            className="md:hidden w-10 h-10 rounded-[12px] bg-white/70 border border-white/70 text-[#0B1F3A] flex items-center justify-center"
+            className="lg:hidden w-10 h-10 rounded-[12px] bg-white/70 border border-white/70 text-[#0B1F3A] flex items-center justify-center"
             onClick={() => setBrowse(true)}
-            aria-label="Open Books menu"
+            aria-label="Open business menu"
           >
             <FeatureIcon href={module.href} className="w-5 h-5" />
           </button>
           <div className="min-w-0 flex-1">
             <h1 className="font-display text-[20px] font-semibold tracking-[-0.03em] truncate">{module.name}</h1>
-            <p className="text-[12px] text-[#8e8e93] truncate">{tenant?.name || 'Books'} · {current.name}</p>
+            <p className="text-[12px] text-[#8e8e93] truncate">{tenant?.name || 'Business'} · {current.name}</p>
           </div>
           <button
             type="button"
@@ -117,11 +124,11 @@ export default function BooksShell({ children }: { children: React.ReactNode }) 
 
       {browse && typeof document !== 'undefined' && createPortal(
         <>
-          <div className="fixed inset-0 z-[72] bg-[#0B1F3A]/35 backdrop-blur-[6px] md:hidden" onClick={() => setBrowse(false)} />
-          <aside className="books-aside books-aside-sheet md:hidden">
+          <div className="fixed inset-0 z-[72] bg-[#0B1F3A]/35 backdrop-blur-[6px] lg:hidden" onClick={() => setBrowse(false)} />
+          <aside className="books-aside books-aside-sheet lg:hidden">
             <div className="flex items-center justify-between px-4 pt-4 pb-2">
               <div>
-                <p className="text-[11px] font-semibold tracking-[0.16em] uppercase text-[#8e8e93]">Books</p>
+                <p className="text-[11px] font-semibold tracking-[0.16em] uppercase text-[#8e8e93]">Business</p>
                 <p className="mt-1 text-[17px] font-semibold tracking-tight">{tenant?.name || 'Workspace'}</p>
               </div>
               <button type="button" className="w-9 h-9 rounded-full bg-white/80 text-[#3a3a3c]" onClick={() => setBrowse(false)} aria-label="Close">

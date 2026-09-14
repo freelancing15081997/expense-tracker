@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useBooks } from '../../context/BooksProvider';
 import { parseMoney, todayISO } from '../../core/money';
-import { btnGhost, btnPrimary, Card, Field, IconBtn, inputClass, PageShell, Status } from '../../ui';
+import { btnGhost, btnPrimary, Card, Field, IconBtn, inputClass, PageShell, RecordFlyout, Status } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
 import type { JournalLineInput, RecurringTemplate } from '../../core/types';
 
@@ -65,7 +65,7 @@ export default function Recurring() {
       </div>
       {ok && <p className="text-sm text-emerald-700">{ok}</p>}
       {open && tab === 'journal' && (
-        <Card className="p-4 space-y-3">
+        <RecordFlyout title="New journal template" onClose={() => setOpen(false)}>
           <form
             className="space-y-3"
             onSubmit={async (e) => {
@@ -111,10 +111,10 @@ export default function Recurring() {
               {error && <p className="text-sm text-rose-600">{error}</p>}
             </div>
           </form>
-        </Card>
+        </RecordFlyout>
       )}
       {open && tab !== 'journal' && (
-        <Card className="p-4">
+        <RecordFlyout title={`New ${tab} template`} onClose={() => setOpen(false)}>
           <form
             className="grid md:grid-cols-2 gap-3"
             onSubmit={async (e) => {
@@ -181,7 +181,7 @@ export default function Recurring() {
               {error && <p className="text-sm text-rose-600">{error}</p>}
             </div>
           </form>
-        </Card>
+        </RecordFlyout>
       )}
       <PagedTable<RecurringTemplate> rows={rows} empty={`No ${tab} templates yet.`} minWidth="min-w-[560px]">
         {(slice) => (

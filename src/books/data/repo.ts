@@ -295,8 +295,11 @@ export async function loadWorkspace(db: Firestore, tenantId: string) {
   try {
     const pack = await loadErpWorkspace(tenantId);
     if (pack?.tenant) return workspaceFromPack(tenantId, pack);
-  } catch {
-    // Fall through to the collection query path.
+  } catch (err) {
+    const message = String((err as Error)?.message || '');
+    if (/web page instead of the API|invalid response|taking too long|Request failed|not a member|Workspace not found/i.test(message)) {
+      throw err;
+    }
   }
   const [tenantSnap, packs] = await Promise.all([
     getDoc(tenantRef(db, tenantId)),

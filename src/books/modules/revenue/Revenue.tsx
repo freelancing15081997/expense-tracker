@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useBooks } from '../../context/BooksProvider';
 import { parseMoney } from '../../core/money';
-import { btnGhost, btnPrimary, Card, Field, IconBtn, inputClass, Money, PageShell, Status } from '../../ui';
+import { btnGhost, btnPrimary, Card, Field, IconBtn, inputClass, Money, PageShell, RecordFlyout, Status } from '../../ui';
 import { PagedTable } from '../../ui/PagedList';
 import type { RevenueContract } from '../../core/types';
 
@@ -24,7 +24,7 @@ export default function Revenue() {
       actions={can('create') && <IconBtn action="create" onClick={() => setOpen(true)}>New contract</IconBtn>}
     >
       {open && (
-        <Card className="p-4">
+        <RecordFlyout title="New contract" onClose={() => setOpen(false)}>
           <form
             className="grid md:grid-cols-3 gap-3"
             onSubmit={async (e) => {
@@ -66,7 +66,7 @@ export default function Revenue() {
             </div>
             {error && <p className="text-sm text-rose-600 md:col-span-3">{error}</p>}
           </form>
-        </Card>
+        </RecordFlyout>
       )}
       <PagedTable<RevenueContract> rows={contracts} empty="No revenue contracts.">
         {(slice) => (
