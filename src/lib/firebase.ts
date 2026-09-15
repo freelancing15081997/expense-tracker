@@ -84,6 +84,26 @@ export async function logout() {
     clearJwtCache();
   } catch { /* ignore */ }
   try {
+    const { clearExpensesListCache } = await import('./expenses');
+    clearExpensesListCache();
+  } catch { /* ignore */ }
+  try {
+    const { clearSearchCatalog } = await import('./search-catalog');
+    clearSearchCatalog();
+  } catch { /* ignore */ }
+  try {
+    const { clearShareCaches } = await import('../components/ShareIntentListener');
+    clearShareCaches();
+  } catch { /* ignore */ }
+  try {
+    const { clearStoreCache } = await import('./store');
+    clearStoreCache();
+  } catch { /* ignore */ }
+  try {
+    const { clearStoredUserCaches } = await import('./user-cache');
+    clearStoredUserCaches();
+  } catch { /* ignore */ }
+  try {
     sessionStorage.removeItem('byjan_pending_capture');
     sessionStorage.removeItem('byjan.returnTo');
     const keys: string[] = [];
@@ -92,12 +112,6 @@ export async function logout() {
       if (key && (key.startsWith('byjan_offline_queue') || key.startsWith('byjan.ledger.filters.') || key.startsWith('byjan.ledger.snap.'))) keys.push(key);
     }
     keys.forEach((key) => localStorage.removeItem(key));
-    sessionStorage.removeItem('byjan.dash.books');
-    sessionStorage.removeItem('byjan.store.v1');
-    for (let i = sessionStorage.length - 1; i >= 0; i -= 1) {
-      const key = sessionStorage.key(i);
-      if (key && key.startsWith('byjan.ledger.snap.')) sessionStorage.removeItem(key);
-    }
   } catch {
     /* private mode */
   }

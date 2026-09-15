@@ -92,7 +92,11 @@ export default function Layout() {
     notifReady.current = false;
     knownNotifIds.current = new Set();
     loadNotifications();
-    if (currentUser?.uid) void warmSearchCatalog(currentUser.uid);
+    // Slight delay so Dashboard owns the first listAll call; catalog reuses the cache/inflight.
+    let warmTimer = 0;
+    if (currentUser?.uid) {
+      warmTimer = window.setTimeout(() => { void warmSearchCatalog(currentUser.uid); }, 600);
+    }
     if (!currentUser?.uid) return;
     const tick = window.setInterval(() => {
       if (document.visibilityState === 'visible') loadNotifications({ silent: true });
@@ -102,6 +106,7 @@ export default function Layout() {
     };
     document.addEventListener('visibilitychange', onVis);
     return () => {
+      if (warmTimer) window.clearTimeout(warmTimer);
       window.clearInterval(tick);
       document.removeEventListener('visibilitychange', onVis);
     };

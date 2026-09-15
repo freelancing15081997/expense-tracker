@@ -84,20 +84,30 @@ export default function MoneyReports() {
         </button>
       </div>
 
-      <div className="dash-kpis mb-4">
-        {[
-          { label: 'Money out', value: formatIndianAmount(summary.moneyOut, currency), icon: TrendingDown },
-          { label: 'Money in', value: formatIndianAmount(summary.moneyIn, currency), icon: TrendingUp },
-          { label: 'Net', value: formatIndianAmount(summary.net, currency), icon: Wallet },
-          { label: 'Entries', value: String(summary.count), icon: BarChart3 },
-        ].map((item) => (
-          <div key={item.label} className="dash-kpi-card">
-            <item.icon className="w-4 h-4 text-[#12B8A8]" />
-            <span className="dash-kpi-label">{item.label}</span>
-            <span className="dash-kpi-value byjan-money">{item.value}</span>
+      <section className="md3-panel mb-4">
+        <div className="md3-panel-head">
+          <div>
+            <p className="md3-kicker">Overview</p>
+            <h2>Period snapshot</h2>
           </div>
-        ))}
-      </div>
+        </div>
+        <div className="md3-stats">
+          {[
+            { label: 'Money out', value: formatIndianAmount(summary.moneyOut, currency), tone: 'out', Icon: TrendingDown },
+            { label: 'Money in', value: formatIndianAmount(summary.moneyIn, currency), tone: 'in', Icon: TrendingUp },
+            { label: 'Net', value: formatIndianAmount(summary.net, currency), tone: 'idle', Icon: Wallet },
+            { label: 'Entries', value: String(summary.count), tone: 'warn', Icon: BarChart3 },
+          ].map((item) => (
+            <div key={item.label} className={`md3-stat tone-${item.tone}`}>
+              <span className="md3-stat-icon" aria-hidden>
+                <item.Icon className="w-4 h-4" />
+              </span>
+              <span className="md3-stat-label">{item.label}</span>
+              <strong className="md3-stat-value byjan-money">{item.value}</strong>
+            </div>
+          ))}
+        </div>
+      </section>
 
       <label className="access-search mb-4 block">
         <Search className="w-4 h-4 text-slate-400" />

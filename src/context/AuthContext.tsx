@@ -115,6 +115,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setLoading(false);
           void CapacitorService.hideSplashScreen();
           try { (window as any).__byjanHideBoot?.(); } catch { /* ignore */ }
+          void import('../lib/expenses').then((m) => m.clearExpensesListCache()).catch(() => undefined);
+          void import('../lib/search-catalog').then((m) => m.clearSearchCatalog()).catch(() => undefined);
+          void import('../components/ShareIntentListener').then((m) => m.clearShareCaches()).catch(() => undefined);
+          void import('../lib/user-cache').then((m) => m.clearStoredUserCaches()).catch(() => undefined);
           return;
         }
         setStoreUser(user.uid);

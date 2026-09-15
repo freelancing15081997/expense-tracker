@@ -1434,14 +1434,18 @@ html[data-density="compact"] h1 {
   color: rgba(255, 255, 255, 0.72);
 }
 .dash-dest-icon {
-  width: 36px;
-  height: 36px;
-  border-radius: 12px;
+  width: 40px;
+  height: 40px;
+  border-radius: 14px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: #12B8A8;
-  color: #07312e;
+  background:
+    linear-gradient(145deg, rgba(255,255,255,0.35), transparent 45%),
+    linear-gradient(160deg, #5eead4 0%, #0f766e 100%);
+  color: #fff;
+  box-shadow: 0 12px 20px -12px rgba(0,0,0,0.55), 0 1px 0 rgba(255,255,255,0.35) inset;
+  transform: perspective(220px) rotateX(12deg) rotateY(-10deg);
 }
 .dash-access {
   padding: 16px;
@@ -1574,6 +1578,132 @@ html[data-density="compact"] h1 {
   border: 1px solid rgba(11, 31, 58, 0.07);
   box-shadow: 0 18px 40px -30px rgba(11, 31, 58, 0.35);
 }
+
+/* Money dashboard 3D — inspired by Splits / stx */
+.md3-panel {
+  margin-top: 6px;
+  padding: 16px 14px 14px;
+  border-radius: 24px;
+  background:
+    radial-gradient(90% 80% at 0% 0%, rgba(18, 184, 168, 0.08), transparent 50%),
+    #fff;
+  border: 1px solid rgba(11, 31, 58, 0.07);
+  box-shadow: 0 20px 48px -32px rgba(11, 31, 58, 0.45);
+}
+.md3-panel-books { margin-top: 12px; }
+.md3-panel-head { margin-bottom: 14px; display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.md3-kicker {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #94a3b8;
+}
+.md3-panel-head h2 {
+  margin: 4px 0 0;
+  font-family: var(--font-display), Outfit, ui-sans-serif, system-ui, sans-serif;
+  font-size: 20px; font-weight: 650; letter-spacing: -0.03em; color: #0B1F3A;
+}
+.md3-sub { margin: 2px 0 0; font-size: 12px; color: #64748b; }
+.md3-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.md3-stat {
+  position: relative;
+  padding: 14px 12px 12px;
+  border-radius: 18px;
+  border: 1px solid rgba(11, 31, 58, 0.08);
+  background: linear-gradient(165deg, #fff 0%, #f6f9fc 100%);
+  overflow: hidden;
+  transform: translateZ(0);
+  box-shadow: 0 12px 28px -22px rgba(11, 31, 58, 0.5);
+}
+.md3-stat::before {
+  content: '';
+  position: absolute; inset: 0 auto auto 0; width: 100%; height: 3px;
+  background: linear-gradient(90deg, transparent, rgba(18,184,168,0.5), transparent);
+  opacity: 0.7;
+}
+.md3-stat.tone-in .md3-stat-icon { background: linear-gradient(145deg, #5eead4, #0f766e); color: #fff; }
+.md3-stat.tone-out .md3-stat-icon { background: linear-gradient(145deg, #fda4af, #be123c); color: #fff; }
+.md3-stat.tone-warn .md3-stat-icon { background: linear-gradient(145deg, #fcd34d, #b45309); color: #fff; }
+.md3-stat.tone-idle .md3-stat-icon { background: linear-gradient(145deg, #93c5fd, #0B1F3A); color: #fff; }
+.md3-stat-icon {
+  width: 36px; height: 36px; border-radius: 12px;
+  display: inline-flex; align-items: center; justify-content: center;
+  box-shadow: 0 10px 18px -10px rgba(11, 31, 58, 0.55), 0 1px 0 rgba(255,255,255,0.35) inset;
+  transform: perspective(200px) rotateX(12deg) rotateY(-10deg);
+}
+.md3-stat-label {
+  display: block; margin-top: 10px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #94a3b8;
+}
+.md3-stat-value {
+  display: block; margin-top: 4px;
+  font-size: 18px; font-weight: 750; letter-spacing: -0.03em; color: #0B1F3A;
+}
+.md3-book-list { display: flex; flex-direction: column; gap: 10px; }
+.md3-book {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 12px 12px 10px;
+  border-radius: 20px;
+  border: 1px solid rgba(11, 31, 58, 0.08);
+  background: #fff;
+  box-shadow: 0 14px 32px -26px rgba(11, 31, 58, 0.55);
+}
+.md3-book-main {
+  display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; text-decoration: none; color: inherit;
+}
+.md3-book-icon {
+  width: 48px; height: 48px; flex-shrink: 0;
+  perspective: 240px;
+}
+.md3-book-icon-face {
+  width: 100%; height: 100%;
+  border-radius: 16px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 800; letter-spacing: 0.02em; color: #fff;
+  background:
+    linear-gradient(145deg, rgba(255,255,255,0.28), transparent 42%),
+    linear-gradient(160deg, #12B8A8 0%, #0B1F3A 78%);
+  box-shadow: 0 14px 24px -14px rgba(11, 31, 58, 0.7), 0 1px 0 rgba(255,255,255,0.35) inset;
+  transform: rotateX(14deg) rotateY(-12deg);
+}
+.md3-badge {
+  flex-shrink: 0;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  padding: 3px 8px; border-radius: 999px;
+  background: #f1f5f9; color: #475569;
+}
+.md3-book-side {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0;
+}
+.md3-book-amt {
+  font-size: 15px; font-weight: 750; letter-spacing: -0.02em; color: #0B1F3A;
+}
+.md3-book-amt.is-in { color: #0f766e; }
+.md3-book-amt.is-out { color: #be123c; }
+.md3-empty-icon {
+  width: 56px; height: 56px; margin: 0 auto 12px;
+  border-radius: 18px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: #fff;
+  background: linear-gradient(145deg, #12B8A8, #0B1F3A);
+  box-shadow: 0 16px 28px -14px rgba(11, 31, 58, 0.55);
+}
+.md3-continue { display: flex; flex-direction: column; gap: 8px; }
+.md3-continue-card {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px;
+  border-radius: 18px;
+  text-decoration: none; color: inherit;
+  background: #fff;
+  border: 1px solid rgba(11, 31, 58, 0.08);
+  box-shadow: 0 14px 32px -26px rgba(11, 31, 58, 0.5);
+}
+.md3-book-icon-sm { width: 42px; height: 42px; }
+.md3-book-icon-sm .md3-book-icon-face {
+  border-radius: 14px; font-size: 12px;
+}
+
 .dash-panel-books {
   margin-top: 12px;
 }

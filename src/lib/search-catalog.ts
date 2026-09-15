@@ -17,7 +17,7 @@ const FEATURES: CatalogHit[] = [...BOOKS_QUICK_CREATE, ...BOOKS_FLAT_LINKS, { na
 
 type Catalog = { uid: string; at: number; hits: CatalogHit[] };
 const mem: Catalog = { uid: '', at: 0, hits: [] };
-let inflight: Promise<CatalogHit[]> | null = null;
+let inflight: { uid: string; promise: Promise<CatalogHit[]> } | null = null;
 
 function matches(hit: CatalogHit, needle: string) {
   if (!needle) return true;
@@ -32,13 +32,15 @@ export function getSearchCatalog() {
 export async function warmSearchCatalog(uid: string, force = false) {
   if (!uid) return [];
   if (!force && mem.uid === uid && Date.now() - mem.at < 45_000) return mem.hits;
-  if (inflight) return inflight;
-  inflight = (async () => {
-    const [ledgers, all] = await Promise.all([
-      listLedgers().catch(() => []),
-      listAllExpenses().catch(() => ({ expenses: [] as Array<Record<string, unknown>> })),
-    ]);
-    const ledgerHits: CatalogHit[] = ledgers.map((book) => ({
+  if (inflight && inflight.uid === uid) return inflight.promise;
+
+  const promise = (async () => {
+    // One call — listAll already includes books (deduped with Dashboard via expenses cache).
+    const all = await listAllExpenses().catch(() => ({ expenses: [] as Array<Record<string, unknown>>, books: [] as Array<Record<string, unknown>> }));
+    const ledgers = Array.isArray(all.books) && all.books.length
+      ? all.books
+      : await listLedgers().catch(() => []);
+    const ledgerHits: CatalogHit[] = ledgers.map((book: any) => ({
       id: `ledger:${book.id}`,
       type: 'book' as const,
       href: `/book/${book.id}`,
@@ -70,11 +72,20 @@ export async function warmSearchCatalog(uid: string, force = false) {
     setBooksSearchHits(hits);
     return hits;
   })();
+
+  inflight = { uid, promise };
   try {
-    return await inflight;
+    return await promise;
   } finally {
-    inflight = null;
+    if (inflight?.promise === promise) inflight = null;
   }
+}
+
+export function clearSearchCatalog() {
+  mem.uid = '';
+  mem.at = 0;
+  mem.hits = [];
+  inflight = null;
 }
 
 export function querySearchCatalog(term: string, limit = 24): CatalogHit[] {

@@ -111,10 +111,6 @@ export default function GlobalSearch() {
   }, [currentUser?.uid]);
 
   useEffect(() => {
-    if (currentUser?.uid) void warmSearchCatalog(currentUser.uid);
-  }, [currentUser?.uid]);
-
-  useEffect(() => {
     if (!isOpen) return;
     setResults(querySearchCatalog(searchQuery).filter((hit) => allowsHref(hit.href)));
     if (currentUser?.uid) {

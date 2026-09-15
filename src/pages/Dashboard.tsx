@@ -2,13 +2,13 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { createLedger, listLedgers } from '../lib/ledgers';
+import { createLedger } from '../lib/ledgers';
 import { listAllExpenses } from '../lib/expenses';
 import { useBooksTenantMeta } from '../lib/tenant';
 import { getCurrencySymbol } from '../lib/currency';
 import { initials, readRecentLedgers, sparkDays } from '../lib/ledger-advanced';
 import { formatIndianAmount, workspaceBridges } from '../lib/bridge-automations';
-import { Plus, Check, X, Users, Building2, ArrowUpRight, RefreshCw, Wallet, TrendingUp, Receipt, BookOpen, BookText, Shield, ChevronRight } from 'lucide-react';
+import { Plus, Check, X, Users, ArrowUpRight, RefreshCw, Wallet, TrendingUp, Receipt, BookOpen, BookText, Shield, ChevronRight, IndianRupee } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 import { ListControls, usePagedList } from '../components/ListControls';
@@ -19,6 +19,7 @@ import { roleLabel } from '../lib/plain-language';
 import { useFeatures } from '../lib/use-features';
 import ReceiptCaptureFlow, { type ReceiptLaunch } from '../components/ReceiptCaptureFlow';
 import { cacheMoneyBooks, readPendingCapture, clearPendingCapture } from '../components/ShareIntentListener';
+import { readUserJson, writeUserJson } from '../lib/user-cache';
 
 interface BookItem {
   id: string;
@@ -80,27 +81,25 @@ export default function Dashboard() {
 
   const fetchData = async (opts?: { silent?: boolean }) => {
     if (!currentUser || !userProfile) return;
-    const cacheKey = `byjan.dash.stats.${currentUser.uid}`;
+    const uid = currentUser.uid;
     try {
       if (!opts?.silent) {
         setLoading(true);
         setStatsReady(false);
-        // Paint last-known totals immediately so dashboard amounts don't hang blank.
-        try {
-          const cached = sessionStorage.getItem(cacheKey);
-          if (cached) {
-            const parsed = JSON.parse(cached) as {
-              globalStats?: typeof globalStats;
-              bookStats?: Record<string, BookStat>;
-              at?: number;
-            };
-            if (parsed?.globalStats && Date.now() - Number(parsed.at || 0) < 15 * 60_000) {
-              setGlobalStats(parsed.globalStats);
-              if (parsed.bookStats) setBookStats(parsed.bookStats);
-              setStatsReady(true);
-            }
-          }
-        } catch { /* ignore */ }
+        // Paint last-known totals for THIS user only.
+        const parsed = readUserJson<{
+          globalStats?: typeof globalStats;
+          bookStats?: Record<string, BookStat>;
+          books?: BookItem[];
+          at?: number;
+        }>(uid, 'dash_stats');
+        if (parsed?.globalStats && Date.now() - Number(parsed.at || 0) < 15 * 60_000) {
+          setGlobalStats(parsed.globalStats);
+          if (parsed.bookStats) setBookStats(parsed.bookStats);
+          if (parsed.books?.length) setBooks(parsed.books);
+          setStatsReady(true);
+          setLoading(false);
+        }
       }
       setLoadError('');
       if (!canSeeMoney) {
@@ -114,14 +113,14 @@ export default function Dashboard() {
         return;
       }
 
-      const [ledgersRaw, allExp, inviteRows] = await Promise.all([
-        listLedgers(),
-        listAllExpenses().catch(() => ({ expenses: [] as Array<Record<string, unknown>> })),
+      // One expenses API (includes books) + invites — no duplicate listLedgers.
+      const [allExp, inviteRows] = await Promise.all([
+        listAllExpenses().catch(() => ({ expenses: [] as Array<Record<string, unknown>>, books: [] as Array<Record<string, unknown>> })),
         listLedgerInvites().catch(() => [] as InviteItem[]),
       ]);
 
-      const fetchedBooks = (ledgersRaw || []).map((book) => ({
-        id: book.id,
+      const fetchedBooks = (allExp.books || []).map((book: any) => ({
+        id: String(book.id),
         name: String(book.name || 'Money book'),
         ownerId: String(book.ownerId || ''),
         currency: String(book.currency || 'INR'),
@@ -189,13 +188,12 @@ export default function Dashboard() {
         setBookStats(nextBookStats);
         setBridges(workspaceBridges(expenses));
         setGlobalStats(nextGlobal);
-        try {
-          sessionStorage.setItem(cacheKey, JSON.stringify({
-            at: Date.now(),
-            globalStats: nextGlobal,
-            bookStats: nextBookStats,
-          }));
-        } catch { /* ignore */ }
+        writeUserJson(uid, 'dash_stats', {
+          at: Date.now(),
+          globalStats: nextGlobal,
+          bookStats: nextBookStats,
+          books: fetchedBooks,
+        });
       } else {
         setBookStats({});
         setBridges(null);
@@ -337,24 +335,31 @@ export default function Dashboard() {
     const maxSpark = Math.max(...(stat?.spark || [1]), 1);
     const people = peopleCount(book);
     const canManage = role === 'owner' || role === 'admin';
+    const netVal = stat ? Math.abs(stat.net) : 0;
+    const netNeg = Boolean(stat && stat.net < 0);
     return (
-      <div key={book.id} className="dash-ledger">
-        <Link to={`/book/${book.id}`} className="dash-ledger-main">
-          <span className="dash-ledger-mark">{initials(book.name)}</span>
-          <div className="min-w-0">
-            <h3 className="text-[15px] font-semibold text-[#0B1F3A] leading-tight tracking-tight">{book.name}</h3>
+      <article key={book.id} className="md3-book">
+        <Link to={`/book/${book.id}`} className="md3-book-main">
+          <span className="md3-book-icon" aria-hidden>
+            <span className="md3-book-icon-face">{initials(book.name)}</span>
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-2">
+              <h3 className="text-[15px] font-semibold text-[#0B1F3A] leading-tight tracking-tight truncate">{book.name}</h3>
+              <span className="md3-badge">{roleLabel(role)}</span>
+            </div>
             <p className="text-[12px] text-slate-500 mt-0.5 truncate">
-              {book.archived ? 'Archived · ' : ''}{roleLabel(role)} · {people} {people === 1 ? 'person' : 'people'}
+              {book.archived ? 'Archived · ' : ''}{people} {people === 1 ? 'person' : 'people'}
               {stat ? ` · ${stat.entries} records` : ''}
             </p>
           </div>
         </Link>
-        <span className="text-right shrink-0 flex flex-col items-end gap-1.5">
+        <div className="md3-book-side">
           {canSeeMoney ? (
             <>
-              <span className="byjan-money block text-[15px] font-semibold tabular-nums leading-none text-[#0B1F3A]">
-                {stat ? `${stat.net < 0 ? '−' : ''}${symbol}${Math.abs(stat.net).toLocaleString()}` : '—'}
-              </span>
+              <p className={`byjan-money md3-book-amt ${netNeg ? 'is-out' : 'is-in'}`}>
+                {stat ? `${netNeg ? '−' : ''}${symbol}${netVal.toLocaleString()}` : '—'}
+              </p>
               {canManage ? (
                 <button type="button" className="dash-people-btn" onClick={(event) => openPeople(book.id, event)}>
                   <Users className="w-3.5 h-3.5" /> People
@@ -375,8 +380,8 @@ export default function Dashboard() {
               <Users className="w-3.5 h-3.5" /> People
             </button>
           ) : null}
-        </span>
-      </div>
+        </div>
+      </article>
     );
   };
 
@@ -539,17 +544,30 @@ export default function Dashboard() {
               <span>Money books</span>
               <Link to="/expenses" className="text-[#0B1F3A] font-semibold text-xs">See all</Link>
             </div>
-            <div className="dash-continue">
-              {(recentBooks.length ? recentBooks : visibleBooks).slice(0, 4).map((book) => (
-                <Link key={book.id} to={`/book/${book.id}`} className="dash-continue-card">
-                  <span className="dash-ledger-mark !w-10 !h-10 !text-[12px]">{initials(book.name)}</span>
-                  <span className="min-w-0">
-                    <span className="block font-semibold text-[13px] text-[#0B1F3A] truncate">{book.name}</span>
-                    <span className="block text-[11px] text-slate-500">{roleLabel(myRoleOn(book))} · tap to open</span>
-                  </span>
-                  <ChevronRight className="w-4 h-4 text-slate-300 ml-auto" />
-                </Link>
-              ))}
+            <div className="md3-continue">
+              {(recentBooks.length ? recentBooks : visibleBooks).slice(0, 4).map((book) => {
+                const stat = bookStats[book.id];
+                const symbol = getCurrencySymbol(book.currency);
+                const netNeg = Boolean(stat && stat.net < 0);
+                return (
+                  <Link key={book.id} to={`/book/${book.id}`} className="md3-continue-card">
+                    <span className="md3-book-icon md3-book-icon-sm" aria-hidden>
+                      <span className="md3-book-icon-face">{initials(book.name)}</span>
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-semibold text-[13px] text-[#0B1F3A] truncate">{book.name}</span>
+                      <span className="block text-[11px] text-slate-500">{roleLabel(myRoleOn(book))} · tap to open</span>
+                    </span>
+                    {canSeeMoney && stat ? (
+                      <span className={`byjan-money md3-book-amt text-[13px] ${netNeg ? 'is-out' : 'is-in'}`}>
+                        {netNeg ? '−' : ''}{symbol}{Math.abs(stat.net).toLocaleString()}
+                      </span>
+                    ) : (
+                      <ChevronRight className="w-4 h-4 text-slate-300" />
+                    )}
+                  </Link>
+                );
+              })}
             </div>
           </section>
         )}
@@ -613,22 +631,26 @@ export default function Dashboard() {
       </section>
 
       {canSeeMoney && books.length > 0 && (
-        <section className="dash-panel">
-          <div className="dash-panel-head">
-            <h2>Overview</h2>
-            <p>Totals across your Money books</p>
+        <section className="md3-panel">
+          <div className="md3-panel-head">
+            <div>
+              <p className="md3-kicker">Overview</p>
+              <h2>Money at a glance</h2>
+            </div>
           </div>
-          <div className="dash-kpis dash-kpis-strip">
+          <div className="md3-stats">
             {[
-              { label: 'Money in', value: formatIndianAmount(globalStats.totalIn, currency), icon: TrendingUp },
-              { label: 'Money out', value: formatIndianAmount(globalStats.totalOut, currency), icon: ArrowUpRight },
-              { label: 'This month', value: formatIndianAmount(globalStats.monthOut, currency), icon: Wallet },
-              { label: 'Uncategorized', value: String(globalStats.uncategorized), icon: Receipt },
+              { label: 'Money in', value: formatIndianAmount(globalStats.totalIn, currency), tone: 'in', Icon: TrendingUp },
+              { label: 'Money out', value: formatIndianAmount(globalStats.totalOut, currency), tone: 'out', Icon: ArrowUpRight },
+              { label: 'This month', value: formatIndianAmount(globalStats.monthOut, currency), tone: 'idle', Icon: Wallet },
+              { label: 'Uncategorized', value: String(globalStats.uncategorized), tone: 'warn', Icon: Receipt },
             ].map((item) => (
-              <div key={item.label} className="dash-kpi-card">
-                <item.icon className="w-4 h-4 text-[#12B8A8]" />
-                <span className="dash-kpi-label">{item.label}</span>
-                <span className="dash-kpi-value byjan-money">{!statsReady ? <span className="dash-skel dash-skel-line" /> : item.value}</span>
+              <div key={item.label} className={`md3-stat tone-${item.tone}`}>
+                <span className="md3-stat-icon" aria-hidden>
+                  <item.Icon className="w-4 h-4" />
+                </span>
+                <span className="md3-stat-label">{item.label}</span>
+                <strong className="md3-stat-value byjan-money">{!statsReady ? <span className="dash-skel dash-skel-line" /> : item.value}</strong>
               </div>
             ))}
           </div>
@@ -653,11 +675,12 @@ export default function Dashboard() {
           <p className="text-sm text-slate-500 mt-1">Ask your super user to enable Money if you need access to money books.</p>
         </div>
       ) : (
-      <section className="dash-panel dash-panel-books">
-          <div className="dash-panel-head">
+      <section className="md3-panel md3-panel-books">
+          <div className="md3-panel-head">
             <div>
+              <p className="md3-kicker">Library</p>
               <h2>Your books</h2>
-              <p>{visibleBooks.length} open · tap to add expenses</p>
+              <p className="md3-sub">{visibleBooks.length} open · tap to open expenses</p>
             </div>
             <div className="flex items-center gap-2">
               {books.some((book) => book.archived) && (
@@ -666,8 +689,8 @@ export default function Dashboard() {
             </div>
           </div>
           {loading ? (
-            <div className="dash-ledger-list" aria-busy="true" aria-label="Loading money books">
-              {[0, 1, 2].map((row) => <div key={row} className="dash-ledger dash-skel-card" />)}
+            <div className="md3-book-list" aria-busy="true" aria-label="Loading money books">
+              {[0, 1, 2].map((row) => <div key={row} className="md3-book dash-skel-card" />)}
             </div>
           ) : loadError && books.length === 0 ? (
             <div className="dash-empty">
@@ -679,7 +702,7 @@ export default function Dashboard() {
             </div>
           ) : books.length === 0 ? (
             <div className="dash-empty">
-              <Building2 className="w-8 h-8 text-slate-300 mx-auto mb-3" />
+              <span className="md3-empty-icon"><IndianRupee className="w-6 h-6" /></span>
               <h3 className="text-[15px] font-semibold text-[#0B1F3A]">No money books yet</h3>
               <p className="ios-caption mt-1">A money book is a shared list of money in and money out. Create one, then add your first record.</p>
               <button type="button" onClick={() => setShowNewBook(true)} className="byjan-btn mt-4">
@@ -699,7 +722,7 @@ export default function Dashboard() {
                 total={bookList.filtered.length}
                 placeholder="Search money books"
               />
-              <div className="dash-ledger-list">
+              <div className="md3-book-list">
                 {bookList.pageRows.map(renderLedgerCard)}
               </div>
             </div>

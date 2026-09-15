@@ -1,4 +1,5 @@
 import { apiPost } from './api';
+import { auth } from './firebase';
 
 export type LedgerExpense = {
   id: string;
@@ -12,35 +13,55 @@ export type LedgerExpense = {
   [key: string]: unknown;
 };
 
-let listAllCache: { at: number; value: { expenses: LedgerExpense[]; books: Array<Record<string, unknown>> } } | null = null;
+type ListAllValue = { expenses: LedgerExpense[]; books: Array<Record<string, unknown>> };
+
+let listAllCache: { uid: string; at: number; value: ListAllValue } | null = null;
+let listAllInflight: { uid: string; promise: Promise<ListAllValue> } | null = null;
 
 export async function listExpenses(bookId: string) {
   const payload = await apiPost<{ expenses?: LedgerExpense[] }>('/api/expenses', { op: 'list', bookId });
   return Array.isArray(payload.expenses) ? payload.expenses : [];
 }
 
+/** Single-flight + uid-scoped cache — Dashboard and search catalog share one network call. */
 export async function listAllExpenses() {
+  const uid = String(auth.currentUser?.uid || '');
   const now = Date.now();
-  if (listAllCache && now - listAllCache.at < 25_000) {
+  if (listAllCache && listAllCache.uid === uid && now - listAllCache.at < 45_000) {
     return listAllCache.value;
   }
-  const payload = await apiPost<{ expenses?: LedgerExpense[]; books?: Array<Record<string, unknown>> }>('/api/expenses', {
-    op: 'listAll',
-  });
-  const value = {
-    expenses: Array.isArray(payload.expenses) ? payload.expenses : [],
-    books: Array.isArray(payload.books) ? payload.books : [],
-  };
-  listAllCache = { at: now, value };
-  return value;
+  if (listAllInflight && listAllInflight.uid === uid) return listAllInflight.promise;
+
+  const promise = (async () => {
+    const payload = await apiPost<{ expenses?: LedgerExpense[]; books?: Array<Record<string, unknown>> }>('/api/expenses', {
+      op: 'listAll',
+    });
+    const value: ListAllValue = {
+      expenses: Array.isArray(payload.expenses) ? payload.expenses : [],
+      books: Array.isArray(payload.books) ? payload.books : [],
+    };
+    // Never attach another account's response to this uid's cache.
+    if (String(auth.currentUser?.uid || '') === uid) {
+      listAllCache = { uid, at: Date.now(), value };
+    }
+    return value;
+  })();
+
+  listAllInflight = { uid, promise };
+  try {
+    return await promise;
+  } finally {
+    if (listAllInflight?.promise === promise) listAllInflight = null;
+  }
 }
 
 export function clearExpensesListCache() {
   listAllCache = null;
+  listAllInflight = null;
 }
 
 export async function createExpense(bookId: string, expense: Record<string, unknown>, opts?: { force?: boolean; idempotencyKey?: string }) {
-  listAllCache = null;
+  clearExpensesListCache();
   const payload = await apiPost<{ expense: LedgerExpense }>('/api/expenses', {
     op: 'create',
     bookId,
@@ -57,6 +78,7 @@ export async function checkDuplicateExpense(bookId: string, expense: Record<stri
 }
 
 export async function updateExpense(bookId: string, expenseId: string, expense: Record<string, unknown>) {
+  clearExpensesListCache();
   const payload = await apiPost<{ expense: LedgerExpense }>('/api/expenses', {
     op: 'update',
     bookId,
@@ -67,5 +89,6 @@ export async function updateExpense(bookId: string, expenseId: string, expense: 
 }
 
 export async function softDeleteExpense(bookId: string, expenseId: string) {
+  clearExpensesListCache();
   await apiPost('/api/expenses', { op: 'softDelete', bookId, expenseId });
 }

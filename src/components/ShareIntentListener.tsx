@@ -4,6 +4,8 @@ import { Capacitor } from '@capacitor/core';
 import { useNavigate } from 'react-router-dom';
 import { useToast } from '../context/ToastContext';
 import { listLedgers } from '../lib/ledgers';
+import { auth } from '../lib/firebase';
+import { readUserLocalJson, writeUserLocalJson } from '../lib/user-cache';
 import {
   checkPendingShare,
   onShareReceived,
@@ -23,10 +25,9 @@ export type PendingCapture = {
 };
 
 const STORAGE_KEY = 'byjan_pending_capture';
-const LAST_BOOK_KEY = 'byjan_last_money_book';
-const BOOKS_CACHE_KEY = 'byjan_money_books_cache';
 /** In-memory handoff — avoids sessionStorage size limits for large shares. */
 let memoryPending: PendingCapture | null = null;
+let booksCacheUid = '';
 let booksCache: Array<{ id: string; name: string; currency?: string }> | null = null;
 
 function fingerprint(p: PendingCapture) {
@@ -38,39 +39,47 @@ function fingerprint(p: PendingCapture) {
   ].join('|');
 }
 
+function currentUid() {
+  return String(auth.currentUser?.uid || '');
+}
+
 function cachedBookId() {
-  try {
-    return String(localStorage.getItem(LAST_BOOK_KEY) || '').trim();
-  } catch {
-    return '';
-  }
+  const uid = currentUid();
+  if (!uid) return '';
+  const row = readUserLocalJson<{ id?: string }>(uid, 'last_money_book');
+  return String(row?.id || '').trim();
 }
 
 export function rememberMoneyBook(bookId: string) {
-  try {
-    if (bookId) localStorage.setItem(LAST_BOOK_KEY, bookId);
-  } catch { /* ignore */ }
+  const uid = currentUid();
+  if (!uid || !bookId) return;
+  writeUserLocalJson(uid, 'last_money_book', { id: bookId });
 }
 
 export function cacheMoneyBooks(books: Array<{ id: string; name: string; currency?: string }>) {
+  const uid = currentUid();
+  booksCacheUid = uid;
   booksCache = books;
-  try {
-    localStorage.setItem(BOOKS_CACHE_KEY, JSON.stringify({ at: Date.now(), books }));
-  } catch { /* ignore */ }
+  if (!uid) return;
+  writeUserLocalJson(uid, 'money_books', { at: Date.now(), books });
 }
 
 export function readCachedMoneyBooks() {
-  if (booksCache?.length) return booksCache;
-  try {
-    const raw = localStorage.getItem(BOOKS_CACHE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as { at?: number; books?: Array<{ id: string; name: string; currency?: string }> };
-    if (!Array.isArray(parsed.books)) return [];
-    booksCache = parsed.books;
-    return parsed.books;
-  } catch {
-    return [];
-  }
+  const uid = currentUid();
+  if (booksCache?.length && booksCacheUid === uid) return booksCache;
+  if (!uid) return [];
+  const parsed = readUserLocalJson<{ books?: Array<{ id: string; name: string; currency?: string }> }>(uid, 'money_books');
+  if (!Array.isArray(parsed?.books)) return [];
+  booksCacheUid = uid;
+  booksCache = parsed!.books!;
+  return parsed!.books!;
+}
+
+export function clearShareCaches() {
+  memoryPending = null;
+  booksCache = null;
+  booksCacheUid = '';
+  try { sessionStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
 }
 
 function storePending(pending: PendingCapture) {
