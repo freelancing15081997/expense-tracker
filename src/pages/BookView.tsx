@@ -2752,6 +2752,11 @@ export default function BookView() {
           setReceiptLaunch(null);
           clearPendingCapture();
           void refreshExpenses();
+          if (extras?.needsEdit) {
+            addToast('Could not read amount — saved as draft for you to edit', 'error');
+            setSuccessExpense(null);
+            return;
+          }
           setSuccessCount(Number(extras?.count || 1));
           setSuccessExpense({ ...expense, bookId });
         }}

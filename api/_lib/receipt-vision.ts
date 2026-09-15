@@ -1,6 +1,6 @@
 /**
- * Fast receipt image vision for Money share / capture.
- * Same Gemini env keys + multimodal path as inbound email.
+ * Receipt image vision for Money share / capture.
+ * Uses the same Gemini models as inbound email for reliability.
  */
 
 export type VisionReceipt = {
@@ -27,8 +27,8 @@ function geminiKey() {
 
 function geminiModels() {
   const preferred = String(process.env.GEMINI_MODEL || '').trim();
-  // Prefer one fast flash model first; second model only on timeout/empty.
-  const defaults = ['gemini-2.0-flash', 'gemini-flash-latest', 'gemini-3.5-flash', 'gemini-3.6-flash'];
+  // Keep in sync with api/email/inbound.ts — these are what production email uses.
+  const defaults = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-flash-latest'];
   return [...new Set([preferred, ...defaults].filter(Boolean))];
 }
 
@@ -173,13 +173,21 @@ export async function parseReceiptImage(input: {
 
   const mime = normalizeMime(input.mimeType, input.fileName);
   const hint = String(input.hintText || '').trim().slice(0, 800);
-  // Share path: one fast attempt (~8s). Second model only if first times out / empties.
-  const timeoutMs = Math.max(5_000, Number(input.timeoutMs || 8_000));
+  const timeoutMs = Math.max(8_000, Number(input.timeoutMs || 14_000));
 
-  const prompt = `Extract receipt fields as JSON only:
-{"amount":number,"date":"YYYY-MM-DD","merchant":"","description":"","category":"Uncategorized","entryType":"out","paymentMethod":"cash","notes":""}
-${hint ? `Hint: ${hint}\n` : ''}
-Rules: amount = grand total if visible else 0. Never invent. entryType=in only for refunds. notes="not_a_receipt" if not financial.`;
+  const prompt = `You are Byjan's ledger clerk. Read this receipt, bill, invoice, tax invoice, UPI screenshot, bank slip, PDF document, or handwritten expense note.
+${hint ? `Extra share text (may help):\n${hint}\n` : ''}
+Return JSON only with keys:
+amount (number), total (number), date (YYYY-MM-DD), merchant, description, category
+(Fuel, Groceries, Meals, Travel, Utilities, Health, Shopping, Software Subscriptions, or Uncategorized),
+entryType (out|in), paymentMethod (cash|card|upi|bank|wallet), notes.
+Rules:
+- amount/total = grand total / amount paid / net payable (required when visible).
+- Never invent amounts. If no total is visible, set amount to 0.
+- Handwriting: carefully read digits and merchant names; do not guess unclear totals.
+- entryType=in only for refunds/returns/money received.
+- If this is not a financial document, set amount to 0, merchant empty, notes to "not_a_receipt".
+- Keep description short.`;
 
   const requestBody = {
     contents: [{
@@ -190,47 +198,45 @@ Rules: amount = grand total if visible else 0. Never invent. entryType=in only f
     }],
     generationConfig: {
       temperature: 0,
-      maxOutputTokens: 256,
+      maxOutputTokens: 512,
       responseMimeType: 'application/json',
     },
   };
 
   const errors: string[] = [];
-  const models = geminiModels();
-  const tryModel = async (model: string, ms: number) => {
-    const result = await geminiGenerate(model, key, requestBody, ms);
+  const models = geminiModels().slice(0, 2);
+  let bestZero: VisionReceipt | null = null;
+
+  for (let i = 0; i < models.length; i += 1) {
+    const model = models[i];
+    const perTry = Math.min(timeoutMs, i === 0 ? 12_000 : 10_000);
+    const result = await geminiGenerate(model, key, requestBody, perTry);
     if (!result.ok) {
       errors.push(`${model}:${result.error}`);
-      return { retry: result.error === 'timeout' || /429|503|500/.test(result.error), parsed: null as VisionReceipt | null };
+      // Only continue to next model on timeout / rate limit / server errors.
+      if (!(result.error === 'timeout' || /429|503|500|404|not found/i.test(result.error))) {
+        if (i === 0) continue; // try next model if first model id is wrong
+      }
+      continue;
     }
     const raw = extractGeminiText(result.payload).replace(/^```json\s*|\s*```$/g, '').trim();
     if (!raw) {
       errors.push(`${model}:empty_response`);
-      return { retry: true, parsed: null };
+      continue;
     }
     const jsonSlice = raw.includes('{') ? raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1) : raw;
     try {
       const parsed = asVision(JSON.parse(jsonSlice), { ...fallback, engine: `gemini:${model}` });
-      if (parsed.amount > 0 || parsed.merchant || parsed.notes === 'not_a_receipt') {
-        return { retry: false, parsed };
-      }
+      if (parsed.amount > 0 || parsed.notes === 'not_a_receipt') return parsed;
+      if (parsed.merchant && !bestZero) bestZero = parsed;
       errors.push(`${model}:amount_0`);
-      return { retry: false, parsed };
+      // Retry next model when amount missing — blurry/handwritten receipts often need it.
+      continue;
     } catch {
       errors.push(`${model}:bad_json`);
-      return { retry: true, parsed: null };
     }
-  };
-
-  const first = await tryModel(models[0], Math.min(timeoutMs, 8_000));
-  if (first.parsed && (first.parsed.amount > 0 || first.parsed.merchant || first.parsed.notes === 'not_a_receipt')) {
-    return first.parsed;
   }
-  if (first.retry && models[1]) {
-    const second = await tryModel(models[1], Math.min(timeoutMs, 8_000));
-    if (second.parsed) return second.parsed;
-  }
-  if (first.parsed) return first.parsed;
 
+  if (bestZero) return bestZero;
   return { ...fallback, engine: 'gemini-failed', notes: errors.slice(0, 4).join(' | ') };
 }

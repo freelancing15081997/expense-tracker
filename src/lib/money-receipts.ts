@@ -8,8 +8,8 @@ import { newMoneyId } from './money-core';
 const MAX_UPLOAD_BYTES = 900 * 1024;
 const TARGET_BYTES = 280 * 1024;
 const TINY_TARGET_BYTES = 140 * 1024;
-/** Fast share path: enough detail for Gemini, small enough for inline parse. */
-const SHARE_TARGET_BYTES = 320 * 1024;
+/** Fast share path: keep enough detail for Gemini OCR (~0.5MB). */
+const SHARE_TARGET_BYTES = 520 * 1024;
 
 async function waitForToken() {
   let token = await getJwtToken();
@@ -78,9 +78,9 @@ async function compressForUpload(
       el.src = src;
     });
 
-    // Fewer passes = much faster share path (was 5×5 nested loops).
-    const qualities = [0.62, 0.45, 0.3];
-    const edges = [960, 720, 480];
+    // Balanced quality/speed — enough detail for OCR without 5×5 loops.
+    const qualities = [0.72, 0.55, 0.4];
+    const edges = [1280, 960, 720];
     let best: { bytes: Uint8Array; mime: string; dataUrl: string } | null = null;
 
     for (const maxEdge of edges) {

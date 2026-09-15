@@ -402,14 +402,14 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
       const { parseReceiptImage } = await import('./receipt-vision.js');
 
       // Fast path: compressed inline image/PDF from the app (avoids R2 round-trip before Gemini).
-      if (imageBase64 && imageBase64.length > 64 && imageBase64.length < 1.2 * 1024 * 1024) {
+      if (imageBase64 && imageBase64.length > 64 && imageBase64.length < 1.8 * 1024 * 1024) {
         try {
           vision = await parseReceiptImage({
             base64: imageBase64,
             mimeType: imageMime || 'image/jpeg',
             fileName: receiptName,
             hintText: text,
-            timeoutMs: 8_000,
+            timeoutMs: 14_000,
           });
         } catch {
           vision = null;
@@ -432,7 +432,7 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
               mimeType: safeMime,
               fileName: receiptName,
               hintText: text,
-              timeoutMs: 8_000,
+              timeoutMs: 14_000,
             });
           } else if (!vision) {
             vision = {

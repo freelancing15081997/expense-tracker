@@ -80,10 +80,27 @@ export default function Dashboard() {
 
   const fetchData = async (opts?: { silent?: boolean }) => {
     if (!currentUser || !userProfile) return;
+    const cacheKey = `byjan.dash.stats.${currentUser.uid}`;
     try {
       if (!opts?.silent) {
         setLoading(true);
         setStatsReady(false);
+        // Paint last-known totals immediately so dashboard amounts don't hang blank.
+        try {
+          const cached = sessionStorage.getItem(cacheKey);
+          if (cached) {
+            const parsed = JSON.parse(cached) as {
+              globalStats?: typeof globalStats;
+              bookStats?: Record<string, BookStat>;
+              at?: number;
+            };
+            if (parsed?.globalStats && Date.now() - Number(parsed.at || 0) < 15 * 60_000) {
+              setGlobalStats(parsed.globalStats);
+              if (parsed.bookStats) setBookStats(parsed.bookStats);
+              setStatsReady(true);
+            }
+          }
+        } catch { /* ignore */ }
       }
       setLoadError('');
       if (!canSeeMoney) {
@@ -96,7 +113,14 @@ export default function Dashboard() {
         setLoading(false);
         return;
       }
-      const fetchedBooks = (await listLedgers()).map((book) => ({
+
+      const [ledgersRaw, allExp, inviteRows] = await Promise.all([
+        listLedgers(),
+        listAllExpenses().catch(() => ({ expenses: [] as Array<Record<string, unknown>> })),
+        listLedgerInvites().catch(() => [] as InviteItem[]),
+      ]);
+
+      const fetchedBooks = (ledgersRaw || []).map((book) => ({
         id: book.id,
         name: String(book.name || 'Money book'),
         ownerId: String(book.ownerId || ''),
@@ -107,6 +131,7 @@ export default function Dashboard() {
         roles: (book.roles || {}) as BookItem['roles'],
       })).sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || a.name.localeCompare(b.name));
       setBooks(fetchedBooks);
+      setInvites(inviteRows);
       setLoading(false);
 
       try {
@@ -116,8 +141,8 @@ export default function Dashboard() {
       const nextBookStats: Record<string, BookStat> = {};
       const lastKey = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1).toISOString().slice(0, 7);
       const byBook: Record<string, Array<Record<string, unknown>>> = {};
+      const expenses = Array.isArray(allExp.expenses) ? allExp.expenses : [];
       if (fetchedBooks.length) {
-        const { expenses } = await listAllExpenses();
         expenses.forEach((data) => {
           const amount = Number(data.amount || 0);
           const isIn = data.entryType === 'in' || data.type === 'in';
@@ -150,9 +175,7 @@ export default function Dashboard() {
         Object.keys(byBook).forEach((id) => {
           if (nextBookStats[id]) nextBookStats[id].spark = sparkDays(byBook[id]);
         });
-        setBookStats(nextBookStats);
-        setBridges(workspaceBridges(expenses));
-        setGlobalStats({
+        const nextGlobal = {
           totalIn: tIn,
           totalOut: tOut,
           monthIn,
@@ -161,14 +184,22 @@ export default function Dashboard() {
           entries: expenses.length,
           uncategorized,
           userActivity: activity,
-        });
+        };
+        setBookStats(nextBookStats);
+        setBridges(workspaceBridges(expenses));
+        setGlobalStats(nextGlobal);
+        try {
+          sessionStorage.setItem(cacheKey, JSON.stringify({
+            at: Date.now(),
+            globalStats: nextGlobal,
+            bookStats: nextBookStats,
+          }));
+        } catch { /* ignore */ }
       } else {
         setBookStats({});
         setBridges(null);
         setGlobalStats({ totalIn: 0, totalOut: 0, monthIn: 0, monthOut: 0, reimbursable: 0, entries: 0, uncategorized: 0, userActivity: {} });
       }
-
-      setInvites(await listLedgerInvites());
       } catch (err) {
         console.error('Ledger extras error:', err);
       } finally {
@@ -672,11 +703,16 @@ export default function Dashboard() {
         open={Boolean(receiptLaunch)}
         launch={receiptLaunch}
         onClose={() => setReceiptLaunch(null)}
-        onConfirmed={(expense) => {
+        onConfirmed={(expense, extras) => {
           const bookId = String(expense.bookId || '');
           setReceiptLaunch(null);
           clearPendingCapture();
-          addToast('Shared entry saved', 'success');
+          addToast(
+            extras?.needsEdit
+              ? 'Could not read amount — saved as draft for you to edit'
+              : 'Shared entry saved',
+            extras?.needsEdit ? 'error' : 'success',
+          );
           if (bookId) navigate(`/book/${bookId}`);
           else void fetchData({ silent: true });
         }}

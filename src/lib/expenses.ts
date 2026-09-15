@@ -12,22 +12,35 @@ export type LedgerExpense = {
   [key: string]: unknown;
 };
 
+let listAllCache: { at: number; value: { expenses: LedgerExpense[]; books: Array<Record<string, unknown>> } } | null = null;
+
 export async function listExpenses(bookId: string) {
   const payload = await apiPost<{ expenses?: LedgerExpense[] }>('/api/expenses', { op: 'list', bookId });
   return Array.isArray(payload.expenses) ? payload.expenses : [];
 }
 
 export async function listAllExpenses() {
+  const now = Date.now();
+  if (listAllCache && now - listAllCache.at < 25_000) {
+    return listAllCache.value;
+  }
   const payload = await apiPost<{ expenses?: LedgerExpense[]; books?: Array<Record<string, unknown>> }>('/api/expenses', {
     op: 'listAll',
   });
-  return {
+  const value = {
     expenses: Array.isArray(payload.expenses) ? payload.expenses : [],
     books: Array.isArray(payload.books) ? payload.books : [],
   };
+  listAllCache = { at: now, value };
+  return value;
+}
+
+export function clearExpensesListCache() {
+  listAllCache = null;
 }
 
 export async function createExpense(bookId: string, expense: Record<string, unknown>, opts?: { force?: boolean; idempotencyKey?: string }) {
+  listAllCache = null;
   const payload = await apiPost<{ expense: LedgerExpense }>('/api/expenses', {
     op: 'create',
     bookId,

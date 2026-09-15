@@ -33,7 +33,7 @@ type Props = {
   bookName?: string;
   currency?: string;
   onClose: () => void;
-  onConfirmed: (expense: Record<string, unknown>, extras?: { count?: number }) => void;
+  onConfirmed: (expense: Record<string, unknown>, extras?: { count?: number; needsEdit?: boolean }) => void;
 };
 
 function isSpreadsheet(mime?: string, name?: string) {
@@ -107,7 +107,7 @@ async function parseReceiptNow(
         .replace(/\s+/g, '');
 
       onStatus('Reading amount…');
-      // Start upload in parallel; wait on parse first (critical path).
+      // Upload in parallel with parse (parse is critical path).
       const uploadPromise = uploadPreparedReceipt(bookId, {
         bytes: prepared.bytes,
         mime: imageMime,
@@ -115,7 +115,7 @@ async function parseReceiptNow(
         fileName: receiptName,
       }).catch(() => null);
 
-      const result = await processReceiptJob({
+      let result = await processReceiptJob({
         bookId,
         text: launch.text || '',
         receiptPath: '',
@@ -133,7 +133,7 @@ async function parseReceiptNow(
         receiptName = uploaded.receiptName || receiptName;
       }
 
-      const preview = result.preview
+      let preview = result.preview
         ? {
             ...result.preview,
             id: result.preview.id || newMoneyId('cap'),
@@ -145,6 +145,29 @@ async function parseReceiptNow(
             receiptName,
             reasons: [result.error || 'Parser returned no fields'],
           });
+
+      // Second pass via stored file only when first pass missed amount and upload finished.
+      if (!(Number(preview.amountPaise || 0) > 0) && receiptPath) {
+        onStatus('Reading receipt again…');
+        const retry = await processReceiptJob({
+          bookId,
+          text: launch.text || '',
+          receiptPath,
+          receiptName,
+          source: launch.source || 'share',
+          idempotencyKey: `parse_r2_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+          autoConfirm: true,
+        });
+        if (retry.preview && Number(retry.preview.amountPaise || 0) > 0) {
+          preview = {
+            ...retry.preview,
+            id: retry.preview.id || preview.id || newMoneyId('cap'),
+            receiptPath: retry.preview.receiptPath || receiptPath,
+            receiptName: retry.preview.receiptName || receiptName,
+          };
+          result = retry;
+        }
+      }
 
       return {
         preview: { ...preview, receiptPath: preview.receiptPath || receiptPath, receiptName: preview.receiptName || receiptName },
@@ -225,25 +248,24 @@ export default function ReceiptCaptureFlow({
 
       const { preview, previews } = await parseReceiptNow(bookId, launch, setStatusLine);
       const rows = previews.length ? previews : [preview];
+      const anyAmount = rows.some((r) => Number(r.amountPaise || 0) > 0);
+      const needsEdit = Boolean(
+        launch.imageDataUrl && !launch.text && !isSpreadsheet(launch.mimeType, launch.fileName) && !anyAmount,
+      );
 
-      if (launch.imageDataUrl && !launch.text && !isSpreadsheet(launch.mimeType, launch.fileName)
-        && !(rows.some((r) => Number(r.amountPaise || 0) > 0))) {
-        const why = (preview.reasons && preview.reasons[0]) || 'Could not read amount from receipt';
-        throw new Error(why);
-      }
-
+      // Always save a draft when amount is missing — never show "Couldn't finish" for that case.
       setStatusLine(
         rows.length > 1
           ? `Found ${rows.length} rows — saving…`
-          : preview.amountPaise > 0
+          : anyAmount
             ? `Found ₹${(preview.amountPaise / 100).toFixed(2)} — saving…`
-            : 'Saving entry…',
+            : 'Saving draft for you to edit…',
       );
 
       let firstSaved: Record<string, unknown> | null = null;
       for (let i = 0; i < rows.length; i += 1) {
         const row = rows[i];
-        if (!(Number(row.amountPaise || 0) > 0) && rows.length > 1) continue;
+        if (!(Number(row.amountPaise || 0) > 0) && rows.length > 1 && anyAmount) continue;
         const payload = capturePreviewToExpense(row, {
           receiptPath: row.receiptPath,
           receiptName: row.receiptName,
@@ -256,11 +278,19 @@ export default function ReceiptCaptureFlow({
         } else if (row.direction === 'MONEY_IN') {
           (payload as any).entryType = 'in';
         }
+        if (!(Number(row.amountPaise || 0) > 0)) {
+          (payload as any).amount = 0;
+          (payload as any).status = 'draft';
+          (payload as any).notes = [
+            String((payload as any).notes || '').trim(),
+            'Could not read amount from image — edit amount to finish.',
+          ].filter(Boolean).join('\n');
+        }
         const saved = await createExpense(bookId, payload, {
           force: true,
           idempotencyKey: String(row.id || newMoneyId('cap')),
         });
-        if (!firstSaved) firstSaved = { ...saved, bookId: String(saved.bookId || bookId) };
+        if (!firstSaved) firstSaved = { ...saved, bookId: String(saved.bookId || bookId), _needsEdit: needsEdit };
       }
 
       if (!firstSaved) throw new Error('No valid rows to save');
@@ -272,7 +302,7 @@ export default function ReceiptCaptureFlow({
           const { auth } = await import('../lib/firebase');
           const books = await listLedgers();
           const book = (books || []).find((b) => String(b.id) === String(bookId));
-          if (!book) return;
+          if (!book || needsEdit) return;
           const amt = Number(firstSaved?.amount || preview.amountPaise / 100 || 0);
           const who = auth.currentUser?.displayName || auth.currentUser?.email || 'Someone';
           await notifyTeamOfLedgerChange({
@@ -295,7 +325,7 @@ export default function ReceiptCaptureFlow({
       })();
 
       doneRef.current = true;
-      onConfirmed(firstSaved, { count: rows.length });
+      onConfirmed(firstSaved, { count: rows.length, needsEdit });
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save');
