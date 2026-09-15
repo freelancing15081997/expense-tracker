@@ -7,6 +7,8 @@ export type SharedPayload = {
   dataBase64?: string;
   source?: string;
   receivedAt?: string | number;
+  byteLength?: number;
+  hasPending?: boolean;
   error?: string;
 };
 
@@ -33,6 +35,27 @@ export async function checkPendingShare(): Promise<SharedPayload | null> {
   } catch {
     return null;
   }
+}
+
+/** Warm shares send a light event — pull the full image from native pending. */
+export async function resolveSharePayload(payload: SharedPayload): Promise<SharedPayload> {
+  if (payload.error) return payload;
+  // Always drain native pending when flagged — avoids stale/partial bridge payloads on 2nd share.
+  if (payload.hasPending || !(payload.dataBase64 && payload.dataBase64.length > 64)) {
+    const full = await checkPendingShare();
+    if (full && (full.dataBase64 || full.text)) {
+      return {
+        ...payload,
+        ...full,
+        text: full.text || payload.text,
+        mimeType: full.mimeType || payload.mimeType,
+        fileName: full.fileName || payload.fileName,
+        dataBase64: full.dataBase64 || payload.dataBase64,
+        receivedAt: full.receivedAt || payload.receivedAt,
+      };
+    }
+  }
+  return payload;
 }
 
 export async function onShareReceived(handler: (payload: SharedPayload) => void): Promise<() => void> {

@@ -16,10 +16,28 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 
 /**
  * On-device OCR via ML Kit — primary path for UPI / receipt shares (Gemini is fallback).
+ * Reuses one recognizer; never recycles the bitmap until ML Kit finishes.
  */
 @CapacitorPlugin(name = "DocumentOcr")
 public class DocumentOcrPlugin extends Plugin {
     private static final int MAX_DECODE_BYTES = 5 * 1024 * 1024;
+    private TextRecognizer recognizer;
+
+    private TextRecognizer client() {
+        if (recognizer == null) {
+            recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
+        }
+        return recognizer;
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        if (recognizer != null) {
+            recognizer.close();
+            recognizer = null;
+        }
+        super.handleOnDestroy();
+    }
 
     @PluginMethod
     public void recognizeBase64(PluginCall call) {
@@ -53,30 +71,34 @@ public class DocumentOcrPlugin extends Plugin {
             return;
         }
 
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
+        int sample = 1;
+        int maxEdge = Math.max(bounds.outWidth, bounds.outHeight);
+        while (maxEdge / sample > 2000) sample *= 2;
+        if (bytes.length > 1_800_000 && sample < 2) sample = 2;
+
         BitmapFactory.Options opts = new BitmapFactory.Options();
         opts.inPreferredConfig = Bitmap.Config.ARGB_8888;
-        // Cap decode size for mid-range devices.
-        opts.inSampleSize = bytes.length > 1_200_000 ? 2 : 1;
-        Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, opts);
+        opts.inSampleSize = sample;
+        final Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, opts);
         if (bitmap == null) {
             call.reject("Could not decode image");
             return;
         }
 
         InputImage image = InputImage.fromBitmap(bitmap, 0);
-        TextRecognizer recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
-        recognizer.process(image)
+        client().process(image)
             .addOnSuccessListener(result -> {
                 JSObject out = new JSObject();
                 out.put("text", result.getText() != null ? result.getText() : "");
                 out.put("engine", "mlkit");
                 call.resolve(out);
-                bitmap.recycle();
-                recognizer.close();
+                if (!bitmap.isRecycled()) bitmap.recycle();
             })
             .addOnFailureListener(err -> {
-                bitmap.recycle();
-                recognizer.close();
+                if (!bitmap.isRecycled()) bitmap.recycle();
                 call.reject(err.getMessage() != null ? err.getMessage() : "OCR failed");
             });
     }

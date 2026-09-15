@@ -83,26 +83,26 @@ export function ContextSelector({
     );
   }
   return (
-    <div className="space-y-2">
-      {contexts.map((ctx) => {
+    <div className="sr-book-grid">
+      {contexts.map((ctx, index) => {
         const on = selectedId === ctx.id;
+        const initials = String(ctx.name || 'MB').replace(/[^A-Za-z0-9]/g, ' ').trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() || '').join('') || 'MB';
         return (
           <button
             key={ctx.id}
             type="button"
             onClick={() => onSelect(ctx.id)}
-            className={cn(
-              'w-full text-left rounded-2xl border px-3.5 py-3 transition-all',
-              on ? 'border-[#0B1F3A] bg-[#0B1F3A] text-white shadow-[0_12px_28px_-16px_rgba(11,31,58,0.7)]' : 'border-slate-200 bg-white hover:border-slate-300',
-            )}
+            className={cn('sr-book-card', on && 'is-on')}
+            style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }}
           >
-            <div className="flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <p className={cn('text-[14px] font-semibold truncate', on ? 'text-white' : 'text-[#0B1F3A]')}>{ctx.name}</p>
-                <p className={cn('text-[12px] mt-0.5', on ? 'text-white/70' : 'text-slate-500')}>{ctx.reason}</p>
-              </div>
-              <ChevronRight className={cn('w-4 h-4 shrink-0', on ? 'text-teal-200' : 'text-slate-300')} />
-            </div>
+            <span className="sr-book-icon" aria-hidden>
+              <span className="sr-book-icon-face">{initials}</span>
+            </span>
+            <span className="sr-book-copy min-w-0">
+              <span className="sr-book-name">{ctx.name}</span>
+              <span className="sr-book-reason">{ctx.reason}{ctx.currency ? ` · ${ctx.currency}` : ''}</span>
+            </span>
+            <ChevronRight className="sr-book-chevron" />
           </button>
         );
       })}

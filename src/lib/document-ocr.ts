@@ -27,32 +27,48 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
 
+type AmtHit = { amount: number; score: number };
+
 /** Extract rupee / INR amounts from UPI screenshots, SMS, and receipt OCR. */
 export function parseUpiAmountFromText(text: string): LocalReceiptParse | null {
   const raw = String(text || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
   if (!raw) return null;
 
-  const candidates: number[] = [];
-  const patterns = [
-    /(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d{1,2})?)/gi,
-    /([\d,]+(?:\.\d{1,2})?)\s*(?:₹|rs\.?|inr)\b/gi,
-    /(?:paid|sent|debited|spent|total|amount|amt|grand\s*total|net\s*payable|you\s*paid)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d{1,2})?)/gi,
-    /(?:debited by|credited by|payment of)\s*(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d{1,2})?)/gi,
-  ];
-  for (const re of patterns) {
-    let m: RegExpExecArray | null;
+  const hits: AmtHit[] = [];
+  const push = (n: number, score: number) => {
+    if (!Number.isFinite(n) || n < 1 || n >= 5_000_000) return;
+    // Skip likely years / ref fragments.
+    if (n >= 1900 && n <= 2100 && Number.isInteger(n)) return;
+    hits.push({ amount: n, score });
+  };
+
+  const addMatches = (re: RegExp, score: number) => {
     const clone = new RegExp(re.source, re.flags);
+    let m: RegExpExecArray | null;
     while ((m = clone.exec(raw)) !== null) {
       const n = Number(String(m[1] || '').replace(/,/g, ''));
-      if (Number.isFinite(n) && n >= 1 && n < 100_000_000) candidates.push(n);
+      push(n, score + (/\.\d{1,2}$/.test(String(m[1] || '')) ? 8 : 0));
+    }
+  };
+
+  addMatches(/(?:paid|you paid|sent|debited|spent|total|amount|amt|grand\s*total|net\s*payable)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d{1,2})?)/gi, 40);
+  addMatches(/(?:debited by|credited by|payment of|payment successful)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d{1,2})?)/gi, 38);
+  addMatches(/(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d{1,2})?)/gi, 30);
+  addMatches(/([\d,]+(?:\.\d{1,2})?)\s*(?:₹|rs\.?|inr)\b/gi, 28);
+
+  if (!hits.length) {
+    const loose = raw.match(/\b([\d,]{2,}(?:\.\d{1,2})?)\b/g) || [];
+    for (const token of loose) {
+      const n = Number(token.replace(/,/g, ''));
+      // Prefer typical UPI spend range when no currency marker.
+      if (n >= 10 && n <= 200_000) push(n, 5);
     }
   }
 
-  // Prefer amounts that look like payment totals (not UPI refs / phone fragments).
-  const plausible = candidates.filter((n) => n < 5_000_000 && !(n >= 1e10));
-  if (!plausible.length) return null;
-  // UPI screens usually show one dominant total — take the max among plausible.
-  const amount = Math.max(...plausible);
+  if (!hits.length) return null;
+  hits.sort((a, b) => b.score - a.score || b.amount - a.amount);
+  const amount = hits[0].amount;
+  const bestScore = hits[0].score;
 
   const inMatch = /\b(?:credited|received|refund|money in|salary)\b/i.test(raw);
   const outMatch = /\b(?:debited|paid|spent|sent to|money out|payment successful)\b/i.test(raw);
@@ -73,7 +89,7 @@ export function parseUpiAmountFromText(text: string): LocalReceiptParse | null {
         : 'cash';
 
   const confidence: LocalReceiptParse['confidence'] =
-    /(₹|rs\.?|inr)/i.test(raw) && amount > 0 ? 'high' : amount > 0 ? 'medium' : 'low';
+    bestScore >= 30 ? 'high' : bestScore >= 10 ? 'medium' : 'low';
 
   return {
     text: raw.slice(0, 4000),
@@ -106,6 +122,41 @@ export async function recognizeDocumentText(base64: string, mimeType = 'image/jp
   return { text: '', engine: 'web-skip' };
 }
 
+/** Light resize for OCR only — keep digits sharp (separate from upload compress). */
+export async function prepareOcrImage(dataUrl: string, mimeType = 'image/jpeg'): Promise<{ base64: string; mime: string }> {
+  const fallback = () => ({
+    base64: String(dataUrl || '').replace(/^data:[^;]+;base64,/i, '').replace(/\s+/g, ''),
+    mime: mimeType.startsWith('image/') ? mimeType : 'image/jpeg',
+  });
+  if (typeof document === 'undefined' || !mimeType.startsWith('image/')) return fallback();
+  try {
+    const src = dataUrl.startsWith('data:') ? dataUrl : `data:${mimeType};base64,${dataUrl}`;
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error('ocr image'));
+      el.src = src;
+    });
+    const maxEdge = 1600;
+    const scale = Math.min(1, maxEdge / Math.max(img.width, img.height, 1));
+    const w = Math.max(1, Math.round(img.width * scale));
+    const h = Math.max(1, Math.round(img.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return fallback();
+    ctx.drawImage(img, 0, 0, w, h);
+    const next = canvas.toDataURL('image/jpeg', 0.88);
+    return {
+      base64: next.replace(/^data:[^;]+;base64,/i, ''),
+      mime: 'image/jpeg',
+    };
+  } catch {
+    return fallback();
+  }
+}
+
 /** OCR image then deterministically parse amount / merchant. */
 export async function localParseReceiptImage(
   base64: string,
@@ -136,6 +187,6 @@ export async function localParseReceiptImage(
     ...best,
     text: [hintText, ocr.text].filter(Boolean).join('\n').slice(0, 4000),
     engine: ocr.engine === 'mlkit' ? 'mlkit+rules' : best.engine,
-    confidence: ocr.engine === 'mlkit' && best.amount > 0 ? 'high' : best.confidence,
+    confidence: ocr.engine === 'mlkit' && best.confidence !== 'low' ? 'high' : best.confidence,
   };
 }

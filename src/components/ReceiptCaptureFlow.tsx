@@ -112,16 +112,19 @@ async function parseReceiptNow(
       receiptName = uploaded.receiptName || receiptName;
     } else {
       const { prepareReceiptImage, uploadPreparedReceipt } = await import('../lib/money-receipts');
-      const { localParseReceiptImage } = await import('../lib/document-ocr');
+      const { localParseReceiptImage, prepareOcrImage } = await import('../lib/document-ocr');
+
+      // OCR on a sharp copy; upload uses a separate compress path.
+      onStatus('Reading on device…', 24);
+      const ocrPrepared = await prepareOcrImage(launch.imageDataUrl, imageMime);
+      const localPromise = localParseReceiptImage(ocrPrepared.base64, ocrPrepared.mime, launch.text || '')
+        .catch(() => null);
+
       const prepared = await prepareReceiptImage(launch.imageDataUrl, imageMime, false);
       imageMime = prepared.mime || 'image/jpeg';
       imageBase64 = String(prepared.dataUrl || '')
         .replace(/^data:[^;]+;base64,/i, '')
         .replace(/\s+/g, '');
-
-      onStatus('Reading on device…', 28);
-      const localPromise = localParseReceiptImage(imageBase64, imageMime, launch.text || '')
-        .catch(() => null);
 
       onStatus('Reading amount…', 36);
       const uploadPromise = uploadPreparedReceipt(bookId, {
@@ -134,8 +137,8 @@ async function parseReceiptNow(
       const local = await localPromise;
       const hintText = [launch.text || '', local?.text || ''].filter(Boolean).join('\n').slice(0, 2000);
 
-      // Instant draft when on-device OCR + rules already have a solid amount.
-      if (local && local.amount > 0 && (local.confidence === 'high' || local.confidence === 'medium')) {
+      // Instant draft only when on-device OCR is clearly confident (currency-anchored).
+      if (local && local.amount > 0 && local.confidence === 'high') {
         onStatus(`Found ₹${local.amount.toFixed(2)}…`, 72);
         const uploaded = await uploadPromise;
         if (uploaded) {
@@ -164,6 +167,7 @@ async function parseReceiptNow(
         return { preview, previews: [preview] };
       }
 
+      // Always ask the server when local amount is missing or only medium confidence.
       let result = await processReceiptJob({
         bookId,
         text: hintText || launch.text || '',
@@ -211,17 +215,17 @@ async function parseReceiptNow(
         };
       }
 
-      if (!(Number(preview.amountPaise || 0) > 0) && receiptPath) {
+      if (!(Number(preview.amountPaise || 0) > 0) && (receiptPath || imageBase64)) {
         onStatus('Reading receipt again…', 78);
         const retry = await processReceiptJob({
           bookId,
           text: hintText || launch.text || '',
-          receiptPath,
+          receiptPath: receiptPath || '',
           receiptName,
           source: launch.source || 'share',
           idempotencyKey: `parse_r2_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
           autoConfirm: true,
-          imageBase64,
+          imageBase64: imageBase64 || undefined,
           imageMime,
         });
         if (retry.preview && Number(retry.preview.amountPaise || 0) > 0) {
@@ -352,7 +356,10 @@ export default function ReceiptCaptureFlow({
     setPct(14);
     setProgress('Preparing image…', 18);
     try {
-      clearPendingCapture();
+      // Keep pending until save succeeds so a failed second attempt can still retry the image.
+      if (!launch.imageDataUrl && !launch.text) {
+        throw new Error('Shared image was lost — share the receipt again');
+      }
 
       const { preview, previews } = await parseReceiptNow(bookId, launch, setProgress);
       const rows = previews.length ? previews : [preview];
@@ -435,6 +442,7 @@ export default function ReceiptCaptureFlow({
 
       setPct(100);
       doneRef.current = true;
+      clearPendingCapture();
       onConfirmed(firstSaved, { count: rows.length, needsEdit });
       onClose();
     } catch (err) {

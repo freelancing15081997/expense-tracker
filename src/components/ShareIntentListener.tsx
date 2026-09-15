@@ -9,6 +9,7 @@ import { readUserLocalJson, writeUserLocalJson } from '../lib/user-cache';
 import {
   checkPendingShare,
   onShareReceived,
+  resolveSharePayload,
   sharedFileDataUrl,
   type SharedPayload,
 } from '../lib/share-receiver';
@@ -183,18 +184,23 @@ export default function ShareIntentListener() {
       addToast(payload.error, 'error');
       return;
     }
-    const dataUrl = sharedFileDataUrl(payload);
-    const text = String(payload.text || '').trim();
-    if (!dataUrl && !text) return;
-    const receivedAt = payload.receivedAt
-      ? String(payload.receivedAt)
+    // Second+ shares often exceed bridge size — resolve full bytes from native pending.
+    const full = await resolveSharePayload(payload);
+    const dataUrl = sharedFileDataUrl(full);
+    const text = String(full.text || '').trim();
+    if (!dataUrl && !text) {
+      addToast('Could not read the shared file — try sharing again', 'error');
+      return;
+    }
+    const receivedAt = full.receivedAt
+      ? String(full.receivedAt)
       : new Date().toISOString();
     await routePending({
       text: text || undefined,
       imageDataUrl: dataUrl || undefined,
-      fileName: payload.fileName,
-      mimeType: payload.mimeType || (dataUrl?.startsWith('data:') ? dataUrl.slice(5).split(';')[0] : undefined),
-      source: payload.source || 'share',
+      fileName: full.fileName,
+      mimeType: full.mimeType || (dataUrl?.startsWith('data:') ? dataUrl.slice(5).split(';')[0] : undefined),
+      source: full.source || 'share',
       receivedAt,
     });
   };

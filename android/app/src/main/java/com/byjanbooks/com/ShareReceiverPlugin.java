@@ -21,10 +21,14 @@ import java.io.InputStream;
 
 /**
  * Receives Android ACTION_SEND shares (images / text) into the Capacitor bridge.
+ * Large images stay in static pending and are fetched via checkPending — the event
+ * only carries a light signal so the JS bridge never drops the second share.
  */
 @CapacitorPlugin(name = "ShareReceiver")
 public class ShareReceiverPlugin extends Plugin {
     private static final int MAX_BYTES = 6 * 1024 * 1024;
+    /** Bridge events above ~500KB often fail silently on warm shares. */
+    private static final int LIGHT_EVENT_MAX_B64 = 180_000;
     private static JSObject pending;
     private static ShareReceiverPlugin instance;
 
@@ -102,6 +106,7 @@ public class ShareReceiverPlugin extends Plugin {
                     payload.put("mimeType", mime);
                     payload.put("fileName", name);
                     payload.put("dataBase64", Base64.encodeToString(bytes, Base64.NO_WRAP));
+                    payload.put("byteLength", bytes.length);
                 }
             } catch (Exception err) {
                 payload.put("error", err.getMessage() != null ? err.getMessage() : "Could not read shared file");
@@ -117,7 +122,26 @@ public class ShareReceiverPlugin extends Plugin {
         pending = payload;
 
         if (instance != null) {
-            instance.notifyListeners("shareReceived", payload);
+            // Always notify lightly — JS pulls full base64 via checkPending.
+            JSObject light = new JSObject();
+            light.put("hasPending", true);
+            light.put("source", "share");
+            light.put("receivedAt", payload.getLong("receivedAt"));
+            if (payload.has("mimeType")) light.put("mimeType", payload.getString("mimeType"));
+            if (payload.has("fileName")) light.put("fileName", payload.getString("fileName"));
+            if (payload.has("byteLength")) light.put("byteLength", payload.getInteger("byteLength"));
+            String shareText = payload.has("text") ? payload.getString("text") : null;
+            if (shareText != null && shareText.length() < 4000) {
+                light.put("text", shareText);
+            }
+            // Tiny images can ride the event; large ones must use checkPending.
+            if (payload.has("dataBase64")) {
+                String b64 = payload.getString("dataBase64");
+                if (b64 != null && b64.length() > 0 && b64.length() < LIGHT_EVENT_MAX_B64) {
+                    light.put("dataBase64", b64);
+                }
+            }
+            instance.notifyListeners("shareReceived", light);
         }
     }
 
