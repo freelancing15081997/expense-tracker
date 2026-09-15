@@ -27,8 +27,15 @@ function geminiKey() {
 
 function geminiModels() {
   const preferred = String(process.env.GEMINI_MODEL || '').trim();
-  // Fast flash-first for share path consistency.
-  const defaults = ['gemini-2.0-flash', 'gemini-flash-latest', 'gemini-2.5-flash'];
+  // Match inbound email models first — these are known to work in production.
+  const defaults = [
+    'gemini-flash-latest',
+    'gemini-2.5-flash',
+    'gemini-2.0-flash',
+    'gemini-3.6-flash',
+    'gemini-3.5-flash',
+    'gemini-1.5-flash',
+  ];
   return [...new Set([preferred, ...defaults].filter(Boolean))];
 }
 
@@ -174,18 +181,18 @@ export async function parseReceiptImage(input: {
   }
 
   const mime = normalizeMime(input.mimeType, input.fileName);
-  const hint = String(input.hintText || '').trim().slice(0, 400);
-  const timeoutMs = Math.max(6_000, Number(input.timeoutMs || 10_000));
+  const hint = String(input.hintText || '').trim().slice(0, 800);
+  const timeoutMs = Math.max(10_000, Number(input.timeoutMs || 16_000));
 
-  const prompt = `You are Byjan's ledger clerk. Summarize this receipt / UPI payment screenshot into expense fields.
-${hint ? `Share text (optional hint):\n${hint}\n` : ''}
+  const prompt = `You are Byjan's ledger clerk. Read this receipt, bill, invoice, UPI payment screenshot (GPay/PhonePe/Paytm/BHIM), bank slip, PDF, or handwritten expense note.
+${hint ? `Extra share / OCR text (use for amount if visible):\n${hint}\n` : ''}
 Return JSON only:
 {"amount":number,"total":number,"date":"YYYY-MM-DD","merchant":string,"description":string,"category":string,"entryType":"out"|"in","paymentMethod":"cash"|"card"|"upi"|"bank"|"wallet","notes":string}
 Rules:
 - amount/total = the Paid / Sent / Debited / You paid / grand total only.
 - NEVER use calendar day/month/year digits as amount (e.g. 26 from 26 Sep is NOT money).
 - NEVER use battery %, ratings, time, UPI ref fragments, or “Pay ₹5” suggestion chips.
-- If Paid ₹X is visible, amount must be X exactly.
+- If Paid ₹X / Debited ₹X is visible (image or hint text), amount must be X exactly.
 - category one of: Fuel, Groceries, Meals, Travel, Utilities, Health, Shopping, Software Subscriptions, Uncategorized.
 - entryType=in only for refunds/money received. UPI apps → paymentMethod=upi.
 - If not a financial document: amount 0, notes "not_a_receipt". Never invent amounts.`;
@@ -199,26 +206,21 @@ Rules:
     }],
     generationConfig: {
       temperature: 0,
-      maxOutputTokens: 384,
+      maxOutputTokens: 512,
       responseMimeType: 'application/json',
     },
   };
 
   const errors: string[] = [];
-  // One fast model first; second only if amount missing / model id wrong.
-  const models = geminiModels().slice(0, 2);
+  const models = geminiModels().slice(0, 4);
   let bestZero: VisionReceipt | null = null;
 
   for (let i = 0; i < models.length; i += 1) {
     const model = models[i];
-    const perTry = Math.min(timeoutMs, i === 0 ? 8_000 : 7_000);
+    const perTry = Math.min(timeoutMs, i === 0 ? 12_000 : 10_000);
     const result = await geminiGenerate(model, key, requestBody, perTry);
     if (!result.ok) {
       errors.push(`${model}:${result.error}`);
-      // Only continue to next model on timeout / rate limit / server errors.
-      if (!(result.error === 'timeout' || /429|503|500|404|not found/i.test(result.error))) {
-        if (i === 0) continue; // try next model if first model id is wrong
-      }
       continue;
     }
     const raw = extractGeminiText(result.payload).replace(/^```json\s*|\s*```$/g, '').trim();
@@ -232,7 +234,6 @@ Rules:
       if (parsed.amount > 0 || parsed.notes === 'not_a_receipt') return parsed;
       if (parsed.merchant && !bestZero) bestZero = parsed;
       errors.push(`${model}:amount_0`);
-      // Retry next model when amount missing — blurry/handwritten receipts often need it.
       continue;
     } catch {
       errors.push(`${model}:bad_json`);

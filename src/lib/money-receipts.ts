@@ -8,8 +8,8 @@ import { newMoneyId } from './money-core';
 const MAX_UPLOAD_BYTES = 900 * 1024;
 const TARGET_BYTES = 280 * 1024;
 const TINY_TARGET_BYTES = 140 * 1024;
-/** Fast share path: keep enough detail for Gemini OCR (~0.5MB). */
-const SHARE_TARGET_BYTES = 640 * 1024;
+/** Fast share path: enough detail for Gemini + OCR, small enough for Vercel body. */
+const SHARE_TARGET_BYTES = 420 * 1024;
 
 async function waitForToken() {
   let token = await getJwtToken();

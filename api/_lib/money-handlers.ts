@@ -397,7 +397,7 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
             mimeType: imageMime || 'image/jpeg',
             fileName: receiptName,
             hintText: text,
-            timeoutMs: 10_000,
+            timeoutMs: 16_000,
           });
         } catch {
           vision = null;
@@ -420,7 +420,7 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
               mimeType: safeMime,
               fileName: receiptName,
               hintText: text,
-              timeoutMs: 10_000,
+              timeoutMs: 16_000,
             });
           } else if (!vision) {
             vision = {
@@ -453,12 +453,24 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
       }
 
       const textParsed = parseAmountFromText(text || '');
-      // Gemini vision is source of truth for image shares. Text is fallback only.
+      // Prefer Gemini when it found an amount; otherwise use OCR/share text so shares never go blank.
       const amount = (vision && vision.amount > 0)
         ? vision.amount
         : (textParsed?.amount || 0);
-      const merchant = (vision?.merchant || textParsed?.merchant || '').trim();
-      const description = (vision?.description || textParsed?.description || merchant || receiptName || 'Shared receipt').trim();
+      const merchant = (
+        (vision && vision.amount > 0 ? vision.merchant : '')
+        || textParsed?.merchant
+        || vision?.merchant
+        || ''
+      ).trim();
+      const description = (
+        (vision && vision.amount > 0 ? vision.description : '')
+        || textParsed?.description
+        || vision?.description
+        || merchant
+        || receiptName
+        || 'Shared receipt'
+      ).trim();
       const category = (vision?.category && vision.category !== 'Uncategorized'
         ? vision.category
         : (textParsed as { category?: string } | null)?.category) || vision?.category || 'Uncategorized';
@@ -471,7 +483,6 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
       push('receipt.classifying', 'CLASSIFYING');
       push('receipt.duplicate_check', 'DUPLICATE_CHECK');
 
-      // Keep user-facing reasons empty — no parser/engine noise on expense cards.
       const reasons: string[] = [];
 
       const preview: Record<string, unknown> = {
@@ -494,22 +505,26 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
         timeline,
       };
 
-      const sql = await getLedgerSql();
       const flowState = String(preview.processingStatus) === 'READY' && preview.confidence === 'high' ? 'READY' : 'REVIEW_REQUIRED';
-      await sql`
-        INSERT INTO capture_events (id, book_id, uid, processing_status, financial_status, flow_state, data, created_at, updated_at)
-        VALUES (
-          ${idempotencyKey}, ${bookId}, ${user.uid},
-          ${String(preview.processingStatus)}, ${String(preview.financialStatus)}, ${flowState},
-          ${JSON.stringify(preview)}::jsonb, NOW(), NOW()
-        )
-        ON CONFLICT (id) DO UPDATE SET
-          processing_status = EXCLUDED.processing_status,
-          financial_status = EXCLUDED.financial_status,
-          flow_state = EXCLUDED.flow_state,
-          data = EXCLUDED.data,
-          updated_at = NOW()
-      `;
+      try {
+        const sql = await getLedgerSql();
+        await sql`
+          INSERT INTO capture_events (id, book_id, uid, processing_status, financial_status, flow_state, data, created_at, updated_at)
+          VALUES (
+            ${idempotencyKey}, ${bookId}, ${user.uid},
+            ${String(preview.processingStatus)}, ${String(preview.financialStatus)}, ${flowState},
+            ${JSON.stringify(preview)}::jsonb, NOW(), NOW()
+          )
+          ON CONFLICT (id) DO UPDATE SET
+            processing_status = EXCLUDED.processing_status,
+            financial_status = EXCLUDED.financial_status,
+            flow_state = EXCLUDED.flow_state,
+            data = EXCLUDED.data,
+            updated_at = NOW()
+        `;
+      } catch {
+        // Capture event log is best-effort — never fail the parse response.
+      }
 
       apiJson(res, 200, {
         flowState,
