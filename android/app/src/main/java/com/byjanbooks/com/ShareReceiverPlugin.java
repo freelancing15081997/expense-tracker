@@ -126,10 +126,20 @@ public class ShareReceiverPlugin extends Plugin {
             JSObject light = new JSObject();
             light.put("hasPending", true);
             light.put("source", "share");
-            light.put("receivedAt", payload.getLong("receivedAt"));
+            if (payload.has("receivedAt")) {
+                try {
+                    light.put("receivedAt", payload.getLong("receivedAt"));
+                } catch (Exception ignored) {
+                    light.put("receivedAt", System.currentTimeMillis());
+                }
+            }
             if (payload.has("mimeType")) light.put("mimeType", payload.getString("mimeType"));
             if (payload.has("fileName")) light.put("fileName", payload.getString("fileName"));
-            if (payload.has("byteLength")) light.put("byteLength", payload.getInteger("byteLength"));
+            if (payload.has("byteLength")) {
+                try {
+                    light.put("byteLength", payload.getInteger("byteLength"));
+                } catch (Exception ignored) { /* optional */ }
+            }
             String shareText = payload.has("text") ? payload.getString("text") : null;
             if (shareText != null && shareText.length() < 4000) {
                 light.put("text", shareText);
