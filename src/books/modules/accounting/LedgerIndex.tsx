@@ -30,7 +30,7 @@ export default function LedgerIndex() {
                   <td className="px-4 py-2.5">
                     <Link to={`/books/ledger/${account.id}`} className="text-slate-900 hover:underline font-medium">{account.name}</Link>
                   </td>
-                  <td className="px-4 py-2.5 capitalize text-slate-500">{account.type.replace('_', ' ')}</td>
+                  <td className="px-4 py-2.5 capitalize text-slate-500">{String(account.type || '').replace(/_/g, ' ')}</td>
                   <td className="px-4 py-2.5 text-right"><Money minor={signedBalance(account)} currency={currency} /></td>
                 </tr>
               ))}

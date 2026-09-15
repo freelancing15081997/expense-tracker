@@ -19,8 +19,29 @@ export type FinancialStatus = (typeof FINANCIAL_STATUS)[number];
 export const PROCESSING_STATUS = [
   'INGESTED', 'NORMALIZING', 'VALIDATING', 'CLASSIFYING',
   'READY', 'REVIEW_REQUIRED', 'FAILED', 'RETRYING', 'COMPLETED',
+  /* Receipt autonomous flow (issue_requirment) */
+  'RECEIVED', 'BOOK_SELECTED', 'EXTRACTING', 'DUPLICATE_CHECK', 'CREATED', 'AWAITING_CONTEXT',
 ] as const;
 export type ProcessingStatus = (typeof PROCESSING_STATUS)[number];
+
+export type {
+  ReceiptFlowState,
+  SplitMethod,
+  SplitParticipant,
+  MoneySplit,
+  SettlementStatus,
+  MoneySettlement,
+  ActivityEvent,
+  MoneyContextOption,
+} from './money-flow';
+
+export {
+  RECEIPT_FLOW_STATES,
+  RECEIPT_FLOW_COPY,
+  SPLIT_METHODS,
+  SETTLEMENT_STATUS,
+  ROLE_FEATURE_DEFAULTS,
+} from './money-flow';
 
 export const CAPTURE_DIRECTION = ['MONEY_OUT', 'MONEY_IN', 'TRANSFER', 'UNKNOWN'] as const;
 export type CaptureDirection = (typeof CAPTURE_DIRECTION)[number];
@@ -90,6 +111,8 @@ export type CapturePreview = {
   upiRef?: string;
   vpa?: string;
   notes?: string;
+  receiptPath?: string;
+  receiptName?: string;
   processingStatus: ProcessingStatus;
   financialStatus: FinancialStatus;
   confidence: 'high' | 'medium' | 'low';

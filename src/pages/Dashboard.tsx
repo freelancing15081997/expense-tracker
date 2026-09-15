@@ -17,6 +17,8 @@ import { acceptLedgerInvite, declineLedgerInvite, listLedgerInvites, type Ledger
 import { clearStoreCache } from '../lib/store';
 import { roleLabel } from '../lib/plain-language';
 import { useFeatures } from '../lib/use-features';
+import ReceiptCaptureFlow, { type ReceiptLaunch } from '../components/ReceiptCaptureFlow';
+import { readPendingCapture, clearPendingCapture } from '../components/ShareIntentListener';
 
 interface BookItem {
   id: string;
@@ -215,7 +217,29 @@ export default function Dashboard() {
   };
 
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
+  const [receiptLaunch, setReceiptLaunch] = useState<ReceiptLaunch | null>(null);
   const [decliningId, setDecliningId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('capture') !== '1') return;
+    const pending = readPendingCapture();
+    if (!pending?.imageDataUrl && !pending?.text) {
+      navigate(location.pathname, { replace: true });
+      return;
+    }
+    setReceiptLaunch({
+      text: pending.text,
+      imageDataUrl: pending.imageDataUrl,
+      fileName: pending.fileName,
+      mimeType: pending.mimeType,
+      source: pending.source || 'share',
+      preferredBookId: pending.requireBookPick ? undefined : pending.preferredBookId,
+      requireBookPick: pending.requireBookPick !== false,
+    });
+    navigate(location.pathname, { replace: true });
+  }, [location.search, location.pathname, navigate]);
+
   const handleAcceptInvite = async (invite: InviteItem) => {
     if (!currentUser || !userProfile) return;
     setAcceptingId(invite.id);
@@ -643,6 +667,20 @@ export default function Dashboard() {
           )}
       </section>
       )}
+
+      <ReceiptCaptureFlow
+        open={Boolean(receiptLaunch)}
+        launch={receiptLaunch}
+        onClose={() => setReceiptLaunch(null)}
+        onConfirmed={(expense) => {
+          const bookId = String(expense.bookId || '');
+          setReceiptLaunch(null);
+          clearPendingCapture();
+          addToast('Shared entry saved', 'success');
+          if (bookId) navigate(`/book/${bookId}`);
+          else void fetchData({ silent: true });
+        }}
+      />
     </div>
   );
 }

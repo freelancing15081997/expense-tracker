@@ -22,6 +22,10 @@ export interface UserProfile {
   appPrefs?: Record<string, unknown>;
   features?: FeatureMap;
   isSuperUser?: boolean;
+  upiId?: string;
+  upiDisplayName?: string;
+  upiStatus?: string;
+  upiConfirmedAt?: string;
 }
 
 interface AuthContextType {

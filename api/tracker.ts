@@ -17,6 +17,7 @@ import {
   ledgerListMailEvents,
   ledgerListNotifications,
   ledgerMarkNotificationRead,
+  ledgerMarkAllNotificationsRead,
   ledgerMember,
   ledgerRemoveMember,
   ledgerRequireManager,
@@ -238,6 +239,10 @@ async function handleExpenses(req: VercelRequest, res: VercelResponse) {
           currency: book.currency,
           ...row.data,
         }));
+      }).sort((a, b) => {
+        const ta = Date.parse(String((a as any).createdAt || '')) || 0;
+        const tb = Date.parse(String((b as any).createdAt || '')) || 0;
+        return tb - ta;
       });
       apiJson(res, 200, { books, expenses });
       return;
@@ -290,11 +295,15 @@ async function handleExpenses(req: VercelRequest, res: VercelResponse) {
         if (matches.length) throw new ApiError(409, 'A matching entry is already on this ledger', { matches });
       }
       const now = new Date().toISOString();
+      const paidDate = String(input.paidAt || input.date || now.slice(0, 10)).slice(0, 10);
       const saved = await ledgerSaveExpense(bookId, {
         ...input,
+        date: paidDate,
+        paidAt: paidDate,
         enteredByUid: user.uid,
         enteredByEmail: user.email,
-        createdAt: String(input.createdAt || now),
+        // Record creation is always "now" — never reuse receipt/paid date as createdAt.
+        createdAt: now,
         status: Number(input.amount || 0) > 0 ? (input.status || 'recorded') : 'draft',
         financialStatus: input.financialStatus || 'CONFIRMED',
         processingStatus: input.processingStatus || 'COMPLETED',
@@ -335,6 +344,10 @@ async function handleExpenses(req: VercelRequest, res: VercelResponse) {
         ...current,
         ...patch,
         id: expenseId,
+        // Paid / transaction date can change; never rewrite when the record was created.
+        createdAt: current.createdAt,
+        date: String(patch.paidAt || patch.date || current.paidAt || current.date || '').slice(0, 10) || current.date,
+        paidAt: String(patch.paidAt || patch.date || current.paidAt || current.date || '').slice(0, 10) || current.paidAt || current.date,
         lastEditedByUid: user.uid,
         lastEditedAt: new Date().toISOString(),
       });
@@ -388,6 +401,12 @@ async function handleNotifications(req: VercelRequest, res: VercelResponse) {
       if (!id) throw new ApiError(400, 'Missing notification');
       const notification = await ledgerMarkNotificationRead(id, user.uid);
       apiJson(res, 200, { notification });
+      return;
+    }
+
+    if (op === 'markAllRead') {
+      const result = await ledgerMarkAllNotificationsRead(user.uid);
+      apiJson(res, 200, result);
       return;
     }
 

@@ -44,9 +44,9 @@ export default function CommandPalette() {
     if (needle.length >= 2) {
       for (const d of books.documents) {
         if (d.number.toLowerCase().includes(needle) || d.memo.toLowerCase().includes(needle)) {
-          const href = documentHref(d.kind, d.id);
+          const href = documentHref(String(d.kind || 'invoice'), d.id);
           if (!allowsHref(href)) continue;
-          records.push({ name: d.number, href, hint: d.kind.replace('_', ' ') });
+          records.push({ name: d.number, href, hint: String(d.kind || 'document').replace(/_/g, ' ') });
         }
       }
       for (const p of books.parties) {

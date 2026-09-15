@@ -57,7 +57,7 @@ export default function InviteAccept() {
         displayName: userProfile.displayName,
       });
       clearStoreCache();
-      navigate(`/book/${peek.invite.bookId}`);
+      navigate(`/book/${peek.invite.bookId}?setupUpi=1`);
     } catch (err: any) {
       setError(err?.message || 'Could not accept this invitation.');
     } finally {
@@ -105,7 +105,7 @@ export default function InviteAccept() {
         {peek?.status === 'already_member' && (
           <>
             <p className="mt-3 text-sm text-slate-600">You already have access to this money book.</p>
-            <button type="button" className="byjan-btn w-full mt-4" onClick={() => navigate(`/book/${peek.bookId}`)}>Open book</button>
+            <button type="button" className="byjan-btn w-full mt-4" onClick={() => navigate(`/book/${peek.bookId}?setupUpi=1`)}>Open book</button>
           </>
         )}
 
@@ -121,6 +121,7 @@ export default function InviteAccept() {
           <>
             <p className="mt-3 text-sm text-slate-600">
               You were invited to <b>{peek.invite.bookName}</b> as <span className="capitalize">{roleLabel(peek.invite.role)}</span>.
+              After joining, add your UPI ID so teammates can settle splits with you.
             </p>
             <div className="mt-4 flex gap-2">
               <button type="button" className="byjan-btn flex-1" disabled={Boolean(busy)} onClick={() => void accept()}>

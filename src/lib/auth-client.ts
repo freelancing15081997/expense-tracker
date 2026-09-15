@@ -13,6 +13,10 @@ export async function getJwtToken(): Promise<string | null> {
   }
 }
 
+export function clearJwtCache() {
+  cached = null;
+}
+
 export async function authHeaders(extra?: Record<string, string>): Promise<Record<string, string>> {
   const token = await getJwtToken();
   return {

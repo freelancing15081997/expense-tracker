@@ -57,7 +57,13 @@ import { buildEqualPersonSplits, formatSettlementLine, peopleFromBook, suggestSe
 import { enqueueOfflineExpense, flushOfflineQueue, isLikelyOfflineError, listOfflineQueue } from '../lib/money-offline';
 import { buildCapturePreview } from '../lib/money-capture';
 import CapturePreviewSheet from '../components/CapturePreviewSheet';
-import { readPendingCapture } from '../components/ShareIntentListener';
+import ReceiptCaptureFlow, { type ReceiptLaunch } from '../components/ReceiptCaptureFlow';
+import SplitExpenseSheet from '../components/SplitExpenseSheet';
+import '../components/split-premium.css';
+import SettlementsPanel from '../components/SettlementsPanel';
+import UpiSetupSheet from '../components/UpiSetupSheet';
+import { ExpenseSuccessCard, MoneySheet } from '../components/money/MoneyUi';
+import { readPendingCapture, clearPendingCapture } from '../components/ShareIntentListener';
 import { CameraSource } from '@capacitor/camera';
 import { Network } from '@capacitor/network';
 import { clsx, type ClassValue } from "clsx";
@@ -116,13 +122,45 @@ function periodRange(kind: string) {
   return { from: '', to: '' };
 }
 
-function expenseDateLabel(exp: any) {
+function expenseCreatedDay(exp: any): string {
   try {
     if (exp?.createdAt && typeof exp.createdAt.toDate === 'function') {
-      return format(exp.createdAt.toDate(), 'MMM dd, yyyy');
+      return format(exp.createdAt.toDate(), 'yyyy-MM-dd');
     }
-  } catch { /* pending server timestamp */ }
-  return exp?.date || '';
+  } catch { /* pending */ }
+  const raw = String(exp?.createdAt || '').trim();
+  if (!raw) return '';
+  const parsed = Date.parse(raw);
+  if (!Number.isNaN(parsed)) return format(new Date(parsed), 'yyyy-MM-dd');
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+  return '';
+}
+
+function expensePaidDay(exp: any): string {
+  const paid = String(exp?.paidAt || exp?.date || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(paid)) return paid.slice(0, 10);
+  return '';
+}
+
+function formatDayLabel(day: string) {
+  if (!day) return '';
+  try {
+    return format(new Date(`${day}T12:00:00`), 'MMM dd, yyyy');
+  } catch {
+    return day;
+  }
+}
+
+/** Primary list date = when the record was created. Paid date shown separately. */
+function expenseDateLabel(exp: any) {
+  const created = expenseCreatedDay(exp);
+  const paid = expensePaidDay(exp);
+  if (created && paid && paid !== created) {
+    return `${formatDayLabel(created)} · Paid ${formatDayLabel(paid)}`;
+  }
+  if (created) return formatDayLabel(created);
+  if (paid) return `Paid ${formatDayLabel(paid)}`;
+  return '';
 }
 
 function moneyKindMeta(entryType?: string, txType?: string) {
@@ -149,11 +187,12 @@ function entryEvidence(exp: any) {
 export default function BookView() {
   const { bookId } = useParams();
   const location = useLocation();
-  const { currentUser, userProfile } = useAuth();
+  const { currentUser, userProfile, refreshUserProfile } = useAuth();
   const { on: hasFeature } = useFeatures();
   const [book, setBook] = useState<any>(null);
   const [expenses, setExpenses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [upiSetupOpen, setUpiSetupOpen] = useState(false);
   
   // Modals state
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
@@ -181,6 +220,10 @@ export default function BookView() {
   const [tags, setTags] = useState('');
   const [receiptMeta, setReceiptMeta] = useState<{ receiptPath?: string; receiptName?: string } | null>(null);
   const [capturePreview, setCapturePreview] = useState<ReturnType<typeof buildCapturePreview> | null>(null);
+  const [receiptLaunch, setReceiptLaunch] = useState<ReceiptLaunch | null>(null);
+  const [successExpense, setSuccessExpense] = useState<Record<string, unknown> | null>(null);
+  const [successCount, setSuccessCount] = useState(1);
+  const [splitTarget, setSplitTarget] = useState<{ id: string; amount: number; merchant?: string; description?: string } | null>(null);
   const [uploadingReceipt, setUploadingReceipt] = useState(false);
   const [offlineCount, setOfflineCount] = useState(0);
   const [typeFilter, setTypeFilter] = useState('all');
@@ -249,7 +292,8 @@ export default function BookView() {
   const [lastDeleted, setLastDeleted] = useState<Record<string, unknown> | null>(null);
   const skipFilterSave = useRef(true);
   const hiddenExpenseIds = useRef(new Set<string>());
-  const [unsentEmailChange, setUnsentEmailChange] = useState<{action: string, detail: string} | null>(null);  const navigate = useNavigate();
+  const [unsentEmailChange, setUnsentEmailChange] = useState<{action: string, detail: string} | null>(null);
+  const navigate = useNavigate();
 
   const handleRemoveMember = async (uidToRemove: string, isSelf: boolean) => {
     if (!currentUser || !book) return;
@@ -355,6 +399,13 @@ export default function BookView() {
   }, [searchQuery, itemsPerPage, typeFilter, dateFrom, dateTo, methodFilter, reimbursableOnly, uncategorizedOnly, hideTransfers, flaggedOnly, amountMin, amountMax, hideDrafts, staleOnly, anomalyOnly, missingOnly]);
 
   useEffect(() => {
+    const params = new URLSearchParams(location.search || '');
+    if (params.get('setupUpi') === '1' || params.get('upi') === '1') {
+      setUpiSetupOpen(true);
+    }
+  }, [location.search]);
+
+  useEffect(() => {
     skipFilterSave.current = true;
     if (!bookId) return;
     try {
@@ -412,9 +463,24 @@ export default function BookView() {
     if (!bookId) return;
     setOfflineCount(listOfflineQueue(bookId).length);
     const pending = readPendingCapture();
-    if (pending?.text) {
+    if (pending?.imageDataUrl || (pending?.text && pending?.mimeType)) {
+      setReceiptLaunch({
+        text: pending.text,
+        imageDataUrl: pending.imageDataUrl,
+        fileName: pending.fileName,
+        mimeType: pending.mimeType,
+        source: pending.source || 'share',
+        preferredBookId: bookId,
+        requireBookPick: false,
+      });
+      clearPendingCapture();
+      if (location.search.includes('capture=1')) {
+        navigate(`/book/${bookId}`, { replace: true });
+      }
+    } else if (pending?.text) {
       const preview = buildCapturePreview(pending.text, pending.source === 'share' ? 'share' : 'sms', expenses, [], readUserRules(book, currentUser?.uid || ''));
       setCapturePreview(preview);
+      clearPendingCapture();
     }
     const sync = async () => {
       const status = await Network.getStatus().catch(() => ({ connected: true }));
@@ -715,9 +781,7 @@ export default function BookView() {
     doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 14, 30);
     
     const tableData = filteredExpenses.map(exp => [
-      exp.createdAt && typeof exp.createdAt.toDate === 'function'
-        ? new Date(exp.createdAt.toDate()).toLocaleDateString()
-        : (exp.date || ''),
+      expenseDateLabel(exp) || expensePaidDay(exp) || '',
       exp.description,
       exp.category,
       exp.paidByName,
@@ -726,7 +790,7 @@ export default function BookView() {
 
     autoTable(doc, {
       startY: 36,
-      head: [['Date', 'Description', 'Category', 'Author', 'Amount']],
+      head: [['Created / Paid', 'Description', 'Category', 'Author', 'Amount']],
       body: tableData,
     });
 
@@ -779,7 +843,7 @@ export default function BookView() {
       setCategory('__custom__');
       setCustomCatInput(exp.category);
     }
-    setEntryDate(String(exp.date || new Date().toISOString().split('T')[0]));
+    setEntryDate(String(exp.paidAt || exp.date || new Date().toISOString().split('T')[0]));
     setMerchant(String(exp.merchant || ''));
     setPaymentMethod(String(exp.paymentMethod || 'cash'));
     setAccountId(String(exp.accountId || 'cash'));
@@ -914,6 +978,7 @@ export default function BookView() {
           entryType: entryType,
           txType,
           date: entryDate,
+          paidAt: entryDate,
           merchant,
           paymentMethod,
           accountId,
@@ -945,7 +1010,7 @@ export default function BookView() {
         }
         applyExpenseLocal(updated || { ...editingExpense, amount: Number(amount), description, category: finalCategory, entryType, txType, date: entryDate, merchant, paymentMethod, accountId, notes, reimbursable, billable, tags, personSplits, status: nextStatus });
         setIsExpenseModalOpen(false);
-        addToast('Entry updated successfully!', 'success');
+        addToast('Entry updated', 'success');
         persistLedgerCategory(finalCategory).catch(console.error);
         notifyTeamMembers('Edited an entry', `Updated ${entryType === 'in' ? 'money in' : 'money out'} for "${description}" to ${getCurrencySymbol(book.currency)} ${amount} in category "${finalCategory}"`, `${userProfile?.displayName || currentUser?.email} updated "${description}" to ${getCurrencySymbol(book.currency)}${amount} in ${book.name}`).catch(console.error);
       } else {
@@ -957,6 +1022,7 @@ export default function BookView() {
           entryType: entryType,
           txType,
           date: entryDate,
+          paidAt: entryDate,
           merchant,
           paymentMethod,
           accountId,
@@ -1005,7 +1071,8 @@ export default function BookView() {
         setCategory(finalCategory);
         setReceiptMeta(null);
         setCurrentPage(1);
-        addToast('Entry recorded successfully!', 'success');
+        setSuccessCount(1);
+        setSuccessExpense(created || { ...payload, id: payload.idempotencyKey, bookId });
         persistLedgerCategory(finalCategory).catch(console.error);
         void CapacitorService.hapticImpact();
         notifyTeamMembers('Added a new entry', `Recorded ${entryType === 'in' ? 'money in' : 'money out'} of ${getCurrencySymbol(book.currency)} ${amount} for "${description}" in category "${finalCategory}"`, `${userProfile?.displayName || currentUser?.email} added "${description}" (${getCurrencySymbol(book.currency)}${amount}) to ${book.name}`).catch(console.error);
@@ -1315,7 +1382,8 @@ export default function BookView() {
     if (sortKey === 'amount') return (Number(a.amount || 0) - Number(b.amount || 0)) * dir;
     if (sortKey === 'description') return String(a.description || '').localeCompare(String(b.description || '')) * dir;
     if (sortKey === 'category') return String(a.category || '').localeCompare(String(b.category || '')) * dir;
-    return String(a.date || a.createdAt || '').localeCompare(String(b.date || b.createdAt || '')) * dir;
+    // "Date" column sorts by when the record was created (not receipt paid date).
+    return (expenseMillis(a.createdAt) - expenseMillis(b.createdAt)) * dir;
   });
   const runningById = new Map<string, number>();
   let run = 0;
@@ -1535,6 +1603,7 @@ export default function BookView() {
                 {isAuditor && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border text-amber-800 bg-amber-50 border-amber-200">Read-only</span>}
               </div>
             )}
+
             <div className="flex items-center gap-1.5">
               <label className="byjan-search flex-1">
                 <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
@@ -1650,6 +1719,7 @@ export default function BookView() {
         <div className="flex-1 min-h-0 overflow-y-auto px-4 md:px-6 lg:px-8 py-2">
         <div className="max-w-6xl mx-auto">
         <Tabs.Content value="ledger" className="outline-none">
+          <div className="tool-collapse-row mb-2">
           <LedgerTools
             bookId={bookId!}
             book={book}
@@ -1669,7 +1739,18 @@ export default function BookView() {
             onNotifyTeam={(action, detail) => void notifyTeamMembers(action, detail)}
             onOpenFullForm={() => { void CapacitorService.hapticTick(); openNewExpense(); }}
           />
-          <div className="flex flex-wrap items-center gap-2 mb-2">
+          {bookId && currentUser?.uid ? (
+            <SettlementsPanel
+              bookId={bookId}
+              currentUid={currentUser.uid}
+              symbol={getCurrencySymbol(book.currency)}
+              myUpiId={String((userProfile as any)?.upiId || '')}
+              myUpiName={String((userProfile as any)?.upiDisplayName || userProfile?.displayName || '')}
+              onToast={addToast}
+              onProfileRefresh={() => void refreshUserProfile()}
+            />
+          ) : null}
+          <div className="flex flex-wrap items-center gap-2">
             <LedgerStudio
               bookId={bookId!}
               book={book}
@@ -1748,6 +1829,7 @@ export default function BookView() {
               </button>
             )}
           </div>
+          </div>
           {selectedIds.length > 0 && canWrite && createPortal(
             <div className="byjan-select-dock">
               <span className="text-xs font-semibold text-slate-600">{selectedIds.length} selected</span>
@@ -1805,7 +1887,7 @@ export default function BookView() {
                     {visibleColumns.date && (
                       <th className="px-3.5 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
                         <button type="button" onClick={() => toggleSort('date')} className="inline-flex items-center gap-1 hover:text-[#0B1F3A]">
-                          Date <ArrowUpDown className="w-3 h-3" />{sortKey === 'date' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+                          Created <ArrowUpDown className="w-3 h-3" />{sortKey === 'date' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
                         </button>
                       </th>
                     )}
@@ -1918,6 +2000,22 @@ export default function BookView() {
                               <button onClick={() => openEditExpense(exp)} className="p-1 hover:text-zinc-600 hover:bg-white/70 rounded transition-colors" title="Edit">
                                 <PenSquare className="w-4 h-4" />
                               </button>
+                              {peopleFromBook(book).length > 1 && String(exp.entryType || 'out') === 'out' ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setSplitTarget({
+                                    id: String(exp.id),
+                                    amount: Number(exp.amount || 0),
+                                    merchant: String(exp.merchant || ''),
+                                    description: String(exp.description || ''),
+                                  })}
+                                  className={`entry-split-cta is-inline ${Array.isArray(exp.personSplits) && exp.personSplits.length ? 'is-done' : ''}`}
+                                  title="Split with team"
+                                >
+                                  <Users className="w-3.5 h-3.5" />
+                                  {Array.isArray(exp.personSplits) && exp.personSplits.length ? 'Edit split' : 'Split'}
+                                </button>
+                              ) : null}
                               <button onClick={() => handleDeleteExpense(exp.id, exp.description)} disabled={isDeleting === exp.id} className="p-1 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors disabled:opacity-50" title="Delete">
                                 {isDeleting === exp.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                               </button>
@@ -2002,6 +2100,21 @@ export default function BookView() {
                         <button type="button" onClick={() => openEditExpense(exp)} className="entry-card-action" title="Edit">
                           <PenSquare className="w-3.5 h-3.5" />
                         </button>
+                        {peopleFromBook(book).length > 1 && String(exp.entryType || 'out') === 'out' ? (
+                          <button
+                            type="button"
+                            className={`entry-split-cta ${Array.isArray(exp.personSplits) && exp.personSplits.length ? 'is-done' : ''}`}
+                            onClick={() => setSplitTarget({
+                              id: String(exp.id),
+                              amount: Number(exp.amount || 0),
+                              merchant: String(exp.merchant || ''),
+                              description: String(exp.description || ''),
+                            })}
+                          >
+                            <Users className="w-3.5 h-3.5" />
+                            {Array.isArray(exp.personSplits) && exp.personSplits.length ? 'Edit' : 'Split'}
+                          </button>
+                        ) : null}
                         <button type="button" onClick={() => handleDeleteExpense(exp.id, exp.description)} disabled={isDeleting === exp.id} className="entry-card-action is-danger" title="Delete">
                           {isDeleting === exp.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
                         </button>
@@ -2320,8 +2433,13 @@ export default function BookView() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Date</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Paid date</label>
                   <input type="date" required value={entryDate} onChange={(e) => setEntryDate(e.target.value)} className="byjan-input" />
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    {editingExpense
+                      ? `Receipt / payment date. Created ${formatDayLabel(expenseCreatedDay(editingExpense)) || 'when first saved'}.`
+                      : 'Date on the receipt or when money moved. Record created date is set automatically when you save.'}
+                  </p>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">Payment method</label>
@@ -2591,10 +2709,86 @@ export default function BookView() {
           onConfirmed={(expense) => {
             applyExpenseLocal(expense);
             setCapturePreview(null);
+            setSuccessCount(1);
+            setSuccessExpense({ ...expense, bookId });
           }}
           onToast={addToast}
         />
       )}
+
+      <ReceiptCaptureFlow
+        open={Boolean(receiptLaunch)}
+        launch={receiptLaunch}
+        bookId={bookId}
+        bookName={String(book?.name || '')}
+        onClose={() => setReceiptLaunch(null)}
+        onConfirmed={(expense, extras) => {
+          applyExpenseLocal(expense);
+          setReceiptLaunch(null);
+          clearPendingCapture();
+          void refreshExpenses();
+          setSuccessCount(Number(extras?.count || 1));
+          setSuccessExpense({ ...expense, bookId });
+        }}
+      />
+
+      {successExpense ? (
+        <MoneySheet open onClose={() => setSuccessExpense(null)} title="Saved">
+          <ExpenseSuccessCard
+            amountPaise={toPaise(Number(successExpense.amount || 0))}
+            merchant={String(successExpense.merchant || successExpense.description || '')}
+            category={String(successExpense.category || '')}
+            bookName={String(book?.name || '')}
+            receiptAttached={Boolean(successExpense.receiptPath)}
+            symbol={getCurrencySymbol(book?.currency || 'INR')}
+            count={successCount}
+            onView={() => setSuccessExpense(null)}
+            onSplit={
+              peopleFromBook(book).length > 1 && String(successExpense.entryType || 'out') === 'out'
+                ? () => {
+                    setSplitTarget({
+                      id: String(successExpense.id),
+                      amount: Number(successExpense.amount || 0),
+                      merchant: String(successExpense.merchant || ''),
+                      description: String(successExpense.description || ''),
+                    });
+                    setSuccessExpense(null);
+                  }
+                : undefined
+            }
+            onDone={() => setSuccessExpense(null)}
+          />
+        </MoneySheet>
+      ) : null}
+
+      {splitTarget && bookId ? (
+        <SplitExpenseSheet
+          open
+          bookId={bookId}
+          book={book}
+          expenseId={splitTarget.id}
+          amount={splitTarget.amount}
+          merchant={splitTarget.merchant}
+          description={splitTarget.description}
+          currencySymbol={getCurrencySymbol(book?.currency || 'INR')}
+          onClose={() => setSplitTarget(null)}
+          onSaved={(personSplits) => {
+            setExpenses((curr) => curr.map((e) => String(e.id) === String(splitTarget.id) ? { ...e, personSplits } : e));
+            setSplitTarget(null);
+            addToast('Split saved — settlements ready to pay', 'success');
+          }}
+          onToast={addToast}
+        />
+      ) : null}
+
+      <UpiSetupSheet
+        open={upiSetupOpen}
+        initialUpiId={String((userProfile as any)?.upiId || '')}
+        initialName={String((userProfile as any)?.upiDisplayName || userProfile?.displayName || '')}
+        onClose={() => setUpiSetupOpen(false)}
+        onSaved={() => void refreshUserProfile()}
+        onToast={addToast}
+      />
 
       {/* Toast Notification */}
 

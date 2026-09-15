@@ -20,7 +20,7 @@ export function learnRuleFromCorrection(input: {
     {
       id: newMoneyId('rule'),
       match,
-      field: merchant ? 'merchant' : 'any',
+      field: merchant ? ('merchant' as const) : ('any' as const),
       category: after,
       merchant: merchant || undefined,
       createdAt: new Date().toISOString(),

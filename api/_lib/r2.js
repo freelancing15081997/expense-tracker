@@ -93,14 +93,17 @@ async function r2Fetch(method, key, opts) {
 }
 
 export function r2FileKey(target) {
-  const raw = String(target || '').trim();
+  const raw = String(target || '').trim().replace(/^\/+/, '');
   if (!raw) throw new Error('Invalid file');
-  if (raw.startsWith('erp_workspaces/')) return raw.replace(/^\/+/, '');
+  if (raw.startsWith('erp_workspaces/')) return raw;
+  if (/^books\/[a-zA-Z0-9_-]+\/files\/[a-zA-Z0-9_.-]+$/.test(raw)) return raw;
   try {
     const url = new URL(raw);
     const path = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
     const idx = path.indexOf('erp_workspaces/');
     if (idx >= 0) return path.slice(idx);
+    const books = path.match(/books\/[a-zA-Z0-9_-]+\/files\/[a-zA-Z0-9_.-]+/);
+    if (books) return books[0];
   } catch {
     // Not a URL; fall through.
   }

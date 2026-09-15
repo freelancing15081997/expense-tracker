@@ -1,10 +1,10 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { randomBytes } from 'crypto';
 import type { IncomingMessage, ServerResponse } from 'http';
-import { sendJson } from './http';
+import { sendJson } from './http.js';
 
-export { applyCors, authBaseUrl, readJsonBody, requestPath, sendJson, ALLOWED_API_METHODS } from './http';
-export { kvDel, kvGet, kvList, kvListPrefix, kvSet } from './db';
+export { applyCors, authBaseUrl, readJsonBody, requestPath, sendJson, ALLOWED_API_METHODS } from './http.js';
+export { kvDel, kvGet, kvList, kvListPrefix, kvSet } from './db.js';
 
 const FIREBASE_PROJECT = 'gen-lang-client-0616065043';
 let firebaseJwks: ReturnType<typeof createRemoteJWKSet> | null = null;

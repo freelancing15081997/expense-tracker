@@ -102,6 +102,7 @@ export function buildCapturePreview(
 
 export function capturePreviewToExpense(preview: CapturePreview, extras: Record<string, unknown> = {}) {
   const entryType = preview.direction === 'MONEY_IN' ? 'in' : preview.direction === 'TRANSFER' ? 'transfer' : 'out';
+  const paidDate = String(preview.date || isoDay()).slice(0, 10);
   return {
     amount: preview.amountPaise / 100,
     description: preview.description,
@@ -109,7 +110,9 @@ export function capturePreviewToExpense(preview: CapturePreview, extras: Record<
     category: preview.category,
     entryType,
     paymentMethod: preview.paymentMethod,
-    date: preview.date,
+    // Transaction / receipt paid date — separate from record createdAt (set by server on save).
+    date: paidDate,
+    paidAt: paidDate,
     upiRef: preview.upiRef,
     vpa: preview.vpa,
     notes: preview.notes,

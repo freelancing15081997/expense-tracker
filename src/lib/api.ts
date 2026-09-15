@@ -3,6 +3,7 @@ import { authHeaders } from './auth-client';
 
 const NATIVE_API_ORIGIN = String(import.meta.env.VITE_API_URL || 'https://www.easypado.com').replace(/\/+$/, '');
 
+/** True only inside Capacitor / Ionic shells — never treat the public website as native. */
 export function isNativeApp() {
   try {
     if (Capacitor.isNativePlatform()) return true;
@@ -11,8 +12,7 @@ export function isNativeApp() {
   }
   if (typeof window === 'undefined') return false;
   const protocol = window.location.protocol;
-  const host = window.location.hostname;
-  return protocol === 'capacitor:' || protocol === 'ionic:' || (protocol === 'https:' && (host === 'localhost' || host === 'app.byjan.com' || host === 'www.easypado.com'));
+  return protocol === 'capacitor:' || protocol === 'ionic:';
 }
 
 export function apiUrl(path: string): string {
@@ -98,18 +98,37 @@ async function webPost(url: string, headers: Record<string, string>, body: Recor
   return fromHttp(res.status, await res.text());
 }
 
-export async function apiPost<T>(path: string, body: Record<string, unknown> = {}): Promise<T> {
-  const headers = cleanHeaders(await authHeaders({
-    'Content-Type': 'application/json',
-  }));
-  if (isNativeApp() && !headers.Authorization) {
-    for (let i = 0; i < 15 && !headers.Authorization; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 200));
-      Object.assign(headers, cleanHeaders(await authHeaders({
-        'Content-Type': 'application/json',
-      })));
+let authHeaderCache: { value: string; at: number } | null = null;
+
+async function headersWithAuth(extra: Record<string, string> = {}) {
+  const headers = cleanHeaders(await authHeaders(extra));
+  if (headers.Authorization) {
+    authHeaderCache = { value: headers.Authorization, at: Date.now() };
+    return headers;
+  }
+  // Cold start on Android: wait for Firebase token (do not proceed unauthenticated).
+  if (isNativeApp()) {
+    for (let i = 0; i < 20 && !headers.Authorization; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      Object.assign(headers, cleanHeaders(await authHeaders(extra)));
+    }
+    if (headers.Authorization) {
+      authHeaderCache = { value: headers.Authorization, at: Date.now() };
+      return headers;
     }
   }
+  if (authHeaderCache && Date.now() - authHeaderCache.at < 45_000) {
+    headers.Authorization = authHeaderCache.value;
+  }
+  return headers;
+}
+
+export function clearApiAuthCache() {
+  authHeaderCache = null;
+}
+
+export async function apiPost<T>(path: string, body: Record<string, unknown> = {}): Promise<T> {
+  const headers = await headersWithAuth({ 'Content-Type': 'application/json' });
   const url = apiUrl(path);
 
   if (isNativeApp()) {
@@ -128,7 +147,7 @@ export async function apiPost<T>(path: string, body: Record<string, unknown> = {
 }
 
 export async function apiGet<T>(path: string): Promise<T> {
-  const headers = cleanHeaders(await authHeaders());
+  const headers = await headersWithAuth();
   const url = apiUrl(path);
   if (isNativeApp()) {
     const res = await CapacitorHttp.get({ url, headers, connectTimeout: 30000, readTimeout: 30000 });

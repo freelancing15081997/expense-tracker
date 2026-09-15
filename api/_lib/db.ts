@@ -7,7 +7,7 @@ import {
   ledgerSet,
   ledgerDel,
   ledgerList,
-} from './pg-tables';
+} from './pg-tables.js';
 
 const DOC_PREFIX = 'documents/';
 

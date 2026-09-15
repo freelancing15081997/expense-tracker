@@ -459,9 +459,9 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
       ...documents.slice(0, 80).map((d) => ({
         id: `doc-${d.id}`,
         type: 'record' as const,
-        href: documentHref(d.kind, d.id),
+        href: documentHref(String(d.kind || 'invoice'), d.id),
         description: `${d.number}${d.memo ? ` · ${d.memo}` : ''}`,
-        hint: d.kind.replace('_', ' '),
+        hint: String(d.kind || 'document').replace(/_/g, ' '),
         amount: d.totalMinor / 100,
         currency,
         date: d.date,

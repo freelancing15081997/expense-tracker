@@ -21,6 +21,10 @@ export async function markNotificationRead(id: string) {
   await apiPost('/api/notifications', { op: 'markRead', id });
 }
 
+export async function markAllNotificationsRead() {
+  await apiPost('/api/notifications', { op: 'markAllRead' });
+}
+
 export async function createNotification(input: {
   userId: string;
   bookId: string;

@@ -1,3 +1,4 @@
+// api/_lib/pg-tables.ts
 import { neon } from "@neondatabase/serverless";
 import { randomBytes } from "node:crypto";
 function asRows(result) {
@@ -30,8 +31,8 @@ function asObject(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value;
 }
-let sqlMem = null;
-let schemaReady = false;
+var sqlMem = null;
+var schemaReady = false;
 async function getLedgerSql() {
   const url = postgresUrl();
   if (!url) throw new Error("Postgres is not configured");
@@ -57,8 +58,8 @@ function flag(data) {
   const deleted = data.deleted;
   return deleted === true || deleted === "true" || deleted === 1 || deleted === "1" || Boolean(data.deletedAt) || data.status === "deleted";
 }
-const INBOUND_DOMAIN = "easypado.com";
-const RESERVED_INBOUND_LOCALS = /* @__PURE__ */ new Set([
+var INBOUND_DOMAIN = "easypado.com";
+var RESERVED_INBOUND_LOCALS = /* @__PURE__ */ new Set([
   "support",
   "info",
   "noreply",
@@ -252,28 +253,35 @@ async function ensureLedgerSchema(sql) {
     await sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS account_id TEXT`;
     await sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS linked_expense_id TEXT`;
     await sql`UPDATE expenses SET amount_paise = ROUND(COALESCE(amount, 0) * 100) WHERE amount_paise IS NULL`;
-    await sql`UPDATE expenses SET tx_type = COALESCE(NULLIF(data->>'txType',''), CASE WHEN entry_type = 'in' THEN 'INCOME' WHEN entry_type = 'transfer' THEN 'TRANSFER' ELSE 'EXPENSE' END) WHERE tx_type IS NULL OR tx_type = ''`;
-    await sql`UPDATE expenses SET financial_status = COALESCE(NULLIF(data->>'financialStatus',''), CASE WHEN status = 'draft' THEN 'DRAFT' ELSE 'CONFIRMED' END) WHERE financial_status IS NULL OR financial_status = ''`;
-    await sql`UPDATE expenses SET processing_status = COALESCE(NULLIF(data->>'processingStatus',''), 'COMPLETED') WHERE processing_status IS NULL OR processing_status = ''`;
+    await sql`UPDATE expenses SET tx_type = COALESCE(NULLIF(data->>'txType',''), CASE
+        WHEN entry_type = 'in' THEN 'INCOME'
+        WHEN entry_type = 'transfer' THEN 'TRANSFER'
+        ELSE 'EXPENSE'
+      END)
+      WHERE tx_type IS NULL OR tx_type = ''`;
+    await sql`UPDATE expenses SET financial_status = COALESCE(NULLIF(data->>'financialStatus',''), CASE WHEN status = 'draft' THEN 'DRAFT' ELSE 'CONFIRMED' END)
+      WHERE financial_status IS NULL OR financial_status = ''`;
+    await sql`UPDATE expenses SET processing_status = COALESCE(NULLIF(data->>'processingStatus',''), 'COMPLETED')
+      WHERE processing_status IS NULL OR processing_status = ''`;
     await sql`CREATE INDEX IF NOT EXISTS expenses_book_paise_idx ON expenses (book_id, amount_paise)`;
     await sql`CREATE TABLE IF NOT EXISTS idempotency_records (
-    key TEXT PRIMARY KEY,
-    book_id TEXT NOT NULL,
-    uid TEXT NOT NULL,
-    response JSONB NOT NULL DEFAULT '{}'::jsonb,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )`;
+      key TEXT PRIMARY KEY,
+      book_id TEXT NOT NULL,
+      uid TEXT NOT NULL,
+      response JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`;
     await sql`CREATE INDEX IF NOT EXISTS idempotency_book_idx ON idempotency_records (book_id, uid, created_at DESC)`;
     await sql`CREATE TABLE IF NOT EXISTS capture_events (
-    id TEXT PRIMARY KEY,
-    book_id TEXT NOT NULL,
-    uid TEXT NOT NULL,
-    processing_status TEXT NOT NULL DEFAULT 'INGESTED',
-    financial_status TEXT NOT NULL DEFAULT 'DRAFT',
-    data JSONB NOT NULL DEFAULT '{}'::jsonb,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )`;
+      id TEXT PRIMARY KEY,
+      book_id TEXT NOT NULL,
+      uid TEXT NOT NULL,
+      processing_status TEXT NOT NULL DEFAULT 'INGESTED',
+      financial_status TEXT NOT NULL DEFAULT 'DRAFT',
+      data JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`;
     await sql`CREATE INDEX IF NOT EXISTS capture_events_book_idx ON capture_events (book_id, updated_at DESC)`;
   } catch {
   }
@@ -851,21 +859,8 @@ async function ledgerSet(path, data, insertOnly = false) {
     const processingStatus = text(obj.processingStatus) || "COMPLETED";
     const accountId = text(obj.accountId) || null;
     const linkedExpenseId = text(obj.linkedExpenseId) || null;
-    try {
-      if (insertOnly) {
-        const rows = await sql`
-          INSERT INTO expenses (id, book_id, amount, amount_paise, description, category, entry_type, tx_type, entry_date, paid_by_name, status, financial_status, processing_status, account_id, linked_expense_id, deleted, receipt_hash, data, created_at, updated_at)
-          VALUES (
-            ${id}, ${bookId}, ${amountValue}, ${amountPaise}, ${text(obj.description)}, ${text(obj.category)},
-            ${entryType}, ${txType}, ${text(obj.date)}, ${text(obj.paidByName)},
-            ${text(obj.status)}, ${financialStatus}, ${processingStatus}, ${accountId}, ${linkedExpenseId},
-            ${flag(obj)}, ${hash}, ${payload}::jsonb, ${created}::timestamptz, NOW()
-          )
-          ON CONFLICT (id) DO NOTHING RETURNING id
-        `;
-        return asRows(rows).length > 0;
-      }
-      await sql`
+    if (insertOnly) {
+      const rows = await sql`
         INSERT INTO expenses (id, book_id, amount, amount_paise, description, category, entry_type, tx_type, entry_date, paid_by_name, status, financial_status, processing_status, account_id, linked_expense_id, deleted, receipt_hash, data, created_at, updated_at)
         VALUES (
           ${id}, ${bookId}, ${amountValue}, ${amountPaise}, ${text(obj.description)}, ${text(obj.category)},
@@ -873,45 +868,28 @@ async function ledgerSet(path, data, insertOnly = false) {
           ${text(obj.status)}, ${financialStatus}, ${processingStatus}, ${accountId}, ${linkedExpenseId},
           ${flag(obj)}, ${hash}, ${payload}::jsonb, ${created}::timestamptz, NOW()
         )
-        ON CONFLICT (id) DO UPDATE SET
-          book_id = EXCLUDED.book_id, amount = EXCLUDED.amount, amount_paise = EXCLUDED.amount_paise,
-          description = EXCLUDED.description, category = EXCLUDED.category, entry_type = EXCLUDED.entry_type,
-          tx_type = EXCLUDED.tx_type, entry_date = EXCLUDED.entry_date, paid_by_name = EXCLUDED.paid_by_name,
-          status = EXCLUDED.status, financial_status = EXCLUDED.financial_status, processing_status = EXCLUDED.processing_status,
-          account_id = EXCLUDED.account_id, linked_expense_id = EXCLUDED.linked_expense_id,
-          deleted = EXCLUDED.deleted, receipt_hash = COALESCE(EXCLUDED.receipt_hash, expenses.receipt_hash),
-          data = EXCLUDED.data, updated_at = NOW()
+        ON CONFLICT (id) DO NOTHING RETURNING id
       `;
-      return true;
-    } catch {
-      if (insertOnly) {
-        const rows = await sql`
-          INSERT INTO expenses (id, book_id, amount, description, category, entry_type, entry_date, paid_by_name, status, deleted, receipt_hash, data, created_at, updated_at)
-          VALUES (
-            ${id}, ${bookId}, ${amountValue}, ${text(obj.description)}, ${text(obj.category)},
-            ${entryType}, ${text(obj.date)}, ${text(obj.paidByName)},
-            ${text(obj.status)}, ${flag(obj)}, ${hash}, ${payload}::jsonb, ${created}::timestamptz, NOW()
-          )
-          ON CONFLICT (id) DO NOTHING RETURNING id
-        `;
-        return asRows(rows).length > 0;
-      }
-      await sql`
-        INSERT INTO expenses (id, book_id, amount, description, category, entry_type, entry_date, paid_by_name, status, deleted, receipt_hash, data, created_at, updated_at)
-        VALUES (
-          ${id}, ${bookId}, ${amountValue}, ${text(obj.description)}, ${text(obj.category)},
-          ${entryType}, ${text(obj.date)}, ${text(obj.paidByName)},
-          ${text(obj.status)}, ${flag(obj)}, ${hash}, ${payload}::jsonb, ${created}::timestamptz, NOW()
-        )
-        ON CONFLICT (id) DO UPDATE SET
-          book_id = EXCLUDED.book_id, amount = EXCLUDED.amount, description = EXCLUDED.description,
-          category = EXCLUDED.category, entry_type = EXCLUDED.entry_type, entry_date = EXCLUDED.entry_date,
-          paid_by_name = EXCLUDED.paid_by_name, status = EXCLUDED.status, deleted = EXCLUDED.deleted,
-          receipt_hash = COALESCE(EXCLUDED.receipt_hash, expenses.receipt_hash),
-          data = EXCLUDED.data, updated_at = NOW()
-      `;
-      return true;
+      return asRows(rows).length > 0;
     }
+    await sql`
+      INSERT INTO expenses (id, book_id, amount, amount_paise, description, category, entry_type, tx_type, entry_date, paid_by_name, status, financial_status, processing_status, account_id, linked_expense_id, deleted, receipt_hash, data, created_at, updated_at)
+      VALUES (
+        ${id}, ${bookId}, ${amountValue}, ${amountPaise}, ${text(obj.description)}, ${text(obj.category)},
+        ${entryType}, ${txType}, ${text(obj.date)}, ${text(obj.paidByName)},
+        ${text(obj.status)}, ${financialStatus}, ${processingStatus}, ${accountId}, ${linkedExpenseId},
+        ${flag(obj)}, ${hash}, ${payload}::jsonb, ${created}::timestamptz, NOW()
+      )
+      ON CONFLICT (id) DO UPDATE SET
+        book_id = EXCLUDED.book_id, amount = EXCLUDED.amount, amount_paise = EXCLUDED.amount_paise,
+        description = EXCLUDED.description, category = EXCLUDED.category, entry_type = EXCLUDED.entry_type,
+        tx_type = EXCLUDED.tx_type, entry_date = EXCLUDED.entry_date, paid_by_name = EXCLUDED.paid_by_name,
+        status = EXCLUDED.status, financial_status = EXCLUDED.financial_status, processing_status = EXCLUDED.processing_status,
+        account_id = EXCLUDED.account_id, linked_expense_id = EXCLUDED.linked_expense_id,
+        deleted = EXCLUDED.deleted, receipt_hash = COALESCE(EXCLUDED.receipt_hash, expenses.receipt_hash),
+        data = EXCLUDED.data, updated_at = NOW()
+    `;
+    return true;
   }
   if (parts[0] === "books" && parts[2] === "inbound_events" && parts.length === 4) {
     const bookId = parts[1];
@@ -1141,7 +1119,7 @@ async function ledgerList(prefix, constraints = []) {
     return rowsOf(rows);
   }
   if (parts[0] === "books" && parts[2] === "expenses" && parts.length === 3) {
-    const rows = await sql`SELECT id, data, deleted FROM expenses WHERE book_id = ${parts[1]} ORDER BY updated_at DESC`;
+    const rows = await sql`SELECT id, data, deleted FROM expenses WHERE book_id = ${parts[1]} ORDER BY created_at DESC NULLS LAST, updated_at DESC`;
     return asRows(rows).map((row) => {
       const data = asObject(row.data);
       if (!data || row.deleted === true || flag(data)) return null;
@@ -1192,7 +1170,7 @@ async function ledgerList(prefix, constraints = []) {
 async function ledgerListExpensesByBooks(bookIds) {
   if (!bookIds.length) return /* @__PURE__ */ new Map();
   const sql = await getLedgerSql();
-  const rows = await sql`SELECT id, book_id, data, deleted FROM expenses WHERE book_id = ANY(${bookIds}) AND deleted = false`;
+  const rows = await sql`SELECT id, book_id, data, deleted FROM expenses WHERE book_id = ANY(${bookIds}) AND deleted = false ORDER BY created_at DESC NULLS LAST, updated_at DESC`;
   const grouped = /* @__PURE__ */ new Map();
   for (const row of asRows(rows)) {
     const data = asObject(row.data);
@@ -1487,6 +1465,16 @@ async function ledgerMarkNotificationRead(id, userId) {
   await ledgerSet(`notifications/${id}`, next);
   return { id, ...next };
 }
+async function ledgerMarkAllNotificationsRead(userId) {
+  const rows = await ledgerListNotifications(userId);
+  let count = 0;
+  for (const row of rows) {
+    if (row.read) continue;
+    await ledgerMarkNotificationRead(String(row.id), userId);
+    count += 1;
+  }
+  return { count };
+}
 async function ledgerGetUser(uid) {
   return asObject(await ledgerGet(`users/${uid}`));
 }
@@ -1573,16 +1561,16 @@ async function ledgerListAudit(uid, bookId, limit = 80) {
     createdAt: text(row.created_at)
   }));
 }
-const FIREBASE_PROJECT = "gen-lang-client-0616065043";
-const jwtMem = /* @__PURE__ */ new Map();
-let jwks = null;
-class ApiError extends Error {
+var FIREBASE_PROJECT = "gen-lang-client-0616065043";
+var jwtMem = /* @__PURE__ */ new Map();
+var jwks = null;
+var ApiError = class extends Error {
   constructor(status, message, extra) {
     super(message);
     this.status = status;
     this.extra = extra;
   }
-}
+};
 function ownsErpWorkspace(uid, workspaceId) {
   return Boolean(uid && workspaceId && (workspaceId === uid || workspaceId.startsWith(`${uid}_`)));
 }
@@ -1703,6 +1691,7 @@ export {
   ledgerListMailEvents,
   ledgerListNotifications,
   ledgerLiveExpenseByHash,
+  ledgerMarkAllNotificationsRead,
   ledgerMarkNotificationRead,
   ledgerMember,
   ledgerRemoveMember,

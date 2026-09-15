@@ -75,6 +75,32 @@ export async function signInWithGoogle() {
 }
 
 export async function logout() {
+  try {
+    const { clearApiAuthCache } = await import('./api');
+    clearApiAuthCache();
+  } catch { /* ignore */ }
+  try {
+    const { clearJwtCache } = await import('./auth-client');
+    clearJwtCache();
+  } catch { /* ignore */ }
+  try {
+    sessionStorage.removeItem('byjan_pending_capture');
+    sessionStorage.removeItem('byjan.returnTo');
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (key && (key.startsWith('byjan_offline_queue') || key.startsWith('byjan.ledger.filters.') || key.startsWith('byjan.ledger.snap.'))) keys.push(key);
+    }
+    keys.forEach((key) => localStorage.removeItem(key));
+    sessionStorage.removeItem('byjan.dash.books');
+    sessionStorage.removeItem('byjan.store.v1');
+    for (let i = sessionStorage.length - 1; i >= 0; i -= 1) {
+      const key = sessionStorage.key(i);
+      if (key && key.startsWith('byjan.ledger.snap.')) sessionStorage.removeItem(key);
+    }
+  } catch {
+    /* private mode */
+  }
   if (Capacitor.isNativePlatform()) {
     try {
       const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');

@@ -1,5 +1,5 @@
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'http';
-import { applyCors, requireUser } from './helpers';
+import { applyCors, requireUser } from './helpers.js';
 import { r2Del, r2FileKey, r2PutBytes } from './r2.js';
 
 const MAX_BYTES = 8 * 1024 * 1024;
@@ -42,15 +42,24 @@ function readBody(req: IncomingMessage & { body?: unknown }): Promise<Buffer> {
 
 function storeErrorStatus(err: any) {
   const status = Number(err?.status || err?.statusCode || 0);
+  if (status >= 400 && status < 600) return status;
   if (status === 429 || /429|rate.?limit/i.test(String(err?.message || ''))) return 429;
   if (String(err?.message || '').includes('not configured')) return 503;
   return 500;
 }
 
+function decodeBase64Payload(raw: string) {
+  const cleaned = String(raw || '').replace(/^data:[^;]+;base64,/i, '').replace(/\s+/g, '');
+  if (!cleaned) return Buffer.alloc(0);
+  return Buffer.from(cleaned, 'base64');
+}
+
 function storeErrorMessage(err: any, fallback: string) {
-  if (String(err?.message || '').includes('not configured')) return err.message;
+  const msg = String(err?.message || '').trim();
+  if (msg.includes('not configured')) return msg;
   if (storeErrorStatus(err) === 429) return 'File storage rate limit reached. Wait a minute and try again.';
-  return fallback;
+  if (storeErrorStatus(err) === 403 && msg) return msg;
+  return msg || fallback;
 }
 
 async function requireBookMember(uid: string, bookId: string, writer = false) {
@@ -87,11 +96,42 @@ export async function handleBlobUploadRequest(
   if (!uid) return;
 
   try {
-    const bookId = header(req.headers, 'x-book-id').trim().replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128);
-    const tenantId = header(req.headers, 'x-tenant-id').trim().replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128);
-    const fileId = header(req.headers, 'x-file-id').trim().replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128);
-    const ext = header(req.headers, 'x-file-ext').trim().toLowerCase();
-    const contentType = (header(req.headers, 'content-type') || header(req.headers, 'x-content-type')).split(';')[0].trim().toLowerCase();
+    const rawBody = await readBody(req);
+    if (rawBody.length > MAX_BYTES + 512 * 1024) {
+      sendJson(res, 413, { error: 'File is too large for upload' });
+      return;
+    }
+    const declaredType = (header(req.headers, 'content-type') || '').split(';')[0].trim().toLowerCase();
+    const isJsonUpload =
+      declaredType === 'application/json' ||
+      (rawBody.length > 1 && rawBody.length < 3.2 * 1024 * 1024 && rawBody[0] === 0x7b /* { */);
+
+    let bookId = header(req.headers, 'x-book-id').trim().replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128);
+    let tenantId = header(req.headers, 'x-tenant-id').trim().replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128);
+    let fileId = header(req.headers, 'x-file-id').trim().replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128);
+    let ext = header(req.headers, 'x-file-ext').trim().toLowerCase();
+    let contentType = (header(req.headers, 'x-content-type') || (!isJsonUpload ? declaredType : '')).split(';')[0].trim().toLowerCase();
+    let body = rawBody;
+
+    if (isJsonUpload) {
+      if (rawBody.length > 3.2 * 1024 * 1024) {
+        sendJson(res, 413, { error: 'Receipt payload too large. Use a smaller photo.' });
+        return;
+      }
+      let payload: Record<string, unknown> = {};
+      try {
+        payload = JSON.parse(rawBody.toString('utf8') || '{}');
+      } catch {
+        sendJson(res, 400, { error: 'Invalid upload JSON' });
+        return;
+      }
+      bookId = String(payload.bookId || bookId || '').trim().replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128);
+      tenantId = String(payload.tenantId || tenantId || '').trim().replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128);
+      fileId = String(payload.fileId || fileId || '').trim().replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128);
+      ext = String(payload.ext || payload.fileExt || ext || '').trim().toLowerCase();
+      contentType = String(payload.contentType || payload.mimeType || contentType || '').split(';')[0].trim().toLowerCase();
+      body = decodeBase64Payload(String(payload.dataBase64 || payload.base64 || payload.data || ''));
+    }
 
     if (fileId.length < 4) {
       sendJson(res, 400, { error: 'Invalid upload path' });
@@ -122,14 +162,13 @@ export async function handleBlobUploadRequest(
       return;
     }
 
-    const body = await readBody(req);
     if (!body.length || body.length > MAX_BYTES) {
       sendJson(res, 400, { error: 'File must be between 1 byte and 8 MB' });
       return;
     }
 
     await r2PutBytes(pathname, body, contentType || ALLOWED_MIME[ext][0]);
-    sendJson(res, 200, { url: pathname, pathname });
+    sendJson(res, 200, { url: pathname, pathname, path: pathname });
   } catch (err: any) {
     sendJson(res, storeErrorStatus(err), { error: storeErrorMessage(err, 'Upload failed') });
   }

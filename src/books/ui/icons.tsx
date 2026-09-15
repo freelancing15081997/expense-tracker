@@ -229,14 +229,17 @@ export function BooksGlyph({ name, className }: { name: BooksGlyphName; classNam
   return <Icon className={className || 'w-6 h-6'} strokeWidth={2.25} />;
 }
 
-export function glyphForHref(href: string): BooksGlyphName {
-  const path = href.replace(/\/ledger\/.+$/, '/ledger').replace(/#.*$/, '');
+export function glyphForHref(href?: string | null): BooksGlyphName {
+  const path = String(href || '')
+    .replace(/\/ledger\/.+$/, '/ledger')
+    .replace(/#.*$/, '');
+  if (!path) return 'book';
   if (HREF_GLYPH[path]) return HREF_GLYPH[path];
   const hit = Object.keys(HREF_GLYPH).find((key) => key !== '/books' && path.startsWith(key));
   return hit ? HREF_GLYPH[hit] : 'book';
 }
 
-export function FeatureIcon({ href, className }: { href: string; className?: string }) {
+export function FeatureIcon({ href, className }: { href?: string | null; className?: string }) {
   return <BooksGlyph name={glyphForHref(href)} className={className} />;
 }
 

@@ -1,62 +1,268 @@
-/** Receipt upload for Money module (uses Vite API helpers). */
+/** Receipt upload for Money — aggressive compress + resilient native upload. */
 
-import { apiUrl } from './api';
-import { authHeaders } from './auth-client';
+import { Capacitor, CapacitorHttp } from '@capacitor/core';
+import { apiUrl, isNativeApp } from './api';
+import { getJwtToken } from './auth-client';
 import { newMoneyId } from './money-core';
+
+const MAX_UPLOAD_BYTES = 900 * 1024;
+const TARGET_BYTES = 280 * 1024;
+const TINY_TARGET_BYTES = 140 * 1024;
+
+async function waitForToken() {
+  let token = await getJwtToken();
+  if (token) return token;
+  if (!isNativeApp() && !Capacitor.isNativePlatform()) return null;
+  for (let i = 0; i < 12 && !token; i += 1) {
+    await new Promise((r) => setTimeout(r, 100));
+    token = await getJwtToken();
+  }
+  return token;
+}
+
+function dataUrlToBytes(dataUrl: string): { bytes: Uint8Array; mime: string } {
+  const match = String(dataUrl || '').match(/^data:([^;]+);base64,([\s\S]+)$/);
+  if (match) {
+    const mime = match[1];
+    const base64 = match[2].replace(/\s+/g, '');
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    return { bytes, mime };
+  }
+  const raw = String(dataUrl || '').replace(/\s+/g, '');
+  if (/^[A-Za-z0-9+/]+=*$/.test(raw) && raw.length > 64) {
+    const binary = atob(raw);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    return { bytes, mime: 'image/jpeg' };
+  }
+  throw new Error('Invalid receipt image data');
+}
+
+function bytesToBase64(bytes: Uint8Array) {
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+async function compressForUpload(
+  dataUrl: string,
+  mimeType: string,
+  targetBytes = TARGET_BYTES,
+): Promise<{ bytes: Uint8Array; mime: string; dataUrl: string }> {
+  const toResult = (bytes: Uint8Array, mime: string) => ({
+    bytes,
+    mime,
+    dataUrl: `data:${mime};base64,${bytesToBase64(bytes)}`,
+  });
+
+  const fallback = () => {
+    const parsed = dataUrlToBytes(dataUrl.startsWith('data:') ? dataUrl : `data:${mimeType};base64,${dataUrl}`);
+    return toResult(parsed.bytes, parsed.mime);
+  };
+
+  if (!mimeType.startsWith('image/') || typeof document === 'undefined') return fallback();
+
+  try {
+    const src = dataUrl.startsWith('data:') ? dataUrl : `data:${mimeType};base64,${dataUrl}`;
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error('Could not read image'));
+      el.src = src;
+    });
+
+    const qualities = [0.7, 0.55, 0.42, 0.32, 0.22];
+    const edges = [1100, 900, 720, 560, 420];
+    let best: { bytes: Uint8Array; mime: string; dataUrl: string } | null = null;
+
+    for (const maxEdge of edges) {
+      const scale = Math.min(1, maxEdge / Math.max(img.width, img.height, 1));
+      const w = Math.max(1, Math.round(img.width * scale));
+      const h = Math.max(1, Math.round(img.height * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) break;
+      ctx.drawImage(img, 0, 0, w, h);
+      for (const q of qualities) {
+        const next = canvas.toDataURL('image/jpeg', q);
+        const { bytes } = dataUrlToBytes(next);
+        best = toResult(bytes, 'image/jpeg');
+        if (bytes.length <= targetBytes) return best;
+      }
+    }
+    return best || fallback();
+  } catch {
+    return fallback();
+  }
+}
+
+function friendlyUploadError(status: number, raw: string, payload: Record<string, unknown>) {
+  const blob = `${raw} ${payload.error || ''}`.toLowerCase();
+  if (blob.includes('function_payload_too_large') || blob.includes('request_entity_too_large') || status === 413) {
+    return 'Receipt image is too large after compress.';
+  }
+  if (blob.includes('function_invocation_failed')) {
+    return 'Upload server hiccup. Retrying with a smaller photo…';
+  }
+  if (status === 401 || status === 403) return 'Not allowed to upload to this Money book.';
+  if (status === 503) return 'File storage is warming up.';
+  if (status === 429) return 'Too many uploads. Try again in a moment.';
+  return String(payload.error || (status ? `Upload failed (${status})` : 'Upload failed'));
+}
+
+async function parseResponse(status: number, data: unknown): Promise<{ path: string }> {
+  let raw = '';
+  let payload: Record<string, unknown> = {};
+  if (typeof data === 'string') {
+    raw = data;
+    if (data.trimStart().startsWith('<') || /FUNCTION_INVOCATION_FAILED/i.test(data)) {
+      throw new Error(friendlyUploadError(status || 500, data, {}));
+    }
+    try { payload = JSON.parse(data || '{}'); } catch { payload = { error: data.slice(0, 160) }; }
+  } else if (data && typeof data === 'object') {
+    payload = data as Record<string, unknown>;
+    raw = JSON.stringify(payload);
+  }
+  if (status < 200 || status >= 300) throw new Error(friendlyUploadError(status, raw, payload));
+  const path = String(payload.path || payload.pathname || payload.url || '');
+  if (!path) throw new Error('Upload did not return a file path');
+  return { path };
+}
+
+async function uploadBinaryOnce(input: {
+  bookId: string;
+  fileId: string;
+  ext: string;
+  mime: string;
+  fileName: string;
+  bytes: Uint8Array;
+  token: string;
+}) {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${input.token}`,
+    'Content-Type': input.mime,
+    'x-book-id': input.bookId,
+    'x-file-id': input.fileId,
+    'x-file-ext': input.ext,
+    'x-file-name': encodeURIComponent(input.fileName),
+    'x-content-type': input.mime,
+  };
+  const url = apiUrl('/api/blob/upload');
+  const body = new Blob([input.bytes.buffer.slice(input.bytes.byteOffset, input.bytes.byteOffset + input.bytes.byteLength) as ArrayBuffer], { type: input.mime });
+
+  // Prefer Blob fetch (CapacitorHttp-patched on native).
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body,
+      credentials: 'omit',
+    });
+    const text = await res.text();
+    return (await parseResponse(res.status, text)).path;
+  } catch (err) {
+    if (!(isNativeApp() || Capacitor.isNativePlatform())) throw err;
+  }
+
+  const res = await CapacitorHttp.request({
+    url,
+    method: 'POST',
+    headers,
+    data: bytesToBase64(input.bytes),
+    dataType: 'file',
+    connectTimeout: 25000,
+    readTimeout: 25000,
+  });
+  return (await parseResponse(res.status, res.data)).path;
+}
+
+export async function prepareReceiptImage(dataUrl: string, mimeType = 'image/jpeg', tiny = false) {
+  // Keep more detail for handwriting / blurry phone photos when not in tiny mode.
+  const target = tiny ? TINY_TARGET_BYTES : Math.max(TARGET_BYTES, 420 * 1024);
+  return compressForUpload(dataUrl, mimeType, target);
+}
+
+export async function uploadLedgerFile(bookId: string, file: {
+  dataUrl: string;
+  fileName?: string;
+  mimeType?: string;
+}) {
+  if (!bookId) throw new Error('Choose a Money book before attaching a file');
+  if (!file?.dataUrl) throw new Error('No file to upload');
+  const token = await waitForToken();
+  if (!token) throw new Error('Sign in again to upload this file');
+
+  const mime = String(file.mimeType || 'application/octet-stream').split(';')[0].trim();
+  const fileName = file.fileName || 'shared-file';
+  const { bytes } = dataUrlToBytes(file.dataUrl.startsWith('data:') ? file.dataUrl : `data:${mime};base64,${file.dataUrl}`);
+  if (!bytes.length || bytes.length > MAX_UPLOAD_BYTES * 4) throw new Error('Shared file is too large');
+
+  const ext = (fileName.split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin';
+  const fileId = newMoneyId('file').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const path = await uploadBinaryOnce({
+    bookId,
+    fileId,
+    ext,
+    mime,
+    fileName,
+    bytes,
+    token,
+  });
+  return { receiptPath: path, receiptName: fileName, receiptUrl: '', dataUrl: file.dataUrl };
+}
 
 export async function uploadLedgerReceipt(bookId: string, file: {
   dataUrl: string;
   fileName?: string;
   mimeType?: string;
 }) {
-  const mime = String(file.mimeType || 'image/jpeg');
-  const ext = mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : mime.includes('pdf') ? 'pdf' : 'jpg';
-  const fileId = newMoneyId('rcpt');
-  const blob = dataUrlToBlob(file.dataUrl);
-  const headers = await authHeaders({
-    'content-type': mime,
-    'x-book-id': bookId,
-    'x-file-id': fileId,
-    'x-file-ext': ext,
-    'x-file-name': file.fileName || `receipt.${ext}`,
-    'x-content-type': mime,
-  });
-  const res = await fetch(apiUrl('/api/blob/upload'), {
-    method: 'POST',
-    headers,
-    body: blob,
-    credentials: 'include',
-  });
-  const payload = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(String((payload as { error?: string }).error || `Upload failed (${res.status})`));
-  const path = String(
-    (payload as { path?: string; pathname?: string; url?: string }).path
-    || (payload as { pathname?: string }).pathname
-    || (payload as { url?: string }).url
-    || `books/${bookId}/files/${fileId}.${ext}`,
-  );
-  return {
-    receiptPath: path,
-    receiptName: file.fileName || `receipt.${ext}`,
-    receiptUrl: '',
-  };
-}
+  if (!bookId) throw new Error('Choose a Money book before attaching a receipt');
+  if (!file?.dataUrl) throw new Error('No receipt image to upload');
 
-function dataUrlToBlob(dataUrl: string) {
-  if (dataUrl.startsWith('blob:')) {
-    throw new Error('Pass a data URL for receipt upload');
+  const mime = String(file.mimeType || 'image/jpeg');
+  if (!mime.startsWith('image/')) {
+    return uploadLedgerFile(bookId, file);
   }
-  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
-  if (!match) {
-    const bytes = new TextEncoder().encode(dataUrl);
-    return new Blob([bytes]);
+
+  const token = await waitForToken();
+  if (!token) throw new Error('Sign in again to upload this receipt');
+
+  const fileName = file.fileName || 'receipt.jpg';
+  const attempts = [
+    await compressForUpload(file.dataUrl, mime, Math.max(TARGET_BYTES, 420 * 1024)),
+    await compressForUpload(file.dataUrl, mime, TARGET_BYTES),
+    await compressForUpload(file.dataUrl, mime, TINY_TARGET_BYTES),
+  ];
+
+  let lastError: Error | null = null;
+  for (const prepared of attempts) {
+    if (!prepared.bytes.length || prepared.bytes.length > MAX_UPLOAD_BYTES) continue;
+    const ext = 'jpg';
+    const fileId = newMoneyId('rcpt').replace(/[^a-zA-Z0-9_-]/g, '_');
+    try {
+      const path = await uploadBinaryOnce({
+        bookId,
+        fileId,
+        ext,
+        mime: 'image/jpeg',
+        fileName: fileName.replace(/\.\w+$/, '.jpg'),
+        bytes: prepared.bytes,
+        token,
+      });
+      return { receiptPath: path, receiptName: fileName, receiptUrl: '', dataUrl: prepared.dataUrl };
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error('Upload failed');
+    }
   }
-  const mime = match[1];
-  const binary = atob(match[2]);
-  const len = binary.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i += 1) bytes[i] = binary.charCodeAt(i);
-  return new Blob([bytes], { type: mime });
+
+  throw lastError || new Error('Upload failed');
 }
 
 export {

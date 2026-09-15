@@ -45,7 +45,7 @@ export function anyFeatureOn(map: Partial<FeatureMap> | undefined): boolean {
 export function hrefFeature(href: string): FeatureKey | null {
   const path = String(href || '').split('?')[0];
   if (!path || path === '/' || path === '/access' || path === '/settings' || path.startsWith('/invite')) return null;
-  if (path === '/expenses' || path.startsWith('/book/') || path === '/reports') return 'money';
+  if (path === '/expenses' || path.startsWith('/book/') || path === '/reports' || path.startsWith('/regular-payments') || path.startsWith('/insights')) return 'money';
   if (!path.startsWith('/books')) return null;
   if (/^\/books\/(customers|estimates|quotes|sales-orders|invoices|credit-notes|debit-notes|statements|collections)(\/|$)/.test(path)) return 'sales';
   if (/^\/books\/(vendors|purchase-requests|purchase-orders|purchase-receipts|bills|vendor-credits|payment-run)(\/|$)/.test(path)) return 'buying';
@@ -62,7 +62,7 @@ export function allowsHref(map: Partial<FeatureMap> | undefined, href: string): 
   const key = hrefFeature(href);
   if (!key) return true;
   if (href.startsWith('/books') && !featureOn(map, 'business')) return false;
-  if ((href === '/expenses' || href.startsWith('/book/') || href === '/reports') && !featureOn(map, 'money')) return false;
+  if ((href === '/expenses' || href.startsWith('/book/') || href === '/reports' || href.startsWith('/regular-payments') || href.startsWith('/insights')) && !featureOn(map, 'money')) return false;
   return featureOn(map, key);
 }
 
@@ -102,11 +102,21 @@ export function resolveFeatures(
   isSuperUser: boolean,
   books: Array<{ featureAccess?: unknown }>,
   profileFeatures?: unknown,
+  roleKey?: string,
+  rolePermissions?: Record<string, Partial<FeatureMap>>,
 ): FeatureMap {
   const defaultBase = isSuperUser ? DEFAULT_FEATURES : MEMBER_FEATURES;
-  let features = profileFeatures != null
-    ? normalizeFeatures(profileFeatures, defaultBase)
-    : { ...defaultBase };
+  /* Effective: USER OVERRIDE > ROLE PERMISSION > SECURE DEFAULT */
+  let features = { ...defaultBase };
+  if (roleKey && rolePermissions?.[roleKey]) {
+    features = normalizeFeatures(rolePermissions[roleKey], features);
+  } else if (!isSuperUser && roleKey === 'DEFAULT_USER') {
+    features = { ...MEMBER_FEATURES };
+  }
+
+  if (profileFeatures != null) {
+    features = normalizeFeatures(profileFeatures, features);
+  }
 
   for (let i = books.length - 1; i >= 0; i -= 1) {
     const grant = bookGrantRaw(books[i].featureAccess, uid);

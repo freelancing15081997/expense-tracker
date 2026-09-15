@@ -88,7 +88,7 @@ export default function Accounts() {
                         <span className="font-semibold text-slate-800">{account.name}</span>
                       )}
                     </td>
-                    <td className="px-4 py-2.5 capitalize text-slate-500">{account.type.replace('_', ' ')}</td>
+                    <td className="px-4 py-2.5 capitalize text-slate-500">{String(account.type || '').replace(/_/g, ' ')}</td>
                     <td className="px-4 py-2.5 text-right"><Money minor={signedBalance(account)} currency={currency} /></td>
                   </tr>
                 ))}

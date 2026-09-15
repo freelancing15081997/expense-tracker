@@ -4,7 +4,9 @@ import { ArrowLeft, Loader2, Search, Shield } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { listAccessPeople, setPersonFeatures, type AccessPerson } from '../lib/me';
-import { FEATURE_CATALOG, type FeatureKey, type FeatureMap } from '../lib/features';
+import { FEATURE_CATALOG, MEMBER_FEATURES, type FeatureKey, type FeatureMap } from '../lib/features';
+import { getRolePermissions, setRolePermissions } from '../lib/money-api';
+import { ROLE_FEATURE_DEFAULTS } from '../lib/money-flow';
 import { CapacitorService } from '../lib/capacitor';
 
 function personQuery(person: AccessPerson) {
@@ -21,12 +23,23 @@ export default function AccessControl() {
   const [selectedId, setSelectedId] = useState('');
   const [draft, setDraft] = useState<FeatureMap | null>(null);
   const [saving, setSaving] = useState(false);
+  const [roleKey, setRoleKey] = useState('DEFAULT_USER');
+  const [roleDraft, setRoleDraft] = useState<FeatureMap>({ ...MEMBER_FEATURES });
+  const [roleSaving, setRoleSaving] = useState(false);
 
   const load = async () => {
     setLoading(true);
     try {
       const next = await listAccessPeople(userProfile?.email || currentUser?.email || '');
       setPeople(next);
+      try {
+        const roles = await getRolePermissions();
+        const defaults = (ROLE_FEATURE_DEFAULTS.DEFAULT_USER || MEMBER_FEATURES) as FeatureMap;
+        const current = roles.DEFAULT_USER || roles[roleKey] || defaults;
+        setRoleDraft({ ...MEMBER_FEATURES, ...current } as FeatureMap);
+      } catch {
+        /* role API optional until migrated */
+      }
     } catch (err) {
       addToast(err instanceof Error ? err.message : 'Could not load people', 'error');
     } finally {
@@ -200,6 +213,65 @@ export default function AccessControl() {
               <p className="text-sm text-slate-500 mt-1">Search the list, tap a name, then choose what they can use.</p>
             </div>
           )}
+        </div>
+      )}
+
+      {!loading && (
+        <div className="access-card p-4 mt-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Role defaults</p>
+          <h2 className="font-display text-[18px] font-semibold tracking-[-0.03em] text-[#0B1F3A] mt-1">ROLE → FEATURE</h2>
+          <p className="text-[13px] text-slate-500 mb-3">Effective access is User override → Role → secure default. New features stay off unless configured.</p>
+          <div className="flex flex-wrap gap-2 mb-3">
+            {['DEFAULT_USER', 'viewer', 'contributor', 'admin'].map((key) => (
+              <button
+                key={key}
+                type="button"
+                className={`byjan-chip ${roleKey === key ? 'is-on' : ''}`}
+                data-on={roleKey === key}
+                onClick={() => {
+                  setRoleKey(key);
+                  void getRolePermissions().then((roles) => {
+                    const base = (ROLE_FEATURE_DEFAULTS[key] || MEMBER_FEATURES) as FeatureMap;
+                    setRoleDraft({ ...MEMBER_FEATURES, ...base, ...(roles[key] || {}) } as FeatureMap);
+                  }).catch(() => {
+                    setRoleDraft({ ...MEMBER_FEATURES, ...(ROLE_FEATURE_DEFAULTS[key] || {}) } as FeatureMap);
+                  });
+                }}
+              >
+                {key}
+              </button>
+            ))}
+          </div>
+          {FEATURE_CATALOG.filter((row) => row.group === 'Money' || row.key === 'business' || row.key === 'reports' || row.key === 'company_settings').map((row) => (
+            <button
+              key={row.key}
+              type="button"
+              className="access-feature-row"
+              onClick={() => setRoleDraft((curr) => ({ ...curr, [row.key]: !curr[row.key] }))}
+              role="switch"
+              aria-checked={Boolean(roleDraft[row.key])}
+            >
+              <span className="min-w-0 text-left">
+                <span className="block text-sm font-semibold text-[#0B1F3A]">{row.label}</span>
+                <span className="block text-[12px] text-slate-500">{row.hint}</span>
+              </span>
+              <span className={`access-switch ${roleDraft[row.key] ? 'is-on' : ''}`} aria-hidden="true"><i /></span>
+            </button>
+          ))}
+          <button
+            type="button"
+            className="byjan-btn w-full mt-3"
+            disabled={roleSaving}
+            onClick={() => {
+              setRoleSaving(true);
+              void setRolePermissions(roleKey, roleDraft as unknown as Record<string, boolean>)
+                .then(() => addToast('Role permissions saved', 'success'))
+                .catch((err) => addToast(err instanceof Error ? err.message : 'Could not save role', 'error'))
+                .finally(() => setRoleSaving(false));
+            }}
+          >
+            {roleSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : `Save ${roleKey} role`}
+          </button>
         </div>
       )}
     </div>

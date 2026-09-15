@@ -2,6 +2,7 @@ import { applyCategoryRules, type CategoryRule } from './ledger-advanced';
 import { guessedMerchant } from './bridge-automations';
 import { toPaise, type UserMoneyRule } from './money-core';
 import type { ExpenseRow } from './money-reports';
+import { detectRegularPayments } from './recurrence-engine';
 
 export type AnomalyHit = {
   id: string;
@@ -141,49 +142,33 @@ export function detectAnomalies(expenses: ExpenseRow[]): AnomalyHit[] {
 }
 
 export function detectCommitments(expenses: ExpenseRow[]): CommitmentHit[] {
-  const outs = expenses.filter((e) => String(e.entryType || 'out') === 'out');
-  const byKey = new Map<string, { amounts: number[]; dates: string[]; label: string }>();
-
-  for (const exp of outs) {
-    const label = String(exp.merchant || exp.description || '').trim().toLowerCase();
-    if (!label || label.length < 3) continue;
-    const bucket = byKey.get(label) || { amounts: [], dates: [], label: String(exp.merchant || exp.description || label) };
-    bucket.amounts.push(toPaise(exp.amount));
-    bucket.dates.push(String(exp.date || '').slice(0, 10));
-    byKey.set(label, bucket);
-  }
-
-  const hits: CommitmentHit[] = [];
-  for (const [key, bucket] of byKey) {
-    if (bucket.dates.length < 3) continue;
-    const sortedDates = [...bucket.dates].sort();
-    const gaps: number[] = [];
-    for (let i = 1; i < sortedDates.length; i += 1) {
-      gaps.push(Math.round((Date.parse(sortedDates[i]) - Date.parse(sortedDates[i - 1])) / 86400000));
-    }
-    const avgGap = gaps.reduce((a, b) => a + b, 0) / Math.max(1, gaps.length);
-    let cadence: CommitmentHit['cadence'] = 'monthly';
-    if (avgGap <= 10) cadence = 'weekly';
-    else if (avgGap >= 300) cadence = 'yearly';
-
-    const avgAmount = bucket.amounts.reduce((a, b) => a + b, 0) / bucket.amounts.length;
-    const last = sortedDates[sortedDates.length - 1];
-    const next = new Date(`${last}T12:00:00`);
-    if (cadence === 'weekly') next.setDate(next.getDate() + 7);
-    else if (cadence === 'yearly') next.setFullYear(next.getFullYear() + 1);
-    else next.setMonth(next.getMonth() + 1);
-
-    hits.push({
-      id: key,
-      label: bucket.label,
-      cadence,
-      amount: Math.round(avgAmount) / 100,
-      nextEstimate: next.toISOString().slice(0, 10),
-      occurrences: bucket.dates.length,
-    });
-  }
-
-  return hits.sort((a, b) => b.amount - a.amount).slice(0, 12);
+  const patterns = detectRegularPayments(
+    expenses.map((e) => ({
+      id: String(e.id),
+      amount: Number(e.amount || 0),
+      date: String(e.date || ''),
+      merchant: String(e.merchant || ''),
+      description: String(e.description || ''),
+      category: String(e.category || ''),
+      entryType: String(e.entryType || 'out'),
+      paymentMethod: String(e.paymentMethod || ''),
+    })),
+  );
+  return patterns
+    .filter((p) => p.entryType === 'out' && p.band !== 'NOT_RECURRING')
+    .slice(0, 12)
+    .map((p) => ({
+      id: p.id,
+      label: p.merchant,
+      cadence: p.frequency === 'weekly' || p.frequency === 'biweekly'
+        ? 'weekly' as const
+        : p.frequency === 'yearly' || p.frequency === 'half_yearly'
+          ? 'yearly' as const
+          : 'monthly' as const,
+      amount: p.avgAmount,
+      nextEstimate: p.nextExpected,
+      occurrences: p.occurrences,
+    }));
 }
 
 type NlQuery = {

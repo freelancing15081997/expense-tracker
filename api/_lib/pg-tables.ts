@@ -1214,7 +1214,7 @@ export async function ledgerList(prefix: string, constraints: any[] = []) {
   }
 
   if (parts[0] === 'books' && parts[2] === 'expenses' && parts.length === 3) {
-    const rows = await sql`SELECT id, data, deleted FROM expenses WHERE book_id = ${parts[1]} ORDER BY updated_at DESC`;
+    const rows = await sql`SELECT id, data, deleted FROM expenses WHERE book_id = ${parts[1]} ORDER BY created_at DESC NULLS LAST, updated_at DESC`;
     return asRows<{ id: string; data: unknown; deleted?: boolean }>(rows)
       .map((row) => {
         const data = asObject(row.data);
@@ -1273,7 +1273,7 @@ export async function ledgerList(prefix: string, constraints: any[] = []) {
 export async function ledgerListExpensesByBooks(bookIds: string[]) {
   if (!bookIds.length) return new Map<string, { id: string; data: Record<string, unknown> }[]>();
   const sql = await getLedgerSql();
-  const rows = await sql`SELECT id, book_id, data, deleted FROM expenses WHERE book_id = ANY(${bookIds}) AND deleted = false`;
+  const rows = await sql`SELECT id, book_id, data, deleted FROM expenses WHERE book_id = ANY(${bookIds}) AND deleted = false ORDER BY created_at DESC NULLS LAST, updated_at DESC`;
   const grouped = new Map<string, { id: string; data: Record<string, unknown> }[]>();
   for (const row of asRows<{ id: string; book_id: string; data: unknown; deleted?: boolean }>(rows)) {
     const data = asObject(row.data);
@@ -1604,6 +1604,17 @@ export async function ledgerMarkNotificationRead(id: string, userId: string) {
   const next = { ...current, read: true };
   await ledgerSet(`notifications/${id}`, next);
   return { id, ...next };
+}
+
+export async function ledgerMarkAllNotificationsRead(userId: string) {
+  const rows = await ledgerListNotifications(userId);
+  let count = 0;
+  for (const row of rows) {
+    if ((row as { read?: boolean }).read) continue;
+    await ledgerMarkNotificationRead(String(row.id), userId);
+    count += 1;
+  }
+  return { count };
 }
 
 export async function ledgerGetUser(uid: string) {

@@ -221,7 +221,7 @@ export default function Reports() {
                 ) : gst.rows.map((d) => (
                   <tr key={d.id} className="border-b border-slate-100">
                     <td className="px-4 py-2.5"><Link to={documentHref(d.kind, d.id)} className="font-medium text-teal-800 hover:underline">{d.number}</Link></td>
-                    <td className="px-4 py-2.5 capitalize">{d.kind.replace('_', ' ')}</td>
+                    <td className="px-4 py-2.5 capitalize">{String(d.kind || 'document').replace(/_/g, ' ')}</td>
                     <td className="px-4 py-2.5 text-right"><Money minor={d.tax.exclusiveMinor} currency={currency} /></td>
                     <td className="px-4 py-2.5 text-right"><Money minor={d.tax.cgstMinor} currency={currency} /></td>
                     <td className="px-4 py-2.5 text-right"><Money minor={d.tax.sgstMinor} currency={currency} /></td>

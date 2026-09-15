@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useAppPrefs } from '../context/AppPrefsContext';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { upsertMe } from '../lib/me';
 import { listLedgerAudit } from '../lib/ledgers';
 import { Save, AlertCircle, CheckCircle2, Shield } from 'lucide-react';
@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { useBooksTenantMeta } from '../lib/tenant';
 import type { AppPrefs, DateFormat, ListPageSize, NumberLocale, UiDensity } from '../lib/app-prefs';
 import { useToast } from '../context/ToastContext';
+import UpiSetupSheet from '../components/UpiSetupSheet';
 
 function Switch({ on, onChange, label, hint }: { on: boolean; onChange: (v: boolean) => void; label: string; hint: string }) {
   return (
@@ -43,6 +44,7 @@ export default function Settings() {
   const tenant = useBooksTenantMeta();
   const { prefs, setPref, savePrefs } = useAppPrefs();
   const { addToast } = useToast();
+  const [searchParams] = useSearchParams();
   const [displayName, setDisplayName] = useState(userProfile?.displayName || '');
   const [categories, setCategories] = useState<string[]>(userProfile?.customCategories || []);
   const [newCategory, setNewCategory] = useState('');
@@ -51,11 +53,16 @@ export default function Settings() {
   const [error, setError] = useState('');
   const [auditEvents, setAuditEvents] = useState<Array<Record<string, unknown>>>([]);
   const [auditLoading, setAuditLoading] = useState(true);
+  const [upiOpen, setUpiOpen] = useState(false);
 
   useEffect(() => {
     setDisplayName(userProfile?.displayName || '');
     setCategories(userProfile?.customCategories || []);
   }, [userProfile?.displayName, userProfile?.customCategories]);
+
+  useEffect(() => {
+    if (searchParams.get('upi') === '1') setUpiOpen(true);
+  }, [searchParams]);
 
   useEffect(() => {
     setAuditLoading(true);
@@ -152,6 +159,26 @@ export default function Settings() {
           <Field label="Display name">
             <input className="byjan-input" required value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
           </Field>
+        </div>
+      </section>
+
+      <section className="byjan-card overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-200 bg-[#F8FAFC]">
+          <h2 className="text-base font-semibold text-slate-900">UPI for settlements</h2>
+          <p className="text-xs text-slate-500 mt-1">Teammates pay your split shares to this ID. We never ask for your UPI PIN.</p>
+        </div>
+        <div className="p-5 flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-[#0B1F3A] truncate">{userProfile?.upiId || 'No UPI ID yet'}</p>
+            <p className="text-xs text-slate-500 mt-1">
+              {userProfile?.upiStatus
+                ? `Status: ${userProfile.upiStatus === 'SELF_CONFIRMED' ? 'Confirmed by you' : userProfile.upiStatus}`
+                : 'Required after you join a book that uses Split.'}
+            </p>
+          </div>
+          <button type="button" className="byjan-btn !h-10 shrink-0" onClick={() => setUpiOpen(true)}>
+            {userProfile?.upiId ? 'Update UPI ID' : 'Add UPI ID'}
+          </button>
         </div>
       </section>
 
@@ -359,6 +386,15 @@ export default function Settings() {
           {loading ? 'Saving settings' : 'Save settings'}
         </button>
       </div>
+
+      <UpiSetupSheet
+        open={upiOpen}
+        initialUpiId={userProfile?.upiId || ''}
+        initialName={userProfile?.upiDisplayName || userProfile?.displayName || ''}
+        onClose={() => setUpiOpen(false)}
+        onSaved={() => void refreshUserProfile()}
+        onToast={addToast}
+      />
     </form>
   );
 }

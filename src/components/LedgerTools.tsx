@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { Loader2, Plus } from 'lucide-react';
+import { ChevronDown, Loader2, Plus, Zap } from 'lucide-react';
 import { createExpense, softDeleteExpense } from '../lib/expenses';
 import { CapacitorService } from '../lib/capacitor';
 import { updateLedger } from '../lib/ledgers';
@@ -78,6 +78,7 @@ export default function LedgerTools({
   );
   const [busy, setBusy] = useState('');
   const [capturePreview, setCapturePreview] = useState<CapturePreview | null>(null);
+  const [open, setOpen] = useState(false);
   const dueCount = useMemo(() => dueRecurringPosts(rules, expenses).posts.length, [rules, expenses]);
   const userRules = readUserRules(book, enteredByUid);
 
@@ -211,106 +212,124 @@ export default function LedgerTools({
 
   return (
     <>
-    <form onSubmit={quickAdd} className="quick-add-bar" data-quick-add>
-      <div className="quick-add-label">
-        <span className="quick-add-kicker">Optional · fast add</span>
-        <span>Type one line or paste a UPI SMS. For bills and photos use Add expense above.</span>
-      </div>
-      <div className="quick-add-row">
-      <select value={kind} onChange={(e) => setKind(e.target.value as 'out' | 'in' | 'transfer')} className="byjan-filter !w-auto !h-11" aria-label="Type">
-        <option value="out">Spent</option>
-        <option value="in">Received</option>
-        <option value="transfer">Transfer</option>
-      </select>
-      <input
-        ref={amountRef}
-        inputMode="decimal"
-        value={amount}
-        onChange={(e) => { setAmount(e.target.value); setFieldError(null); }}
-        placeholder={`${currencySymbol}0`}
-        className={`byjan-input money-quick-amount ${fieldError === 'amount' ? 'byjan-input-error' : ''}`}
-        aria-label="Amount"
-        aria-invalid={fieldError === 'amount'}
-      />
-      <input
-        ref={lineRef}
-        value={line}
-        onChange={(e) => {
-          setLine(e.target.value);
-          setFieldError(null);
-          const parsed = parseBankSms(e.target.value);
-          if (parsed) {
-            setAmount(String(parsed.amount));
-            setDescription(parsed.description);
-            setKind((parsed.entryType as 'out' | 'in' | 'transfer') || 'out');
-            setWhen(parsed.date);
-            if (parsed.merchant) setMerchant(parsed.merchant);
-            if (parsed.paymentMethod) setMethod(parsed.paymentMethod);
-          } else {
-            setDescription(e.target.value);
-          }
+    <div className="tool-collapse" data-quick-add>
+      <button
+        type="button"
+        className="tool-collapse-trigger"
+        aria-expanded={open}
+        onClick={() => {
+          void CapacitorService.hapticTick();
+          setOpen((v) => !v);
         }}
-        onPaste={(e) => {
-          const text = e.clipboardData.getData('text');
-          if (text.includes('\n') && parseCaptureLines(text).length > 1) {
-            e.preventDefault();
-            setLine(text);
-          }
-        }}
-        placeholder="Swiggy 349 · or paste UPI SMS"
-        className={`byjan-input flex-1 min-w-[140px] !h-11 ${fieldError === 'line' ? 'byjan-input-error' : ''}`}
-        list="ledger-descriptions"
-        aria-invalid={fieldError === 'line'}
-      />
-      <datalist id="ledger-descriptions">
-        {descriptions.map((name) => <option key={name} value={name} />)}
-      </datalist>
-      <select value={when === isoDay() ? 'today' : 'yesterday'} onChange={(e) => setWhen(e.target.value === 'today' ? isoDay() : isoDay(new Date(Date.now() - 86400000)))} className="byjan-filter !w-auto !h-9 hidden sm:block" aria-label="When">
-        <option value="today">Today</option>
-        <option value="yesterday">Yesterday</option>
-      </select>
-      <select value={method} onChange={(e) => setMethod(e.target.value)} className="byjan-filter !w-auto !h-9 hidden md:block" aria-label="Method">
-        <option value="upi">UPI</option>
-        <option value="card">Card</option>
-        <option value="cash">Cash</option>
-        <option value="bank">Bank</option>
-      </select>
-      {dueCount > 0 && (
-        <button type="button" className="byjan-chip !h-9" data-on="true" onClick={() => void postDue()} disabled={busy === 'due'} title="Add rent, EMI, salary, or other due items.">
-          {dueCount} due
-        </button>
-      )}
-      {lastPosted[0] && (
-        <button
-          type="button"
-          className="byjan-chip !h-9"
-          onClick={async () => {
-            const id = lastPosted[0];
-            onRemoved?.([id]);
-            setLastPosted((ids) => ids.slice(1));
-            try {
-              await softDeleteExpense(bookId, id);
-              onToast('Last expense removed.', 'success');
-            } catch (err: any) {
-              void onRefresh();
-              onToast(err?.message || 'Could not undo', 'error');
-            }
-          }}
-        >
-          Undo
-        </button>
-      )}
-      <button type="submit" disabled={busy === 'quick'} className="btn-quick-add" data-quick-add-submit>
-        {busy === 'quick' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Add quickly'}
+      >
+        <Zap className="w-3.5 h-3.5" />
+        Quick add
+        {dueCount > 0 ? <span className="tool-collapse-badge">{dueCount}</span> : null}
+        <ChevronDown className={`w-3.5 h-3.5 tool-collapse-chevron ${open ? 'is-open' : ''}`} />
       </button>
-      {onOpenFullForm && (
-        <button type="button" className="btn-quick-form hidden sm:inline-flex" onClick={onOpenFullForm}>
-          <Plus className="w-4 h-4" />
-          Full form
-        </button>
-      )}
-      </div>
-    </form>
+      {open ? (
+        <form onSubmit={quickAdd} className="tool-collapse-panel quick-add-bar">
+          <div className="quick-add-label">
+            <span className="quick-add-kicker">Fast add</span>
+            <span>One line or paste a UPI SMS. Bills & photos → Add expense.</span>
+          </div>
+          <div className="quick-add-row">
+          <select value={kind} onChange={(e) => setKind(e.target.value as 'out' | 'in' | 'transfer')} className="byjan-filter !w-auto !h-11" aria-label="Type">
+            <option value="out">Spent</option>
+            <option value="in">Received</option>
+            <option value="transfer">Transfer</option>
+          </select>
+          <input
+            ref={amountRef}
+            inputMode="decimal"
+            value={amount}
+            onChange={(e) => { setAmount(e.target.value); setFieldError(null); }}
+            placeholder={`${currencySymbol}0`}
+            className={`byjan-input money-quick-amount ${fieldError === 'amount' ? 'byjan-input-error' : ''}`}
+            aria-label="Amount"
+            aria-invalid={fieldError === 'amount'}
+          />
+          <input
+            ref={lineRef}
+            value={line}
+            onChange={(e) => {
+              setLine(e.target.value);
+              setFieldError(null);
+              const parsed = parseBankSms(e.target.value);
+              if (parsed) {
+                setAmount(String(parsed.amount));
+                setDescription(parsed.description);
+                setKind((parsed.entryType as 'out' | 'in' | 'transfer') || 'out');
+                setWhen(parsed.date);
+                if (parsed.merchant) setMerchant(parsed.merchant);
+                if (parsed.paymentMethod) setMethod(parsed.paymentMethod);
+              } else {
+                setDescription(e.target.value);
+              }
+            }}
+            onPaste={(e) => {
+              const text = e.clipboardData.getData('text');
+              if (text.includes('\n') && parseCaptureLines(text).length > 1) {
+                e.preventDefault();
+                setLine(text);
+              }
+            }}
+            placeholder="Swiggy 349 · or paste UPI SMS"
+            className={`byjan-input flex-1 min-w-[140px] !h-11 ${fieldError === 'line' ? 'byjan-input-error' : ''}`}
+            list="ledger-descriptions"
+            aria-invalid={fieldError === 'line'}
+          />
+          <datalist id="ledger-descriptions">
+            {descriptions.map((name) => <option key={name} value={name} />)}
+          </datalist>
+          <select value={when === isoDay() ? 'today' : 'yesterday'} onChange={(e) => setWhen(e.target.value === 'today' ? isoDay() : isoDay(new Date(Date.now() - 86400000)))} className="byjan-filter !w-auto !h-9 hidden sm:block" aria-label="When">
+            <option value="today">Today</option>
+            <option value="yesterday">Yesterday</option>
+          </select>
+          <select value={method} onChange={(e) => setMethod(e.target.value)} className="byjan-filter !w-auto !h-9 hidden md:block" aria-label="Method">
+            <option value="upi">UPI</option>
+            <option value="card">Card</option>
+            <option value="cash">Cash</option>
+            <option value="bank">Bank</option>
+          </select>
+          {dueCount > 0 && (
+            <button type="button" className="byjan-chip !h-9" data-on="true" onClick={() => void postDue()} disabled={busy === 'due'} title="Add rent, EMI, salary, or other due items.">
+              {dueCount} due
+            </button>
+          )}
+          {lastPosted[0] && (
+            <button
+              type="button"
+              className="byjan-chip !h-9"
+              onClick={async () => {
+                const id = lastPosted[0];
+                onRemoved?.([id]);
+                setLastPosted((ids) => ids.slice(1));
+                try {
+                  await softDeleteExpense(bookId, id);
+                  onToast('Last expense removed.', 'success');
+                } catch (err: any) {
+                  void onRefresh();
+                  onToast(err?.message || 'Could not undo', 'error');
+                }
+              }}
+            >
+              Undo
+            </button>
+          )}
+          <button type="submit" disabled={busy === 'quick'} className="btn-quick-add" data-quick-add-submit>
+            {busy === 'quick' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Add quickly'}
+          </button>
+          {onOpenFullForm && (
+            <button type="button" className="btn-quick-form hidden sm:inline-flex" onClick={onOpenFullForm}>
+              <Plus className="w-4 h-4" />
+              Full form
+            </button>
+          )}
+          </div>
+        </form>
+      ) : null}
+    </div>
     <CapturePreviewSheet
       open={Boolean(capturePreview)}
       preview={capturePreview}
@@ -322,6 +341,7 @@ export default function LedgerTools({
         setLine('');
         setAmount('');
         setDescription('');
+        setOpen(false);
         void onRefresh();
       }}
       onToast={onToast}
