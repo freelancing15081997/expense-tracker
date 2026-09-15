@@ -2020,6 +2020,167 @@ html[data-density="compact"] h1 {
   align-items: flex-start;
   gap: 8px;
 }
+
+/* Splits / settlement transactions tab */
+.stx-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-bottom: 24px;
+}
+.stx-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 18px 16px;
+  border-radius: 22px;
+  border: 1px solid rgba(11, 31, 58, 0.08);
+  background:
+    radial-gradient(90% 80% at 0% 0%, rgba(18, 184, 168, 0.14), transparent 55%),
+    linear-gradient(165deg, #fff 0%, #f4f7fb 100%);
+}
+.stx-kicker {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+.stx-title {
+  margin-top: 4px;
+  font-family: var(--font-display), Outfit, ui-sans-serif, system-ui, sans-serif;
+  font-size: 24px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  color: #0B1F3A;
+}
+.stx-sub {
+  margin-top: 4px;
+  font-size: 13px;
+  color: #64748b;
+  max-width: 36ch;
+  line-height: 1.4;
+}
+.stx-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.stx-stat {
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(11, 31, 58, 0.08);
+  background: #fff;
+}
+.stx-stat span {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+.stx-stat strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: #0B1F3A;
+  font-variant-numeric: tabular-nums;
+}
+.stx-stat.is-in strong { color: #0f766e; }
+.stx-toolbar { display: flex; flex-direction: column; gap: 10px; }
+.stx-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(11, 31, 58, 0.1);
+  background: #fff;
+}
+.stx-search input {
+  flex: 1;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-size: 14px;
+  color: #0B1F3A;
+}
+.stx-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.stx-chip {
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(11, 31, 58, 0.1);
+  background: #fff;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
+}
+.stx-chip.is-on {
+  border-color: #0B1F3A;
+  background: #0B1F3A;
+  color: #fff;
+}
+.stx-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.stx-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 12px 12px 10px;
+  border-radius: 18px;
+  border: 1px solid rgba(11, 31, 58, 0.08);
+  background: #fff;
+  box-shadow: 0 10px 28px -24px rgba(11, 31, 58, 0.35);
+}
+.stx-card.tone-bad {
+  border-color: rgba(244, 63, 94, 0.22);
+  background: linear-gradient(180deg, #fff5f6, #fff);
+}
+.stx-card.tone-warn {
+  border-color: rgba(245, 158, 11, 0.28);
+}
+.stx-card.tone-ok {
+  border-color: rgba(16, 185, 129, 0.22);
+}
+.stx-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.stx-icon.out { background: #fff1f2; color: #be123c; }
+.stx-icon.in { background: #ecfdf5; color: #0f766e; }
+.stx-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #475569;
+}
+.stx-badge.tone-ok { background: #d1fae5; color: #065f46; }
+.stx-badge.tone-bad { background: #ffe4e6; color: #9f1239; }
+.stx-badge.tone-warn { background: #fef3c7; color: #92400e; }
+.stx-badge.tone-idle { background: #e2e8f0; color: #334155; }
 .tool-collapse {
   position: relative;
   display: flex;

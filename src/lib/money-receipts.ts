@@ -1,4 +1,4 @@
-/** Receipt upload for Money — aggressive compress + resilient native upload. */
+/** Receipt upload for Money — single compress + resilient native upload. */
 
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { apiUrl, isNativeApp } from './api';
@@ -8,13 +8,15 @@ import { newMoneyId } from './money-core';
 const MAX_UPLOAD_BYTES = 900 * 1024;
 const TARGET_BYTES = 280 * 1024;
 const TINY_TARGET_BYTES = 140 * 1024;
+/** Fast share path: enough detail for Gemini, small enough for inline parse. */
+const SHARE_TARGET_BYTES = 320 * 1024;
 
 async function waitForToken() {
   let token = await getJwtToken();
   if (token) return token;
   if (!isNativeApp() && !Capacitor.isNativePlatform()) return null;
-  for (let i = 0; i < 12 && !token; i += 1) {
-    await new Promise((r) => setTimeout(r, 100));
+  for (let i = 0; i < 8 && !token; i += 1) {
+    await new Promise((r) => setTimeout(r, 50));
     token = await getJwtToken();
   }
   return token;
@@ -76,8 +78,9 @@ async function compressForUpload(
       el.src = src;
     });
 
-    const qualities = [0.7, 0.55, 0.42, 0.32, 0.22];
-    const edges = [1100, 900, 720, 560, 420];
+    // Fewer passes = much faster share path (was 5×5 nested loops).
+    const qualities = [0.62, 0.45, 0.3];
+    const edges = [960, 720, 480];
     let best: { bytes: Uint8Array; mime: string; dataUrl: string } | null = null;
 
     for (const maxEdge of edges) {
@@ -157,7 +160,6 @@ async function uploadBinaryOnce(input: {
   const url = apiUrl('/api/blob/upload');
   const body = new Blob([input.bytes.buffer.slice(input.bytes.byteOffset, input.bytes.byteOffset + input.bytes.byteLength) as ArrayBuffer], { type: input.mime });
 
-  // Prefer Blob fetch (CapacitorHttp-patched on native).
   try {
     const res = await fetch(url, {
       method: 'POST',
@@ -177,15 +179,14 @@ async function uploadBinaryOnce(input: {
     headers,
     data: bytesToBase64(input.bytes),
     dataType: 'file',
-    connectTimeout: 25000,
-    readTimeout: 25000,
+    connectTimeout: 20000,
+    readTimeout: 20000,
   });
   return (await parseResponse(res.status, res.data)).path;
 }
 
 export async function prepareReceiptImage(dataUrl: string, mimeType = 'image/jpeg', tiny = false) {
-  // Keep more detail for handwriting / blurry phone photos when not in tiny mode.
-  const target = tiny ? TINY_TARGET_BYTES : Math.max(TARGET_BYTES, 420 * 1024);
+  const target = tiny ? TINY_TARGET_BYTES : SHARE_TARGET_BYTES;
   return compressForUpload(dataUrl, mimeType, target);
 }
 
@@ -218,39 +219,81 @@ export async function uploadLedgerFile(bookId: string, file: {
   return { receiptPath: path, receiptName: fileName, receiptUrl: '', dataUrl: file.dataUrl };
 }
 
+/** Upload already-compressed bytes (no second canvas pass). */
+export async function uploadPreparedReceipt(bookId: string, prepared: {
+  bytes: Uint8Array;
+  mime: string;
+  dataUrl: string;
+  fileName?: string;
+}) {
+  if (!bookId) throw new Error('Choose a Money book before attaching a receipt');
+  const token = await waitForToken();
+  if (!token) throw new Error('Sign in again to upload this receipt');
+
+  let bytes = prepared.bytes;
+  let dataUrl = prepared.dataUrl;
+  if (!bytes.length || bytes.length > MAX_UPLOAD_BYTES) {
+    const tiny = await compressForUpload(prepared.dataUrl, prepared.mime || 'image/jpeg', TINY_TARGET_BYTES);
+    bytes = tiny.bytes;
+    dataUrl = tiny.dataUrl;
+  }
+  if (!bytes.length || bytes.length > MAX_UPLOAD_BYTES) throw new Error('Receipt image is too large after compress.');
+
+  const fileName = (prepared.fileName || 'receipt.jpg').replace(/\.\w+$/, '.jpg');
+  const fileId = newMoneyId('rcpt').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const path = await uploadBinaryOnce({
+    bookId,
+    fileId,
+    ext: 'jpg',
+    mime: 'image/jpeg',
+    fileName,
+    bytes,
+    token,
+  });
+  return { receiptPath: path, receiptName: fileName, receiptUrl: '', dataUrl };
+}
+
 export async function uploadLedgerReceipt(bookId: string, file: {
   dataUrl: string;
   fileName?: string;
   mimeType?: string;
+  /** Skip re-compress when caller already prepared the image. */
+  prepared?: { bytes: Uint8Array; mime: string; dataUrl: string };
 }) {
   if (!bookId) throw new Error('Choose a Money book before attaching a receipt');
-  if (!file?.dataUrl) throw new Error('No receipt image to upload');
+  if (!file?.dataUrl && !file?.prepared) throw new Error('No receipt image to upload');
 
-  const mime = String(file.mimeType || 'image/jpeg');
-  if (!mime.startsWith('image/')) {
-    return uploadLedgerFile(bookId, file);
+  const mime = String(file.mimeType || file.prepared?.mime || 'image/jpeg');
+  if (!mime.startsWith('image/') && !file.prepared) {
+    return uploadLedgerFile(bookId, file as { dataUrl: string; fileName?: string; mimeType?: string });
+  }
+
+  if (file.prepared) {
+    return uploadPreparedReceipt(bookId, {
+      ...file.prepared,
+      fileName: file.fileName,
+    });
   }
 
   const token = await waitForToken();
   if (!token) throw new Error('Sign in again to upload this receipt');
 
   const fileName = file.fileName || 'receipt.jpg';
-  const attempts = [
-    await compressForUpload(file.dataUrl, mime, Math.max(TARGET_BYTES, 420 * 1024)),
-    await compressForUpload(file.dataUrl, mime, TARGET_BYTES),
-    await compressForUpload(file.dataUrl, mime, TINY_TARGET_BYTES),
-  ];
-
+  // Compress once at share size; only shrink further if that upload fails.
+  let prepared = await compressForUpload(file.dataUrl, mime, SHARE_TARGET_BYTES);
   let lastError: Error | null = null;
-  for (const prepared of attempts) {
+
+  for (const target of [null, TARGET_BYTES, TINY_TARGET_BYTES] as Array<number | null>) {
+    if (target != null) {
+      prepared = await compressForUpload(file.dataUrl, mime, target);
+    }
     if (!prepared.bytes.length || prepared.bytes.length > MAX_UPLOAD_BYTES) continue;
-    const ext = 'jpg';
     const fileId = newMoneyId('rcpt').replace(/[^a-zA-Z0-9_-]/g, '_');
     try {
       const path = await uploadBinaryOnce({
         bookId,
         fileId,
-        ext,
+        ext: 'jpg',
         mime: 'image/jpeg',
         fileName: fileName.replace(/\.\w+$/, '.jpg'),
         bytes: prepared.bytes,

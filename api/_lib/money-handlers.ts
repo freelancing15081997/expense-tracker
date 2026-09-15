@@ -409,7 +409,7 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
             mimeType: imageMime || 'image/jpeg',
             fileName: receiptName,
             hintText: text,
-            timeoutMs: 12_000,
+            timeoutMs: 8_000,
           });
         } catch {
           vision = null;
@@ -432,7 +432,7 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
               mimeType: safeMime,
               fileName: receiptName,
               hintText: text,
-              timeoutMs: 12_000,
+              timeoutMs: 8_000,
             });
           } else if (!vision) {
             vision = {

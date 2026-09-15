@@ -278,7 +278,6 @@ export async function listSettlementsForBook(bookId: string, uid: string) {
   const rows = asRows<Record<string, unknown>>(await sql`
     SELECT * FROM money_settlements
     WHERE book_id = ${bookId}
-      AND status <> 'CANCELLED'
     ORDER BY updated_at DESC
     LIMIT 200
   `);
@@ -566,16 +565,14 @@ export async function reportUpiReturn(opts: {
   let verificationSource: string | null = null;
   let markPaid = false;
 
+  // Treat payment cancel like a failed attempt so the settlement stays retryable.
   if (explicitSuccess) {
     next = 'PAID';
     markPaid = true;
     verificationSource = 'upi_intent_result';
-  } else if (explicitFail) {
+  } else if (explicitFail || explicitCancel) {
     next = 'FAILED';
-    failure = 'UPI app reported failure';
-  } else if (explicitCancel) {
-    next = 'CANCELLED';
-    failure = 'Payment cancelled in UPI app';
+    failure = explicitCancel ? 'Payment cancelled in UPI app' : 'UPI app reported failure';
   } else if (submitted) {
     next = 'AWAITING_CONFIRMATION';
   } else if (outcome === 'returned' || outcome === 'unknown') {
@@ -656,10 +653,9 @@ export async function reportUpiReturn(opts: {
 
   const message =
     next === 'PAID' ? 'Payment successful — marked paid from the UPI app result.'
-      : next === 'FAILED' ? 'Payment failed in the UPI app.'
-        : next === 'CANCELLED' ? 'Payment cancelled.'
-          : next === 'AWAITING_CONFIRMATION' ? 'UPI app submitted the payment. Recipient can confirm later if needed.'
-            : 'We couldn’t read a clear result from the UPI app. You can retry, or the recipient can confirm later.';
+      : next === 'FAILED' ? (explicitCancel ? 'Payment cancelled. Retry when ready.' : 'Payment failed in the UPI app. Retry when ready.')
+        : next === 'AWAITING_CONFIRMATION' ? 'UPI app submitted the payment. Recipient can confirm later if needed.'
+          : 'We couldn’t read a clear result from the UPI app. You can retry, or the recipient can confirm later.';
 
   return {
     status: next,

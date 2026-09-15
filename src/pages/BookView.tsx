@@ -61,6 +61,7 @@ import ReceiptCaptureFlow, { type ReceiptLaunch } from '../components/ReceiptCap
 import SplitExpenseSheet from '../components/SplitExpenseSheet';
 import '../components/split-premium.css';
 import SettlementsPanel from '../components/SettlementsPanel';
+import { rememberMoneyBook } from '../components/ShareIntentListener';
 import UpiSetupSheet from '../components/UpiSetupSheet';
 import { ExpenseSuccessCard, MoneySheet } from '../components/money/MoneyUi';
 import { readPendingCapture, clearPendingCapture } from '../components/ShareIntentListener';
@@ -397,6 +398,10 @@ export default function BookView() {
   useEffect(() => {
     setCurrentPage(1);
   }, [searchQuery, itemsPerPage, typeFilter, dateFrom, dateTo, methodFilter, reimbursableOnly, uncategorizedOnly, hideTransfers, flaggedOnly, amountMin, amountMax, hideDrafts, staleOnly, anomalyOnly, missingOnly]);
+
+  useEffect(() => {
+    if (bookId) rememberMoneyBook(bookId);
+  }, [bookId]);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search || '');
@@ -1557,6 +1562,9 @@ export default function BookView() {
           <Tabs.Trigger value="ledger" className="pb-1.5 text-[13px] font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B1F3A] data-[state=active]:border-b-2 data-[state=active]:border-[#12B8A8] transition-colors whitespace-nowrap">
             Expenses
           </Tabs.Trigger>
+          <Tabs.Trigger value="splits" className="pb-1.5 text-[13px] font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B1F3A] data-[state=active]:border-b-2 data-[state=active]:border-[#12B8A8] transition-colors whitespace-nowrap">
+            Splits
+          </Tabs.Trigger>
           <Tabs.Trigger value="email" className="pb-1.5 text-[13px] font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B1F3A] data-[state=active]:border-b-2 data-[state=active]:border-[#12B8A8] transition-colors whitespace-nowrap">
             Email
           </Tabs.Trigger>
@@ -2316,6 +2324,23 @@ export default function BookView() {
                 </article>
               ))}
             </div>
+          )}
+        </Tabs.Content>
+
+        <Tabs.Content value="splits" className="outline-none">
+          {bookId && currentUser?.uid ? (
+            <SettlementsPanel
+              variant="page"
+              bookId={bookId}
+              currentUid={currentUser.uid}
+              symbol={getCurrencySymbol(book.currency)}
+              myUpiId={String((userProfile as any)?.upiId || '')}
+              myUpiName={String((userProfile as any)?.upiDisplayName || userProfile?.displayName || '')}
+              onToast={addToast}
+              onProfileRefresh={() => void refreshUserProfile()}
+            />
+          ) : (
+            <div className="byjan-card p-8 text-center text-sm text-slate-500">Sign in to view split transactions.</div>
           )}
         </Tabs.Content>
         </div>

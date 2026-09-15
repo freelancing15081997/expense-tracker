@@ -23,6 +23,9 @@ export type PendingCapture = {
 };
 
 const STORAGE_KEY = 'byjan_pending_capture';
+const LAST_BOOK_KEY = 'byjan_last_money_book';
+/** In-memory handoff — avoids sessionStorage size limits for large shares. */
+let memoryPending: PendingCapture | null = null;
 
 function fingerprint(p: PendingCapture) {
   return [
@@ -33,9 +36,37 @@ function fingerprint(p: PendingCapture) {
   ].join('|');
 }
 
+function cachedBookId() {
+  try {
+    return String(localStorage.getItem(LAST_BOOK_KEY) || '').trim();
+  } catch {
+    return '';
+  }
+}
+
+export function rememberMoneyBook(bookId: string) {
+  try {
+    if (bookId) localStorage.setItem(LAST_BOOK_KEY, bookId);
+  } catch { /* ignore */ }
+}
+
+function storePending(pending: PendingCapture) {
+  memoryPending = pending;
+  try {
+    const light = {
+      ...pending,
+      imageDataUrl: pending.imageDataUrl && pending.imageDataUrl.length > 200_000
+        ? undefined
+        : pending.imageDataUrl,
+      _hasImage: Boolean(pending.imageDataUrl),
+    };
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(light));
+  } catch { /* memory still holds full payload */ }
+}
+
 /**
  * Listens for Android share intents (image / PDF / Excel / text) and deep links.
- * Stores pending capture for Dashboard / BookView ReceiptCaptureFlow.
+ * Navigates immediately; book list loads in parallel so share feels instant.
  */
 export default function ShareIntentListener() {
   const navigate = useNavigate();
@@ -46,26 +77,31 @@ export default function ShareIntentListener() {
     const fp = fingerprint(pending);
     if (fp && fp === lastFp.current) return;
     lastFp.current = fp;
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(pending));
+    storePending(pending);
+
+    const last = cachedBookId();
+    if (pending.preferredBookId) {
+      navigate(`/book/${pending.preferredBookId}?capture=1`, { replace: false });
+      addToast('Reading shared file…', 'success');
+      void listLedgers().catch(() => undefined);
+      return;
+    }
+    if (last) {
+      navigate(`/book/${last}?capture=1`, { replace: false });
+      addToast('Reading shared file…', 'success');
+      void listLedgers().catch(() => undefined);
+      return;
+    }
+
+    navigate('/expenses?capture=1', { replace: false });
+    addToast('Reading shared file…', 'success');
 
     const books = await listLedgers().catch(() => []);
     const visible = (books || []).filter((b) => b && !b.deleted && !b.deletedAt && !b.archived);
-    const preferred = pending.preferredBookId
-      ? visible.find((b) => String(b.id) === String(pending.preferredBookId))
-      : null;
-
-    if (preferred?.id && !pending.requireBookPick) {
-      navigate(`/book/${preferred.id}?capture=1`, { replace: false });
-      addToast('Reading shared file…', 'success');
-      return;
-    }
     if (visible.length === 1) {
+      rememberMoneyBook(String(visible[0].id));
       navigate(`/book/${visible[0].id}?capture=1`, { replace: false });
-      addToast('Reading shared file…', 'success');
-      return;
     }
-    navigate('/expenses?capture=1', { replace: false });
-    addToast(visible.length ? 'Choose a Money book for this share' : 'Create a Money book to save this share', 'success');
   };
 
   const fromNative = async (payload: SharedPayload) => {
@@ -82,7 +118,8 @@ export default function ShareIntentListener() {
       fileName: payload.fileName,
       mimeType: payload.mimeType || (dataUrl?.startsWith('data:') ? dataUrl.slice(5).split(';')[0] : undefined),
       source: payload.source || 'share',
-      requireBookPick: true,
+      requireBookPick: false,
+      preferredBookId: cachedBookId() || undefined,
       receivedAt: new Date().toISOString(),
     });
   };
@@ -108,8 +145,8 @@ export default function ShareIntentListener() {
         await routePending({
           text: text || url,
           source: 'share',
-          preferredBookId: bookId || undefined,
-          requireBookPick: !bookId,
+          preferredBookId: bookId || cachedBookId() || undefined,
+          requireBookPick: !bookId && !cachedBookId(),
           receivedAt: new Date().toISOString(),
         });
       } catch { /* ignore */ }
@@ -131,10 +168,14 @@ export default function ShareIntentListener() {
 }
 
 export function readPendingCapture(): PendingCapture | null {
+  if (memoryPending?.imageDataUrl || memoryPending?.text) {
+    const out = memoryPending;
+    return out;
+  }
   try {
     const raw = sessionStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as PendingCapture;
+    const parsed = JSON.parse(raw) as PendingCapture & { _hasImage?: boolean };
     if (!parsed?.text && !parsed?.imageDataUrl) return null;
     return {
       text: parsed.text ? String(parsed.text) : undefined,
@@ -152,15 +193,10 @@ export function readPendingCapture(): PendingCapture | null {
 }
 
 export function clearPendingCapture() {
+  memoryPending = null;
   try { sessionStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
 }
 
 export function peekPendingCapture(): PendingCapture | null {
-  try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as PendingCapture;
-  } catch {
-    return null;
-  }
+  return memoryPending || readPendingCapture();
 }

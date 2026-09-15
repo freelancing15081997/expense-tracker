@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Copy, X } from 'lucide-react';
+import { AlertCircle, Copy, RefreshCw, X } from 'lucide-react';
 import {
   confirmSettlementReceived,
   markSettlementReview,
@@ -9,7 +9,6 @@ import {
 } from '../lib/money-api';
 import {
   buildAppUpiUri,
-  canStartPayment,
   copyText,
   launchUpiPayNative,
   launchUpiUri,
@@ -38,6 +37,8 @@ const APPS: Array<{ id: 'generic' | 'gpay' | 'phonepe' | 'paytm' | 'bhim'; label
   { id: 'bhim', label: 'BHIM' },
 ];
 
+type Phase = 'ready' | 'waiting' | 'paid' | 'failed' | 'unclear';
+
 export default function SettlementPaySheet({
   open,
   bookId,
@@ -50,9 +51,10 @@ export default function SettlementPaySheet({
   onNeedReceiverUpi,
 }: Props) {
   const [busy, setBusy] = useState(false);
-  const [phase, setPhase] = useState<'ready' | 'waiting' | 'done' | 'unclear'>('ready');
+  const [phase, setPhase] = useState<Phase>('ready');
   const [attemptId, setAttemptId] = useState('');
   const [statusMsg, setStatusMsg] = useState('');
+  const [lastApp, setLastApp] = useState<typeof APPS[number]['id']>('generic');
   const [fallback, setFallback] = useState<{ upiId: string; amount: string; note: string; title: string } | null>(null);
   const [payMeta, setPayMeta] = useState<{ upiId: string; recipientName: string; amount: string; upiUri: string } | null>(null);
 
@@ -94,17 +96,29 @@ export default function SettlementPaySheet({
         message: native.message,
       },
     });
-    setStatusMsg(res.message || paymentStatusLabel(String(res.status || '')));
-    setPhase(res.status === 'PAID' || res.status === 'FAILED' || res.status === 'CANCELLED' ? 'done' : 'unclear');
+    const status = String(res.status || '').toUpperCase();
+    setStatusMsg(res.message || paymentStatusLabel(status));
     onChanged();
-    const errLike = res.status === 'CANCELLED' || res.status === 'FAILED' || res.status === 'UNKNOWN';
-    onToast(res.message || 'Status updated', errLike ? 'error' : 'success');
-    if (res.status === 'PAID') onClose();
+
+    if (status === 'PAID') {
+      setPhase('paid');
+      onToast(res.message || 'Payment successful', 'success');
+      onClose();
+      return;
+    }
+    if (status === 'FAILED' || status === 'CANCELLED') {
+      setPhase('failed');
+      onToast(res.message || 'Payment failed', 'error');
+      return;
+    }
+    setPhase('unclear');
+    onToast(res.message || 'Couldn’t verify payment yet', 'error');
   };
 
   const startPay = async (app: typeof APPS[number]['id']) => {
     setBusy(true);
     setStatusMsg('');
+    setLastApp(app);
     try {
       const res = await startUpiPayment(bookId, settlement.id, app);
       if (!res.attemptId) throw new Error(res.message || 'Could not start payment');
@@ -142,7 +156,8 @@ export default function SettlementPaySheet({
           amount: meta.amount,
           note: settlement.expenseDescription || 'Byjan split',
         });
-        setPhase('unclear');
+        setPhase('failed');
+        setStatusMsg('Could not open UPI — use the details below or retry.');
         onToast('Open your UPI app and pay using the details below', 'error');
         return;
       }
@@ -153,7 +168,6 @@ export default function SettlementPaySheet({
         return;
       }
 
-      // Web / no native plugin: open URI; only show manual actions if result is unclear later.
       const launched = await launchUpiUri(uri);
       if (!launched.opened) {
         setFallback({
@@ -169,7 +183,7 @@ export default function SettlementPaySheet({
           userAction: 'failed',
           returnedStatus: launched.error,
         });
-        setPhase('done');
+        setPhase('failed');
         setStatusMsg(launched.error || 'Could not open a UPI app');
         onToast(launched.error || 'Could not open a UPI app', 'error');
       } else {
@@ -184,8 +198,9 @@ export default function SettlementPaySheet({
       if (String(msg).includes('UPI ID') || code === 'RECEIVER_UPI_MISSING') {
         onNeedReceiverUpi?.(settlement.toUid);
       }
+      setPhase('failed');
+      setStatusMsg(msg);
       onToast(msg, 'error');
-      setPhase('ready');
     } finally {
       setBusy(false);
     }
@@ -193,16 +208,18 @@ export default function SettlementPaySheet({
 
   const afterReturn = async (userAction: 'cancelled' | 'failed' | 'unknown') => {
     if (!attemptId) {
-      onClose();
+      setPhase('failed');
+      setStatusMsg('Payment did not complete.');
       return;
     }
     setBusy(true);
     try {
       const res = await reportUpiReturn({ bookId, attemptId, userAction, outcome: userAction });
       setStatusMsg(res.message || paymentStatusLabel(String(res.status || '')));
-      setPhase('done');
+      setPhase(res.status === 'PAID' ? 'paid' : 'failed');
       onChanged();
-      onToast(res.message || 'Status updated', res.status === 'CANCELLED' || res.status === 'FAILED' ? 'error' : 'success');
+      onToast(res.message || 'Status updated', res.status === 'PAID' ? 'success' : 'error');
+      if (res.status === 'PAID') onClose();
     } catch (err) {
       onToast(err instanceof Error ? err.message : 'Could not update status', 'error');
     } finally {
@@ -237,6 +254,13 @@ export default function SettlementPaySheet({
     }
   };
 
+  const retryPay = () => {
+    setPhase('ready');
+    setStatusMsg('');
+    setAttemptId('');
+    void startPay(lastApp || 'generic');
+  };
+
   return (
     <div className="sp-root" role="dialog" aria-modal="true" aria-label="Settle payment">
       <button type="button" className="sp-dim" aria-label="Close" onClick={onClose} />
@@ -269,7 +293,31 @@ export default function SettlementPaySheet({
           </div>
         </div>
 
-        {role === 'payer' && phase === 'ready' && canStartPayment(settlement.status) ? (
+        {phase === 'failed' ? (
+          <div className="sp-fail-card" role="alert">
+            <div className="sp-fail-icon">
+              <AlertCircle className="w-6 h-6" />
+            </div>
+            <p className="sp-fail-title">Payment failed</p>
+            <p className="sp-fail-detail">{statusMsg || 'The UPI app reported a failure or cancel. Nothing was marked paid.'}</p>
+            {role === 'payer' ? (
+              <div className="sp-footer" style={{ marginTop: 14 }}>
+                <button type="button" className="sp-cta" disabled={busy} onClick={() => void retryPay()}>
+                  <RefreshCw className="w-4 h-4 inline" style={{ marginRight: 6 }} />
+                  {busy ? 'Retrying…' : 'Retry payment'}
+                </button>
+                <button type="button" className="sp-select-all" disabled={busy} onClick={() => { setPhase('ready'); setStatusMsg(''); }}>
+                  Choose another app
+                </button>
+                <button type="button" className="sp-select-all" disabled={busy} onClick={() => void needReview()}>
+                  Needs review
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {role === 'payer' && phase === 'ready' ? (
           <>
             <p className="sp-kicker" style={{ marginBottom: 8 }}>Choose payment app</p>
             <div className="sp-methods" style={{ gridTemplateColumns: '1fr 1fr', marginBottom: 12 }}>
@@ -280,7 +328,7 @@ export default function SettlementPaySheet({
               ))}
             </div>
             <p style={{ fontSize: 12, color: 'rgba(244,241,234,0.45)', marginBottom: 8 }}>
-              Success or failure is read automatically when the UPI app returns a result. Recipient confirm is optional later if needed.
+              Success or failure is read automatically when you return from the UPI app. On failure you’ll get Retry here.
             </p>
           </>
         ) : null}
@@ -289,23 +337,21 @@ export default function SettlementPaySheet({
           <div className="sp-row is-on" style={{ marginBottom: 12 }}>
             <div className="sp-meta" style={{ gridColumn: '1 / -1' }}>
               <p className="sp-name">Waiting for UPI app…</p>
-              <p className="sp-email">{statusMsg || 'Complete the payment — Byjan will read the result when the app returns.'}</p>
+              <p className="sp-email">{statusMsg || 'Complete the payment — Byjan reads success or failure when the app returns.'}</p>
             </div>
           </div>
         ) : null}
 
-        {phase === 'done' || phase === 'unclear' ? (
+        {phase === 'unclear' ? (
           <div className="sp-row is-on" style={{ marginBottom: 12 }}>
             <div className="sp-meta" style={{ gridColumn: '1 / -1' }}>
-              <p className="sp-name">{statusMsg || 'Status updated'}</p>
-              {phase === 'unclear' ? (
-                <p className="sp-email">No clear success/failure from the UPI app. Retry, cancel, or the recipient can confirm later.</p>
-              ) : null}
+              <p className="sp-name">{statusMsg || 'No clear result yet'}</p>
+              <p className="sp-email">Retry, mark failed, or the recipient can confirm later if money actually arrived.</p>
             </div>
           </div>
         ) : null}
 
-        {(fallback || payMeta) && phase !== 'waiting' && (
+        {(fallback || payMeta) && phase !== 'waiting' && phase !== 'paid' && (
           <div style={{ display: 'grid', gap: 8, marginBottom: 12 }}>
             {fallback ? <p className="sp-error">{fallback.title}</p> : null}
             <button
@@ -327,31 +373,28 @@ export default function SettlementPaySheet({
 
         {role === 'payer' && phase === 'unclear' ? (
           <div className="sp-footer">
-            <button type="button" className="sp-select-all" disabled={busy} onClick={() => void afterReturn('cancelled')}>
-              I cancelled / it failed
+            <button type="button" className="sp-cta" disabled={busy} onClick={() => void retryPay()}>
+              <RefreshCw className="w-4 h-4 inline" style={{ marginRight: 6 }} /> Retry payment
+            </button>
+            <button type="button" className="sp-select-all" disabled={busy} onClick={() => void afterReturn('failed')}>
+              Mark as failed
             </button>
             <button type="button" className="sp-select-all" disabled={busy} onClick={() => void needReview()}>
               Needs review
             </button>
-            <button type="button" className="sp-cta" disabled={busy || !canStartPayment(settlement.status)} onClick={() => { setPhase('ready'); setStatusMsg(''); }}>
-              Try again
-            </button>
           </div>
         ) : null}
 
-        {role === 'receiver' && settlement.status !== 'PAID' ? (
+        {role === 'receiver' && settlement.status !== 'PAID' && phase !== 'paid' ? (
           <div className="sp-footer">
-            <p className="sp-footer-meta">Optional: confirm only if you actually received {amountLabel} and it wasn’t already marked paid.</p>
+            <p className="sp-footer-meta">Optional backup: confirm only if you actually received {amountLabel}.</p>
             <button type="button" className="sp-cta" disabled={busy} onClick={() => void confirmReceived()}>
               {busy ? 'Saving…' : `Confirm received ${amountLabel}`}
             </button>
-            <button type="button" className="sp-select-all" disabled={busy} onClick={() => void needReview()}>
-              Mark for review
-            </button>
           </div>
         ) : null}
 
-        {settlement.status === 'PAID' || (phase === 'done' && statusMsg.toLowerCase().includes('success')) ? (
+        {phase === 'paid' ? (
           <p style={{ textAlign: 'center', color: '#6fcbb4', fontWeight: 700 }}>Paid</p>
         ) : null}
       </div>

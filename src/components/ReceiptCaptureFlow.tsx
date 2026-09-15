@@ -99,25 +99,23 @@ async function parseReceiptNow(
       receiptPath = uploaded.receiptPath;
       receiptName = uploaded.receiptName || receiptName;
     } else {
-      const { prepareReceiptImage } = await import('../lib/money-receipts');
+      const { prepareReceiptImage, uploadPreparedReceipt } = await import('../lib/money-receipts');
       const prepared = await prepareReceiptImage(launch.imageDataUrl, imageMime, false);
       imageMime = prepared.mime || 'image/jpeg';
       imageBase64 = String(prepared.dataUrl || '')
         .replace(/^data:[^;]+;base64,/i, '')
         .replace(/\s+/g, '');
 
-      onStatus('Uploading & reading…');
-      const uploadPromise = uploadLedgerReceipt(bookId, {
-        dataUrl: prepared.dataUrl || launch.imageDataUrl,
+      onStatus('Reading amount…');
+      // Start upload in parallel; wait on parse first (critical path).
+      const uploadPromise = uploadPreparedReceipt(bookId, {
+        bytes: prepared.bytes,
+        mime: imageMime,
+        dataUrl: prepared.dataUrl,
         fileName: receiptName,
-        mimeType: imageMime,
-      }).then((uploaded) => {
-        receiptPath = uploaded.receiptPath;
-        receiptName = uploaded.receiptName || receiptName;
-        return uploaded;
-      });
+      }).catch(() => null);
 
-      const parsePromise = processReceiptJob({
+      const result = await processReceiptJob({
         bookId,
         text: launch.text || '',
         receiptPath: '',
@@ -129,11 +127,13 @@ async function parseReceiptNow(
         imageMime,
       });
 
-      const [uploaded, result] = await Promise.all([uploadPromise, parsePromise]);
-      receiptPath = uploaded.receiptPath || receiptPath;
-      receiptName = uploaded.receiptName || receiptName;
+      const uploaded = await uploadPromise;
+      if (uploaded) {
+        receiptPath = uploaded.receiptPath || receiptPath;
+        receiptName = uploaded.receiptName || receiptName;
+      }
 
-      let preview = result.preview
+      const preview = result.preview
         ? {
             ...result.preview,
             id: result.preview.id || newMoneyId('cap'),
@@ -146,27 +146,10 @@ async function parseReceiptNow(
             reasons: [result.error || 'Parser returned no fields'],
           });
 
-      if (!(preview.amountPaise > 0) && receiptPath) {
-        onStatus('Reading stored receipt…');
-        const retry = await processReceiptJob({
-          bookId,
-          text: launch.text || '',
-          receiptPath,
-          receiptName,
-          source: launch.source || 'share',
-          idempotencyKey: `parse_r2_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
-          autoConfirm: true,
-        });
-        if (retry.preview && Number(retry.preview.amountPaise || 0) > 0) {
-          preview = {
-            ...retry.preview,
-            id: retry.preview.id || preview.id || newMoneyId('cap'),
-            receiptPath: retry.preview.receiptPath || receiptPath,
-            receiptName: retry.preview.receiptName || receiptName,
-          };
-        }
-      }
-      return { preview, previews: result.previews?.length ? result.previews : [preview] };
+      return {
+        preview: { ...preview, receiptPath: preview.receiptPath || receiptPath, receiptName: preview.receiptName || receiptName },
+        previews: result.previews?.length ? result.previews : [preview],
+      };
     }
   }
 

@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { ChevronDown, IndianRupee, RefreshCw, Users } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ArrowDownLeft, ArrowUpRight, ChevronDown, RefreshCw, Search, Users } from 'lucide-react';
 import {
   listMemberUpi,
   listSettlements,
@@ -18,7 +18,19 @@ type Props = {
   myUpiName?: string;
   onToast: (msg: string, kind?: 'success' | 'error') => void;
   onProfileRefresh?: () => void;
+  /** compact = toolbar collapse; page = full Splits tab */
+  variant?: 'compact' | 'page';
 };
+
+type Filter = 'all' | 'unpaid' | 'pay' | 'receive' | 'failed' | 'paid';
+
+function statusTone(status: string) {
+  const s = String(status || '').toUpperCase();
+  if (s === 'PAID') return 'ok';
+  if (s === 'FAILED' || s === 'CANCELLED' || s === 'EXPIRED') return 'bad';
+  if (s === 'PAYMENT_STARTED' || s === 'AWAITING_CONFIRMATION' || s === 'UNKNOWN' || s === 'REVIEW_REQUIRED') return 'warn';
+  return 'idle';
+}
 
 export default function SettlementsPanel({
   bookId,
@@ -28,14 +40,17 @@ export default function SettlementsPanel({
   myUpiName = '',
   onToast,
   onProfileRefresh,
+  variant = 'compact',
 }: Props) {
   const [rows, setRows] = useState<MoneySettlementRow[]>([]);
   const [members, setMembers] = useState<Array<{ uid: string; displayName: string; hasUpi: boolean; email: string }>>([]);
   const [loading, setLoading] = useState(false);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(variant === 'page');
   const [payTarget, setPayTarget] = useState<MoneySettlementRow | null>(null);
   const [upiOpen, setUpiOpen] = useState(false);
   const [askUid, setAskUid] = useState('');
+  const [filter, setFilter] = useState<Filter>('all');
+  const [q, setQ] = useState('');
 
   const refresh = useCallback(async () => {
     if (!bookId) return;
@@ -52,6 +67,7 @@ export default function SettlementsPanel({
         hasUpi: m.hasUpi,
         email: m.email,
       })));
+      setPayTarget((prev) => (prev ? settlements.find((s) => s.id === prev.id) || prev : null));
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Could not load settlements';
       if (!/unknown money operation/i.test(msg)) onToast(msg, 'error');
@@ -64,11 +80,42 @@ export default function SettlementsPanel({
     void refresh();
   }, [refresh]);
 
-  const mine = rows.filter((r) => r.fromUid === currentUid || r.toUid === currentUid);
-  const unpaid = mine.filter((r) => r.status !== 'PAID' && r.status !== 'CANCELLED');
+  const mine = useMemo(
+    () => rows.filter((r) => r.fromUid === currentUid || r.toUid === currentUid),
+    [rows, currentUid],
+  );
+
+  const unpaid = mine.filter((r) => r.status !== 'PAID');
   const missingUpi = members.filter((m) => m.uid !== currentUid && !m.hasUpi);
   const iNeedUpi = !myUpiId;
-  const badge = unpaid.length || (iNeedUpi ? 1 : 0) || missingUpi.length;
+  const badge = unpaid.filter((r) => r.status !== 'CANCELLED').length || (iNeedUpi ? 1 : 0) || missingUpi.length;
+
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    return mine.filter((r) => {
+      const iOwe = r.fromUid === currentUid;
+      const s = String(r.status || '').toUpperCase();
+      if (filter === 'unpaid' && s === 'PAID') return false;
+      if (filter === 'paid' && s !== 'PAID') return false;
+      if (filter === 'pay' && !iOwe) return false;
+      if (filter === 'receive' && iOwe) return false;
+      if (filter === 'failed' && !['FAILED', 'CANCELLED', 'UNKNOWN', 'REVIEW_REQUIRED'].includes(s)) return false;
+      if (!needle) return true;
+      const hay = `${r.expenseDescription || ''} ${r.merchant || ''} ${r.receiverNameSnapshot || ''} ${r.note || ''} ${paymentStatusLabel(r.status)}`.toLowerCase();
+      return hay.includes(needle);
+    });
+  }, [mine, filter, q, currentUid]);
+
+  const totals = useMemo(() => {
+    let owe = 0;
+    let due = 0;
+    for (const r of mine) {
+      if (r.status === 'PAID') continue;
+      if (r.fromUid === currentUid) owe += Number(r.amountPaise || 0);
+      else due += Number(r.amountPaise || 0);
+    }
+    return { owe, due };
+  }, [mine, currentUid]);
 
   const askUpi = async (uid: string) => {
     setAskUid(uid);
@@ -82,96 +129,172 @@ export default function SettlementsPanel({
     }
   };
 
-  if (!mine.length && !iNeedUpi && !missingUpi.length) {
+  const listBody = (
+    <>
+      {variant === 'page' ? (
+        <div className="stx-hero">
+          <div>
+            <p className="stx-kicker">Split settlements</p>
+            <h3 className="stx-title">Transactions</h3>
+            <p className="stx-sub">Separate from expenses — pay, retry failed UPI, and track who’s owed.</p>
+          </div>
+          <button type="button" className="byjan-btn-ghost !h-9 !px-2.5" disabled={loading} onClick={() => void refresh()}>
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Split payments</p>
+          <button type="button" className="byjan-btn-ghost !h-8 !px-2" disabled={loading} onClick={() => void refresh()}>
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+      )}
+
+      {variant === 'page' ? (
+        <div className="stx-stats">
+          <div className="stx-stat">
+            <span>You owe</span>
+            <strong>{symbol}{paiseToUpiAmount(totals.owe)}</strong>
+          </div>
+          <div className="stx-stat is-in">
+            <span>Owed to you</span>
+            <strong>{symbol}{paiseToUpiAmount(totals.due)}</strong>
+          </div>
+        </div>
+      ) : null}
+
+      {iNeedUpi ? (
+        <div className="mb-2 rounded-xl border border-teal-200 bg-teal-50/70 px-3 py-2">
+          <p className="text-sm font-semibold text-teal-900">Add your UPI ID</p>
+          <p className="text-xs text-teal-800/80 mt-0.5">Needed so teammates can pay you.</p>
+          <button type="button" className="byjan-btn !h-9 mt-2" onClick={() => setUpiOpen(true)}>
+            Add UPI ID
+          </button>
+        </div>
+      ) : null}
+
+      {missingUpi.length > 0 ? (
+        <div className="mb-2 space-y-1.5">
+          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Waiting for UPI</p>
+          {missingUpi.slice(0, variant === 'page' ? 8 : 4).map((m) => (
+            <div key={m.uid} className="flex items-center justify-between gap-2 text-sm">
+              <span className="text-slate-700 truncate">{m.displayName}</span>
+              <button
+                type="button"
+                className="text-teal-700 font-semibold text-xs shrink-0"
+                disabled={askUid === m.uid}
+                onClick={() => void askUpi(m.uid)}
+              >
+                {askUid === m.uid ? 'Asking…' : 'Ask'}
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {variant === 'page' ? (
+        <div className="stx-toolbar">
+          <label className="stx-search">
+            <Search className="w-3.5 h-3.5 text-slate-400" />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search merchant, person, note"
+            />
+          </label>
+          <div className="stx-filters">
+            {([
+              ['all', 'All'],
+              ['unpaid', 'Open'],
+              ['pay', 'You pay'],
+              ['receive', 'Receive'],
+              ['failed', 'Failed'],
+              ['paid', 'Paid'],
+            ] as Array<[Filter, string]>).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                className={`stx-chip ${filter === id ? 'is-on' : ''}`}
+                onClick={() => setFilter(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      <div className={variant === 'page' ? 'stx-list' : 'space-y-2'}>
+        {(variant === 'page' ? filtered : mine.slice(0, 12)).length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 px-4 py-8 text-center text-sm text-slate-500">
+            {mine.length === 0 ? 'No split transactions yet. Split an expense to see settlements here.' : 'No matches for this filter.'}
+          </div>
+        ) : (
+          (variant === 'page' ? filtered : mine.slice(0, 12)).map((row) => {
+            const iOwe = row.fromUid === currentUid;
+            const tone = statusTone(row.status);
+            const label = iOwe ? 'You pay' : 'They pay you';
+            return (
+              <article key={row.id} className={`stx-card tone-${tone}`}>
+                <div className={`stx-icon ${iOwe ? 'out' : 'in'}`}>
+                  {iOwe ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownLeft className="w-4 h-4" />}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm font-semibold text-[#0B1F3A] truncate">
+                      {label} {symbol}{paiseToUpiAmount(row.amountPaise)}
+                    </p>
+                    <span className={`stx-badge tone-${tone}`}>{paymentStatusLabel(row.status)}</span>
+                  </div>
+                  <p className="text-[12px] text-slate-500 truncate mt-0.5">
+                    {row.expenseDescription || row.merchant || 'Split'}
+                    {row.receiverNameSnapshot ? ` · ${row.receiverNameSnapshot}` : ''}
+                  </p>
+                </div>
+                {row.status !== 'PAID' ? (
+                  <button
+                    type="button"
+                    className="byjan-btn !h-9 !px-3 text-xs shrink-0"
+                    onClick={() => setPayTarget(row)}
+                  >
+                    {iOwe && canStartPayment(row.status) ? (['FAILED', 'CANCELLED', 'UNKNOWN'].includes(String(row.status).toUpperCase()) ? 'Retry' : 'Pay') : 'Open'}
+                  </button>
+                ) : (
+                  <span className="text-[11px] font-bold text-emerald-700 shrink-0">PAID</span>
+                )}
+              </article>
+            );
+          })
+        )}
+      </div>
+    </>
+  );
+
+  if (variant === 'compact' && !mine.length && !iNeedUpi && !missingUpi.length) {
     return null;
   }
 
   return (
-    <div className="tool-collapse">
-      <button
-        type="button"
-        className="tool-collapse-trigger"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-      >
-        <Users className="w-3.5 h-3.5" />
-        Split
-        {badge > 0 ? <span className="tool-collapse-badge">{badge > 9 ? '9+' : badge}</span> : null}
-        <ChevronDown className={`w-3.5 h-3.5 tool-collapse-chevron ${open ? 'is-open' : ''}`} />
-      </button>
-
-      {open ? (
-        <div className="tool-collapse-panel">
-          <div className="flex items-center justify-between gap-2 mb-2">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Split payments</p>
-            <button type="button" className="byjan-btn-ghost !h-8 !px-2" disabled={loading} onClick={() => void refresh()}>
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-            </button>
-          </div>
-
-          {iNeedUpi ? (
-            <div className="mb-2 rounded-xl border border-teal-200 bg-teal-50/70 px-3 py-2">
-              <p className="text-sm font-semibold text-teal-900">Add your UPI ID</p>
-              <p className="text-xs text-teal-800/80 mt-0.5">Needed so teammates can pay you.</p>
-              <button type="button" className="byjan-btn !h-9 mt-2" onClick={() => setUpiOpen(true)}>
-                Add UPI ID
-              </button>
-            </div>
-          ) : null}
-
-          {missingUpi.length > 0 ? (
-            <div className="mb-2 space-y-1.5">
-              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Waiting for UPI</p>
-              {missingUpi.slice(0, 4).map((m) => (
-                <div key={m.uid} className="flex items-center justify-between gap-2 text-sm">
-                  <span className="text-slate-700 truncate">{m.displayName}</span>
-                  <button
-                    type="button"
-                    className="text-teal-700 font-semibold text-xs shrink-0"
-                    disabled={askUid === m.uid}
-                    onClick={() => void askUpi(m.uid)}
-                  >
-                    {askUid === m.uid ? 'Asking…' : 'Ask'}
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : null}
-
-          <div className="space-y-2">
-            {mine.slice(0, 12).map((row) => {
-              const iOwe = row.fromUid === currentUid;
-              const label = iOwe ? 'You pay' : 'They pay you';
-              return (
-                <div key={row.id} className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-2.5 py-2">
-                  <div className="w-8 h-8 rounded-lg bg-slate-100 text-[#0B1F3A] inline-flex items-center justify-center shrink-0">
-                    <IndianRupee className="w-3.5 h-3.5" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold text-[#0B1F3A] truncate">
-                      {label} {symbol}{paiseToUpiAmount(row.amountPaise)}
-                    </p>
-                    <p className="text-[11px] text-slate-500 truncate">
-                      {paymentStatusLabel(row.status)} · {row.expenseDescription || row.merchant || 'Split'}
-                    </p>
-                  </div>
-                  {row.status !== 'PAID' ? (
-                    <button
-                      type="button"
-                      className="byjan-btn !h-8 !px-2.5 text-xs shrink-0"
-                      onClick={() => setPayTarget(row)}
-                    >
-                      {iOwe && canStartPayment(row.status) ? 'Pay' : 'Open'}
-                    </button>
-                  ) : (
-                    <span className="text-[11px] font-bold text-emerald-700">PAID</span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
+    <div className={variant === 'page' ? 'stx-page' : 'tool-collapse'}>
+      {variant === 'compact' ? (
+        <>
+          <button
+            type="button"
+            className="tool-collapse-trigger"
+            aria-expanded={open}
+            onClick={() => setOpen((v) => !v)}
+          >
+            <Users className="w-3.5 h-3.5" />
+            Split
+            {badge > 0 ? <span className="tool-collapse-badge">{badge > 9 ? '9+' : badge}</span> : null}
+            <ChevronDown className={`w-3.5 h-3.5 tool-collapse-chevron ${open ? 'is-open' : ''}`} />
+          </button>
+          {open ? <div className="tool-collapse-panel">{listBody}</div> : null}
+        </>
+      ) : (
+        listBody
+      )}
 
       <SettlementPaySheet
         open={Boolean(payTarget)}
