@@ -490,12 +490,14 @@ export default function Dashboard() {
           {!hasAnyFeature ? (
             <p className="home-lead">Your admin has not turned on Money or Business yet.</p>
           ) : canSeeMoney ? (
-            <>
+            <div className="home-balance-block">
               <p className="home-balance-label">Across your books</p>
               <p className="home-balance byjan-money">
-                {loading || !statsReady ? '…' : formatIndianAmount(net, currency)}
+                {loading || !statsReady
+                  ? <span className="dash-skel home-skel-balance" aria-hidden />
+                  : formatIndianAmount(net, currency)}
               </p>
-            </>
+            </div>
           ) : (
             <p className="home-lead">Open Business when you need invoices and GST.</p>
           )}
@@ -521,12 +523,26 @@ export default function Dashboard() {
           </div>
         </section>
 
-        {hasFeature('money') && visibleBooks.length > 0 && (
+        {hasFeature('money') && (loading || visibleBooks.length > 0) && (
           <section className="home-continue">
             <div className="home-continue-head">
               <h2>Continue</h2>
               <Link to="/expenses">All books</Link>
             </div>
+            {loading && visibleBooks.length === 0 ? (
+              <div className="home-continue-list" aria-busy="true" aria-label="Loading books">
+                {[0, 1, 2].map((row) => (
+                  <div key={row} className="home-skel-card">
+                    <span className="dash-skel home-skel-icon" />
+                    <span className="home-skel-lines">
+                      <span className="dash-skel" style={{ width: '42%', height: 12 }} />
+                      <span className="dash-skel" style={{ width: '28%', height: 10 }} />
+                    </span>
+                    <span className="dash-skel" style={{ width: 52, height: 14, borderRadius: 6 }} />
+                  </div>
+                ))}
+              </div>
+            ) : (
             <div className="home-continue-list">
               {(recentBooks.length ? recentBooks : visibleBooks).slice(0, 4).map((book, i) => {
                 const stat = bookStats[book.id];
@@ -546,7 +562,9 @@ export default function Dashboard() {
                       <span className="home-continue-name">{book.name}</span>
                       <span className="home-continue-meta">{roleLabel(myRoleOn(book))}</span>
                     </span>
-                    {canSeeMoney && stat ? (
+                    {canSeeMoney && (loading || !statsReady) && !stat ? (
+                      <span className="dash-skel" style={{ width: 52, height: 14, borderRadius: 6 }} aria-hidden />
+                    ) : canSeeMoney && stat ? (
                       <span className={`byjan-money home-continue-amt ${netNeg ? 'is-out' : 'is-in'}`}>
                         {netNeg ? '−' : ''}{symbol}{Math.abs(stat.net).toLocaleString()}
                       </span>
@@ -557,6 +575,7 @@ export default function Dashboard() {
                 );
               })}
             </div>
+            )}
           </section>
         )}
 
@@ -586,11 +605,11 @@ export default function Dashboard() {
     <div className="dash-shell ios-page">
       {createDialog}
       <section className="dash-hero dash-hero-money">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">Money</p>
-        <div className="mt-2 flex items-center justify-between gap-3">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/45">Money</p>
+        <div className="mt-1.5 flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h1 className="font-display text-[26px] sm:text-[30px] font-semibold tracking-[-0.04em] text-white">Money books</h1>
-            <p className="text-[13px] text-white/70 mt-1">Add money out, money in, or a transfer. Paste a UPI SMS when you can.</p>
+            <h1 className="dash-hero-title">Money books</h1>
+            <p className="dash-hero-sub">Track money in, money out, and transfers across your books.</p>
           </div>
           <button type="button" onClick={() => setShowNewBook(true)} className="dash-hero-cta">
             <Plus className="w-4 h-4" />
@@ -598,14 +617,14 @@ export default function Dashboard() {
           </button>
         </div>
         {canSeeMoney && (
-        <div className="mt-5 flex items-end justify-between gap-3">
+        <div className="dash-hero-balance-wrap">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/50">Balance</p>
-            <p className="font-display text-[32px] sm:text-[36px] font-semibold tracking-[-0.04em] text-white tabular-nums leading-none mt-1">
+            <p className="dash-hero-balance-label">Balance</p>
+            <p className="dash-hero-balance byjan-money">
               {loading || !statsReady ? <span className="dash-skel dash-skel-money" /> : formatIndianAmount(net, currency)}
             </p>
           </div>
-          <div className="text-right text-[12px] text-white/70 space-y-0.5">
+          <div className="dash-hero-meta">
             <p>{loading || !statsReady ? 'Updating totals' : `${globalStats.entries} expenses`}</p>
             <p>{visibleBooks.length} books</p>
           </div>
@@ -630,7 +649,7 @@ export default function Dashboard() {
             ].map((item) => (
               <div key={item.label} className={`md3-stat tone-${item.tone}`}>
                 <span className="md3-stat-icon" aria-hidden>
-                  <item.Icon className="w-4 h-4" />
+                  <item.Icon className="w-3.5 h-3.5" />
                 </span>
                 <span className="md3-stat-label">{item.label}</span>
                 <strong className="md3-stat-value byjan-money">{!statsReady ? <span className="dash-skel dash-skel-line" /> : item.value}</strong>
@@ -673,7 +692,16 @@ export default function Dashboard() {
           </div>
           {loading ? (
             <div className="md3-book-list" aria-busy="true" aria-label="Loading money books">
-              {[0, 1, 2].map((row) => <div key={row} className="md3-book dash-skel-card" />)}
+              {[0, 1, 2, 3].map((row) => (
+                <div key={row} className="md3-skel-book">
+                  <span className="dash-skel md3-skel-icon" />
+                  <span className="md3-skel-lines">
+                    <span className="dash-skel" style={{ width: '46%', height: 12 }} />
+                    <span className="dash-skel" style={{ width: '30%', height: 10 }} />
+                  </span>
+                  <span className="dash-skel" style={{ width: 56, height: 14, borderRadius: 6 }} />
+                </div>
+              ))}
             </div>
           ) : loadError && books.length === 0 ? (
             <div className="dash-empty">
