@@ -114,13 +114,14 @@ async function parseReceiptNow(
       const { prepareReceiptImage, uploadPreparedReceipt } = await import('../lib/money-receipts');
       const { localParseReceiptImage, prepareOcrImage } = await import('../lib/document-ocr');
 
-      // OCR on a sharp copy; upload uses a separate compress path.
-      onStatus('Reading on device…', 24);
-      const ocrPrepared = await prepareOcrImage(launch.imageDataUrl, imageMime);
-      const localPromise = localParseReceiptImage(ocrPrepared.base64, ocrPrepared.mime, launch.text || '')
+      // OCR + compress in parallel for low latency.
+      onStatus('Reading on device…', 20);
+      const ocrPromise = prepareOcrImage(launch.imageDataUrl, imageMime)
+        .then((ocrPrepared) => localParseReceiptImage(ocrPrepared.base64, ocrPrepared.mime, launch.text || ''))
         .catch(() => null);
+      const preparedPromise = prepareReceiptImage(launch.imageDataUrl, imageMime, false);
 
-      const prepared = await prepareReceiptImage(launch.imageDataUrl, imageMime, false);
+      const [local, prepared] = await Promise.all([ocrPromise, preparedPromise]);
       imageMime = prepared.mime || 'image/jpeg';
       imageBase64 = String(prepared.dataUrl || '')
         .replace(/^data:[^;]+;base64,/i, '')
@@ -134,7 +135,6 @@ async function parseReceiptNow(
         fileName: receiptName,
       }).catch(() => null);
 
-      const local = await localPromise;
       const hintText = [launch.text || '', local?.text || ''].filter(Boolean).join('\n').slice(0, 2000);
 
       // Instant draft only when on-device OCR is clearly confident (currency-anchored).
@@ -200,11 +200,30 @@ async function parseReceiptNow(
             reasons: [result.error || 'Parser returned no fields'],
           });
 
-      // Prefer local amount if server still returned 0.
-      if (!(Number(preview.amountPaise || 0) > 0) && local && local.amount > 0) {
+      // Prefer local labeled amount when server differs (fixes ₹1 → ₹5 chrome picks).
+      const localPaise = local && local.amount > 0 ? Math.round(local.amount * 100) : 0;
+      const serverPaise = Number(preview.amountPaise || 0);
+      if (localPaise > 0 && (local.confidence === 'high' || local.score && local.score >= 48)) {
+        if (!serverPaise || serverPaise !== localPaise) {
+          preview = {
+            ...preview,
+            amountPaise: localPaise,
+            merchant: local.merchant || preview.merchant,
+            description: local.description || preview.description,
+            paymentMethod: local.paymentMethod || preview.paymentMethod,
+            direction: local.entryType === 'in' ? 'MONEY_IN' : preview.direction,
+            processingStatus: 'READY',
+            confidence: local.confidence,
+            reasons: [
+              ...(preview.reasons || []).filter((r) => !/could not read amount/i.test(r)),
+              `Amount locked from on-device OCR (${local.engine})`,
+            ],
+          };
+        }
+      } else if (!serverPaise && localPaise > 0) {
         preview = {
           ...preview,
-          amountPaise: Math.round(local.amount * 100),
+          amountPaise: localPaise,
           merchant: preview.merchant || local.merchant,
           description: preview.description || local.description,
           paymentMethod: preview.paymentMethod || local.paymentMethod,

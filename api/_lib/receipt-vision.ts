@@ -188,7 +188,8 @@ amount (number), total (number), date (YYYY-MM-DD), merchant, description, categ
 (Fuel, Groceries, Meals, Travel, Utilities, Health, Shopping, Software Subscriptions, or Uncategorized),
 entryType (out|in), paymentMethod (cash|card|upi|bank|wallet), notes.
 Rules:
-- For UPI screenshots: amount = the Paid / Sent / Debited / Amount figure shown large on screen (₹ / Rs / INR). Prefer "Paid ₹X" or "Payment successful" total over UPI reference numbers.
+- For UPI screenshots: amount MUST be the single Paid / Sent / Debited / You paid figure (the hero total). Ignore unrelated digits (ratings, battery, time, fees chips, “Pay ₹5” suggestions, split counts).
+- If OCR/share text includes “Paid ₹X” or “Debited by X”, use that X exactly — do not substitute a larger nearby number.
 - amount/total = grand total / amount paid / net payable (required when visible).
 - Never invent amounts. If no total is visible, set amount to 0.
 - Handwriting: carefully read digits and merchant names; do not guess unclear totals.

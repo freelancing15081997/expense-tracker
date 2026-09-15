@@ -8,7 +8,7 @@ import { useBooksTenantMeta } from '../lib/tenant';
 import { getCurrencySymbol } from '../lib/currency';
 import { initials, readRecentLedgers, sparkDays } from '../lib/ledger-advanced';
 import { formatIndianAmount, workspaceBridges } from '../lib/bridge-automations';
-import { Plus, Check, X, Users, ArrowUpRight, RefreshCw, Wallet, TrendingUp, Receipt, BookOpen, BookText, Shield, ChevronRight, IndianRupee } from 'lucide-react';
+import { Plus, Check, X, Users, ArrowUpRight, RefreshCw, Wallet, TrendingUp, Receipt, BookOpen, Shield, ChevronRight, IndianRupee } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 import { ListControls, usePagedList } from '../components/ListControls';
@@ -473,103 +473,81 @@ export default function Dashboard() {
 
   if (!expensesOnly) {
     return (
-      <div className="dash-shell dash-shell-home ios-page">
+      <div className="home-shell ios-page">
         {createDialog}
-        <section className="dash-hero dash-hero-home">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">Command center</p>
-          <div className="mt-2 flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-[12px] font-medium text-white/65">{hello}</p>
-              <h1 className="font-display text-[28px] sm:text-[34px] font-semibold tracking-[-0.04em] text-white truncate">{firstName}</h1>
-              <p className="text-[13px] text-white/70 mt-1">
-                {!hasAnyFeature
-                  ? 'Your admin has not turned on any features for you yet.'
-                  : hasFeature('business')
-                    ? 'Capture spend once. Money stays in Money. Business stays in Business.'
-                    : canSeeMoney
-                      ? 'Give Byjan a receipt, UPI SMS, or a short line. It records it in your money book.'
-                      : 'Open Business from the tabs when you need invoices and GST.'}
-              </p>
-            </div>
+        <section className="home-stage">
+          <div className="home-stage-glow" aria-hidden />
+          <div className="home-stage-grid" aria-hidden />
+          <div className="home-brand-row">
+            <p className="home-brand">Byjan</p>
             {isSuperUser && (
-              <Link to="/access" className="dash-super-badge">
-                <Shield className="w-3.5 h-3.5" /> Super user
+              <Link to="/access" className="home-super">
+                <Shield className="w-3.5 h-3.5" /> Access
               </Link>
             )}
           </div>
-          {hasAnyFeature ? (
-          <div className="dash-home-stats">
-            {canSeeMoney && (
-            <div className="dash-home-stat">
-              <span>Balance</span>
-              <strong>{loading || !statsReady ? '…' : formatIndianAmount(net, currency)}</strong>
-            </div>
-            )}
-            {canSeeMoney && (
-            <Link to="/expenses" className="dash-home-stat">
-              <span>Money books</span>
-              <strong>{visibleBooks.length}</strong>
-            </Link>
-            )}
-            {(canSeeMoney || hasFeature('business')) && (
-            <div className="dash-home-stat">
-              <span>{canSeeMoney ? 'Shared with' : 'Business'}</span>
-              <strong>{canSeeMoney ? managedBooks.length : (isBusinessOwner ? 1 : 0)}</strong>
-            </div>
-            )}
-          </div>
+          <p className="home-hello">{hello}, {firstName}</p>
+          {!hasAnyFeature ? (
+            <p className="home-lead">Your admin has not turned on Money or Business yet.</p>
+          ) : canSeeMoney ? (
+            <>
+              <p className="home-balance-label">Across your books</p>
+              <p className="home-balance byjan-money">
+                {loading || !statsReady ? '…' : formatIndianAmount(net, currency)}
+              </p>
+            </>
           ) : (
-          <div className="mt-4 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-[13px] text-white/80">
-            No Money or Business access is turned on. Ask your super user to enable features for you.
-          </div>
+            <p className="home-lead">Open Business when you need invoices and GST.</p>
           )}
-          <div className="dash-dest-grid">
+          <div className="home-cta-row">
             {hasFeature('money') && (
-            <Link to="/expenses" className="dash-dest">
-              <span className="dash-dest-icon"><BookText className="w-5 h-5" /></span>
-              <strong>Money</strong>
-              <span>UPI, receipts, daily spend</span>
-            </Link>
+              <Link to="/expenses" className="home-cta home-cta-primary">
+                <span className="home-cta-orb" aria-hidden><IndianRupee className="w-4 h-4" /></span>
+                Money
+              </Link>
             )}
             {hasFeature('money') && (
-            <Link to="/reports" className="dash-dest">
-              <span className="dash-dest-icon"><Receipt className="w-5 h-5" /></span>
-              <strong>Reports</strong>
-              <span>Trends, budgets, insights</span>
-            </Link>
+              <button type="button" className="home-cta" onClick={() => setShowNewBook(true)}>
+                <span className="home-cta-orb tone-2" aria-hidden><Plus className="w-4 h-4" /></span>
+                New book
+              </button>
             )}
             {hasFeature('business') && (
-            <Link to="/books" className="dash-dest">
-              <span className="dash-dest-icon"><BookOpen className="w-5 h-5" /></span>
-              <strong>Business</strong>
-              <span>Invoices, bills, GST</span>
-            </Link>
+              <Link to="/books" className="home-cta">
+                <span className="home-cta-orb tone-3" aria-hidden><BookOpen className="w-4 h-4" /></span>
+                Business
+              </Link>
             )}
           </div>
         </section>
 
         {hasFeature('money') && visibleBooks.length > 0 && (
-          <section>
-            <div className="flex items-center justify-between dash-section-label">
-              <span>Money books</span>
-              <Link to="/expenses" className="text-[#0B1F3A] font-semibold text-xs">See all</Link>
+          <section className="home-continue">
+            <div className="home-continue-head">
+              <h2>Continue</h2>
+              <Link to="/expenses">All books</Link>
             </div>
-            <div className="md3-continue">
-              {(recentBooks.length ? recentBooks : visibleBooks).slice(0, 4).map((book) => {
+            <div className="home-continue-list">
+              {(recentBooks.length ? recentBooks : visibleBooks).slice(0, 4).map((book, i) => {
                 const stat = bookStats[book.id];
                 const symbol = getCurrencySymbol(book.currency);
                 const netNeg = Boolean(stat && stat.net < 0);
                 return (
-                  <Link key={book.id} to={`/book/${book.id}`} className="md3-continue-card">
-                    <span className="md3-book-icon md3-book-icon-sm" aria-hidden>
-                      <span className="md3-book-icon-face">{initials(book.name)}</span>
+                  <Link
+                    key={book.id}
+                    to={`/book/${book.id}`}
+                    className="home-continue-card"
+                    style={{ animationDelay: `${i * 60}ms` }}
+                  >
+                    <span className="home-continue-icon" aria-hidden>
+                      <span>{initials(book.name)}</span>
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block font-semibold text-[13px] text-[#0B1F3A] truncate">{book.name}</span>
-                      <span className="block text-[11px] text-slate-500">{roleLabel(myRoleOn(book))} · tap to open</span>
+                      <span className="home-continue-name">{book.name}</span>
+                      <span className="home-continue-meta">{roleLabel(myRoleOn(book))}</span>
                     </span>
                     {canSeeMoney && stat ? (
-                      <span className={`byjan-money md3-book-amt text-[13px] ${netNeg ? 'is-out' : 'is-in'}`}>
+                      <span className={`byjan-money home-continue-amt ${netNeg ? 'is-out' : 'is-in'}`}>
                         {netNeg ? '−' : ''}{symbol}{Math.abs(stat.net).toLocaleString()}
                       </span>
                     ) : (
@@ -585,25 +563,20 @@ export default function Dashboard() {
         {inviteBlock}
 
         {hasFeature('business') && businessTree.length > 0 && (
-        <section>
-          <div className="flex items-center justify-between dash-section-label">
-            <span>Business{tenant?.name ? ` · ${tenant.name}` : ''}</span>
-            <Link to="/books" className="text-[#0B1F3A] font-semibold">Open business</Link>
-          </div>
-          <div className="dash-books-grid">
-            {businessTree.filter((branch) => branch.id !== 'dashboard').map((branch) => (
-              <Link key={branch.id} to={branch.href} className="dash-book-link" title={branch.blurb}>
-                <span className="dash-book-link-icon">
-                  <FeatureIcon href={branch.href} className="w-5 h-5" />
-                </span>
-                <span className="min-w-0">
-                  <span className="dash-book-link-name">{branch.name}</span>
-                  <span className="dash-book-link-blurb">{branch.blurb}</span>
-                </span>
-              </Link>
-            ))}
-          </div>
-        </section>
+          <section className="home-continue">
+            <div className="home-continue-head">
+              <h2>Business{tenant?.name ? ` · ${tenant.name}` : ''}</h2>
+              <Link to="/books">Open</Link>
+            </div>
+            <div className="home-biz-row">
+              {businessTree.filter((branch) => branch.id !== 'dashboard').slice(0, 4).map((branch) => (
+                <Link key={branch.id} to={branch.href} className="home-biz-chip" title={branch.blurb}>
+                  <FeatureIcon href={branch.href} className="w-4 h-4" />
+                  <span>{branch.name}</span>
+                </Link>
+              ))}
+            </div>
+          </section>
         )}
       </div>
     );
