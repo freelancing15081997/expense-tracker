@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createExpense } from '../lib/expenses';
+import { createExpense, checkDuplicateExpense } from '../lib/expenses';
 import { buildCapturePreview, capturePreviewToExpense } from '../lib/money-capture';
 import { processReceiptJob } from '../lib/money-api';
 import { uploadLedgerReceipt } from '../lib/money-receipts';
@@ -35,18 +35,32 @@ type Props = {
   bookName?: string;
   currency?: string;
   onClose: () => void;
-  onConfirmed: (expense: Record<string, unknown>, extras?: { count?: number; needsEdit?: boolean }) => void;
+  onConfirmed: (expense: Record<string, unknown>, extras?: { count?: number; needsEdit?: boolean; duplicate?: boolean }) => void;
 };
 
 const STAGE_COPY: Array<{ min: number; title: string; detail: string }> = [
   { min: 0, title: 'Opening your share', detail: 'Getting the receipt ready…' },
-  { min: 12, title: 'Preparing image', detail: 'Optimizing for a fast read…' },
-  { min: 28, title: 'Summarizing', detail: 'Reading amount, merchant, date…' },
-  { min: 48, title: 'Mapping fields', detail: 'Filling your Money book…' },
+  { min: 12, title: 'Preparing', detail: 'Getting a clear view of the receipt…' },
+  { min: 28, title: 'Reading receipt', detail: 'Looking for amount, merchant, and date…' },
+  { min: 48, title: 'Filling details', detail: 'Preparing your Money entry…' },
   { min: 68, title: 'Checking details', detail: 'Almost ready to save…' },
-  { min: 84, title: 'Saving to Money', detail: 'One moment…' },
-  { min: 96, title: 'Finishing up', detail: 'You’re all set…' },
+  { min: 84, title: 'Saving', detail: 'Adding it to your Money book…' },
+  { min: 96, title: 'Done', detail: 'You’re all set…' },
 ];
+
+async function sha256Hex(base64: string): Promise<string> {
+  const clean = String(base64 || '').replace(/^data:[^;]+;base64,/i, '').replace(/\s+/g, '');
+  if (!clean || typeof crypto === 'undefined' || !crypto.subtle) return '';
+  try {
+    const binary = atob(clean.slice(0, Math.min(clean.length, 400_000)));
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+  } catch {
+    return '';
+  }
+}
 
 function isSpreadsheet(mime?: string, name?: string) {
   const m = String(mime || '').toLowerCase();
@@ -181,7 +195,7 @@ async function parseReceiptNow(
     const { prepareReceiptImage, uploadPreparedReceipt } = await import('../lib/money-receipts');
     const { localParseReceiptImage, prepareOcrImage } = await import('../lib/document-ocr');
 
-    onStatus('Reading on device…', 22);
+    onStatus('Reading receipt…', 22);
     const ocrPromise = prepareOcrImage(launch.imageDataUrl, imageMime)
       .then((ocrPrepared) => localParseReceiptImage(ocrPrepared.base64, ocrPrepared.mime, launch.text || ''))
       .catch(() => null);
@@ -202,36 +216,7 @@ async function parseReceiptNow(
 
     const hintText = [launch.text || '', local?.text || ''].filter(Boolean).join('\n').slice(0, 2000);
 
-    // Instant path: high-confidence on-device OCR (labeled Paid / ₹ amount).
-    if (local && local.amount > 0 && (local.confidence === 'high' || (local.score || 0) >= 48)) {
-      onStatus(`Found ₹${local.amount.toFixed(2)}…`, 72);
-      const uploaded = await uploadPromise;
-      if (uploaded) {
-        receiptPath = uploaded.receiptPath || receiptPath;
-        receiptName = uploaded.receiptName || receiptName;
-      }
-      const preview = scrubPreview({
-        id: newMoneyId('cap'),
-        source: (launch.source === 'share' ? 'share' : 'receipt') as CapturePreview['source'],
-        direction: local.entryType === 'in' ? 'MONEY_IN' : 'MONEY_OUT',
-        amountPaise: Math.round(local.amount * 100),
-        description: local.description || local.merchant || receiptName,
-        merchant: local.merchant,
-        category: 'Uncategorized',
-        paymentMethod: local.paymentMethod || 'upi',
-        date: local.date,
-        processingStatus: 'READY',
-        financialStatus: 'DRAFT',
-        confidence: local.confidence,
-        reasons: [],
-        raw: '',
-        receiptPath,
-        receiptName,
-      });
-      return { preview, previews: [preview] };
-    }
-
-    onStatus('Summarizing with Gemini…', 42);
+    onStatus('Reading amount, merchant & date…', 42);
     let result = await safeProcess({
       bookId,
       text: hintText || launch.text || '',
@@ -244,7 +229,7 @@ async function parseReceiptNow(
       imageMime,
     });
 
-    onStatus('Almost there…', 70);
+    onStatus('Almost ready…', 70);
     const uploaded = await uploadPromise;
     if (uploaded) {
       receiptPath = uploaded.receiptPath || receiptPath;
@@ -261,25 +246,25 @@ async function parseReceiptNow(
         }
       : draftPreview(launch, { receiptPath, receiptName, reasons: [] });
 
-    // Prefer labeled local OCR amount when Gemini misses or disagrees.
+    // Email-style: trust server parse when it found an amount. Local OCR only fills gaps.
     const localPaise = local && local.amount > 0 ? Math.round(local.amount * 100) : 0;
     const serverPaise = Number(preview.amountPaise || 0);
-    if (localPaise > 0 && (!serverPaise || ((local.score || 0) >= 48 && serverPaise !== localPaise))) {
+    if (!serverPaise && localPaise > 0) {
       preview = {
         ...preview,
         amountPaise: localPaise,
-        merchant: local?.merchant || preview.merchant,
-        description: local?.description || preview.description,
-        paymentMethod: local?.paymentMethod || preview.paymentMethod,
+        merchant: preview.merchant || local?.merchant || '',
+        description: preview.description || local?.description || receiptName,
+        paymentMethod: preview.paymentMethod || local?.paymentMethod || 'upi',
         direction: local?.entryType === 'in' ? 'MONEY_IN' : preview.direction,
         processingStatus: 'READY',
-        confidence: local?.confidence || preview.confidence,
+        confidence: local?.confidence || 'medium',
         reasons: [],
       };
     }
 
     if (!(Number(preview.amountPaise || 0) > 0) && (receiptPath || imageBase64)) {
-      onStatus('One more look…', 82);
+      onStatus('Checking once more…', 82);
       const retry = await safeProcess({
         bookId,
         text: hintText || launch.text || '',
@@ -437,7 +422,7 @@ export default function ReceiptCaptureFlow({
     setPhase('working');
     setError('');
     setPct(14);
-    setProgress('Preparing image…', 18);
+      setProgress('Preparing…', 18);
     try {
       // Keep pending until save succeeds so a failed second attempt can still retry the image.
       if (!launch.imageDataUrl && !launch.text) {
@@ -451,6 +436,10 @@ export default function ReceiptCaptureFlow({
         launch.imageDataUrl && !launch.text && !isSpreadsheet(launch.mimeType, launch.fileName) && !anyAmount,
       );
 
+      const receiptHash = launch.imageDataUrl
+        ? await sha256Hex(String(launch.imageDataUrl))
+        : '';
+
       setProgress(
         rows.length > 1
           ? `Found ${rows.length} rows — saving…`
@@ -461,6 +450,7 @@ export default function ReceiptCaptureFlow({
       );
 
       let firstSaved: Record<string, unknown> | null = null;
+      let wasDuplicate = false;
       for (let i = 0; i < rows.length; i += 1) {
         const row = rows[i];
         if (!(Number(row.amountPaise || 0) > 0) && rows.length > 1 && anyAmount) continue;
@@ -469,11 +459,11 @@ export default function ReceiptCaptureFlow({
           receiptName: row.receiptName,
           captureSource: row.source || 'share',
         });
-        // Never persist parser/engine noise on the expense record.
         delete (payload as any).parseEngine;
         delete (payload as any).parseSource;
         delete (payload as any).reasons;
         delete (payload as any).evidenceReasons;
+        if (receiptHash) (payload as any).receiptHash = receiptHash;
         if ((row as CapturePreview & { entryType?: string }).entryType === 'transfer'
           || row.direction === 'TRANSFER') {
           (payload as any).entryType = 'transfer';
@@ -488,14 +478,65 @@ export default function ReceiptCaptureFlow({
             'Could not read amount from image — edit amount to finish.',
           ].filter(Boolean).join('\n');
         }
-        const saved = await createExpense(bookId, payload, {
-          force: true,
-          idempotencyKey: String(row.id || newMoneyId('cap')),
-        });
-        if (!firstSaved) firstSaved = { ...saved, bookId: String(saved.bookId || bookId), _needsEdit: needsEdit };
+
+        // Same receipt / same bill already on this book?
+        if (Number(payload.amount || 0) > 0) {
+          try {
+            const matches = await checkDuplicateExpense(bookId, {
+              amount: payload.amount,
+              date: payload.date,
+              description: payload.description,
+              merchant: payload.merchant,
+              receiptHash: receiptHash || undefined,
+            });
+            if (matches.length) {
+              wasDuplicate = true;
+              firstSaved = {
+                ...matches[0],
+                bookId: String((matches[0] as any).bookId || bookId),
+                _duplicate: true,
+              };
+              break;
+            }
+          } catch {
+            // Duplicate check is best-effort; still try to save.
+          }
+        }
+
+        try {
+          const saved = await createExpense(bookId, payload, {
+            force: false,
+            idempotencyKey: String(row.id || newMoneyId('cap')),
+          });
+          if (!firstSaved) firstSaved = { ...saved, bookId: String(saved.bookId || bookId), _needsEdit: needsEdit };
+        } catch (err: any) {
+          const status = Number(err?.status || 0);
+          const msg = String(err?.message || '');
+          if (status === 409 || /already on this ledger|already recorded|matching entry/i.test(msg)) {
+            wasDuplicate = true;
+            const matches = Array.isArray(err?.extra?.matches) ? err.extra.matches : [];
+            firstSaved = {
+              ...(matches[0] || payload),
+              bookId,
+              id: String(matches[0]?.id || payload.id || ''),
+              _duplicate: true,
+            };
+            break;
+          }
+          throw err;
+        }
       }
 
-      if (!firstSaved) throw new Error('No valid rows to save');
+      if (!firstSaved) throw new Error('Couldn’t save this share — try again');
+
+      if (wasDuplicate) {
+        setPct(100);
+        doneRef.current = true;
+        clearPendingCapture();
+        onConfirmed(firstSaved, { count: 1, duplicate: true });
+        onClose();
+        return;
+      }
 
       void (async () => {
         try {
@@ -535,7 +576,7 @@ export default function ReceiptCaptureFlow({
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save');
       setPhase('failed');
-      setStatusLine('Save failed — retry');
+      setStatusLine('Couldn’t finish — retry');
     } finally {
       savingRef.current = false;
       setBusy(false);

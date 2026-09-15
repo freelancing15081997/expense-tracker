@@ -749,6 +749,12 @@ export default function Dashboard() {
           const bookId = String(expense.bookId || '');
           setReceiptLaunch(null);
           clearPendingCapture();
+          if (extras?.duplicate) {
+            addToast('This receipt is already on this Money book', 'success');
+            if (bookId) navigate(`/book/${bookId}`);
+            else void fetchData({ silent: true });
+            return;
+          }
           addToast(
             extras?.needsEdit
               ? 'Could not read amount — saved as draft for you to edit'

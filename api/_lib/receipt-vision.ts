@@ -27,15 +27,8 @@ function geminiKey() {
 
 function geminiModels() {
   const preferred = String(process.env.GEMINI_MODEL || '').trim();
-  // Match inbound email models first — these are known to work in production.
-  const defaults = [
-    'gemini-flash-latest',
-    'gemini-2.5-flash',
-    'gemini-2.0-flash',
-    'gemini-3.6-flash',
-    'gemini-3.5-flash',
-    'gemini-1.5-flash',
-  ];
+  // Same list as inbound email — new AI Studio keys need 3.x Flash.
+  const defaults = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-flash-latest'];
   return [...new Set([preferred, ...defaults].filter(Boolean))];
 }
 
@@ -181,21 +174,27 @@ export async function parseReceiptImage(input: {
   }
 
   const mime = normalizeMime(input.mimeType, input.fileName);
-  const hint = String(input.hintText || '').trim().slice(0, 800);
-  const timeoutMs = Math.max(10_000, Number(input.timeoutMs || 16_000));
+  const hint = String(input.hintText || '').trim().slice(0, 1200);
+  const timeoutMs = Math.max(12_000, Number(input.timeoutMs || 22_000));
 
-  const prompt = `You are Byjan's ledger clerk. Read this receipt, bill, invoice, UPI payment screenshot (GPay/PhonePe/Paytm/BHIM), bank slip, PDF, or handwritten expense note.
-${hint ? `Extra share / OCR text (use for amount if visible):\n${hint}\n` : ''}
-Return JSON only:
-{"amount":number,"total":number,"date":"YYYY-MM-DD","merchant":string,"description":string,"category":string,"entryType":"out"|"in","paymentMethod":"cash"|"card"|"upi"|"bank"|"wallet","notes":string}
+  // Same clerk prompt style as inbound email attachments.
+  const prompt = `You are Byjan's ledger clerk. Read this receipt, bill, invoice, tax invoice, UPI screenshot, bank slip, or photo.
+Also use any share / OCR text context (may describe what was paid for or the amount).
+Share context (may be empty): ${hint || '(none)'}
+Return JSON only with keys:
+amount (number), total (number), taxAmount (number), date (YYYY-MM-DD), merchant, description, paidFor, category
+(Fuel, Groceries, Meals, Travel, Utilities, Health, Shopping, Software Subscriptions, or Uncategorized),
+entryType (out|in), paymentMethod (cash|card|upi|bank|wallet), notes.
 Rules:
-- amount/total = the Paid / Sent / Debited / You paid / grand total only.
+- amount/total = grand total / amount paid / net payable / Paid / Sent / Debited / You paid only.
 - NEVER use calendar day/month/year digits as amount (e.g. 26 from 26 Sep is NOT money).
 - NEVER use battery %, ratings, time, UPI ref fragments, or “Pay ₹5” suggestion chips.
-- If Paid ₹X / Debited ₹X is visible (image or hint text), amount must be X exactly.
-- category one of: Fuel, Groceries, Meals, Travel, Utilities, Health, Shopping, Software Subscriptions, Uncategorized.
-- entryType=in only for refunds/money received. UPI apps → paymentMethod=upi.
-- If not a financial document: amount 0, notes "not_a_receipt". Never invent amounts.`;
+- If Paid ₹X / Debited ₹X is visible (image or context text), amount must be X exactly.
+- Prefer context wording for description when present.
+- entryType=in for refunds/returns/money received; otherwise out.
+- UPI apps → paymentMethod=upi.
+- Never invent amounts. If no total is visible, set amount to 0.
+- If this is not a financial document, set amount to 0, merchant empty, notes to "not_a_receipt".`;
 
   const requestBody = {
     contents: [{
@@ -206,18 +205,17 @@ Rules:
     }],
     generationConfig: {
       temperature: 0,
-      maxOutputTokens: 512,
       responseMimeType: 'application/json',
     },
   };
 
   const errors: string[] = [];
-  const models = geminiModels().slice(0, 4);
+  const models = geminiModels().slice(0, 3);
   let bestZero: VisionReceipt | null = null;
 
   for (let i = 0; i < models.length; i += 1) {
     const model = models[i];
-    const perTry = Math.min(timeoutMs, i === 0 ? 12_000 : 10_000);
+    const perTry = Math.min(timeoutMs, i === 0 ? 22_000 : 18_000);
     const result = await geminiGenerate(model, key, requestBody, perTry);
     if (!result.ok) {
       errors.push(`${model}:${result.error}`);
@@ -232,7 +230,7 @@ Rules:
     try {
       const parsed = asVision(JSON.parse(jsonSlice), { ...fallback, engine: `gemini:${model}` });
       if (parsed.amount > 0 || parsed.notes === 'not_a_receipt') return parsed;
-      if (parsed.merchant && !bestZero) bestZero = parsed;
+      if ((parsed.merchant || parsed.description) && !bestZero) bestZero = parsed;
       errors.push(`${model}:amount_0`);
       continue;
     } catch {

@@ -2777,6 +2777,11 @@ export default function BookView() {
           setReceiptLaunch(null);
           clearPendingCapture();
           void refreshExpenses();
+          if (extras?.duplicate) {
+            addToast('This receipt is already on this Money book', 'success');
+            setSuccessExpense(null);
+            return;
+          }
           if (extras?.needsEdit) {
             addToast('Could not read amount — saved as draft for you to edit', 'error');
             setSuccessExpense(null);

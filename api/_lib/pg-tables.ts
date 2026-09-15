@@ -1650,6 +1650,7 @@ export async function ledgerFindDuplicateExpense(bookId: string, input: {
   amount?: unknown;
   date?: unknown;
   description?: unknown;
+  merchant?: unknown;
   receiptHash?: unknown;
   exceptId?: string;
 }) {
@@ -1661,14 +1662,20 @@ export async function ledgerFindDuplicateExpense(bookId: string, input: {
   const amount = num(input.amount);
   const date = text(input.date);
   const description = text(input.description).trim().toLowerCase();
-  if (!amount || !date || !description) return [];
+  const merchant = text(input.merchant).trim().toLowerCase();
+  if (!amount || !date) return [];
   const rows = await ledgerListLiveExpenses(bookId);
-  return rows.filter((row) => (
-    row.id !== input.exceptId
-    && Number(row.amount || 0) === amount
-    && text(row.date) === date
-    && text(row.description).trim().toLowerCase() === description
-  )).slice(0, 5);
+  return rows.filter((row) => {
+    if (row.id === input.exceptId) return false;
+    if (Number(row.amount || 0) !== amount) return false;
+    if (text(row.date) !== date) return false;
+    const rowDesc = text(row.description).trim().toLowerCase();
+    const rowMerchant = text(row.merchant).trim().toLowerCase();
+    if (description && rowDesc === description) return true;
+    if (merchant && rowMerchant && rowMerchant === merchant) return true;
+    if (description && rowMerchant && rowMerchant === description) return true;
+    return false;
+  }).slice(0, 5);
 }
 
 export async function ledgerListAudit(uid: string, bookId?: string, limit = 80) {
