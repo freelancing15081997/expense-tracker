@@ -3,16 +3,18 @@ import { createExpense } from '../lib/expenses';
 import { buildCapturePreview, capturePreviewToExpense } from '../lib/money-capture';
 import { processReceiptJob } from '../lib/money-api';
 import { uploadLedgerReceipt } from '../lib/money-receipts';
-import { clearPendingCapture } from './ShareIntentListener';
+import {
+  cacheMoneyBooks,
+  clearPendingCapture,
+  readCachedMoneyBooks,
+  rememberMoneyBook,
+} from './ShareIntentListener';
 import type { CapturePreview } from '../lib/money-core';
 import { newMoneyId } from '../lib/money-core';
 import { isoDay } from '../lib/ledger-advanced';
 import type { MoneyContextOption } from '../lib/money-flow';
-import {
-  ContextSelector,
-  MoneySheet,
-  ReceiptFlowProgress,
-} from './money/MoneyUi';
+import { ContextSelector } from './money/MoneyUi';
+import './share-reading.css';
 
 export type ReceiptLaunch = {
   text?: string;
@@ -35,6 +37,16 @@ type Props = {
   onClose: () => void;
   onConfirmed: (expense: Record<string, unknown>, extras?: { count?: number; needsEdit?: boolean }) => void;
 };
+
+const STAGE_COPY: Array<{ min: number; title: string; detail: string }> = [
+  { min: 0, title: 'Opening your share', detail: 'Getting the receipt ready…' },
+  { min: 12, title: 'Preparing image', detail: 'Sharpening for a clean read…' },
+  { min: 28, title: 'Reading amount', detail: 'Looking for the total…' },
+  { min: 48, title: 'Finding merchant', detail: 'Almost there…' },
+  { min: 68, title: 'Checking details', detail: 'Date, category, payment…' },
+  { min: 84, title: 'Saving to Money', detail: 'One moment…' },
+  { min: 96, title: 'Finishing up', detail: 'You’re all set…' },
+];
 
 function isSpreadsheet(mime?: string, name?: string) {
   const m = String(mime || '').toLowerCase();
@@ -79,7 +91,7 @@ function draftPreview(launch: ReceiptLaunch, extra?: Partial<CapturePreview>): C
 async function parseReceiptNow(
   bookId: string,
   launch: ReceiptLaunch,
-  onStatus: (line: string) => void,
+  onStatus: (line: string, pct?: number) => void,
 ): Promise<{ preview: CapturePreview; previews: CapturePreview[] }> {
   let receiptPath = launch.receiptPath || '';
   let receiptName = launch.receiptName || launch.fileName || `receipt-${Date.now()}.jpg`;
@@ -88,7 +100,7 @@ async function parseReceiptNow(
   const sheet = isSpreadsheet(imageMime, receiptName);
 
   if (launch.imageDataUrl) {
-    onStatus(sheet ? 'Reading spreadsheet…' : 'Preparing receipt…');
+    onStatus(sheet ? 'Reading spreadsheet…' : 'Preparing image…', 18);
     if (sheet || imageMime === 'application/pdf' || !imageMime.startsWith('image/')) {
       imageBase64 = String(launch.imageDataUrl).replace(/^data:[^;]+;base64,/i, '').replace(/\s+/g, '');
       const uploaded = await uploadLedgerReceipt(bookId, {
@@ -106,8 +118,7 @@ async function parseReceiptNow(
         .replace(/^data:[^;]+;base64,/i, '')
         .replace(/\s+/g, '');
 
-      onStatus('Reading amount…');
-      // Upload in parallel with parse (parse is critical path).
+      onStatus('Reading amount…', 36);
       const uploadPromise = uploadPreparedReceipt(bookId, {
         bytes: prepared.bytes,
         mime: imageMime,
@@ -127,6 +138,7 @@ async function parseReceiptNow(
         imageMime,
       });
 
+      onStatus('Almost there…', 62);
       const uploaded = await uploadPromise;
       if (uploaded) {
         receiptPath = uploaded.receiptPath || receiptPath;
@@ -146,9 +158,8 @@ async function parseReceiptNow(
             reasons: [result.error || 'Parser returned no fields'],
           });
 
-      // Second pass via stored file only when first pass missed amount and upload finished.
       if (!(Number(preview.amountPaise || 0) > 0) && receiptPath) {
-        onStatus('Reading receipt again…');
+        onStatus('Reading receipt again…', 78);
         const retry = await processReceiptJob({
           bookId,
           text: launch.text || '',
@@ -176,7 +187,7 @@ async function parseReceiptNow(
     }
   }
 
-  onStatus(sheet ? 'Importing rows…' : 'Reading amount, merchant & date…');
+  onStatus(sheet ? 'Importing rows…' : 'Reading amount, merchant & date…', 40);
   const result = await processReceiptJob({
     bookId,
     text: launch.text || '',
@@ -219,6 +230,39 @@ async function parseReceiptNow(
 
 type Phase = 'pick' | 'working' | 'failed';
 
+function ShareReadingStage({
+  pct,
+  statusLine,
+  failed,
+  error,
+}: {
+  pct: number;
+  statusLine: string;
+  failed?: boolean;
+  error?: string;
+}) {
+  const stage = [...STAGE_COPY].reverse().find((s) => pct >= s.min) || STAGE_COPY[0];
+  const clamped = Math.max(0, Math.min(100, Math.round(pct)));
+  return (
+    <div className={`sr-stage ${failed ? 'is-failed' : ''}`}>
+      <div className="sr-orb" aria-hidden>
+        <div className="sr-orb-core" />
+        <div className="sr-orb-ring" />
+        <div className="sr-orb-glow" />
+      </div>
+      <p className="sr-kicker">{failed ? 'Needs a moment' : 'Reading share'}</p>
+      <h2 className="sr-title">{failed ? 'Couldn’t finish' : stage.title}</h2>
+      <p className="sr-detail">{failed ? (error || statusLine) : (statusLine || stage.detail)}</p>
+      {!failed ? (
+        <div className="sr-meter" role="progressbar" aria-valuenow={clamped} aria-valuemin={0} aria-valuemax={100}>
+          <div className="sr-meter-fill" style={{ width: `${clamped}%` }} />
+          <span className="sr-pct">{clamped}%</span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function ReceiptCaptureFlow({
   open,
   launch,
@@ -229,37 +273,46 @@ export default function ReceiptCaptureFlow({
   const [phase, setPhase] = useState<Phase>('working');
   const [contexts, setContexts] = useState<MoneyContextOption[]>([]);
   const [busy, setBusy] = useState(false);
-  const [statusLine, setStatusLine] = useState('Reading receipt…');
+  const [statusLine, setStatusLine] = useState('Opening your share…');
+  const [pct, setPct] = useState(8);
   const [error, setError] = useState('');
   const [activeBookId, setActiveBookId] = useState('');
   const savingRef = useRef(false);
   const doneRef = useRef(false);
+  const tickRef = useRef<number | null>(null);
+
+  const setProgress = (line: string, nextPct?: number) => {
+    setStatusLine(line);
+    if (typeof nextPct === 'number') setPct((p) => Math.max(p, nextPct));
+  };
 
   const saveNow = async (bookId: string) => {
     if (!launch || !bookId || savingRef.current || doneRef.current) return;
     savingRef.current = true;
     setActiveBookId(bookId);
+    rememberMoneyBook(bookId);
     setBusy(true);
     setPhase('working');
     setError('');
-    setStatusLine('Reading receipt…');
+    setPct(14);
+    setProgress('Preparing image…', 18);
     try {
       clearPendingCapture();
 
-      const { preview, previews } = await parseReceiptNow(bookId, launch, setStatusLine);
+      const { preview, previews } = await parseReceiptNow(bookId, launch, setProgress);
       const rows = previews.length ? previews : [preview];
       const anyAmount = rows.some((r) => Number(r.amountPaise || 0) > 0);
       const needsEdit = Boolean(
         launch.imageDataUrl && !launch.text && !isSpreadsheet(launch.mimeType, launch.fileName) && !anyAmount,
       );
 
-      // Always save a draft when amount is missing — never show "Couldn't finish" for that case.
-      setStatusLine(
+      setProgress(
         rows.length > 1
           ? `Found ${rows.length} rows — saving…`
           : anyAmount
             ? `Found ₹${(preview.amountPaise / 100).toFixed(2)} — saving…`
             : 'Saving draft for you to edit…',
+        88,
       );
 
       let firstSaved: Record<string, unknown> | null = null;
@@ -297,12 +350,13 @@ export default function ReceiptCaptureFlow({
 
       void (async () => {
         try {
+          if (needsEdit) return;
           const { listLedgers } = await import('../lib/ledgers');
           const { notifyTeamOfLedgerChange } = await import('../lib/notify-team');
           const { auth } = await import('../lib/firebase');
           const books = await listLedgers();
           const book = (books || []).find((b) => String(b.id) === String(bookId));
-          if (!book || needsEdit) return;
+          if (!book) return;
           const amt = Number(firstSaved?.amount || preview.amountPaise / 100 || 0);
           const who = auth.currentUser?.displayName || auth.currentUser?.email || 'Someone';
           await notifyTeamOfLedgerChange({
@@ -324,6 +378,7 @@ export default function ReceiptCaptureFlow({
         }
       })();
 
+      setPct(100);
       doneRef.current = true;
       onConfirmed(firstSaved, { count: rows.length, needsEdit });
       onClose();
@@ -343,18 +398,37 @@ export default function ReceiptCaptureFlow({
     savingRef.current = false;
     doneRef.current = false;
     setError('');
-    setStatusLine('Reading receipt…');
+    setPct(6);
+    setStatusLine('Opening your share…');
 
-    const lockedBook = initialBookId && !launch.requireBookPick
-      ? (launch.preferredBookId || initialBookId)
-      : (!launch.requireBookPick ? (launch.preferredBookId || initialBookId || '') : '');
+    // Soft progress while waiting on books / network.
+    tickRef.current = window.setInterval(() => {
+      setPct((p) => (p < 22 ? p + 1.2 : p));
+    }, 180);
 
     const run = async () => {
-      if (lockedBook) {
+      const cached = readCachedMoneyBooks().map((b) => ({
+        id: b.id,
+        name: b.name,
+        currency: b.currency || 'INR',
+        score: 10,
+        reason: b.id === launch.preferredBookId ? 'Last used' : 'Authorized Money book',
+        memberCount: 1,
+      }));
+      if (cached.length) setContexts(cached);
+
+      const wantPick = launch.requireBookPick === true || (!launch.preferredBookId && !initialBookId);
+      const lockedBook = !wantPick
+        ? (launch.preferredBookId || initialBookId || (cached.length === 1 ? cached[0].id : ''))
+        : (cached.length === 1 ? cached[0].id : '');
+
+      if (lockedBook && !wantPick) {
         setPhase('working');
         await saveNow(lockedBook);
         return;
       }
+
+      setPhase('pick');
       setBusy(true);
       try {
         const { listLedgers } = await import('../lib/ledgers');
@@ -366,24 +440,34 @@ export default function ReceiptCaptureFlow({
             id: String(b.id),
             name: String(b.name || 'Money book'),
             currency: String(b.currency || 'INR'),
-            score: 10,
-            reason: 'Authorized Money book',
+            score: String(b.id) === String(launch.preferredBookId || '') ? 20 : 10,
+            reason: String(b.id) === String(launch.preferredBookId || '') ? 'Suggested' : 'Authorized Money book',
             memberCount: b.roles && typeof b.roles === 'object' ? Object.keys(b.roles as object).length : 1,
-          }));
+          }))
+          .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
         setContexts(bookRows);
+        cacheMoneyBooks(bookRows.map((b) => ({ id: b.id, name: b.name, currency: b.currency })));
         if (bookRows.length === 1) {
           await saveNow(bookRows[0].id);
           return;
         }
-        if (initialBookId && !launch.requireBookPick) {
-          await saveNow(initialBookId);
+        if (!bookRows.length) {
+          setError('Create a Money book first, then share again.');
+          setPhase('failed');
           return;
         }
         setPhase('pick');
+        setPct(10);
+        setStatusLine('Choose where to save this share');
       } catch {
         if (!cancelled) {
-          setError('Could not load Money books');
-          setPhase('failed');
+          if (cached.length) {
+            setPhase('pick');
+            setStatusLine('Choose where to save this share');
+          } else {
+            setError('Could not load Money books');
+            setPhase('failed');
+          }
         }
       } finally {
         if (!cancelled) setBusy(false);
@@ -391,69 +475,59 @@ export default function ReceiptCaptureFlow({
     };
 
     void run();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (tickRef.current) window.clearInterval(tickRef.current);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, launch]);
 
+  useEffect(() => () => {
+    if (tickRef.current) window.clearInterval(tickRef.current);
+  }, []);
+
   if (!open || !launch) return null;
 
-  if (phase === 'pick') {
-    return (
-      <MoneySheet
-        open={open}
-        onClose={() => { if (!busy) onClose(); }}
-        title="Choose Money book"
-        subtitle="We’ll read the file, then save entries"
-      >
-        <ReceiptFlowProgress state="AWAITING_CONTEXT" />
-        {error ? (
-          <p className="mt-3 text-[12px] text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">{error}</p>
-        ) : null}
-        <div className="mt-3">
-          <ContextSelector
-            contexts={contexts}
-            selectedId=""
-            onSelect={(id) => { void saveNow(id); }}
-          />
-        </div>
-      </MoneySheet>
-    );
-  }
-
   return (
-    <MoneySheet
-      open={open}
-      onClose={() => { if (!busy) onClose(); }}
-      title={phase === 'failed' ? 'Couldn’t finish' : 'Reading your share'}
-      subtitle={phase === 'failed' ? 'Your data is safe.' : 'Finding amount, merchant and date…'}
-    >
-      <ReceiptFlowProgress state={phase === 'failed' ? 'FAILED' : 'EXTRACTING'} />
-      <div className="receipt-proc py-4 text-center">
-        {/\u20b9|₹|Found|\d+\s+rows/i.test(statusLine) ? (
-          <p className="text-[28px] font-display font-semibold text-[#0B1F3A] tracking-tight">
-            {statusLine.replace(/\s*—.*$/, '').replace(/^Found\s+/i, '')}
-          </p>
-        ) : null}
-        <p className="mt-2 text-[13px] text-slate-500 leading-relaxed">{statusLine}</p>
+    <div className="sr-root" role="dialog" aria-modal="true" aria-label="Reading shared receipt">
+      <button type="button" className="sr-dim" aria-label="Close" onClick={() => { if (!busy) onClose(); }} />
+      <div className="sr-sheet">
+        <div className="sr-handle" aria-hidden />
+        {phase === 'pick' ? (
+          <>
+            <p className="sr-kicker">Shared with Byjan</p>
+            <h2 className="sr-title" style={{ textAlign: 'left', maxWidth: 'none' }}>Choose Money book</h2>
+            <p className="sr-detail" style={{ textAlign: 'left', maxWidth: 'none' }}>
+              We’ll read the file, then save the entry here.
+            </p>
+            {error ? <p className="sr-error">{error}</p> : null}
+            <div className="sr-pick">
+              <ContextSelector
+                contexts={contexts}
+                selectedId=""
+                onSelect={(id) => { void saveNow(id); }}
+              />
+            </div>
+          </>
+        ) : (
+          <>
+            <ShareReadingStage pct={pct} statusLine={statusLine} failed={phase === 'failed'} error={error} />
+            {phase === 'failed' ? (
+              <div className="sr-actions">
+                <button type="button" className="sr-btn-ghost" onClick={onClose}>Go back</button>
+                <button
+                  type="button"
+                  className="sr-btn"
+                  disabled={busy}
+                  onClick={() => void saveNow(activeBookId || initialBookId || contexts[0]?.id || '')}
+                >
+                  {busy ? 'Retrying…' : 'Retry'}
+                </button>
+              </div>
+            ) : null}
+          </>
+        )}
       </div>
-      {error ? (
-        <p className="mt-3 text-[12px] text-amber-900 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">{error}</p>
-      ) : null}
-      {phase === 'failed' ? (
-        <div className="mt-4 flex gap-2">
-          <button type="button" className="flex-1 h-11 rounded-xl border border-slate-200 bg-white text-[13px] font-semibold text-slate-600" onClick={onClose}>
-            Go back
-          </button>
-          <button
-            type="button"
-            className="flex-1 h-11 rounded-xl bg-[#0B1F3A] text-white text-[13px] font-semibold"
-            disabled={busy}
-            onClick={() => void saveNow(activeBookId || initialBookId || contexts[0]?.id || '')}
-          >
-            {busy ? 'Retrying…' : 'Retry'}
-          </button>
-        </div>
-      ) : null}
-    </MoneySheet>
+    </div>
   );
 }

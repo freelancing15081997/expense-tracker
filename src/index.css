@@ -1566,6 +1566,51 @@ html[data-density="compact"] h1 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
+.dash-panel {
+  margin-top: 4px;
+  padding: 16px 14px 14px;
+  border-radius: 24px;
+  background: #fff;
+  border: 1px solid rgba(11, 31, 58, 0.07);
+  box-shadow: 0 18px 40px -30px rgba(11, 31, 58, 0.35);
+}
+.dash-panel-books {
+  margin-top: 12px;
+}
+.dash-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.dash-panel-head h2 {
+  margin: 0;
+  font-family: var(--font-display), Outfit, ui-sans-serif, system-ui, sans-serif;
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  color: #0B1F3A;
+}
+.dash-panel-head p {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: #64748b;
+}
+.dash-kpis-strip {
+  gap: 8px;
+}
+.dash-kpis-strip .dash-kpi-card {
+  border-radius: 16px;
+  box-shadow: none;
+  background: #f8fafc;
+  border-color: rgba(11, 31, 58, 0.06);
+  padding: 12px 12px;
+}
+.dash-chips-inpanel {
+  margin-top: 12px;
+  padding-top: 4px;
+}
 .dash-kpi-card {
   display: grid;
   grid-template-columns: 18px 1fr;

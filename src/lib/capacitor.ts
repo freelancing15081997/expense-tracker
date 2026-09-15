@@ -42,9 +42,8 @@ export class CapacitorService {
       await this.checkNetworkStatus();
       
       this.initialized = true;
-      window.setTimeout(() => {
-        void SplashScreen.hide({ fadeOutDuration: 360 });
-      }, 2400);
+      // Hide native splash as soon as the WebView is ready — no artificial 2s delay.
+      void SplashScreen.hide({ fadeOutDuration: 180 });
       console.log('Capacitor initialized successfully');
     } catch (error) {
       console.error('Error initializing Capacitor:', error);

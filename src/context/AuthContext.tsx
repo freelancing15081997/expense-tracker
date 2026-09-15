@@ -97,7 +97,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let cancelled = false;
     let unsubscribeAuth = () => {};
     let stopSession = () => {};
-    void googleRedirectReady.finally(() => {
+
+    // Hide native splash immediately so users don't stare at a blank blue screen.
+    void CapacitorService.hideSplashScreen();
+    window.setTimeout(() => {
+      try { (window as any).__byjanHideBoot?.(); } catch { /* ignore */ }
+    }, 120);
+
+    const start = () => {
       if (cancelled) return;
       unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
         stopSession();
@@ -107,13 +114,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUserProfile(null);
           setLoading(false);
           void CapacitorService.hideSplashScreen();
+          try { (window as any).__byjanHideBoot?.(); } catch { /* ignore */ }
           return;
         }
         setStoreUser(user.uid);
         stopSession = startSessionGuard();
+        // Unblock UI quickly — profile can finish loading without holding splash/login gate forever.
+        setUserProfile((prev) => prev?.uid === user.uid ? prev : profileFromSnap(user, null));
+        setLoading(false);
+        void CapacitorService.hideSplashScreen();
+        try { (window as any).__byjanHideBoot?.(); } catch { /* ignore */ }
         try {
           void copyLegacyBooks();
           const profile = await getMe();
+          if (cancelled) return;
           if (!profile || !profile.displayName) {
             const base = profileFromSnap(user, profile);
             await upsertMe({ ...base, customCategories: profile?.customCategories || [], createdAt: new Date().toISOString() });
@@ -122,14 +136,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setUserProfile(profileFromSnap(user, profile));
           }
         } catch {
-          setUserProfile(profileFromSnap(user, null));
+          if (!cancelled) setUserProfile(profileFromSnap(user, null));
         } finally {
-          setLoading(false);
-          void CapacitorService.hideSplashScreen();
           void CapacitorService.bindAccount(user.uid);
         }
       });
-    });
+    };
+
+    // Don't block auth on Google redirect forever — race with a short timeout.
+    const redirectWait = Promise.race([
+      googleRedirectReady.catch(() => undefined),
+      new Promise((r) => window.setTimeout(r, 400)),
+    ]);
+    void redirectWait.finally(start);
+
     return () => {
       cancelled = true;
       stopSession();
@@ -139,7 +159,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   return (
     <AuthContext.Provider value={{ currentUser, userProfile, loading, isSuperUser: emailIsSuperUser(currentUser?.email || userProfile?.email), refreshUserProfile }}>
-      {loading ? <AppLoader overlay title="Byjan" message="Checking your session." /> : children}
+      {loading ? <AppLoader overlay title="Byjan" message="Opening…" /> : children}
     </AuthContext.Provider>
   );
 };

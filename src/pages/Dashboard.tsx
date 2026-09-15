@@ -18,7 +18,7 @@ import { clearStoreCache } from '../lib/store';
 import { roleLabel } from '../lib/plain-language';
 import { useFeatures } from '../lib/use-features';
 import ReceiptCaptureFlow, { type ReceiptLaunch } from '../components/ReceiptCaptureFlow';
-import { readPendingCapture, clearPendingCapture } from '../components/ShareIntentListener';
+import { cacheMoneyBooks, readPendingCapture, clearPendingCapture } from '../components/ShareIntentListener';
 
 interface BookItem {
   id: string;
@@ -133,6 +133,7 @@ export default function Dashboard() {
       setBooks(fetchedBooks);
       setInvites(inviteRows);
       setLoading(false);
+      cacheMoneyBooks(fetchedBooks.map((b) => ({ id: b.id, name: b.name, currency: b.currency })));
 
       try {
       let tIn = 0; let tOut = 0; let monthIn = 0; let monthOut = 0; let reimbursable = 0; let uncategorized = 0;
@@ -265,7 +266,7 @@ export default function Dashboard() {
       fileName: pending.fileName,
       mimeType: pending.mimeType,
       source: pending.source || 'share',
-      preferredBookId: pending.requireBookPick ? undefined : pending.preferredBookId,
+      preferredBookId: pending.preferredBookId,
       requireBookPick: pending.requireBookPick !== false,
     });
     navigate(location.pathname, { replace: true });
@@ -612,31 +613,36 @@ export default function Dashboard() {
       </section>
 
       {canSeeMoney && books.length > 0 && (
-        <div className="dash-kpis">
-          {[
-            { label: 'Money in', value: formatIndianAmount(globalStats.totalIn, currency), icon: TrendingUp },
-            { label: 'Money out', value: formatIndianAmount(globalStats.totalOut, currency), icon: ArrowUpRight },
-            { label: 'This month', value: formatIndianAmount(globalStats.monthOut, currency), icon: Wallet },
-            { label: 'Needs a category', value: String(globalStats.uncategorized), icon: Receipt },
-          ].map((item) => (
-            <div key={item.label} className="dash-kpi-card">
-              <item.icon className="w-4 h-4 text-[#12B8A8]" />
-              <span className="dash-kpi-label">{item.label}</span>
-              <span className="dash-kpi-value byjan-money">{!statsReady ? <span className="dash-skel dash-skel-line" /> : item.value}</span>
+        <section className="dash-panel">
+          <div className="dash-panel-head">
+            <h2>Overview</h2>
+            <p>Totals across your Money books</p>
+          </div>
+          <div className="dash-kpis dash-kpis-strip">
+            {[
+              { label: 'Money in', value: formatIndianAmount(globalStats.totalIn, currency), icon: TrendingUp },
+              { label: 'Money out', value: formatIndianAmount(globalStats.totalOut, currency), icon: ArrowUpRight },
+              { label: 'This month', value: formatIndianAmount(globalStats.monthOut, currency), icon: Wallet },
+              { label: 'Uncategorized', value: String(globalStats.uncategorized), icon: Receipt },
+            ].map((item) => (
+              <div key={item.label} className="dash-kpi-card">
+                <item.icon className="w-4 h-4 text-[#12B8A8]" />
+                <span className="dash-kpi-label">{item.label}</span>
+                <span className="dash-kpi-value byjan-money">{!statsReady ? <span className="dash-skel dash-skel-line" /> : item.value}</span>
+              </div>
+            ))}
+          </div>
+          {bridges && (bridges.tds || bridges.gstGaps || bridges.dues.length || bridges.fest || bridges.mix.cashShare >= 40 || globalStats.uncategorized > 0) ? (
+            <div className="dash-chips dash-chips-inpanel">
+              {globalStats.uncategorized > 0 && <span className="dash-chip">{globalStats.uncategorized} need a category</span>}
+              {bridges.tds > 0 && <span className="dash-chip">{bridges.tds} TDS watch</span>}
+              {bridges.gstGaps > 0 && <span className="dash-chip">{bridges.gstGaps} GST need receipt</span>}
+              {bridges.mix.cashShare >= 40 && <span className="dash-chip">{bridges.mix.cashShare}% cash</span>}
+              {bridges.dues.length > 0 && <span className="dash-chip">Missing {bridges.dues.slice(0, 2).join(', ')}</span>}
+              {bridges.fest && <span className="dash-chip">{bridges.fest.name}</span>}
             </div>
-          ))}
-        </div>
-      )}
-
-      {canSeeMoney && bridges && (bridges.tds || bridges.gstGaps || bridges.dues.length || bridges.fest || bridges.mix.cashShare >= 40 || globalStats.uncategorized > 0) && (
-        <div className="dash-chips">
-          {globalStats.uncategorized > 0 && <span className="dash-chip">{globalStats.uncategorized} need a category</span>}
-          {bridges.tds > 0 && <span className="dash-chip">{bridges.tds} TDS watch</span>}
-          {bridges.gstGaps > 0 && <span className="dash-chip">{bridges.gstGaps} GST need receipt</span>}
-          {bridges.mix.cashShare >= 40 && <span className="dash-chip">{bridges.mix.cashShare}% cash</span>}
-          {bridges.dues.length > 0 && <span className="dash-chip">Missing {bridges.dues.slice(0, 2).join(', ')}</span>}
-          {bridges.fest && <span className="dash-chip">{bridges.fest.name}</span>}
-        </div>
+          ) : null}
+        </section>
       )}
 
       {inviteBlock}
@@ -647,15 +653,17 @@ export default function Dashboard() {
           <p className="text-sm text-slate-500 mt-1">Ask your super user to enable Money if you need access to money books.</p>
         </div>
       ) : (
-      <section className="space-y-3">
-          <div className="flex items-center justify-between gap-2 dash-section-label">
-            <span>Money books</span>
-            <span className="flex items-center gap-2 font-normal">
+      <section className="dash-panel dash-panel-books">
+          <div className="dash-panel-head">
+            <div>
+              <h2>Your books</h2>
+              <p>{visibleBooks.length} open · tap to add expenses</p>
+            </div>
+            <div className="flex items-center gap-2">
               {books.some((book) => book.archived) && (
                 <button type="button" className="byjan-chip" data-on={showArchived} onClick={() => setShowArchived((v) => !v)}>Archived</button>
               )}
-              {recentBooks[0] && <span className="hidden sm:inline">Last opened {recentBooks[0].name}</span>}
-            </span>
+            </div>
           </div>
           {loading ? (
             <div className="dash-ledger-list" aria-busy="true" aria-label="Loading money books">

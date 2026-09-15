@@ -24,8 +24,10 @@ export type PendingCapture = {
 
 const STORAGE_KEY = 'byjan_pending_capture';
 const LAST_BOOK_KEY = 'byjan_last_money_book';
+const BOOKS_CACHE_KEY = 'byjan_money_books_cache';
 /** In-memory handoff — avoids sessionStorage size limits for large shares. */
 let memoryPending: PendingCapture | null = null;
+let booksCache: Array<{ id: string; name: string; currency?: string }> | null = null;
 
 function fingerprint(p: PendingCapture) {
   return [
@@ -50,6 +52,27 @@ export function rememberMoneyBook(bookId: string) {
   } catch { /* ignore */ }
 }
 
+export function cacheMoneyBooks(books: Array<{ id: string; name: string; currency?: string }>) {
+  booksCache = books;
+  try {
+    localStorage.setItem(BOOKS_CACHE_KEY, JSON.stringify({ at: Date.now(), books }));
+  } catch { /* ignore */ }
+}
+
+export function readCachedMoneyBooks() {
+  if (booksCache?.length) return booksCache;
+  try {
+    const raw = localStorage.getItem(BOOKS_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as { at?: number; books?: Array<{ id: string; name: string; currency?: string }> };
+    if (!Array.isArray(parsed.books)) return [];
+    booksCache = parsed.books;
+    return parsed.books;
+  } catch {
+    return [];
+  }
+}
+
 function storePending(pending: PendingCapture) {
   memoryPending = pending;
   try {
@@ -65,8 +88,8 @@ function storePending(pending: PendingCapture) {
 }
 
 /**
- * Listens for Android share intents (image / PDF / Excel / text) and deep links.
- * Navigates immediately; book list loads in parallel so share feels instant.
+ * Listens for Android share intents. Always lands on book picker when 2+ books
+ * so the user is never stuck auto-saving into the wrong book.
  */
 export default function ShareIntentListener() {
   const navigate = useNavigate();
@@ -77,31 +100,56 @@ export default function ShareIntentListener() {
     const fp = fingerprint(pending);
     if (fp && fp === lastFp.current) return;
     lastFp.current = fp;
-    storePending(pending);
 
+    const cached = readCachedMoneyBooks();
     const last = cachedBookId();
-    if (pending.preferredBookId) {
-      navigate(`/book/${pending.preferredBookId}?capture=1`, { replace: false });
-      addToast('Reading shared file…', 'success');
-      void listLedgers().catch(() => undefined);
-      return;
-    }
-    if (last) {
-      navigate(`/book/${last}?capture=1`, { replace: false });
-      addToast('Reading shared file…', 'success');
-      void listLedgers().catch(() => undefined);
-      return;
+    const onlyOne = cached.length === 1 ? cached[0] : null;
+
+    // Prefer explicit bookId from deep link; otherwise 1 known book; else always pick.
+    let preferred = pending.preferredBookId || '';
+    let requirePick = true;
+    if (preferred) {
+      requirePick = false;
+    } else if (onlyOne) {
+      preferred = onlyOne.id;
+      requirePick = false;
+    } else if (cached.length === 0 && last) {
+      // Unknown book count yet — still show picker so multi-book users can choose.
+      preferred = '';
+      requirePick = true;
     }
 
-    navigate('/expenses?capture=1', { replace: false });
-    addToast('Reading shared file…', 'success');
+    storePending({
+      ...pending,
+      preferredBookId: preferred || undefined,
+      requireBookPick: requirePick,
+    });
 
-    const books = await listLedgers().catch(() => []);
-    const visible = (books || []).filter((b) => b && !b.deleted && !b.deletedAt && !b.archived);
-    if (visible.length === 1) {
-      rememberMoneyBook(String(visible[0].id));
-      navigate(`/book/${visible[0].id}?capture=1`, { replace: false });
+    if (!requirePick && preferred) {
+      rememberMoneyBook(preferred);
+      navigate(`/book/${preferred}?capture=1`, { replace: false });
+      addToast('Reading shared file…', 'success');
+    } else {
+      navigate('/expenses?capture=1', { replace: false });
+      addToast('Choose a Money book…', 'success');
     }
+
+    // Refresh book cache in background for next share.
+    void listLedgers().then((books) => {
+      const visible = (books || [])
+        .filter((b) => b && !b.deleted && !b.deletedAt && !b.archived)
+        .map((b) => ({ id: String(b.id), name: String(b.name || 'Money book'), currency: String(b.currency || 'INR') }));
+      cacheMoneyBooks(visible);
+      if (requirePick && visible.length === 1) {
+        rememberMoneyBook(visible[0].id);
+        storePending({
+          ...pending,
+          preferredBookId: visible[0].id,
+          requireBookPick: false,
+        });
+        navigate(`/book/${visible[0].id}?capture=1`, { replace: false });
+      }
+    }).catch(() => undefined);
   };
 
   const fromNative = async (payload: SharedPayload) => {
@@ -118,8 +166,6 @@ export default function ShareIntentListener() {
       fileName: payload.fileName,
       mimeType: payload.mimeType || (dataUrl?.startsWith('data:') ? dataUrl.slice(5).split(';')[0] : undefined),
       source: payload.source || 'share',
-      requireBookPick: false,
-      preferredBookId: cachedBookId() || undefined,
       receivedAt: new Date().toISOString(),
     });
   };
@@ -145,8 +191,7 @@ export default function ShareIntentListener() {
         await routePending({
           text: text || url,
           source: 'share',
-          preferredBookId: bookId || cachedBookId() || undefined,
-          requireBookPick: !bookId && !cachedBookId(),
+          preferredBookId: bookId || undefined,
           receivedAt: new Date().toISOString(),
         });
       } catch { /* ignore */ }
@@ -169,8 +214,7 @@ export default function ShareIntentListener() {
 
 export function readPendingCapture(): PendingCapture | null {
   if (memoryPending?.imageDataUrl || memoryPending?.text) {
-    const out = memoryPending;
-    return out;
+    return memoryPending;
   }
   try {
     const raw = sessionStorage.getItem(STORAGE_KEY);
@@ -183,7 +227,7 @@ export function readPendingCapture(): PendingCapture | null {
       fileName: parsed.fileName ? String(parsed.fileName) : undefined,
       mimeType: parsed.mimeType ? String(parsed.mimeType) : undefined,
       source: String(parsed.source || 'share'),
-      requireBookPick: parsed.requireBookPick === true,
+      requireBookPick: parsed.requireBookPick !== false,
       preferredBookId: parsed.preferredBookId ? String(parsed.preferredBookId) : undefined,
       receivedAt: String(parsed.receivedAt || new Date().toISOString()),
     };
