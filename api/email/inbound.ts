@@ -827,25 +827,39 @@ Rules:
 async function probeGemini() {
   const key = geminiKey();
   if (!key) return { ok: false, error: 'missing_key' };
-  const model = geminiModels()[0] || 'gemini-3.6-flash';
-  const started = Date.now();
-  const result = await geminiGenerate(
-    model,
-    key,
-    {
-      contents: [{ parts: [{ text: 'Return JSON only: {"ok":true,"amount":12.5}' }] }],
-      generationConfig: { temperature: 0, responseMimeType: 'application/json' },
-    },
-    15_000,
-  );
-  if (!result.ok) {
-    return { ok: false, model, ms: Date.now() - started, error: result.error };
+  const models = geminiModels().slice(0, 5);
+  const results: Array<{ model: string; ok: boolean; ms: number; error?: string; sample?: string }> = [];
+  for (const model of models) {
+    const started = Date.now();
+    const result = await geminiGenerate(
+      model,
+      key,
+      {
+        contents: [{ parts: [{ text: 'Return JSON only: {"ok":true,"amount":12.5}' }] }],
+        generationConfig: { temperature: 0, responseMimeType: 'application/json' },
+      },
+      12_000,
+    );
+    if (!result.ok) {
+      results.push({ model, ok: false, ms: Date.now() - started, error: result.error });
+      continue;
+    }
+    results.push({
+      model,
+      ok: true,
+      ms: Date.now() - started,
+      sample: extractGeminiText(result.payload).slice(0, 200),
+    });
   }
+  const firstOk = results.find((r) => r.ok);
   return {
-    ok: true,
-    model,
-    ms: Date.now() - started,
-    sample: extractGeminiText(result.payload).slice(0, 200),
+    ok: Boolean(firstOk),
+    preferred: models[0] || '',
+    workingModel: firstOk?.model || null,
+    results,
+    hint: firstOk
+      ? null
+      : 'Google denied this API project or the key is invalid. Create a new key at https://aistudio.google.com/apikey and set GEMINI_API_KEY in Vercel.',
   };
 }
 
