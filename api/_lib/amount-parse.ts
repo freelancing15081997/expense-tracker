@@ -46,14 +46,22 @@ export function extractMoneyAmount(text: string): ParsedMoneyAmount | null {
       && !labeled) {
       return;
     }
+    const around = raw.slice(Math.max(0, index - 4), Math.min(raw.length, index + token.length + 4));
+    if (/\d{1,2}:\d{2}/.test(around)) return;
+    if (!labeled && /\b(?:ref|upi|utr|txn|id)\b/i.test(raw.slice(Math.max(0, index - 20), index))) {
+      if (Number.isInteger(n) || String(token).replace(/\D/g, '').length >= 8) return;
+    }
     // "Payment successful 26" is a status + day — never ₹26 unless currency is present.
     if (Number.isInteger(n) && n <= 31 && !hasDecimals) {
-      const around = raw.slice(Math.max(0, index - 28), Math.min(raw.length, index + token.length + 10));
-      if (!/(?:₹|rs\.?|inr)/i.test(around)) return;
+      const curr = raw.slice(Math.max(0, index - 28), Math.min(raw.length, index + token.length + 10));
+      if (!/(?:₹|rs\.?|inr)/i.test(curr)) return;
     }
     let s = score;
     if (hasDecimals) s += 6;
     if (!labeled && Number.isInteger(n) && n <= 9) s -= 18;
+    const ctx = raw.slice(Math.max(0, index - 28), Math.min(raw.length, index + token.length + 8));
+    if (/\b(?:avl|available|closing|opening)\s*bal/i.test(ctx)) s -= 40;
+    if (/\b(?:debited|credited|paid|sent)\b/i.test(ctx)) s += 8;
     hits.push({ amount: n, score: s, index, labeled });
   };
 
@@ -68,9 +76,11 @@ export function extractMoneyAmount(text: string): ParsedMoneyAmount | null {
   };
 
   walk(/(?:you\s+paid|paid\s+successfully|successfully\s+paid|amount\s+paid|total\s+paid)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d{1,2})?)/gi, 56, true);
-  walk(/(?:paid|sent|debited|spent|you\s+sent)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d{1,2})?)/gi, 52, true);
+  // Require currency after bare paid/sent — avoids "Paid on 26 Sep".
+  walk(/(?:paid|sent|debited|spent|you\s+sent)\s*[:\-]?\s*(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d{1,2})?)/gi, 54, true);
+  walk(/(?:debited\s+(?:by|from)|credited\s+(?:by|to|from)|payment\s+of)\s*(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d{1,2})?)/gi, 58, true);
   walk(/(?:payment\s+successful)\s*[:\-]?\s*(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d{1,2})?)/gi, 54, true);
-  walk(/(?:debited\s+by|credited\s+by|payment\s+of|grand\s*total|net\s*payable|total\s*due)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d{1,2})?)/gi, 50, true);
+  walk(/(?:grand\s*total|net\s*payable|total\s*due|invoice\s*value)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d{1,2})?)/gi, 50, true);
   walk(/(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d{1,2})?)\s*(?:paid|sent|debited)/gi, 48, true);
   walk(/(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d{1,2})?)/gi, 28, false);
   walk(/([\d,]+(?:\.\d{1,2})?)\s*(?:₹|rs\.?|inr)\b/gi, 26, false);

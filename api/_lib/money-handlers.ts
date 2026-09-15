@@ -453,32 +453,70 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
       }
 
       const textParsed = parseAmountFromText(text || '');
-      // Prefer Gemini when it found an amount; otherwise use OCR/share text so shares never go blank.
+      const { enrichWithPpStructure, needsPpStructure, parsePpStructureText } = await import('./paddle-structure.js');
+
+      // PP-Structure on share/OCR text (and optional remote PaddleOCR for complex docs).
+      let structured: Awaited<ReturnType<typeof enrichWithPpStructure>> = null;
+      try {
+        const wantStructure = needsPpStructure({
+          mimeType: imageMime,
+          fileName: receiptName,
+          text,
+          imageBase64Length: imageBase64?.length || 0,
+        }) || !(vision && vision.amount > 0);
+        if (wantStructure) {
+          structured = await enrichWithPpStructure({
+            text,
+            imageBase64: (!(vision && vision.amount > 0) ? imageBase64 : undefined),
+            mimeType: imageMime,
+            fileName: receiptName,
+          });
+        } else if (text) {
+          structured = parsePpStructureText(text, receiptName);
+        }
+      } catch {
+        structured = text ? parsePpStructureText(text, receiptName) : null;
+      }
+
+      // Priority: Gemini (when amount found) → PP-Structure → regex text parse.
       const amount = (vision && vision.amount > 0)
         ? vision.amount
-        : (textParsed?.amount || 0);
+        : (structured?.amount || textParsed?.amount || 0);
       const merchant = (
         (vision && vision.amount > 0 ? vision.merchant : '')
+        || structured?.merchant
         || textParsed?.merchant
         || vision?.merchant
         || ''
       ).trim();
       const description = (
         (vision && vision.amount > 0 ? vision.description : '')
+        || structured?.description
         || textParsed?.description
         || vision?.description
         || merchant
         || receiptName
         || 'Shared receipt'
       ).trim();
-      const category = (vision?.category && vision.category !== 'Uncategorized'
-        ? vision.category
-        : (textParsed as { category?: string } | null)?.category) || vision?.category || 'Uncategorized';
-      const paymentMethod = vision?.paymentMethod || textParsed?.paymentMethod || 'cash';
+      const category = (
+        (vision?.category && vision.category !== 'Uncategorized' ? vision.category : '')
+        || (structured?.category && structured.category !== 'Uncategorized' ? structured.category : '')
+        || (textParsed as { category?: string } | null)?.category
+        || vision?.category
+        || 'Uncategorized'
+      );
+      const paymentMethod = (
+        (vision && vision.amount > 0 ? vision.paymentMethod : '')
+        || structured?.paymentMethod
+        || vision?.paymentMethod
+        || textParsed?.paymentMethod
+        || 'cash'
+      );
       const date = (vision?.date && /^\d{4}-\d{2}-\d{2}$/.test(vision.date) ? vision.date : null)
+        || structured?.date
         || textParsed?.date
         || new Date().toISOString().slice(0, 10);
-      const entryType = vision?.entryType || textParsed?.entryType || 'out';
+      const entryType = vision?.entryType || structured?.entryType || textParsed?.entryType || 'out';
 
       push('receipt.classifying', 'CLASSIFYING');
       push('receipt.duplicate_check', 'DUPLICATE_CHECK');
@@ -497,9 +535,14 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
         date,
         receiptPath: receiptPath || undefined,
         receiptName: receiptName || undefined,
+        invoiceNumber: structured?.invoiceNumber || undefined,
+        gstin: structured?.gstin || undefined,
+        taxAmount: structured?.taxAmount || undefined,
         processingStatus: amount > 0 ? 'READY' : 'REVIEW_REQUIRED',
         financialStatus: 'DRAFT',
-        confidence: amount > 0 ? (merchant ? 'high' : 'medium') : 'low',
+        confidence: amount > 0
+          ? (structured?.confidence === 'high' || merchant ? 'high' : 'medium')
+          : 'low',
         reasons,
         raw: text,
         timeline,

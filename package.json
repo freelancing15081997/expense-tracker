@@ -12,6 +12,7 @@
     "lint": "tsc --noEmit",
     "test:books": "tsx scripts/books-flow-test.ts",
     "test:money": "tsx scripts/money-test.ts",
+    "test:receipts": "tsx scripts/receipt-parse-e2e-test.ts",
     "test:recurrence": "tsx scripts/recurrence-test.ts",
     "start": "node --dns-result-order=ipv4first dist/server.cjs",
     "migrate:firestore": "node scripts/migrate-firestore-to-postgres.mjs",

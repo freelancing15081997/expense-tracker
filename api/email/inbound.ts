@@ -954,6 +954,34 @@ async function enrichFromDocument(
   }
   // Email intent (description / return / fund source) should not be wiped by a thin OCR stub.
   best = preferParsed(best, fallback);
+
+  // PP-Structure field mapping when amount still missing (GST invoices, tables, bills).
+  if (!best.amount) {
+    try {
+      const { parsePpStructureText } = await import('../_lib/paddle-structure.js');
+      const structured = parsePpStructureText(`${subject}\n${body}\n${preview || ''}`, fileName);
+      if (structured && structured.amount > 0) {
+        best = preferParsed({
+          ...best,
+          amount: structured.amount,
+          date: structured.date || best.date,
+          merchant: structured.merchant || best.merchant,
+          description: structured.description || best.description,
+          category: structured.category !== 'Uncategorized' ? structured.category : best.category,
+          entryType: structured.entryType === 'in' ? 'in' : best.entryType,
+          paymentMethod: structured.paymentMethod || best.paymentMethod,
+          invoiceNumber: structured.invoiceNumber || best.invoiceNumber,
+          taxAmount: structured.taxAmount || best.taxAmount,
+          parseSource: 'ocr',
+        }, best);
+        engine = structured.engine;
+        if (!preview && structured.rawText) preview = structured.rawText.slice(0, 500);
+      }
+    } catch {
+      /* optional */
+    }
+  }
+
   return { parsed: best, preview, engine };
 }
 
