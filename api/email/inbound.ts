@@ -643,8 +643,14 @@ function asParsed(value: any, fallback: ParsedReceipt): ParsedReceipt {
 
 function geminiModels() {
   const preferred = String(process.env.GEMINI_MODEL || '').trim();
-  // New Google AI Studio keys require 3.x Flash (2.5 is blocked for new users).
-  const defaults = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-flash-latest'];
+  // Prefer Flash models that work for new AI Studio keys; keep 2.5/2.0 as hard fallbacks.
+  const defaults = [
+    'gemini-3.6-flash',
+    'gemini-3.5-flash',
+    'gemini-flash-latest',
+    'gemini-2.5-flash',
+    'gemini-2.0-flash',
+  ];
   return [...new Set([preferred, ...defaults].filter(Boolean))];
 }
 
@@ -712,7 +718,9 @@ fundSource (where money came from), adjustments (any split/adjust instructions, 
 Rules:
 - Prefer the email's "paid for / description / return" wording for description when present.
 - entryType=in for refunds, returns with money back, reimbursements received; otherwise out.
-- Never invent amounts. Prefer grand total / amount paid / net payable from the document, unless the email clearly states the ledger amount to post.
+- Never invent amounts. Prefer grand total / amount paid / net payable / You paid / Paid ₹ from the document, unless the email clearly states the ledger amount to post.
+- NEVER use masked UPI ID / VPA / account ending digits as amount (XXXXX112@oksbi, ending 112, xx112@ybl are NOT money).
+- NEVER use calendar day/month/year, battery %, time, or UPI/UTR reference digits as amount.
 - Put adjustment / split instructions into adjustments (and notes) without dropping them.
 - Keep fundSource short (e.g. "HDFC UPI", "cash", "company card").
 If this is not a financial document (selfie, personal photo, meme, blank page, encrypted or password-protected file, or a screenshot with no totals), set amount to 0, leave merchant empty, and set notes to "not_a_receipt".`;
@@ -731,7 +739,7 @@ If this is not a financial document (selfie, personal photo, meme, blank page, e
   };
 
   const errors: string[] = [];
-  for (const model of geminiModels().slice(0, 3)) {
+  for (const model of geminiModels().slice(0, 5)) {
     const result = await geminiGenerate(model, key, requestBody, 22_000);
     if (!result.ok) {
       errors.push(`${model}: ${result.error}`);
@@ -843,9 +851,9 @@ async function probeGemini() {
 
 /**
  * Professional + fast document enrichment:
- * 1) Gemini multimodal (complex images/PDFs) when GEMINI_API_KEY is set — typically 2–6s
- * 2) Fast PDF text extract in parallel (embedded text only)
- * 3) Slow Tesseract OCR only if INBOUND_ALLOW_SLOW_OCR=1 and no Gemini key
+ * 1) Gemini multimodal when GEMINI_API_KEY is set
+ * 2) Fast PDF text extract in parallel
+ * 3) Image OCR + ₹-rules fallback when Gemini misses / fails
  */
 async function enrichFromDocument(
   bytes: Buffer,
@@ -903,44 +911,30 @@ async function enrichFromDocument(
         };
       })(),
     );
-  } else if (mime.startsWith('image/') && !geminiKey() && allowSlowOcr()) {
-    jobs.push(
-      (async () => {
-        const text = await withTimeoutMs(extractImageText(bytes), 12_000);
-        if (!text) return null;
-        const merged = parseReceiptFields(`${subject}\n${body}\n${text}`, { subject, fileName });
-        return {
-          parsed: preferParsed(
-            {
-              ...merged,
-              parseSource: merged.amount ? 'ocr' : fallback.parseSource,
-            },
-            fallback,
-          ),
-          preview: text.slice(0, 500),
-          engine: 'tesseract',
-        };
-      })(),
-    );
   }
 
-  if (!jobs.length) return { parsed: fallback, preview: '', engine: 'none' };
+  if (!jobs.length && !mime.startsWith('image/')) {
+    return { parsed: fallback, preview: '', engine: 'none' };
+  }
 
-  const settled = await Promise.all(jobs);
+  const settled = jobs.length ? await Promise.all(jobs) : [];
   let best = fallback;
   let preview = '';
   let engine = 'none';
+  let geminiFailed = false;
+
   for (const row of settled) {
     if (!row) continue;
-    // Prefer AI / higher-confidence amount results.
-    if (String(row.engine).startsWith('gemini') && row.engine !== 'gemini-failed' && (row.parsed.amount || row.parsed.merchant || row.parsed.description)) {
+    if (row.engine === 'gemini-failed') {
+      geminiFailed = true;
+      if (!preview) preview = row.preview;
+      continue;
+    }
+    if (String(row.engine).startsWith('gemini') && (row.parsed.amount || row.parsed.merchant || row.parsed.description)) {
       best = preferParsed(row.parsed, best);
       engine = row.engine;
       if (row.preview) preview = row.preview;
       continue;
-    }
-    if (row.engine === 'gemini-failed' && !preview) {
-      preview = row.preview;
     }
     if (row.parsed.amount && !best.amount) {
       best = preferParsed(row.parsed, best);
@@ -952,10 +946,74 @@ async function enrichFromDocument(
     if (!preview && row.preview) preview = row.preview;
     if (engine === 'none') engine = row.engine;
   }
-  // Email intent (description / return / fund source) should not be wiped by a thin OCR stub.
   best = preferParsed(best, fallback);
 
-  // PP-Structure field mapping when amount still missing (GST invoices, tables, bills).
+  // Image OCR only when we still have no amount (Gemini miss / timeout / no key).
+  if (mime.startsWith('image/') && !(best.amount > 0)) {
+    try {
+      const text = await withTimeoutMs(extractImageText(bytes), 12_000);
+      if (text) {
+        if (!preview) preview = text.slice(0, 500);
+        const merged = parseReceiptFields(`${subject}\n${body}\n${text}`, { subject, fileName });
+        let amountBoost = merged;
+        try {
+          const { extractMoneyAmount } = await import('../_lib/amount-parse.js');
+          const hit = extractMoneyAmount(`${subject}\n${body}\n${text}`);
+          if (hit && hit.amount > 0 && (!merged.amount || hit.score >= 48)) {
+            amountBoost = {
+              ...merged,
+              amount: hit.amount,
+              merchant: hit.merchant || merged.merchant,
+              description: hit.description || merged.description,
+              paymentMethod: (hit.paymentMethod as ParsedReceipt['paymentMethod']) || merged.paymentMethod,
+              entryType: hit.entryType === 'in' ? 'in' : merged.entryType,
+              parseSource: 'ocr',
+            };
+          }
+        } catch {
+          /* optional */
+        }
+        if (amountBoost.amount > 0) {
+          best = preferParsed({ ...amountBoost, parseSource: 'ocr' }, best);
+          engine = geminiFailed || engine === 'none' ? 'image-ocr' : `${engine}+image-ocr`;
+        }
+      }
+    } catch {
+      /* OCR optional */
+    }
+  }
+
+  // Corroborate Gemini against ₹-labeled OCR/email text (masked UPI tails, etc.).
+  try {
+    const { reconcileVisionAmount, extractMoneyAmount } = await import('../_lib/amount-parse.js');
+    const hay = `${subject}\n${body}\n${preview || ''}`;
+    const textParsed = extractMoneyAmount(hay);
+    const fixed = reconcileVisionAmount(best.amount || 0, hay, textParsed);
+    if (fixed > 0 && fixed !== best.amount) {
+      best = {
+        ...best,
+        amount: fixed,
+        merchant: textParsed?.merchant || best.merchant,
+        description: textParsed?.description || best.description,
+        paymentMethod: (textParsed?.paymentMethod as ParsedReceipt['paymentMethod']) || best.paymentMethod,
+        parseSource: best.parseSource || 'ocr',
+      };
+      if (String(engine).startsWith('gemini')) engine = `${engine}+ocr-reconcile`;
+    } else if (!(best.amount > 0) && textParsed && textParsed.amount > 0) {
+      best = {
+        ...best,
+        amount: textParsed.amount,
+        merchant: textParsed.merchant || best.merchant,
+        description: textParsed.description || best.description,
+        paymentMethod: (textParsed.paymentMethod as ParsedReceipt['paymentMethod']) || best.paymentMethod,
+        parseSource: 'ocr',
+      };
+      engine = engine === 'none' || geminiFailed ? 'text-rules' : engine;
+    }
+  } catch {
+    /* optional */
+  }
+
   if (!best.amount) {
     try {
       const { parsePpStructureText } = await import('../_lib/paddle-structure.js');
@@ -980,6 +1038,10 @@ async function enrichFromDocument(
     } catch {
       /* optional */
     }
+  }
+
+  if (geminiFailed && !(best.amount > 0) && (engine === 'none' || String(engine).startsWith('gemini'))) {
+    return { parsed: best, preview: preview || 'gemini_error: all_models_failed', engine: 'gemini-failed' };
   }
 
   return { parsed: best, preview, engine };
@@ -1266,7 +1328,9 @@ function isUnusableDocument(parsed: ParsedReceipt, body: string, ocrPreview: str
   const failedParse = parseEngine === 'gemini-failed' || parseEngine === 'none' || ocrPreview.startsWith('gemini_error:');
   // Body-only emails (no attachment) with amount + description are valid entries.
   if (!hasFile && parsed.amount > 0 && (parsed.description || hasEmailIntent)) return false;
-  if (noAmount && noMerchant && parsed.category === 'Uncategorized' && (thinBody || failedParse || !hasFile) && !hasEmailIntent) {
+  // Attachment present but Gemini failed → keep as amount_missing draft, do not hard-reject.
+  if (hasFile && failedParse && noAmount) return false;
+  if (noAmount && noMerchant && parsed.category === 'Uncategorized' && (thinBody || (!hasFile && failedParse)) && !hasEmailIntent) {
     return true;
   }
   return false;

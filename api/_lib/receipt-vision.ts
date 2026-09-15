@@ -27,8 +27,14 @@ function geminiKey() {
 
 function geminiModels() {
   const preferred = String(process.env.GEMINI_MODEL || '').trim();
-  // Same list as inbound email — new AI Studio keys need 3.x Flash.
-  const defaults = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-flash-latest'];
+  // Same list as inbound email — include 2.5/2.0 Flash hard fallbacks.
+  const defaults = [
+    'gemini-3.6-flash',
+    'gemini-3.5-flash',
+    'gemini-flash-latest',
+    'gemini-2.5-flash',
+    'gemini-2.0-flash',
+  ];
   return [...new Set([preferred, ...defaults].filter(Boolean))];
 }
 
@@ -211,7 +217,7 @@ Rules:
   };
 
   const errors: string[] = [];
-  const models = geminiModels().slice(0, 3);
+  const models = geminiModels().slice(0, 5);
   let bestZero: VisionReceipt | null = null;
 
   for (let i = 0; i < models.length; i += 1) {
