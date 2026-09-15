@@ -256,7 +256,8 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
         enteredByUid: user.uid,
         enteredByEmail: user.email,
         createdAt: now,
-      }, { insertOnly: true });
+        ...(body.force ? { duplicateConfirmedDifferent: true } : {}),
+      }, { insertOnly: true, allowDuplicateHash: Boolean(body.force) });
 
       await ledgerAudit({
         bookId,

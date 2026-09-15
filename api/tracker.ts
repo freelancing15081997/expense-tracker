@@ -308,7 +308,8 @@ async function handleExpenses(req: VercelRequest, res: VercelResponse) {
         financialStatus: input.financialStatus || 'CONFIRMED',
         processingStatus: input.processingStatus || 'COMPLETED',
         idempotencyKey: idempotencyKey || undefined,
-      }, { insertOnly: true });
+        ...(body.force ? { duplicateConfirmedDifferent: true } : {}),
+      }, { insertOnly: true, allowDuplicateHash: Boolean(body.force) });
       await mergeCategory(bookId, String(saved.expense.category || '')).catch(() => undefined);
       await ledgerAudit({
         bookId,

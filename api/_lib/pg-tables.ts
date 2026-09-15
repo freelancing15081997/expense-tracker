@@ -1535,10 +1535,20 @@ export async function ledgerGetExpense(bookId: string, expenseId: string) {
 export async function ledgerSaveExpense(
   bookId: string,
   expense: Record<string, unknown>,
-  opts?: { insertOnly?: boolean },
+  opts?: { insertOnly?: boolean; allowDuplicateHash?: boolean },
 ) {
   const id = text(expense.id) || newLedgerId();
   const row: Record<string, unknown> = { ...expense, id };
+  // User confirmed "Different entry" — keep original fingerprint for audit, but free the
+  // live unique index so the same file can be posted as a second line.
+  if (opts?.allowDuplicateHash) {
+    const original = text(row.receiptHash);
+    if (original) {
+      row.receiptHashOriginal = original;
+      row.duplicateConfirmedDifferent = true;
+      row.receiptHash = `${original}#dup#${id}`;
+    }
+  }
   try {
     const wrote = await ledgerSet(`books/${bookId}/expenses/${id}`, row, Boolean(opts?.insertOnly));
     if (opts?.insertOnly && !wrote) {
@@ -1547,7 +1557,16 @@ export async function ledgerSaveExpense(
     }
   } catch (err) {
     if (ledgerUniqueViolation(err)) {
-      const existing = await ledgerLiveExpenseByHash(bookId, text(row.receiptHash));
+      // Retry once with a uniquified hash when the unique index still fires (race / force path).
+      const original = text(row.receiptHashOriginal) || text(row.receiptHash).replace(/#dup#.*$/, '');
+      if (original && !String(row.receiptHash || '').includes('#dup#')) {
+        row.receiptHashOriginal = original;
+        row.duplicateConfirmedDifferent = true;
+        row.receiptHash = `${original}#dup#${id}`;
+        const wrote = await ledgerSet(`books/${bookId}/expenses/${id}`, row, Boolean(opts?.insertOnly));
+        if (wrote || !opts?.insertOnly) return { expense: row, created: true };
+      }
+      const existing = await ledgerLiveExpenseByHash(bookId, original || text(row.receiptHash));
       const dup: Error & { status?: number; existing?: Record<string, unknown> | null } = new Error('This receipt is already recorded');
       dup.status = 409;
       dup.existing = existing;

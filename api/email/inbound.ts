@@ -1763,7 +1763,12 @@ async function mergeCategory(bookId: string, category: string) {
 }
 
 async function saveExpenseRecord(bookId: string, expense: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const saved = await ledgerSaveExpense(bookId, { ...expense, id: String(expense.id || newId()) }, { insertOnly: true });
+  const allowDuplicateHash = Boolean(expense.duplicateConfirmedDifferent);
+  const saved = await ledgerSaveExpense(
+    bookId,
+    { ...expense, id: String(expense.id || newId()) },
+    { insertOnly: true, allowDuplicateHash },
+  );
   await mergeCategory(bookId, String(saved.expense.category || ''));
   return saved.expense;
 }

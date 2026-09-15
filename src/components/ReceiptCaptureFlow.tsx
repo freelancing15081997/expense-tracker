@@ -489,7 +489,11 @@ export default function ReceiptCaptureFlow({
     setPhase('working');
     setProgress('Saving as a new entry…', 90);
     try {
-      const saved = await createExpense(pendingDup.bookId, pendingDup.payload, {
+      const payload = {
+        ...pendingDup.payload,
+        duplicateConfirmedDifferent: true,
+      };
+      const saved = await createExpense(pendingDup.bookId, payload, {
         force: true,
         idempotencyKey: newMoneyId('cap_force'),
       });
@@ -537,6 +541,7 @@ export default function ReceiptCaptureFlow({
         receiptPath: row.receiptPath,
         receiptName: row.receiptName,
         captureSource: row.source || 'share',
+        duplicateConfirmedDifferent: true,
       });
       if (receiptHash) (payload as any).receiptHash = receiptHash;
       setProgress('Saving as a new entry…', 92);
