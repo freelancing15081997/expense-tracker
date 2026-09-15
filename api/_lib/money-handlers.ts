@@ -28,7 +28,7 @@ import {
   saveMyUpiProfile,
   startUpiPayment,
 } from './settlement-upi.js';
-import { extractMoneyAmount } from './amount-parse.js';
+import { extractMoneyAmount, reconcileVisionAmount } from './amount-parse.js';
 
 async function ensureMoneySchema() {
   const sql = await getLedgerSql();
@@ -133,6 +133,8 @@ function parseAmountFromText(text: string) {
     merchant: parsed.merchant,
     paymentMethod: parsed.paymentMethod,
     date: parsed.date,
+    confidence: parsed.confidence,
+    score: parsed.score,
   };
 }
 
@@ -482,19 +484,32 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
         structured = text ? parsePpStructureText(text, receiptName) : null;
       }
 
-      // Priority: Gemini (when amount found) → PP-Structure → regex text parse.
-      const amount = (vision && vision.amount > 0)
-        ? vision.amount
-        : (structured?.amount || textParsed?.amount || 0);
+      // Prefer ₹-labeled OCR/text when Gemini invents masked UPI tails (e.g. 112 from XX112@oksbi).
+      const amount = reconcileVisionAmount(
+        vision?.amount || 0,
+        text || '',
+        textParsed || (structured
+          ? {
+              amount: structured.amount,
+              entryType: (structured.entryType as 'in' | 'out' | 'transfer') || 'out',
+              description: structured.description || '',
+              merchant: structured.merchant || '',
+              paymentMethod: structured.paymentMethod || 'cash',
+              date: structured.date || new Date().toISOString().slice(0, 10),
+              confidence: structured.confidence || 'medium',
+              score: structured.confidence === 'high' ? 50 : 28,
+            }
+          : null),
+      ) || structured?.amount || textParsed?.amount || 0;
       const merchant = (
-        (vision && vision.amount > 0 ? vision.merchant : '')
+        (amount > 0 && vision && vision.amount === amount ? vision.merchant : '')
         || structured?.merchant
         || textParsed?.merchant
         || vision?.merchant
         || ''
       ).trim();
       const description = (
-        (vision && vision.amount > 0 ? vision.description : '')
+        (amount > 0 && vision && vision.amount === amount ? vision.description : '')
         || structured?.description
         || textParsed?.description
         || vision?.description
@@ -503,24 +518,27 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
         || 'Shared receipt'
       ).trim();
       const category = (
-        (vision?.category && vision.category !== 'Uncategorized' ? vision.category : '')
+        (vision?.category && vision.category !== 'Uncategorized' && vision.amount === amount ? vision.category : '')
         || (structured?.category && structured.category !== 'Uncategorized' ? structured.category : '')
         || (textParsed as { category?: string } | null)?.category
         || vision?.category
         || 'Uncategorized'
       );
       const paymentMethod = (
-        (vision && vision.amount > 0 ? vision.paymentMethod : '')
+        (amount > 0 && vision && vision.amount === amount ? vision.paymentMethod : '')
         || structured?.paymentMethod
         || vision?.paymentMethod
         || textParsed?.paymentMethod
         || 'cash'
       );
-      const date = (vision?.date && /^\d{4}-\d{2}-\d{2}$/.test(vision.date) ? vision.date : null)
+      const date = (vision?.date && /^\d{4}-\d{2}-\d{2}$/.test(vision.date) && vision.amount === amount ? vision.date : null)
         || structured?.date
         || textParsed?.date
         || new Date().toISOString().slice(0, 10);
-      const entryType = vision?.entryType || structured?.entryType || textParsed?.entryType || 'out';
+      const entryType = (vision && vision.amount === amount ? vision.entryType : null)
+        || structured?.entryType
+        || textParsed?.entryType
+        || 'out';
 
       push('receipt.classifying', 'CLASSIFYING');
       push('receipt.duplicate_check', 'DUPLICATE_CHECK');

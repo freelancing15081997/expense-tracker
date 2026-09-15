@@ -186,10 +186,11 @@ amount (number), total (number), taxAmount (number), date (YYYY-MM-DD), merchant
 (Fuel, Groceries, Meals, Travel, Utilities, Health, Shopping, Software Subscriptions, or Uncategorized),
 entryType (out|in), paymentMethod (cash|card|upi|bank|wallet), notes.
 Rules:
-- amount/total = grand total / amount paid / net payable / Paid / Sent / Debited / You paid only.
+- amount/total = grand total / amount paid / net payable / Paid / Sent / Debited / You paid only (the large ₹ total on UPI screens).
 - NEVER use calendar day/month/year digits as amount (e.g. 26 from 26 Sep is NOT money).
-- NEVER use battery %, ratings, time, UPI ref fragments, or “Pay ₹5” suggestion chips.
-- If Paid ₹X / Debited ₹X is visible (image or context text), amount must be X exactly.
+- NEVER use battery %, ratings, time, UPI ref / UTR / txn id digits, order ids, or “Pay ₹5” suggestion chips.
+- NEVER use masked UPI ID / VPA / account / card tails as amount (e.g. XXXXX112@oksbi, ******112, ending 112, xx112@ybl are NOT money).
+- If Paid ₹X / You paid ₹X / Debited ₹X / ₹X.00 hero total is visible, amount must be X exactly.
 - Prefer context wording for description when present.
 - entryType=in for refunds/returns/money received; otherwise out.
 - UPI apps → paymentMethod=upi.

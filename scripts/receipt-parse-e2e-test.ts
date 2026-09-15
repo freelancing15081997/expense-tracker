@@ -3,7 +3,7 @@
  * Covers UPI apps, GST invoices, fuel, food, utilities, bank SMS, medical, e‑commerce, etc.
  * Runs: amount-parse + PP-Structure (+ duplicate fingerprint checks).
  */
-import { extractMoneyAmount } from '../src/lib/amount-parse.ts';
+import { extractMoneyAmount, reconcileVisionAmount } from '../src/lib/amount-parse.ts';
 import { parsePpStructureText, needsPpStructure } from '../api/_lib/paddle-structure.ts';
 
 type Case = {
@@ -47,6 +47,46 @@ PhonePe`,
     expectMerchantIncludes: 'Swiggy',
     expectPayment: 'upi',
     expectCategory: 'Meals',
+  },
+  {
+    id: 'gpay-masked-upi-550',
+    label: 'GPay ₹550 must ignore masked UPI tail 112',
+    text: `Payment successful
+15 Sep 2026
+To Kirana Store
+You paid ₹550.00
+UPI ID XXXXX112@oksbi
+UPI transaction ID 123456789012
+Paid via Google Pay`,
+    expectAmount: 550,
+    expectNotAmount: [112, 15],
+    expectPayment: 'upi',
+  },
+  {
+    id: 'phonepe-masked-ending-112',
+    label: 'PhonePe ₹550 must ignore account ending 112',
+    text: `Payment Successful
+Paid to Merchant ABC
+₹550.00
+15/09/2026 19:10
+UPI Ref No. 987654321098
+From A/c ending 112
+PhonePe`,
+    expectAmount: 550,
+    expectNotAmount: [112],
+    expectPayment: 'upi',
+  },
+  {
+    id: 'vpa-tail-not-amount',
+    label: 'VPA xx112@ybl is not amount when ₹550 present',
+    text: `Money Sent
+To friend
+Rs.550
+VPA xx112@ybl
+Paytm UPI`,
+    expectAmount: 550,
+    expectNotAmount: [112],
+    expectPayment: 'upi',
   },
   {
     id: 'paytm-upi',
@@ -322,6 +362,15 @@ console.log('\n• Duplicate detection fingerprint');
 const a = parsePpStructureText(cases[0].text);
 const b = parsePpStructureText(cases[0].text);
 assert(Boolean(a && b && a.amount === b.amount && a.date === b.date), 'same receipt yields same amount+date fingerprint');
+
+console.log('\n• Vision vs OCR reconcile (masked UPI decoy)');
+{
+  const ocr = `Payment successful\nYou paid ₹550.00\nUPI ID XXXXX112@oksbi`;
+  const fixed = reconcileVisionAmount(112, ocr, extractMoneyAmount(ocr));
+  assert(fixed === 550, `reconcile 112→550 got ${fixed}`);
+  const same = reconcileVisionAmount(550, ocr, extractMoneyAmount(ocr));
+  assert(same === 550, `reconcile keeps 550 got ${same}`);
+}
 
 console.log(`\n=== Result: ${passed} passed, ${failed} failed ===`);
 if (failures.length) {

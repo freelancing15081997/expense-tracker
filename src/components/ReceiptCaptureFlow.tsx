@@ -254,10 +254,42 @@ async function parseReceiptNow(
         }
       : draftPreview(launch, { receiptPath, receiptName, reasons: [] });
 
-    // Email-style: trust server parse when it found an amount. Local OCR only fills gaps.
+    // Prefer local OCR when it found a ₹-labeled total and server invented a decoy
+    // (masked UPI tail like 112 from XX112@oksbi while receipt is ₹550).
     const localPaise = local && local.amount > 0 ? Math.round(local.amount * 100) : 0;
     const serverPaise = Number(preview.amountPaise || 0);
-    if (!serverPaise && localPaise > 0) {
+    const ocrText = String(local?.text || hintText || '');
+    if (localPaise > 0 && serverPaise > 0 && localPaise !== serverPaise) {
+      const { amountAppearsAsRupee, reconcileVisionAmount } = await import('../lib/amount-parse');
+      const serverAmt = serverPaise / 100;
+      const localAmt = localPaise / 100;
+      const reconciled = reconcileVisionAmount(serverAmt, ocrText, {
+        amount: localAmt,
+        entryType: local?.entryType === 'in' ? 'in' : 'out',
+        description: local?.description || '',
+        merchant: local?.merchant || '',
+        paymentMethod: local?.paymentMethod || 'upi',
+        date: local?.date || '',
+        confidence: local?.confidence || 'medium',
+        score: Number(local?.score || (local?.confidence === 'high' ? 56 : 28)),
+      });
+      const preferLocal = reconciled === localAmt
+        || (amountAppearsAsRupee(ocrText, localAmt) && !amountAppearsAsRupee(ocrText, serverAmt))
+        || (local?.confidence === 'high' && Number(local?.score || 0) >= 48);
+      if (preferLocal) {
+        preview = {
+          ...preview,
+          amountPaise: localPaise,
+          merchant: local?.merchant || preview.merchant || '',
+          description: local?.description || preview.description || receiptName,
+          paymentMethod: local?.paymentMethod || preview.paymentMethod || 'upi',
+          direction: local?.entryType === 'in' ? 'MONEY_IN' : preview.direction,
+          processingStatus: 'READY',
+          confidence: local?.confidence || 'high',
+          reasons: [],
+        };
+      }
+    } else if (!serverPaise && localPaise > 0) {
       preview = {
         ...preview,
         amountPaise: localPaise,
