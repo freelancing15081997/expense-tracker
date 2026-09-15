@@ -10,6 +10,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(ShareReceiverPlugin.class);
         registerPlugin(UpiPayPlugin.class);
+        registerPlugin(DocumentOcrPlugin.class);
         super.onCreate(savedInstanceState);
         ShareReceiverPlugin.ingestIntent(this, getIntent());
     }

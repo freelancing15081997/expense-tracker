@@ -6,6 +6,7 @@ export type SharedPayload = {
   fileName?: string;
   dataBase64?: string;
   source?: string;
+  receivedAt?: string | number;
   error?: string;
 };
 

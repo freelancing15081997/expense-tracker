@@ -20,7 +20,7 @@ import { notifyLedgerMembers } from '../lib/notify-team';
 import { CapacitorService } from '../lib/capacitor';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send, Copy, CopyPlus, Paperclip, Mail, Megaphone, Shield, Pin, PinOff, SlidersHorizontal, ArrowUpDown, Star } from 'lucide-react';
+import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send, Copy, CopyPlus, Paperclip, Mail, Megaphone, Shield, Pin, PinOff, SlidersHorizontal, ArrowUpDown, Star, Wallet, ArrowUpRight, TrendingUp, Receipt } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Tabs from '@radix-ui/react-tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
@@ -468,25 +468,35 @@ export default function BookView() {
     if (!bookId) return;
     setOfflineCount(listOfflineQueue(bookId).length);
     const pending = readPendingCapture();
-    if (pending?.imageDataUrl || (pending?.text && pending?.mimeType)) {
-      setReceiptLaunch({
-        text: pending.text,
-        imageDataUrl: pending.imageDataUrl,
-        fileName: pending.fileName,
-        mimeType: pending.mimeType,
-        source: pending.source || 'share',
-        preferredBookId: bookId,
-        requireBookPick: false,
-      });
-      clearPendingCapture();
-      if (location.search.includes('capture=1')) {
-        navigate(`/book/${bookId}`, { replace: true });
+    const wantsCapture = location.search.includes('capture=1');
+
+    if (pending && (pending.imageDataUrl || pending.text)) {
+      const preferred = String(pending.preferredBookId || '');
+      const mustPick = pending.requireBookPick !== false && preferred !== bookId;
+      if (mustPick) {
+        navigate(`/expenses?capture=1&s=${Date.now().toString(36)}`, { replace: true });
+        return;
       }
-    } else if (pending?.text) {
-      const preview = buildCapturePreview(pending.text, pending.source === 'share' ? 'share' : 'sms', expenses, [], readUserRules(book, currentUser?.uid || ''));
-      setCapturePreview(preview);
-      clearPendingCapture();
+
+      if (pending.imageDataUrl || pending.mimeType) {
+        setReceiptLaunch({
+          text: pending.text,
+          imageDataUrl: pending.imageDataUrl,
+          fileName: pending.fileName,
+          mimeType: pending.mimeType,
+          source: pending.source || 'share',
+          preferredBookId: bookId,
+          requireBookPick: false,
+        });
+        clearPendingCapture();
+        if (wantsCapture) navigate(`/book/${bookId}`, { replace: true });
+      } else if (pending.text) {
+        const preview = buildCapturePreview(pending.text, pending.source === 'share' ? 'share' : 'sms', expenses, [], readUserRules(book, currentUser?.uid || ''));
+        setCapturePreview(preview);
+        clearPendingCapture();
+      }
     }
+
     const sync = async () => {
       const status = await Network.getStatus().catch(() => ({ connected: true }));
       if (!status.connected) return;
@@ -503,7 +513,7 @@ export default function BookView() {
       if (status.connected) void sync();
     });
     return () => { void handle.then((h) => h.remove()); };
-  }, [bookId]);
+  }, [bookId, location.search]);
 
   useEffect(() => {
     if ((location.state as { openPeople?: boolean } | null)?.openPeople) {
@@ -1578,22 +1588,34 @@ export default function BookView() {
 
         {ledgerTab === 'ledger' && (
           <div className="mt-2 space-y-2">
-            <div className="byjan-stat-grid">
-              <div className="byjan-stat">
-                <p className="byjan-stat-label">Net</p>
-                <p className={cn('byjan-stat-value byjan-money', balance >= 0 ? 'text-emerald-700' : 'text-slate-800')}>{balance < 0 ? '−' : ''}{getCurrencySymbol(book.currency)}{Math.abs(balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+            <div className="md3-stats mb-2">
+              <div className="md3-stat tone-idle">
+                <span className="md3-stat-icon" aria-hidden><Wallet className="w-4 h-4" /></span>
+                <span className="md3-stat-label">Net</span>
+                <strong className={cn('md3-stat-value byjan-money', balance >= 0 ? 'is-in' : '')}>
+                  {balance < 0 ? '−' : ''}{getCurrencySymbol(book.currency)}{Math.abs(balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </strong>
               </div>
-              <div className="byjan-stat">
-                <p className="byjan-stat-label">Money out</p>
-                <p className="byjan-stat-value byjan-money text-slate-800">{getCurrencySymbol(book.currency)}{totalOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+              <div className="md3-stat tone-out">
+                <span className="md3-stat-icon" aria-hidden><ArrowUpRight className="w-4 h-4" /></span>
+                <span className="md3-stat-label">Money out</span>
+                <strong className="md3-stat-value byjan-money">
+                  {getCurrencySymbol(book.currency)}{totalOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </strong>
               </div>
-              <div className="byjan-stat">
-                <p className="byjan-stat-label">Money in</p>
-                <p className="byjan-stat-value byjan-money text-emerald-700">{getCurrencySymbol(book.currency)}{totalIn.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+              <div className="md3-stat tone-in">
+                <span className="md3-stat-icon" aria-hidden><TrendingUp className="w-4 h-4" /></span>
+                <span className="md3-stat-label">Money in</span>
+                <strong className="md3-stat-value byjan-money">
+                  {getCurrencySymbol(book.currency)}{totalIn.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </strong>
               </div>
-              <div className="byjan-stat">
-                <p className="byjan-stat-label">This month</p>
-                <p className="byjan-stat-value byjan-money text-[#0B1F3A]">{getCurrencySymbol(book.currency)}{monthOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+              <div className="md3-stat tone-warn">
+                <span className="md3-stat-icon" aria-hidden><Receipt className="w-4 h-4" /></span>
+                <span className="md3-stat-label">This month</span>
+                <strong className="md3-stat-value byjan-money">
+                  {getCurrencySymbol(book.currency)}{monthOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </strong>
               </div>
             </div>
             {(budget > 0 || reimbursableOpen > 0 || isAuditor) && (
@@ -2049,7 +2071,7 @@ export default function BookView() {
                   <div
                     key={exp.id}
                     className={cn(
-                      'entry-card-mobile',
+                      'entry-card-mobile mb-entry',
                       exp.flagged && 'byjan-row-flag',
                       anomalySet.has(exp.id) && 'byjan-row-anomaly',
                     )}
@@ -2058,6 +2080,9 @@ export default function BookView() {
                       {canWrite && (
                         <input type="checkbox" className="mt-1.5" aria-label={`Select ${exp.description}`} checked={selectedIds.includes(exp.id)} onChange={() => toggleSelected(exp.id)} />
                       )}
+                      <span className={`mb-entry-icon tone-${exp.entryType === 'in' ? 'in' : exp.entryType === 'transfer' ? 'xfer' : 'out'}`} aria-hidden>
+                        {exp.entryType === 'in' ? <TrendingUp className="w-4 h-4" /> : exp.entryType === 'transfer' ? <ArrowUpRight className="w-4 h-4" /> : <Receipt className="w-4 h-4" />}
+                      </span>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className={cn('money-kind', kind.cls)}>{kind.label}</span>

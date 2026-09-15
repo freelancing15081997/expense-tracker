@@ -251,23 +251,33 @@ export default function Dashboard() {
   const [decliningId, setDecliningId] = useState<string | null>(null);
 
   useEffect(() => {
+    const openFromPending = () => {
+      const pending = readPendingCapture();
+      if (!pending?.imageDataUrl && !pending?.text) return;
+      setReceiptLaunch({
+        text: pending.text,
+        imageDataUrl: pending.imageDataUrl,
+        fileName: pending.fileName,
+        mimeType: pending.mimeType,
+        source: pending.source || 'share',
+        preferredBookId: pending.preferredBookId,
+        requireBookPick: pending.requireBookPick !== false,
+      });
+    };
+
     const params = new URLSearchParams(location.search);
-    if (params.get('capture') !== '1') return;
-    const pending = readPendingCapture();
-    if (!pending?.imageDataUrl && !pending?.text) {
-      navigate(location.pathname, { replace: true });
-      return;
+    if (params.get('capture') === '1') {
+      const pending = readPendingCapture();
+      if (!pending?.imageDataUrl && !pending?.text) {
+        navigate(location.pathname, { replace: true });
+      } else {
+        openFromPending();
+        navigate(location.pathname, { replace: true });
+      }
     }
-    setReceiptLaunch({
-      text: pending.text,
-      imageDataUrl: pending.imageDataUrl,
-      fileName: pending.fileName,
-      mimeType: pending.mimeType,
-      source: pending.source || 'share',
-      preferredBookId: pending.preferredBookId,
-      requireBookPick: pending.requireBookPick !== false,
-    });
-    navigate(location.pathname, { replace: true });
+
+    window.addEventListener('byjan-pending-capture', openFromPending);
+    return () => window.removeEventListener('byjan-pending-capture', openFromPending);
   }, [location.search, location.pathname, navigate]);
 
   const handleAcceptInvite = async (invite: InviteItem) => {

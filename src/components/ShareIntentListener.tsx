@@ -30,12 +30,19 @@ let memoryPending: PendingCapture | null = null;
 let booksCacheUid = '';
 let booksCache: Array<{ id: string; name: string; currency?: string }> | null = null;
 
+/** Unique enough across UPI screenshots (same MIME + JPEG header used to collide). */
 function fingerprint(p: PendingCapture) {
+  const img = p.imageDataUrl || '';
+  const mid = img.length > 240 ? img.slice(Math.floor(img.length / 2), Math.floor(img.length / 2) + 64) : '';
   return [
+    p.receivedAt || '',
     p.mimeType || '',
     p.fileName || '',
-    (p.imageDataUrl || '').slice(0, 80),
-    (p.text || '').slice(0, 80),
+    String(img.length),
+    img.slice(0, 24),
+    mid,
+    img.slice(-48),
+    (p.text || '').slice(0, 120),
   ].join('|');
 }
 
@@ -96,6 +103,12 @@ function storePending(pending: PendingCapture) {
   } catch { /* memory still holds full payload */ }
 }
 
+function notifyCaptureReady() {
+  try {
+    window.dispatchEvent(new CustomEvent('byjan-pending-capture'));
+  } catch { /* ignore */ }
+}
+
 /**
  * Listens for Android share intents. Always lands on book picker when 2+ books
  * so the user is never stuck auto-saving into the wrong book.
@@ -104,17 +117,21 @@ export default function ShareIntentListener() {
   const navigate = useNavigate();
   const { addToast } = useToast();
   const lastFp = useRef('');
+  const lastAt = useRef(0);
 
   const routePending = async (pending: PendingCapture) => {
     const fp = fingerprint(pending);
-    if (fp && fp === lastFp.current) return;
+    const now = Date.now();
+    // Only drop exact duplicates within 1.5s (double fire from onNewIntent + plugin).
+    if (fp && fp === lastFp.current && now - lastAt.current < 1500) return;
     lastFp.current = fp;
+    lastAt.current = now;
 
     const cached = readCachedMoneyBooks();
-    const last = cachedBookId();
     const onlyOne = cached.length === 1 ? cached[0] : null;
 
     // Prefer explicit bookId from deep link; otherwise 1 known book; else always pick.
+    // Never auto-use "last book" when 2+ books — user must choose (warm + cold).
     let preferred = pending.preferredBookId || '';
     let requirePick = true;
     if (preferred) {
@@ -122,10 +139,6 @@ export default function ShareIntentListener() {
     } else if (onlyOne) {
       preferred = onlyOne.id;
       requirePick = false;
-    } else if (cached.length === 0 && last) {
-      // Unknown book count yet — still show picker so multi-book users can choose.
-      preferred = '';
-      requirePick = true;
     }
 
     storePending({
@@ -133,13 +146,16 @@ export default function ShareIntentListener() {
       preferredBookId: preferred || undefined,
       requireBookPick: requirePick,
     });
+    notifyCaptureReady();
 
+    const tok = Date.now().toString(36);
     if (!requirePick && preferred) {
       rememberMoneyBook(preferred);
-      navigate(`/book/${preferred}?capture=1`, { replace: false });
+      navigate(`/book/${preferred}?capture=1&s=${tok}`, { replace: false });
       addToast('Reading shared file…', 'success');
     } else {
-      navigate('/expenses?capture=1', { replace: false });
+      // Unique query so Dashboard re-opens picker even if already on /expenses.
+      navigate(`/expenses?capture=1&s=${tok}`, { replace: false });
       addToast('Choose a Money book…', 'success');
     }
 
@@ -156,7 +172,8 @@ export default function ShareIntentListener() {
           preferredBookId: visible[0].id,
           requireBookPick: false,
         });
-        navigate(`/book/${visible[0].id}?capture=1`, { replace: false });
+        notifyCaptureReady();
+        navigate(`/book/${visible[0].id}?capture=1&s=${Date.now().toString(36)}`, { replace: false });
       }
     }).catch(() => undefined);
   };
@@ -169,13 +186,16 @@ export default function ShareIntentListener() {
     const dataUrl = sharedFileDataUrl(payload);
     const text = String(payload.text || '').trim();
     if (!dataUrl && !text) return;
+    const receivedAt = payload.receivedAt
+      ? String(payload.receivedAt)
+      : new Date().toISOString();
     await routePending({
       text: text || undefined,
       imageDataUrl: dataUrl || undefined,
       fileName: payload.fileName,
       mimeType: payload.mimeType || (dataUrl?.startsWith('data:') ? dataUrl.slice(5).split(';')[0] : undefined),
       source: payload.source || 'share',
-      receivedAt: new Date().toISOString(),
+      receivedAt,
     });
   };
 

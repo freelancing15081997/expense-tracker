@@ -123,26 +123,49 @@ async function putIdempotent(key: string, bookId: string, uid: string, response:
 }
 
 function parseAmountFromText(text: string) {
-  const raw = String(text || '').replace(/\s+/g, ' ').trim();
+  const raw = String(text || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
   if (!raw) return null;
-  const inMatch = raw.match(/\b(?:credited|received|money in|salary)\b/i);
-  const outMatch = raw.match(/\b(?:debited|paid|spent|sent to|money out)\b/i);
+  const inMatch = raw.match(/\b(?:credited|received|money in|salary|refund)\b/i);
+  const outMatch = raw.match(/\b(?:debited|paid|spent|sent to|money out|payment successful)\b/i);
   const transferMatch = raw.match(/\btransfer\b/i);
-  const amtMatch = raw.match(/(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d{1,2})?)|([\d,]+(?:\.\d{1,2})?)\s*(?:₹|rs\.?|inr)/i)
-    || raw.match(/\b(?:amt|amount|rs)\s*[:\-]?\s*([\d,]+(?:\.\d{1,2})?)/i)
-    || raw.match(/\b([\d,]{2,}(?:\.\d{1,2})?)\b/);
-  const amount = Number(String(amtMatch?.[1] || amtMatch?.[2] || '0').replace(/,/g, ''));
+
+  const candidates: number[] = [];
+  const patterns = [
+    /(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d{1,2})?)/gi,
+    /([\d,]+(?:\.\d{1,2})?)\s*(?:₹|rs\.?|inr)\b/gi,
+    /(?:paid|sent|debited|spent|total|amount|amt|grand\s*total|net\s*payable|you\s*paid)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d{1,2})?)/gi,
+    /(?:debited by|credited by|payment of)\s*(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d{1,2})?)/gi,
+  ];
+  for (const re of patterns) {
+    let m: RegExpExecArray | null;
+    const clone = new RegExp(re.source, re.flags);
+    while ((m = clone.exec(raw)) !== null) {
+      const n = Number(String(m[1] || '').replace(/,/g, ''));
+      if (Number.isFinite(n) && n >= 1 && n < 5_000_000) candidates.push(n);
+    }
+  }
+  if (!candidates.length) {
+    const loose = raw.match(/\b([\d,]{2,}(?:\.\d{1,2})?)\b/);
+    const n = Number(String(loose?.[1] || '0').replace(/,/g, ''));
+    if (Number.isFinite(n) && n >= 1 && n < 5_000_000) candidates.push(n);
+  }
+  const amount = candidates.length ? Math.max(...candidates) : 0;
   if (!Number.isFinite(amount) || amount <= 0) return null;
+
   let entryType = 'out';
   if (inMatch && !outMatch) entryType = 'in';
   else if (transferMatch) entryType = 'transfer';
-  const merchant = raw.match(/\b(?:to|at|from|paid to|received from)\s+([A-Za-z0-9 .&'-]{2,40})/i)?.[1]?.trim() || '';
+  const merchant = raw.match(/\b(?:to|at|from|paid to|sent to|received from)\s+([A-Za-z0-9 .&'@_-]{2,40})/i)?.[1]?.trim() || '';
   return {
     amount,
     entryType,
     description: merchant || raw.slice(0, 80),
     merchant,
-    paymentMethod: /\bupi\b/i.test(raw) ? 'upi' : /\bcard\b/i.test(raw) ? 'card' : 'cash',
+    paymentMethod: /\bupi\b|@ok|@ybl|gpay|phonepe|paytm/i.test(raw)
+      ? 'upi'
+      : /\bcard\b/i.test(raw)
+        ? 'card'
+        : 'cash',
     date: new Date().toISOString().slice(0, 10),
   };
 }

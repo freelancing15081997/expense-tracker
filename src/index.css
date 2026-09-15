@@ -1640,6 +1640,7 @@ html[data-density="compact"] h1 {
   display: block; margin-top: 4px;
   font-size: 18px; font-weight: 750; letter-spacing: -0.03em; color: #0B1F3A;
 }
+.md3-stat-value.is-in { color: #0f766e; }
 .md3-book-list { display: flex; flex-direction: column; gap: 10px; }
 .md3-book {
   display: flex; align-items: center; gap: 10px;
@@ -2965,10 +2966,33 @@ html[data-density="compact"] h1 {
   flex-direction: column;
   gap: 8px;
   padding: 14px;
-  background: #fff;
-  border: 1px solid rgba(11, 31, 58, 0.07);
-  border-radius: 18px;
-  box-shadow: 0 12px 28px -22px rgba(11, 31, 58, 0.32);
+  background:
+    radial-gradient(90% 70% at 0% 0%, rgba(18, 184, 168, 0.07), transparent 48%),
+    #fff;
+  border: 1px solid rgba(11, 31, 58, 0.08);
+  border-radius: 20px;
+  box-shadow: 0 16px 36px -26px rgba(11, 31, 58, 0.5);
+}
+.mb-entry-icon {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  box-shadow: 0 12px 20px -12px rgba(11, 31, 58, 0.55), 0 1px 0 rgba(255,255,255,0.35) inset;
+  transform: perspective(220px) rotateX(12deg) rotateY(-10deg);
+}
+.mb-entry-icon.tone-out {
+  background: linear-gradient(145deg, #fda4af, #be123c);
+}
+.mb-entry-icon.tone-in {
+  background: linear-gradient(145deg, #5eead4, #0f766e);
+}
+.mb-entry-icon.tone-xfer {
+  background: linear-gradient(145deg, #93c5fd, #1d4ed8);
 }
 .entry-card-title {
   margin-top: 6px;

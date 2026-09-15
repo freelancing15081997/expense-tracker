@@ -27,8 +27,14 @@ function geminiKey() {
 
 function geminiModels() {
   const preferred = String(process.env.GEMINI_MODEL || '').trim();
-  // Keep in sync with api/email/inbound.ts — these are what production email uses.
-  const defaults = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-flash-latest'];
+  // Prefer flash models that exist in production; keep newest first when configured.
+  const defaults = [
+    'gemini-2.0-flash',
+    'gemini-2.5-flash',
+    'gemini-flash-latest',
+    'gemini-3.6-flash',
+    'gemini-3.5-flash',
+  ];
   return [...new Set([preferred, ...defaults].filter(Boolean))];
 }
 
@@ -175,19 +181,20 @@ export async function parseReceiptImage(input: {
   const hint = String(input.hintText || '').trim().slice(0, 800);
   const timeoutMs = Math.max(8_000, Number(input.timeoutMs || 14_000));
 
-  const prompt = `You are Byjan's ledger clerk. Read this receipt, bill, invoice, tax invoice, UPI screenshot, bank slip, PDF document, or handwritten expense note.
-${hint ? `Extra share text (may help):\n${hint}\n` : ''}
+  const prompt = `You are Byjan's ledger clerk. Read this receipt, bill, invoice, tax invoice, UPI payment screenshot (GPay/PhonePe/Paytm/BHIM), bank slip, PDF document, or handwritten expense note.
+${hint ? `Extra share / OCR text (use for amount if visible):\n${hint}\n` : ''}
 Return JSON only with keys:
 amount (number), total (number), date (YYYY-MM-DD), merchant, description, category
 (Fuel, Groceries, Meals, Travel, Utilities, Health, Shopping, Software Subscriptions, or Uncategorized),
 entryType (out|in), paymentMethod (cash|card|upi|bank|wallet), notes.
 Rules:
+- For UPI screenshots: amount = the Paid / Sent / Debited / Amount figure shown large on screen (₹ / Rs / INR). Prefer "Paid ₹X" or "Payment successful" total over UPI reference numbers.
 - amount/total = grand total / amount paid / net payable (required when visible).
 - Never invent amounts. If no total is visible, set amount to 0.
 - Handwriting: carefully read digits and merchant names; do not guess unclear totals.
 - entryType=in only for refunds/returns/money received.
 - If this is not a financial document, set amount to 0, merchant empty, notes to "not_a_receipt".
-- Keep description short.`;
+- Keep description short. paymentMethod=upi for UPI apps.`;
 
   const requestBody = {
     contents: [{
@@ -204,7 +211,7 @@ Rules:
   };
 
   const errors: string[] = [];
-  const models = geminiModels().slice(0, 2);
+  const models = geminiModels().slice(0, 3);
   let bestZero: VisionReceipt | null = null;
 
   for (let i = 0; i < models.length; i += 1) {

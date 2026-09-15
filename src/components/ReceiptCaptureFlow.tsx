@@ -112,11 +112,16 @@ async function parseReceiptNow(
       receiptName = uploaded.receiptName || receiptName;
     } else {
       const { prepareReceiptImage, uploadPreparedReceipt } = await import('../lib/money-receipts');
+      const { localParseReceiptImage } = await import('../lib/document-ocr');
       const prepared = await prepareReceiptImage(launch.imageDataUrl, imageMime, false);
       imageMime = prepared.mime || 'image/jpeg';
       imageBase64 = String(prepared.dataUrl || '')
         .replace(/^data:[^;]+;base64,/i, '')
         .replace(/\s+/g, '');
+
+      onStatus('Reading on device…', 28);
+      const localPromise = localParseReceiptImage(imageBase64, imageMime, launch.text || '')
+        .catch(() => null);
 
       onStatus('Reading amount…', 36);
       const uploadPromise = uploadPreparedReceipt(bookId, {
@@ -126,9 +131,42 @@ async function parseReceiptNow(
         fileName: receiptName,
       }).catch(() => null);
 
+      const local = await localPromise;
+      const hintText = [launch.text || '', local?.text || ''].filter(Boolean).join('\n').slice(0, 2000);
+
+      // Instant draft when on-device OCR + rules already have a solid amount.
+      if (local && local.amount > 0 && (local.confidence === 'high' || local.confidence === 'medium')) {
+        onStatus(`Found ₹${local.amount.toFixed(2)}…`, 72);
+        const uploaded = await uploadPromise;
+        if (uploaded) {
+          receiptPath = uploaded.receiptPath || receiptPath;
+          receiptName = uploaded.receiptName || receiptName;
+        }
+        const preview: CapturePreview = {
+          id: newMoneyId('cap'),
+          source: (launch.source === 'share' ? 'share' : 'receipt') as CapturePreview['source'],
+          direction: local.entryType === 'in' ? 'MONEY_IN' : 'MONEY_OUT',
+          amountPaise: Math.round(local.amount * 100),
+          description: local.description || local.merchant || receiptName,
+          merchant: local.merchant,
+          category: 'Uncategorized',
+          paymentMethod: local.paymentMethod || 'upi',
+          date: local.date,
+          processingStatus: 'READY',
+          financialStatus: 'DRAFT',
+          confidence: local.confidence,
+          reasons: [`On-device OCR (${local.engine})`],
+          raw: local.text.slice(0, 500),
+          receiptPath,
+          receiptName,
+          parseEngine: local.engine,
+        } as CapturePreview & { parseEngine?: string };
+        return { preview, previews: [preview] };
+      }
+
       let result = await processReceiptJob({
         bookId,
-        text: launch.text || '',
+        text: hintText || launch.text || '',
         receiptPath: '',
         receiptName,
         source: launch.source || 'share',
@@ -158,16 +196,33 @@ async function parseReceiptNow(
             reasons: [result.error || 'Parser returned no fields'],
           });
 
+      // Prefer local amount if server still returned 0.
+      if (!(Number(preview.amountPaise || 0) > 0) && local && local.amount > 0) {
+        preview = {
+          ...preview,
+          amountPaise: Math.round(local.amount * 100),
+          merchant: preview.merchant || local.merchant,
+          description: preview.description || local.description,
+          paymentMethod: preview.paymentMethod || local.paymentMethod,
+          direction: local.entryType === 'in' ? 'MONEY_IN' : preview.direction,
+          processingStatus: 'READY',
+          confidence: local.confidence,
+          reasons: [...(preview.reasons || []), `Recovered via on-device OCR (${local.engine})`],
+        };
+      }
+
       if (!(Number(preview.amountPaise || 0) > 0) && receiptPath) {
         onStatus('Reading receipt again…', 78);
         const retry = await processReceiptJob({
           bookId,
-          text: launch.text || '',
+          text: hintText || launch.text || '',
           receiptPath,
           receiptName,
           source: launch.source || 'share',
           idempotencyKey: `parse_r2_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
           autoConfirm: true,
+          imageBase64,
+          imageMime,
         });
         if (retry.preview && Number(retry.preview.amountPaise || 0) > 0) {
           preview = {
