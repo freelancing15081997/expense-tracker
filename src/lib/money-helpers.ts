@@ -50,28 +50,14 @@ export function flattenCategoryNames(tree: CategoryNode[]) {
 export function buildEvidenceTrail(exp: Record<string, unknown>) {
   const steps: Array<{ label: string; detail: string }> = [];
   const source = String(exp.captureSource || exp.source || 'manual');
-  steps.push({ label: 'Source', detail: source });
+  if (source === 'share') steps.push({ label: 'Source', detail: 'Shared receipt' });
+  else if (source === 'email') steps.push({ label: 'Source', detail: 'Email' });
+  else if (source !== 'manual') steps.push({ label: 'Source', detail: source });
   if (exp.upiRef) steps.push({ label: 'UPI / UTR', detail: String(exp.upiRef) });
   if (exp.vpa) steps.push({ label: 'VPA', detail: String(exp.vpa) });
   if (exp.ruleApplied) steps.push({ label: 'User rule', detail: String(exp.ruleApplied) });
-  if (exp.parseEngine || exp.parseSource) {
-    steps.push({ label: 'Parser', detail: String(exp.parseEngine || exp.parseSource) });
-  }
-  if (Array.isArray(exp.evidenceReasons)) {
-    for (const reason of exp.evidenceReasons as string[]) {
-      steps.push({ label: 'Reason', detail: String(reason) });
-    }
-  } else if (Array.isArray(exp.reasons)) {
-    for (const reason of exp.reasons as string[]) {
-      steps.push({ label: 'Reason', detail: String(reason) });
-    }
-  }
   if (exp.receiptPath) steps.push({ label: 'Evidence', detail: 'Receipt attached' });
   if (exp.emailMessageId) steps.push({ label: 'Evidence', detail: 'Email message' });
-  steps.push({
-    label: 'Final',
-    detail: `${String(exp.entryType || 'out')} · ${String(exp.category || 'Uncategorized')} · ${String(exp.financialStatus || exp.status || 'recorded')}`,
-  });
   return steps;
 }
 

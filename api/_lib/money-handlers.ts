@@ -371,9 +371,8 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
           processingStatus: 'READY',
           financialStatus: 'DRAFT',
           confidence: 'high',
-          reasons: [`Imported from spreadsheet (${sheet.engine})`],
+          reasons: [],
           raw: text,
-          parseEngine: sheet.engine,
           entryType: row.entryType,
         }));
         apiJson(res, 200, {
@@ -398,7 +397,7 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
             mimeType: imageMime || 'image/jpeg',
             fileName: receiptName,
             hintText: text,
-            timeoutMs: 14_000,
+            timeoutMs: 10_000,
           });
         } catch {
           vision = null;
@@ -421,7 +420,7 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
               mimeType: safeMime,
               fileName: receiptName,
               hintText: text,
-              timeoutMs: 14_000,
+              timeoutMs: 10_000,
             });
           } else if (!vision) {
             vision = {
@@ -453,16 +452,11 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
         }
       }
 
-      const textParsed = parseAmountFromText(text || (vision?.amount ? '' : receiptName) || 'Shared receipt');
-      // Prefer labeled OCR/text amount over vision when both disagree — vision often grabs UI chrome.
-      let amount = 0;
-      if (textParsed?.amount && vision?.amount && textParsed.amount !== vision.amount) {
-        amount = textParsed.amount;
-      } else if (vision && vision.amount > 0) {
-        amount = vision.amount;
-      } else {
-        amount = textParsed?.amount || 0;
-      }
+      const textParsed = parseAmountFromText(text || '');
+      // Gemini vision is source of truth for image shares. Text is fallback only.
+      const amount = (vision && vision.amount > 0)
+        ? vision.amount
+        : (textParsed?.amount || 0);
       const merchant = (vision?.merchant || textParsed?.merchant || '').trim();
       const description = (vision?.description || textParsed?.description || merchant || receiptName || 'Shared receipt').trim();
       const category = (vision?.category && vision.category !== 'Uncategorized'
@@ -473,17 +467,12 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
         || textParsed?.date
         || new Date().toISOString().slice(0, 10);
       const entryType = vision?.entryType || textParsed?.entryType || 'out';
-      const engine = vision?.engine || (textParsed ? 'text' : 'none');
 
       push('receipt.classifying', 'CLASSIFYING');
       push('receipt.duplicate_check', 'DUPLICATE_CHECK');
 
+      // Keep user-facing reasons empty — no parser/engine noise on expense cards.
       const reasons: string[] = [];
-      if (amount > 0 && String(engine).startsWith('gemini')) reasons.push('Read from receipt image');
-      else if (amount > 0 && textParsed) reasons.push('Extracted from shared text');
-      else if (amount > 0) reasons.push('Extracted from shared receipt');
-      else reasons.push('Could not read amount from image — saved for you to edit');
-      if (vision?.notes && vision.notes !== 'not_a_receipt') reasons.push(vision.notes);
 
       const preview: Record<string, unknown> = {
         id: idempotencyKey,
@@ -502,7 +491,6 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
         confidence: amount > 0 ? (merchant ? 'high' : 'medium') : 'low',
         reasons,
         raw: text,
-        parseEngine: engine,
         timeline,
       };
 

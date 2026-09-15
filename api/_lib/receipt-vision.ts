@@ -27,14 +27,8 @@ function geminiKey() {
 
 function geminiModels() {
   const preferred = String(process.env.GEMINI_MODEL || '').trim();
-  // Prefer flash models that exist in production; keep newest first when configured.
-  const defaults = [
-    'gemini-2.0-flash',
-    'gemini-2.5-flash',
-    'gemini-flash-latest',
-    'gemini-3.6-flash',
-    'gemini-3.5-flash',
-  ];
+  // Fast flash-first for share path consistency.
+  const defaults = ['gemini-2.0-flash', 'gemini-flash-latest', 'gemini-2.5-flash'];
   return [...new Set([preferred, ...defaults].filter(Boolean))];
 }
 
@@ -75,11 +69,13 @@ function pickAmount(raw: Record<string, unknown>) {
     raw.netPayable,
     raw.net_payable,
   ];
-  for (const c of candidates) {
-    const n = toAmount(c);
-    if (n) return n;
-  }
-  return 0;
+  const parsed = candidates.map((c) => toAmount(c)).filter((n) => n > 0);
+  if (!parsed.length) return 0;
+  // If one candidate looks like a calendar day (1–31) and another is a real total, prefer the total.
+  const dayish = parsed.filter((n) => Number.isInteger(n) && n <= 31);
+  const solid = parsed.filter((n) => !(Number.isInteger(n) && n <= 31));
+  if (dayish.length && solid.length) return solid[0];
+  return parsed[0];
 }
 
 function asVision(raw: Record<string, unknown>, fallback: VisionReceipt): VisionReceipt {
@@ -178,24 +174,21 @@ export async function parseReceiptImage(input: {
   }
 
   const mime = normalizeMime(input.mimeType, input.fileName);
-  const hint = String(input.hintText || '').trim().slice(0, 800);
-  const timeoutMs = Math.max(8_000, Number(input.timeoutMs || 14_000));
+  const hint = String(input.hintText || '').trim().slice(0, 400);
+  const timeoutMs = Math.max(6_000, Number(input.timeoutMs || 10_000));
 
-  const prompt = `You are Byjan's ledger clerk. Read this receipt, bill, invoice, tax invoice, UPI payment screenshot (GPay/PhonePe/Paytm/BHIM), bank slip, PDF document, or handwritten expense note.
-${hint ? `Extra share / OCR text (use for amount if visible):\n${hint}\n` : ''}
-Return JSON only with keys:
-amount (number), total (number), date (YYYY-MM-DD), merchant, description, category
-(Fuel, Groceries, Meals, Travel, Utilities, Health, Shopping, Software Subscriptions, or Uncategorized),
-entryType (out|in), paymentMethod (cash|card|upi|bank|wallet), notes.
+  const prompt = `You are Byjan's ledger clerk. Summarize this receipt / UPI payment screenshot into expense fields.
+${hint ? `Share text (optional hint):\n${hint}\n` : ''}
+Return JSON only:
+{"amount":number,"total":number,"date":"YYYY-MM-DD","merchant":string,"description":string,"category":string,"entryType":"out"|"in","paymentMethod":"cash"|"card"|"upi"|"bank"|"wallet","notes":string}
 Rules:
-- For UPI screenshots: amount MUST be the single Paid / Sent / Debited / You paid figure (the hero total). Ignore unrelated digits (ratings, battery, time, fees chips, “Pay ₹5” suggestions, split counts).
-- If OCR/share text includes “Paid ₹X” or “Debited by X”, use that X exactly — do not substitute a larger nearby number.
-- amount/total = grand total / amount paid / net payable (required when visible).
-- Never invent amounts. If no total is visible, set amount to 0.
-- Handwriting: carefully read digits and merchant names; do not guess unclear totals.
-- entryType=in only for refunds/returns/money received.
-- If this is not a financial document, set amount to 0, merchant empty, notes to "not_a_receipt".
-- Keep description short. paymentMethod=upi for UPI apps.`;
+- amount/total = the Paid / Sent / Debited / You paid / grand total only.
+- NEVER use calendar day/month/year digits as amount (e.g. 26 from 26 Sep is NOT money).
+- NEVER use battery %, ratings, time, UPI ref fragments, or “Pay ₹5” suggestion chips.
+- If Paid ₹X is visible, amount must be X exactly.
+- category one of: Fuel, Groceries, Meals, Travel, Utilities, Health, Shopping, Software Subscriptions, Uncategorized.
+- entryType=in only for refunds/money received. UPI apps → paymentMethod=upi.
+- If not a financial document: amount 0, notes "not_a_receipt". Never invent amounts.`;
 
   const requestBody = {
     contents: [{
@@ -206,18 +199,19 @@ Rules:
     }],
     generationConfig: {
       temperature: 0,
-      maxOutputTokens: 512,
+      maxOutputTokens: 384,
       responseMimeType: 'application/json',
     },
   };
 
   const errors: string[] = [];
-  const models = geminiModels().slice(0, 3);
+  // One fast model first; second only if amount missing / model id wrong.
+  const models = geminiModels().slice(0, 2);
   let bestZero: VisionReceipt | null = null;
 
   for (let i = 0; i < models.length; i += 1) {
     const model = models[i];
-    const perTry = Math.min(timeoutMs, i === 0 ? 12_000 : 10_000);
+    const perTry = Math.min(timeoutMs, i === 0 ? 8_000 : 7_000);
     const result = await geminiGenerate(model, key, requestBody, perTry);
     if (!result.ok) {
       errors.push(`${model}:${result.error}`);

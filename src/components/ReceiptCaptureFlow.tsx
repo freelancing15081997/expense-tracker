@@ -40,10 +40,10 @@ type Props = {
 
 const STAGE_COPY: Array<{ min: number; title: string; detail: string }> = [
   { min: 0, title: 'Opening your share', detail: 'Getting the receipt ready…' },
-  { min: 12, title: 'Preparing image', detail: 'Sharpening for a clean read…' },
-  { min: 28, title: 'Reading amount', detail: 'Looking for the total…' },
-  { min: 48, title: 'Finding merchant', detail: 'Almost there…' },
-  { min: 68, title: 'Checking details', detail: 'Date, category, payment…' },
+  { min: 12, title: 'Preparing image', detail: 'Optimizing for a fast read…' },
+  { min: 28, title: 'Summarizing', detail: 'Reading amount, merchant, date…' },
+  { min: 48, title: 'Mapping fields', detail: 'Filling your Money book…' },
+  { min: 68, title: 'Checking details', detail: 'Almost ready to save…' },
   { min: 84, title: 'Saving to Money', detail: 'One moment…' },
   { min: 96, title: 'Finishing up', detail: 'You’re all set…' },
 ];
@@ -98,10 +98,22 @@ async function parseReceiptNow(
   let imageBase64 = '';
   let imageMime = launch.mimeType || 'image/jpeg';
   const sheet = isSpreadsheet(imageMime, receiptName);
+  const isPdf = imageMime === 'application/pdf' || /\.pdf$/i.test(receiptName);
+  const rawLen = String(launch.imageDataUrl || '').length;
+  // Spreadsheets / huge scans → structured/OCR path. Everyday UPI & receipts → Gemini Flash only.
+  const useStructuredPath = sheet || (isPdf && rawLen > 1_200_000) || rawLen > 2_400_000;
+
+  const scrubPreview = (preview: CapturePreview): CapturePreview => ({
+    ...preview,
+    reasons: [],
+    parseEngine: undefined,
+  } as CapturePreview);
 
   if (launch.imageDataUrl) {
-    onStatus(sheet ? 'Reading spreadsheet…' : 'Preparing image…', 18);
-    if (sheet || imageMime === 'application/pdf' || !imageMime.startsWith('image/')) {
+    onStatus(sheet ? 'Reading spreadsheet…' : 'Preparing…', 16);
+
+    if (useStructuredPath || (!imageMime.startsWith('image/') && !isPdf)) {
+      // Excel / CSV / oversized docs — upload then server structured parse (no Gemini latency on rows).
       imageBase64 = String(launch.imageDataUrl).replace(/^data:[^;]+;base64,/i, '').replace(/\s+/g, '');
       const uploaded = await uploadLedgerReceipt(bookId, {
         dataUrl: launch.imageDataUrl,
@@ -110,159 +122,129 @@ async function parseReceiptNow(
       });
       receiptPath = uploaded.receiptPath;
       receiptName = uploaded.receiptName || receiptName;
-    } else {
-      const { prepareReceiptImage, uploadPreparedReceipt } = await import('../lib/money-receipts');
-      const { localParseReceiptImage, prepareOcrImage } = await import('../lib/document-ocr');
-
-      // OCR + compress in parallel for low latency.
-      onStatus('Reading on device…', 20);
-      const ocrPromise = prepareOcrImage(launch.imageDataUrl, imageMime)
-        .then((ocrPrepared) => localParseReceiptImage(ocrPrepared.base64, ocrPrepared.mime, launch.text || ''))
-        .catch(() => null);
-      const preparedPromise = prepareReceiptImage(launch.imageDataUrl, imageMime, false);
-
-      const [local, prepared] = await Promise.all([ocrPromise, preparedPromise]);
-      imageMime = prepared.mime || 'image/jpeg';
-      imageBase64 = String(prepared.dataUrl || '')
-        .replace(/^data:[^;]+;base64,/i, '')
-        .replace(/\s+/g, '');
-
-      onStatus('Reading amount…', 36);
-      const uploadPromise = uploadPreparedReceipt(bookId, {
-        bytes: prepared.bytes,
-        mime: imageMime,
-        dataUrl: prepared.dataUrl,
-        fileName: receiptName,
-      }).catch(() => null);
-
-      const hintText = [launch.text || '', local?.text || ''].filter(Boolean).join('\n').slice(0, 2000);
-
-      // Instant draft only when on-device OCR is clearly confident (currency-anchored).
-      if (local && local.amount > 0 && local.confidence === 'high') {
-        onStatus(`Found ₹${local.amount.toFixed(2)}…`, 72);
-        const uploaded = await uploadPromise;
-        if (uploaded) {
-          receiptPath = uploaded.receiptPath || receiptPath;
-          receiptName = uploaded.receiptName || receiptName;
-        }
-        const preview: CapturePreview = {
-          id: newMoneyId('cap'),
-          source: (launch.source === 'share' ? 'share' : 'receipt') as CapturePreview['source'],
-          direction: local.entryType === 'in' ? 'MONEY_IN' : 'MONEY_OUT',
-          amountPaise: Math.round(local.amount * 100),
-          description: local.description || local.merchant || receiptName,
-          merchant: local.merchant,
-          category: 'Uncategorized',
-          paymentMethod: local.paymentMethod || 'upi',
-          date: local.date,
-          processingStatus: 'READY',
-          financialStatus: 'DRAFT',
-          confidence: local.confidence,
-          reasons: [`On-device OCR (${local.engine})`],
-          raw: local.text.slice(0, 500),
-          receiptPath,
-          receiptName,
-          parseEngine: local.engine,
-        } as CapturePreview & { parseEngine?: string };
-        return { preview, previews: [preview] };
-      }
-
-      // Always ask the server when local amount is missing or only medium confidence.
-      let result = await processReceiptJob({
+      onStatus(sheet ? 'Importing rows…' : 'Reading document…', 48);
+      const result = await processReceiptJob({
         bookId,
-        text: hintText || launch.text || '',
-        receiptPath: '',
+        text: launch.text || '',
+        receiptPath,
         receiptName,
         source: launch.source || 'share',
         idempotencyKey: `parse_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
         autoConfirm: true,
-        imageBase64,
+        imageBase64: imageBase64 || undefined,
         imageMime,
       });
-
-      onStatus('Almost there…', 62);
-      const uploaded = await uploadPromise;
-      if (uploaded) {
-        receiptPath = uploaded.receiptPath || receiptPath;
-        receiptName = uploaded.receiptName || receiptName;
+      if (result.previews?.length) {
+        const previews = result.previews.map((p, i) => scrubPreview({
+          ...p,
+          id: p.id || `${newMoneyId('cap')}_${i}`,
+          receiptPath: p.receiptPath || receiptPath,
+          receiptName: p.receiptName || receiptName,
+          reasons: [],
+        }));
+        return { preview: previews[0], previews };
       }
-
-      let preview = result.preview
-        ? {
+      if (result.preview) {
+        return {
+          preview: scrubPreview({
             ...result.preview,
             id: result.preview.id || newMoneyId('cap'),
             receiptPath: result.preview.receiptPath || receiptPath,
             receiptName: result.preview.receiptName || receiptName,
-          }
-        : draftPreview(launch, {
-            receiptPath,
-            receiptName,
-            reasons: [result.error || 'Parser returned no fields'],
-          });
-
-      // Prefer local labeled amount when server differs (fixes ₹1 → ₹5 chrome picks).
-      const localPaise = local && local.amount > 0 ? Math.round(local.amount * 100) : 0;
-      const serverPaise = Number(preview.amountPaise || 0);
-      if (localPaise > 0 && (local.confidence === 'high' || local.score && local.score >= 48)) {
-        if (!serverPaise || serverPaise !== localPaise) {
-          preview = {
-            ...preview,
-            amountPaise: localPaise,
-            merchant: local.merchant || preview.merchant,
-            description: local.description || preview.description,
-            paymentMethod: local.paymentMethod || preview.paymentMethod,
-            direction: local.entryType === 'in' ? 'MONEY_IN' : preview.direction,
-            processingStatus: 'READY',
-            confidence: local.confidence,
-            reasons: [
-              ...(preview.reasons || []).filter((r) => !/could not read amount/i.test(r)),
-              `Amount locked from on-device OCR (${local.engine})`,
-            ],
-          };
-        }
-      } else if (!serverPaise && localPaise > 0) {
-        preview = {
-          ...preview,
-          amountPaise: localPaise,
-          merchant: preview.merchant || local.merchant,
-          description: preview.description || local.description,
-          paymentMethod: preview.paymentMethod || local.paymentMethod,
-          direction: local.entryType === 'in' ? 'MONEY_IN' : preview.direction,
-          processingStatus: 'READY',
-          confidence: local.confidence,
-          reasons: [...(preview.reasons || []), `Recovered via on-device OCR (${local.engine})`],
+            reasons: [],
+          }),
+          previews: [result.preview],
         };
       }
-
-      if (!(Number(preview.amountPaise || 0) > 0) && (receiptPath || imageBase64)) {
-        onStatus('Reading receipt again…', 78);
-        const retry = await processReceiptJob({
-          bookId,
-          text: hintText || launch.text || '',
-          receiptPath: receiptPath || '',
-          receiptName,
-          source: launch.source || 'share',
-          idempotencyKey: `parse_r2_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
-          autoConfirm: true,
-          imageBase64: imageBase64 || undefined,
-          imageMime,
-        });
-        if (retry.preview && Number(retry.preview.amountPaise || 0) > 0) {
-          preview = {
-            ...retry.preview,
-            id: retry.preview.id || preview.id || newMoneyId('cap'),
-            receiptPath: retry.preview.receiptPath || receiptPath,
-            receiptName: retry.preview.receiptName || receiptName,
-          };
-          result = retry;
-        }
-      }
-
       return {
-        preview: { ...preview, receiptPath: preview.receiptPath || receiptPath, receiptName: preview.receiptName || receiptName },
-        previews: result.previews?.length ? result.previews : [preview],
+        preview: scrubPreview(draftPreview(launch, { receiptPath, receiptName, reasons: [] })),
+        previews: [],
       };
     }
+
+    // Normal receipt / UPI screenshot → Gemini Flash only (fast field mapping).
+    const { prepareReceiptImage, uploadPreparedReceipt } = await import('../lib/money-receipts');
+    onStatus('Summarizing receipt…', 28);
+    const prepared = await prepareReceiptImage(launch.imageDataUrl, imageMime, false);
+    imageMime = prepared.mime || 'image/jpeg';
+    imageBase64 = String(prepared.dataUrl || '')
+      .replace(/^data:[^;]+;base64,/i, '')
+      .replace(/\s+/g, '');
+
+    const uploadPromise = uploadPreparedReceipt(bookId, {
+      bytes: prepared.bytes,
+      mime: imageMime,
+      dataUrl: prepared.dataUrl,
+      fileName: receiptName,
+    }).catch(() => null);
+
+    onStatus('Mapping amount & merchant…', 42);
+    let result = await processReceiptJob({
+      bookId,
+      text: launch.text || '',
+      receiptPath: '',
+      receiptName,
+      source: launch.source || 'share',
+      idempotencyKey: `parse_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+      autoConfirm: true,
+      imageBase64,
+      imageMime,
+    });
+
+    onStatus('Almost there…', 70);
+    const uploaded = await uploadPromise;
+    if (uploaded) {
+      receiptPath = uploaded.receiptPath || receiptPath;
+      receiptName = uploaded.receiptName || receiptName;
+    }
+
+    let preview = result.preview
+      ? {
+          ...result.preview,
+          id: result.preview.id || newMoneyId('cap'),
+          receiptPath: result.preview.receiptPath || receiptPath,
+          receiptName: result.preview.receiptName || receiptName,
+          reasons: [],
+        }
+      : draftPreview(launch, { receiptPath, receiptName, reasons: [] });
+
+    if (!(Number(preview.amountPaise || 0) > 0) && (receiptPath || imageBase64)) {
+      onStatus('One more look…', 82);
+      const retry = await processReceiptJob({
+        bookId,
+        text: launch.text || '',
+        receiptPath: receiptPath || '',
+        receiptName,
+        source: launch.source || 'share',
+        idempotencyKey: `parse_r2_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+        autoConfirm: true,
+        imageBase64: imageBase64 || undefined,
+        imageMime,
+      });
+      if (retry.preview && Number(retry.preview.amountPaise || 0) > 0) {
+        preview = {
+          ...retry.preview,
+          id: retry.preview.id || preview.id || newMoneyId('cap'),
+          receiptPath: retry.preview.receiptPath || receiptPath,
+          receiptName: retry.preview.receiptName || receiptName,
+          reasons: [],
+        };
+        result = retry;
+      }
+    }
+
+    const cleaned = scrubPreview({
+      ...preview,
+      receiptPath: preview.receiptPath || receiptPath,
+      receiptName: preview.receiptName || receiptName,
+      reasons: [],
+    });
+    return {
+      preview: cleaned,
+      previews: result.previews?.length
+        ? result.previews.map((p) => scrubPreview({ ...p, reasons: [], receiptPath: p.receiptPath || receiptPath, receiptName: p.receiptName || receiptName }))
+        : [cleaned],
+    };
   }
 
   onStatus(sheet ? 'Importing rows…' : 'Reading amount, merchant & date…', 40);
@@ -279,30 +261,32 @@ async function parseReceiptNow(
   });
 
   if (result.previews?.length) {
-    const previews = result.previews.map((p, i) => ({
+    const previews = result.previews.map((p, i) => scrubPreview({
       ...p,
       id: p.id || `${newMoneyId('cap')}_${i}`,
       receiptPath: p.receiptPath || receiptPath,
       receiptName: p.receiptName || receiptName,
+      reasons: [],
     }));
     return { preview: previews[0], previews };
   }
 
   if (result.preview) {
-    const preview = {
+    const preview = scrubPreview({
       ...result.preview,
       id: result.preview.id || newMoneyId('cap'),
       receiptPath: result.preview.receiptPath || receiptPath,
       receiptName: result.preview.receiptName || receiptName,
-    };
+      reasons: [],
+    });
     return { preview, previews: [preview] };
   }
 
-  const preview = draftPreview(launch, {
+  const preview = scrubPreview(draftPreview(launch, {
     receiptPath,
     receiptName,
-    reasons: [result.error || 'Parser returned no fields'],
-  });
+    reasons: [],
+  }));
   return { preview, previews: [preview] };
 }
 
@@ -404,8 +388,12 @@ export default function ReceiptCaptureFlow({
           receiptPath: row.receiptPath,
           receiptName: row.receiptName,
           captureSource: row.source || 'share',
-          parseEngine: (row as CapturePreview & { parseEngine?: string }).parseEngine,
         });
+        // Never persist parser/engine noise on the expense record.
+        delete (payload as any).parseEngine;
+        delete (payload as any).parseSource;
+        delete (payload as any).reasons;
+        delete (payload as any).evidenceReasons;
         if ((row as CapturePreview & { entryType?: string }).entryType === 'transfer'
           || row.direction === 'TRANSFER') {
           (payload as any).entryType = 'transfer';

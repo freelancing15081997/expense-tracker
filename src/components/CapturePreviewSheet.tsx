@@ -123,15 +123,6 @@ export default function CapturePreviewSheet({
             </div>
           </div>
 
-          {draft.reasons.length > 0 && (
-            <div className="mt-4 rounded-2xl bg-slate-50 px-3 py-2.5">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Why Byjan?</p>
-              <ul className="text-[12px] text-slate-600 space-y-1">
-                {draft.reasons.map((r) => <li key={r}>· {r}</li>)}
-              </ul>
-            </div>
-          )}
-
           <div className="mt-5 flex gap-2">
             <button type="button" className="byjan-btn-ghost flex-1" onClick={onClose} disabled={busy}>Cancel</button>
             <button type="button" className="byjan-btn flex-1" onClick={() => void confirm()} disabled={busy || !draft.amountPaise}>

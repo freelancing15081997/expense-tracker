@@ -30,10 +30,12 @@ function toNum(raw: string) {
   return Number.isFinite(n) ? n : NaN;
 }
 
-function isPlausibleAmount(n: number) {
+function isPlausibleAmount(n: number, opts?: { labeled?: boolean; hasDecimals?: boolean }) {
   if (!Number.isFinite(n) || n < 1 || n >= 5_000_000) return false;
   // Years / OCR junk
   if (n >= 1900 && n <= 2100 && Number.isInteger(n)) return false;
+  // Calendar day / month fragments (e.g. "26 Sep") — never treat as rupees unless labeled+currency.
+  if (!opts?.labeled && Number.isInteger(n) && n <= 31 && !opts?.hasDecimals) return false;
   return true;
 }
 
@@ -48,10 +50,21 @@ export function extractMoneyAmount(text: string): ParsedMoneyAmount | null {
   const hits: AmountHit[] = [];
   const push = (token: string, score: number, index: number, labeled: boolean) => {
     const n = toNum(token);
-    if (!isPlausibleAmount(n)) return;
+    const hasDecimals = /\.\d{1,2}$/.test(token);
+    if (!isPlausibleAmount(n, { labeled, hasDecimals })) return;
+    // Skip numbers that sit inside a date fragment (26/09/2024, 26 Sep, Sep 26).
+    const window = raw.slice(Math.max(0, index - 8), Math.min(raw.length, index + token.length + 12));
+    if (/(?:\d{1,2}[\/\-.\s]\d{1,2}[\/\-.\s]\d{2,4})|(?:\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b)/i.test(window)
+      && !labeled) {
+      return;
+    }
+    // "Payment successful 26" is a status + day — never ₹26 unless currency is present.
+    if (Number.isInteger(n) && n <= 31 && !hasDecimals) {
+      const around = raw.slice(Math.max(0, index - 28), Math.min(raw.length, index + token.length + 10));
+      if (!/(?:₹|rs\.?|inr)/i.test(around)) return;
+    }
     let s = score;
-    if (/\.\d{1,2}$/.test(token)) s += 6; // 1.00 beats bare chrome digits
-    // Tiny integers without decimals are often UI chrome when unlabeled.
+    if (hasDecimals) s += 6;
     if (!labeled && Number.isInteger(n) && n <= 9) s -= 18;
     hits.push({ amount: n, score: s, index, labeled });
   };
@@ -61,28 +74,31 @@ export function extractMoneyAmount(text: string): ParsedMoneyAmount | null {
     let m: RegExpExecArray | null;
     while ((m = clone.exec(raw)) !== null) {
       const token = String(m[1] || '');
-      push(token, score, m.index, labeled);
+      // Index of the amount digits — not the verb phrase start (fixes "Payment successful ₹26").
+      const amountIndex = m.index + Math.max(0, m[0].lastIndexOf(token));
+      push(token, score, amountIndex, labeled);
     }
   };
 
   // Strongest: explicit payment verbs next to the amount.
   walk(/(?:you\s+paid|paid\s+successfully|successfully\s+paid|amount\s+paid|total\s+paid)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d{1,2})?)/gi, 56, true);
   walk(/(?:paid|sent|debited|spent|you\s+sent)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d{1,2})?)/gi, 52, true);
-  walk(/(?:debited\s+by|credited\s+by|payment\s+of|payment\s+successful|grand\s*total|net\s*payable|total\s*due)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d{1,2})?)/gi, 50, true);
+  // "Payment successful" only counts with currency — otherwise the next digit is often a date day.
+  walk(/(?:payment\s+successful)\s*[:\-]?\s*(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d{1,2})?)/gi, 54, true);
+  walk(/(?:debited\s+by|credited\s+by|payment\s+of|grand\s*total|net\s*payable|total\s*due)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d{1,2})?)/gi, 50, true);
   walk(/(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d{1,2})?)\s*(?:paid|sent|debited)/gi, 48, true);
 
   // Currency-marked amounts (still better than naked digits).
   walk(/(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d{1,2})?)/gi, 28, false);
   walk(/([\d,]+(?:\.\d{1,2})?)\s*(?:₹|rs\.?|inr)\b/gi, 26, false);
 
-  // Only if nothing currency-like was found.
+  // Only if nothing currency-like was found — still never take bare day-of-month.
   if (!hits.length) {
     const loose = new RegExp(/\b([\d,]{1,}(?:\.\d{1,2})?)\b/g);
     let m: RegExpExecArray | null;
     while ((m = loose.exec(raw)) !== null) {
       const n = toNum(m[1]);
-      // Require a normal spend range; skip single-digit chrome.
-      if (n >= 10 && n <= 200_000) push(m[1], 4, m.index, false);
+      if (n >= 32 && n <= 200_000) push(m[1], 4, m.index, false);
     }
   }
 
