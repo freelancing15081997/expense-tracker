@@ -750,7 +750,7 @@ export default function Dashboard() {
           setReceiptLaunch(null);
           clearPendingCapture();
           if (extras?.duplicate) {
-            addToast('This receipt is already on this Money book', 'success');
+            addToast('Same receipt — nothing new added', 'success');
             if (bookId) navigate(`/book/${bookId}`);
             else void fetchData({ silent: true });
             return;

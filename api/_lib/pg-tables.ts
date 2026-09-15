@@ -1646,12 +1646,30 @@ export async function ledgerAddEmailEvent(bookId: string, data: Record<string, u
   return row;
 }
 
+function normDupLabel(value: unknown) {
+  return text(value).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function isGenericDupLabel(value: string) {
+  return !value || /^(receipt|bill|invoice|expense|payment|purchase|unnamed|attachment|image|photo|scan|shared receipt|upi|transaction)$/.test(value);
+}
+
+function sameDupMerchant(a: string, b: string) {
+  if (!a || !b || isGenericDupLabel(a) || isGenericDupLabel(b)) return false;
+  if (a === b) return a.length >= 3;
+  if (a.length < 6 || b.length < 6) return false;
+  return a.includes(b) || b.includes(a);
+}
+
 export async function ledgerFindDuplicateExpense(bookId: string, input: {
   amount?: unknown;
   date?: unknown;
   description?: unknown;
   merchant?: unknown;
   receiptHash?: unknown;
+  upiRef?: unknown;
+  invoiceNumber?: unknown;
+  allowSoft?: unknown;
   exceptId?: string;
 }) {
   const hash = text(input.receiptHash);
@@ -1659,23 +1677,65 @@ export async function ledgerFindDuplicateExpense(bookId: string, input: {
     const hit = await ledgerLiveExpenseByHash(bookId, hash);
     if (hit && hit.id !== input.exceptId) return [hit];
   }
+  const upiRef = text(input.upiRef).trim();
+  const invoiceNumber = normDupLabel(input.invoiceNumber);
   const amount = num(input.amount);
   const date = text(input.date);
-  const description = text(input.description).trim().toLowerCase();
-  const merchant = text(input.merchant).trim().toLowerCase();
-  if (!amount || !date) return [];
+  const description = normDupLabel(input.description);
+  const merchant = normDupLabel(input.merchant);
+  const allowSoft = Boolean(input.allowSoft);
   const rows = await ledgerListLiveExpenses(bookId);
-  return rows.filter((row) => {
-    if (row.id === input.exceptId) return false;
-    if (Number(row.amount || 0) !== amount) return false;
-    if (text(row.date) !== date) return false;
-    const rowDesc = text(row.description).trim().toLowerCase();
-    const rowMerchant = text(row.merchant).trim().toLowerCase();
-    if (description && rowDesc === description) return true;
-    if (merchant && rowMerchant && rowMerchant === merchant) return true;
-    if (description && rowMerchant && rowMerchant === description) return true;
-    return false;
-  }).slice(0, 5);
+
+  if (upiRef && upiRef.length >= 6) {
+    const byRef = rows.find((row) => {
+      if (row.id === input.exceptId) return false;
+      return text(row.upiRef).trim() === upiRef;
+    });
+    if (byRef) return [byRef];
+  }
+
+  if (invoiceNumber && invoiceNumber.length >= 4 && amount > 0) {
+    const byInv = rows.find((row) => {
+      if (row.id === input.exceptId) return false;
+      if (Number(row.amount || 0) !== amount) return false;
+      return normDupLabel(row.invoiceNumber) === invoiceNumber;
+    });
+    if (byInv) return [byInv];
+  }
+
+  if (amount > 0 && date) {
+    const exact = rows.filter((row) => {
+      if (row.id === input.exceptId) return false;
+      if (Number(row.amount || 0) !== amount) return false;
+      if (text(row.date) !== date) return false;
+      const rowDesc = normDupLabel(row.description);
+      const rowMerchant = normDupLabel(row.merchant);
+      if (description && rowDesc === description) return true;
+      if (merchant && rowMerchant && (rowMerchant === merchant || sameDupMerchant(merchant, rowMerchant))) return true;
+      if (description && rowMerchant && rowMerchant === description) return true;
+      return false;
+    }).slice(0, 5);
+    if (exact.length) return exact;
+  }
+
+  // Soft: same paid date + distinctive merchant — used by share flow so a re-parse
+  // with a drifted amount still surfaces confirmation instead of a second save.
+  if (allowSoft && date) {
+    const needle = (!isGenericDupLabel(merchant) && merchant.length >= 3)
+      ? merchant
+      : ((!isGenericDupLabel(description) && description.length >= 3) ? description : '');
+    if (needle) {
+      const soft = rows.filter((row) => {
+        if (row.id === input.exceptId) return false;
+        if (text(row.date) !== date) return false;
+        const rowMerchant = normDupLabel(row.merchant) || normDupLabel(row.description);
+        return sameDupMerchant(needle, rowMerchant);
+      }).slice(0, 5);
+      if (soft.length) return soft;
+    }
+  }
+
+  return [];
 }
 
 export async function ledgerListAudit(uid: string, bookId?: string, limit = 80) {

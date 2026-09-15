@@ -2778,7 +2778,7 @@ export default function BookView() {
           clearPendingCapture();
           void refreshExpenses();
           if (extras?.duplicate) {
-            addToast('This receipt is already on this Money book', 'success');
+            addToast('Same receipt — nothing new added', 'success');
             setSuccessExpense(null);
             return;
           }

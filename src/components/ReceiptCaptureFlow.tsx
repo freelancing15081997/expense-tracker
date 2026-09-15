@@ -52,7 +52,9 @@ async function sha256Hex(base64: string): Promise<string> {
   const clean = String(base64 || '').replace(/^data:[^;]+;base64,/i, '').replace(/\s+/g, '');
   if (!clean || typeof crypto === 'undefined' || !crypto.subtle) return '';
   try {
-    const binary = atob(clean.slice(0, Math.min(clean.length, 400_000)));
+    // Cap decode size (~3MB binary) so huge scans stay hashable without OOMing.
+    const capped = clean.length > 4_000_000 ? clean.slice(0, 4_000_000) : clean;
+    const binary = atob(capped);
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
     const digest = await crypto.subtle.digest('SHA-256', bytes);
@@ -60,6 +62,12 @@ async function sha256Hex(base64: string): Promise<string> {
   } catch {
     return '';
   }
+}
+
+function formatRupee(amount: unknown) {
+  const n = Number(amount || 0);
+  if (!Number.isFinite(n)) return '₹—';
+  return `₹${n.toLocaleString('en-IN', { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 })}`;
 }
 
 function isSpreadsheet(mime?: string, name?: string) {
@@ -355,7 +363,16 @@ async function parseReceiptNow(
   return { preview, previews: [preview] };
 }
 
-type Phase = 'pick' | 'working' | 'failed';
+type Phase = 'pick' | 'working' | 'failed' | 'duplicate_confirm';
+
+type PendingDup = {
+  bookId: string;
+  existing: Record<string, unknown>;
+  payload: Record<string, unknown>;
+  needsEdit: boolean;
+  /** Hash hit before parse — Different entry must parse then force-save. */
+  resumeParse?: boolean;
+};
 
 function ShareReadingStage({
   pct,
@@ -404,6 +421,7 @@ export default function ReceiptCaptureFlow({
   const [pct, setPct] = useState(8);
   const [error, setError] = useState('');
   const [activeBookId, setActiveBookId] = useState('');
+  const [pendingDup, setPendingDup] = useState<PendingDup | null>(null);
   const savingRef = useRef(false);
   const doneRef = useRef(false);
   const tickRef = useRef<number | null>(null);
@@ -411,6 +429,105 @@ export default function ReceiptCaptureFlow({
   const setProgress = (line: string, nextPct?: number) => {
     setStatusLine(line);
     if (typeof nextPct === 'number') setPct((p) => Math.max(p, nextPct));
+  };
+
+  const finishDuplicateSame = (existing: Record<string, unknown>, bookId: string) => {
+    setPct(100);
+    doneRef.current = true;
+    clearPendingCapture();
+    setPendingDup(null);
+    onConfirmed(
+      { ...existing, bookId: String(existing.bookId || bookId), _duplicate: true },
+      { count: 1, duplicate: true },
+    );
+    onClose();
+  };
+
+  const confirmDuplicateDifferent = async () => {
+    if (!pendingDup || savingRef.current || doneRef.current) return;
+    if (pendingDup.resumeParse) {
+      const bookId = pendingDup.bookId;
+      setPendingDup(null);
+      await saveNowForced(bookId);
+      return;
+    }
+    savingRef.current = true;
+    setBusy(true);
+    setError('');
+    setPhase('working');
+    setProgress('Saving as a new entry…', 90);
+    try {
+      const saved = await createExpense(pendingDup.bookId, pendingDup.payload, {
+        force: true,
+        idempotencyKey: newMoneyId('cap_force'),
+      });
+      setPct(100);
+      doneRef.current = true;
+      clearPendingCapture();
+      setPendingDup(null);
+      onConfirmed(
+        { ...saved, bookId: String(saved.bookId || pendingDup.bookId), _needsEdit: pendingDup.needsEdit },
+        { count: 1, needsEdit: pendingDup.needsEdit },
+      );
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save');
+      setPhase('duplicate_confirm');
+      setStatusLine('Couldn’t save — try again');
+    } finally {
+      savingRef.current = false;
+      setBusy(false);
+    }
+  };
+
+  const saveNowForced = async (bookId: string) => {
+    if (!launch || !bookId || savingRef.current || doneRef.current) return;
+    savingRef.current = true;
+    setActiveBookId(bookId);
+    setBusy(true);
+    setPhase('working');
+    setError('');
+    setPendingDup(null);
+    setPct(30);
+    setProgress('Reading receipt…', 35);
+    try {
+      const receiptHash = launch.imageDataUrl
+        ? await sha256Hex(String(launch.imageDataUrl))
+        : '';
+      const { preview, previews } = await parseReceiptNow(bookId, launch, setProgress);
+      const rows = previews.length ? previews : [preview];
+      const anyAmount = rows.some((r) => Number(r.amountPaise || 0) > 0);
+      const needsEdit = Boolean(
+        launch.imageDataUrl && !launch.text && !isSpreadsheet(launch.mimeType, launch.fileName) && !anyAmount,
+      );
+      const row = rows.find((r) => Number(r.amountPaise || 0) > 0) || rows[0];
+      const payload = capturePreviewToExpense(row, {
+        receiptPath: row.receiptPath,
+        receiptName: row.receiptName,
+        captureSource: row.source || 'share',
+      });
+      if (receiptHash) (payload as any).receiptHash = receiptHash;
+      setProgress('Saving as a new entry…', 92);
+      const saved = await createExpense(bookId, payload, {
+        force: true,
+        idempotencyKey: newMoneyId('cap_force'),
+      });
+      setPct(100);
+      doneRef.current = true;
+      clearPendingCapture();
+      onConfirmed(
+        { ...saved, bookId: String(saved.bookId || bookId), _needsEdit: needsEdit },
+        { count: 1, needsEdit },
+      );
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save');
+      setPhase('failed');
+      setStatusLine('Couldn’t finish — retry');
+    } finally {
+      savingRef.current = false;
+      setBusy(false);
+    }
   };
 
   const saveNow = async (bookId: string) => {
@@ -421,12 +538,43 @@ export default function ReceiptCaptureFlow({
     setBusy(true);
     setPhase('working');
     setError('');
+    setPendingDup(null);
     setPct(14);
-      setProgress('Preparing…', 18);
+    setProgress('Preparing…', 18);
     try {
       // Keep pending until save succeeds so a failed second attempt can still retry the image.
       if (!launch.imageDataUrl && !launch.text) {
         throw new Error('Shared image was lost — share the receipt again');
+      }
+
+      const receiptHash = launch.imageDataUrl
+        ? await sha256Hex(String(launch.imageDataUrl))
+        : '';
+
+      // Exact same file bytes → ask before spending parse cycles (and before a drifted amount).
+      if (receiptHash) {
+        setProgress('Checking for duplicates…', 20);
+        try {
+          const early = await checkDuplicateExpense(bookId, {
+            receiptHash,
+            allowSoft: false,
+          });
+          if (early.length) {
+            setPendingDup({
+              bookId,
+              existing: early[0] as Record<string, unknown>,
+              payload: { receiptHash, amount: 0, date: isoDay(), description: 'Shared receipt' },
+              needsEdit: false,
+              resumeParse: true,
+            });
+            setPhase('duplicate_confirm');
+            setStatusLine('Possible duplicate');
+            setPct(100);
+            return;
+          }
+        } catch {
+          // Best-effort — continue to parse.
+        }
       }
 
       const { preview, previews } = await parseReceiptNow(bookId, launch, setProgress);
@@ -436,21 +584,16 @@ export default function ReceiptCaptureFlow({
         launch.imageDataUrl && !launch.text && !isSpreadsheet(launch.mimeType, launch.fileName) && !anyAmount,
       );
 
-      const receiptHash = launch.imageDataUrl
-        ? await sha256Hex(String(launch.imageDataUrl))
-        : '';
-
       setProgress(
         rows.length > 1
-          ? `Found ${rows.length} rows — saving…`
+          ? `Found ${rows.length} rows — checking…`
           : anyAmount
-            ? `Found ₹${(preview.amountPaise / 100).toFixed(2)} — saving…`
-            : 'Saving draft for you to edit…',
+            ? `Found ₹${(preview.amountPaise / 100).toFixed(2)} — checking…`
+            : 'Checking before save…',
         88,
       );
 
       let firstSaved: Record<string, unknown> | null = null;
-      let wasDuplicate = false;
       for (let i = 0; i < rows.length; i += 1) {
         const row = rows[i];
         if (!(Number(row.amountPaise || 0) > 0) && rows.length > 1 && anyAmount) continue;
@@ -479,28 +622,31 @@ export default function ReceiptCaptureFlow({
           ].filter(Boolean).join('\n');
         }
 
-        // Same receipt / same bill already on this book?
-        if (Number(payload.amount || 0) > 0) {
-          try {
-            const matches = await checkDuplicateExpense(bookId, {
-              amount: payload.amount,
-              date: payload.date,
-              description: payload.description,
-              merchant: payload.merchant,
-              receiptHash: receiptHash || undefined,
+        // Hash / UPI / soft merchant+date — ask like inbound email, never silent re-save.
+        try {
+          const matches = await checkDuplicateExpense(bookId, {
+            amount: payload.amount,
+            date: payload.date,
+            description: payload.description,
+            merchant: payload.merchant,
+            receiptHash: receiptHash || undefined,
+            upiRef: (payload as any).upiRef || undefined,
+            allowSoft: true,
+          });
+          if (matches.length) {
+            setPendingDup({
+              bookId,
+              existing: matches[0] as Record<string, unknown>,
+              payload: payload as Record<string, unknown>,
+              needsEdit,
             });
-            if (matches.length) {
-              wasDuplicate = true;
-              firstSaved = {
-                ...matches[0],
-                bookId: String((matches[0] as any).bookId || bookId),
-                _duplicate: true,
-              };
-              break;
-            }
-          } catch {
-            // Duplicate check is best-effort; still try to save.
+            setPhase('duplicate_confirm');
+            setStatusLine('Possible duplicate');
+            setPct(100);
+            return;
           }
+        } catch {
+          // Duplicate check is best-effort; still try to save.
         }
 
         try {
@@ -513,30 +659,23 @@ export default function ReceiptCaptureFlow({
           const status = Number(err?.status || 0);
           const msg = String(err?.message || '');
           if (status === 409 || /already on this ledger|already recorded|matching entry/i.test(msg)) {
-            wasDuplicate = true;
             const matches = Array.isArray(err?.extra?.matches) ? err.extra.matches : [];
-            firstSaved = {
-              ...(matches[0] || payload),
+            setPendingDup({
               bookId,
-              id: String(matches[0]?.id || payload.id || ''),
-              _duplicate: true,
-            };
-            break;
+              existing: (matches[0] || payload) as Record<string, unknown>,
+              payload: payload as Record<string, unknown>,
+              needsEdit,
+            });
+            setPhase('duplicate_confirm');
+            setStatusLine('Possible duplicate');
+            setPct(100);
+            return;
           }
           throw err;
         }
       }
 
       if (!firstSaved) throw new Error('Couldn’t save this share — try again');
-
-      if (wasDuplicate) {
-        setPct(100);
-        doneRef.current = true;
-        clearPendingCapture();
-        onConfirmed(firstSaved, { count: 1, duplicate: true });
-        onClose();
-        return;
-      }
 
       void (async () => {
         try {
@@ -589,6 +728,7 @@ export default function ReceiptCaptureFlow({
     savingRef.current = false;
     doneRef.current = false;
     setError('');
+    setPendingDup(null);
     setPct(6);
     setStatusLine('Opening your share…');
 
@@ -679,6 +819,22 @@ export default function ReceiptCaptureFlow({
 
   if (!open || !launch) return null;
 
+  const existing = pendingDup?.existing;
+  const candidate = pendingDup?.payload;
+  const existingLabel = existing
+    ? `${formatRupee(existing.amount)} · ${String(existing.merchant || existing.description || 'Earlier entry')}`
+    : '';
+  const candidateLabel = candidate && Number(candidate.amount || 0) > 0
+    ? `${formatRupee(candidate.amount)} · ${String(candidate.merchant || candidate.description || 'This share')}`
+    : '';
+  const amountsDiffer = Boolean(
+    existing
+    && candidate
+    && Number(existing.amount || 0) > 0
+    && Number(candidate.amount || 0) > 0
+    && Number(existing.amount) !== Number(candidate.amount),
+  );
+
   return (
     <div className="sr-root" role="dialog" aria-modal="true" aria-label="Reading shared receipt">
       <button type="button" className="sr-dim" aria-label="Close" onClick={() => { if (!busy) onClose(); }} />
@@ -698,6 +854,53 @@ export default function ReceiptCaptureFlow({
                 selectedId=""
                 onSelect={(id) => { void saveNow(id); }}
               />
+            </div>
+          </>
+        ) : phase === 'duplicate_confirm' && pendingDup ? (
+          <>
+            <p className="sr-kicker">Possible duplicate</p>
+            <h2 className="sr-title" style={{ textAlign: 'left', maxWidth: 'none' }}>
+              This looks like an entry already on the ledger
+            </h2>
+            <p className="sr-detail" style={{ textAlign: 'left', maxWidth: 'none' }}>
+              Confirm whether it is the same receipt or a different one — same as inbound email.
+            </p>
+            <div className="sr-dup-card">
+              <p className="sr-dup-label">Already on ledger</p>
+              <p className="sr-dup-value">{existingLabel}</p>
+              {existing?.date ? <p className="sr-dup-meta">{String(existing.date)}</p> : null}
+            </div>
+            {candidateLabel ? (
+              <div className="sr-dup-card sr-dup-card-new">
+                <p className="sr-dup-label">This share read as</p>
+                <p className="sr-dup-value">{candidateLabel}</p>
+                {amountsDiffer ? (
+                  <p className="sr-dup-warn">Amount differs from the saved entry — usually the same receipt re-read.</p>
+                ) : null}
+              </div>
+            ) : (
+              <p className="sr-detail" style={{ textAlign: 'left', maxWidth: 'none' }}>
+                Same file was already recorded. Nothing new will be added if you choose Same receipt.
+              </p>
+            )}
+            {error ? <p className="sr-error">{error}</p> : null}
+            <div className="sr-actions sr-actions-col">
+              <button
+                type="button"
+                className="sr-btn"
+                disabled={busy}
+                onClick={() => finishDuplicateSame(pendingDup.existing, pendingDup.bookId)}
+              >
+                Same receipt
+              </button>
+              <button
+                type="button"
+                className="sr-btn-ghost"
+                disabled={busy}
+                onClick={() => { void confirmDuplicateDifferent(); }}
+              >
+                {busy ? 'Saving…' : 'Different entry'}
+              </button>
             </div>
           </>
         ) : (

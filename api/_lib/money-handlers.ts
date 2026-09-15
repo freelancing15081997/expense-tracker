@@ -241,7 +241,11 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
       };
 
       if (!body.force) {
-        const matches = await ledgerFindDuplicateExpense(bookId, input);
+        const matches = await ledgerFindDuplicateExpense(bookId, {
+          ...input,
+          receiptHash: input.receiptHash,
+          upiRef: input.upiRef,
+        });
         if (matches.length) throw new ApiError(409, 'A matching entry is already on this ledger', { matches });
       }
 
