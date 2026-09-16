@@ -11,6 +11,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(ShareReceiverPlugin.class);
         registerPlugin(UpiPayPlugin.class);
         registerPlugin(DocumentOcrPlugin.class);
+        registerPlugin(AppLockPlugin.class);
         super.onCreate(savedInstanceState);
         ShareReceiverPlugin.ingestIntent(this, getIntent());
     }

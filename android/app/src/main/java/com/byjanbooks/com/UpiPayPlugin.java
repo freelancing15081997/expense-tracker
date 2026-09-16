@@ -29,12 +29,19 @@ public class UpiPayPlugin extends Plugin {
             call.reject("Missing UPI URI");
             return;
         }
-        Intent intent = new Intent(Intent.ACTION_VIEW);
-        intent.setData(Uri.parse(uri.trim()));
-        intent.addCategory(Intent.CATEGORY_DEFAULT);
+        String pkg = call.getString("packageName", "");
+        Intent intent = payIntent(uri.trim(), pkg);
         try {
             startActivityForResult(call, intent, "upiPayResult");
         } catch (ActivityNotFoundException e) {
+            if (pkg != null && !pkg.trim().isEmpty()) {
+                try {
+                    startActivityForResult(call, payIntent(uri.trim(), ""), "upiPayResult");
+                    return;
+                } catch (ActivityNotFoundException ignored) {
+                    /* fall through */
+                }
+            }
             JSObject out = new JSObject();
             out.put("ok", false);
             out.put("outcome", "failed");
@@ -44,6 +51,16 @@ public class UpiPayPlugin extends Plugin {
         } catch (Exception e) {
             call.reject(e.getMessage() != null ? e.getMessage() : "Could not open UPI app");
         }
+    }
+
+    private static Intent payIntent(String uri, String pkg) {
+        Intent intent = new Intent(Intent.ACTION_VIEW);
+        intent.setData(Uri.parse(uri));
+        intent.addCategory(Intent.CATEGORY_DEFAULT);
+        if (pkg != null && !pkg.trim().isEmpty()) {
+            intent.setPackage(pkg.trim());
+        }
+        return intent;
     }
 
     @ActivityCallback

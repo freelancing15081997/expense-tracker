@@ -4,12 +4,14 @@ import { useAppPrefs } from '../context/AppPrefsContext';
 import { Link, useSearchParams } from 'react-router-dom';
 import { upsertMe } from '../lib/me';
 import { listLedgerAudit } from '../lib/ledgers';
-import { Save, AlertCircle, CheckCircle2, Shield } from 'lucide-react';
+import { Save, AlertCircle, CheckCircle2, Shield, BellRing } from 'lucide-react';
+import { disableLock, lockConfig, lockIsEnabledFor, setLockPin, updateLockOptions } from '../lib/app-lock';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 import { useBooksTenantMeta } from '../lib/tenant';
 import type { AppPrefs, DateFormat, ListPageSize, NumberLocale, UiDensity } from '../lib/app-prefs';
 import { useToast } from '../context/ToastContext';
 import UpiSetupSheet from '../components/UpiSetupSheet';
+import { pingSelfNotification } from '../lib/notifications';
 
 function Switch({ on, onChange, label, hint }: { on: boolean; onChange: (v: boolean) => void; label: string; hint: string }) {
   return (
@@ -55,6 +57,16 @@ export default function Settings() {
   const [auditLoading, setAuditLoading] = useState(true);
   const [upiOpen, setUpiOpen] = useState(false);
   const [appVersion, setAppVersion] = useState('');
+  const [lockPin, setLockPinInput] = useState('');
+  const [lockPin2, setLockPin2] = useState('');
+  const [lockBio, setLockBio] = useState(false);
+  const [lockOn, setLockOn] = useState(() => lockConfig().enabled);
+  const [lockAuto, setLockAuto] = useState(() => String(lockConfig().options.autoLockMs));
+  const [lockIdle, setLockIdle] = useState(() => String(lockConfig().options.idleLockMs));
+  const [lockShuffle, setLockShuffle] = useState(() => lockConfig().options.shufflePad);
+  const [lockBioFirst, setLockBioFirst] = useState(() => lockConfig().options.bioFirst);
+  const [lockHide, setLockHide] = useState(() => lockConfig().options.hideContent);
+  const [pingBusy, setPingBusy] = useState(false);
 
   useEffect(() => {
     setDisplayName(userProfile?.displayName || '');
@@ -359,6 +371,99 @@ export default function Settings() {
           <p>Idle sign-out after 30 minutes without activity. Maximum session length is 12 hours.</p>
           <p>Deleted entries leave your lists. Similar entries are checked before they are saved again.</p>
           <p>Use Sign out on your photo in the top-right.</p>
+          <div className="pt-3 border-t border-slate-100 space-y-3">
+            <p className="text-sm font-semibold text-[#0B1F3A]">App lock</p>
+            <p className="text-xs text-slate-500">PIN is hashed on this device. Biometrics use the system prompt. We never store the PIN itself.</p>
+            <input className="byjan-input" type="password" inputMode="numeric" maxLength={8} placeholder="New PIN (4–8 digits)" value={lockPin} onChange={(e) => setLockPinInput(e.target.value.replace(/\D/g, '').slice(0, 8))} />
+            <input className="byjan-input" type="password" inputMode="numeric" maxLength={8} placeholder="Confirm PIN" value={lockPin2} onChange={(e) => setLockPin2(e.target.value.replace(/\D/g, '').slice(0, 8))} />
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={lockBio} onChange={(e) => setLockBio(e.target.checked)} />
+              Prefer fingerprint / face when available
+            </label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="byjan-btn !h-10"
+                onClick={() => {
+                  if (lockPin !== lockPin2) { addToast('PINs do not match', 'error'); return; }
+                  void setLockPin(userProfile?.uid || '', lockPin, lockBio)
+                    .then(() => {
+                      updateLockOptions({
+                        biometric: lockBio,
+                        autoLockMs: Number(lockAuto),
+                        idleLockMs: Number(lockIdle),
+                        shufflePad: lockShuffle,
+                        bioFirst: lockBioFirst,
+                        hideContent: lockHide,
+                      });
+                      setLockOn(true);
+                      setLockPinInput('');
+                      setLockPin2('');
+                      addToast('App lock on', 'success');
+                    })
+                    .catch((err) => addToast(err instanceof Error ? err.message : 'Could not set PIN', 'error'));
+                }}
+              >
+                {lockOn ? 'Update PIN' : 'Enable lock'}
+              </button>
+              {lockOn ? (
+                <button type="button" className="byjan-btn-ghost !h-10" onClick={() => { disableLock(); setLockOn(false); addToast('App lock off', 'success'); }}>
+                  Turn off
+                </button>
+              ) : null}
+            </div>
+            {lockOn ? (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3 space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Advanced</p>
+                <Field label="Lock after leaving the app">
+                  <Select value={lockAuto} onValueChange={(v) => { setLockAuto(v); try { updateLockOptions({ autoLockMs: Number(v) }); } catch { /* lock off */ } }}>
+                    <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="0">Immediately</SelectItem>
+                      <SelectItem value="8000">After 8 seconds</SelectItem>
+                      <SelectItem value="30000">After 30 seconds</SelectItem>
+                      <SelectItem value="60000">After 1 minute</SelectItem>
+                      <SelectItem value="300000">After 5 minutes</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field label="Lock while idle in the app">
+                  <Select value={lockIdle} onValueChange={(v) => { setLockIdle(v); try { updateLockOptions({ idleLockMs: Number(v) }); } catch { /* ignore */ } }}>
+                    <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="0">Off</SelectItem>
+                      <SelectItem value="60000">After 1 minute idle</SelectItem>
+                      <SelectItem value="180000">After 3 minutes idle</SelectItem>
+                      <SelectItem value="300000">After 5 minutes idle</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Switch on={lockBioFirst} onChange={(v) => { setLockBioFirst(v); try { updateLockOptions({ bioFirst: v }); } catch { /* ignore */ } }} label="Offer fingerprint first" hint="Shows the system biometric prompt as soon as the lock screen opens." />
+                <Switch on={lockShuffle} onChange={(v) => { setLockShuffle(v); try { updateLockOptions({ shufflePad: v }); } catch { /* ignore */ } }} label="Shuffle PIN pad" hint="Rearranges digits each time so shoulder-surfing is harder." />
+                <Switch on={lockHide} onChange={(v) => { setLockHide(v); try { updateLockOptions({ hideContent: v }); } catch { /* ignore */ } }} label="Hide contents while locked" hint="Lock screen copy stays generic. Amounts stay behind the gate." />
+              </div>
+            ) : null}
+            {lockOn && lockIsEnabledFor(userProfile?.uid || '') ? <p className="text-xs text-emerald-700">Lock is on for this account.</p> : null}
+          </div>
+          <div className="pt-3 border-t border-slate-100">
+            <p className="text-sm font-semibold text-[#0B1F3A]">Device alerts</p>
+            <p className="text-xs text-slate-500 mt-1">Sends a real push to the Android token on this account. Nothing is faked.</p>
+            <button
+              type="button"
+              className="byjan-btn-ghost !h-10 mt-2"
+              disabled={pingBusy}
+              onClick={() => {
+                setPingBusy(true);
+                void pingSelfNotification()
+                  .then(() => addToast('Push sent — check this phone', 'success'))
+                  .catch((err) => addToast(err instanceof Error ? err.message : 'Could not send push', 'error'))
+                  .finally(() => setPingBusy(false));
+              }}
+            >
+              <BellRing className="w-4 h-4" />
+              {pingBusy ? 'Sending…' : 'Send test notification'}
+            </button>
+          </div>
         </div>
       </section>
 

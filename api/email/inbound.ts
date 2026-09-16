@@ -1847,7 +1847,7 @@ async function saveExpenseRecord(bookId: string, expense: Record<string, unknown
     { ...expense, id: String(expense.id || newId()) },
     { insertOnly: true, allowDuplicateHash },
   );
-  await mergeCategory(bookId, String(saved.expense.category || ''));
+  await mergeCategory(bookId, String((saved.expense as Record<string, unknown>).category || ''));
   return saved.expense;
 }
 

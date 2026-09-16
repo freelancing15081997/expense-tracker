@@ -11,6 +11,7 @@ import {
   ledgerAudit,
   ledgerGetBookForUser,
   ledgerGetUser,
+  ledgerMember,
   ledgerRequireMember,
   ledgerUpsertUser,
   getLedgerSql,
@@ -139,7 +140,13 @@ async function notifySafe(input: {
   action: string;
   detail: string;
   link?: string;
+  settlementId?: string;
 }) {
+  const settlementId = String(input.settlementId || '');
+  const path = input.link
+    || (settlementId
+      ? `/book/${input.bookId}?pay=${encodeURIComponent(settlementId)}`
+      : `/book/${input.bookId}?settlements=1`);
   try {
     await ledgerAddNotification({
       id: newId('ntf'),
@@ -149,12 +156,30 @@ async function notifySafe(input: {
       kind: 'settlement',
       action: input.action,
       detail: input.detail,
-      link: input.link || `/book/${input.bookId}?settlements=1`,
+      settlementId: settlementId || undefined,
+      link: path,
       read: false,
       createdAt: new Date().toISOString(),
     });
   } catch {
     /* notifications must never roll back money */
+  }
+  try {
+    const profile = await ledgerGetUser(input.userId);
+    const token = String(profile?.pushToken || '');
+    if (!token) return;
+    const { sendFcm } = await import('./fcm.js');
+    await sendFcm(token, {
+      title: input.bookName || 'Byjan',
+      body: input.detail,
+      data: {
+        bookId: input.bookId,
+        settlementId,
+        url: `/#${path.startsWith('/') ? path : `/${path}`}`,
+      },
+    });
+  } catch {
+    /* push is best-effort */
   }
 }
 
@@ -243,6 +268,7 @@ export async function createSettlementsFromSplit(opts: {
       bookName,
       action: 'Split share due',
       detail: `Pay ${amtLabel} for “${description}” in ${bookName}`,
+      settlementId: id,
     });
   }
 
@@ -282,6 +308,35 @@ export async function listSettlementsForBook(bookId: string, uid: string) {
     LIMIT 200
   `);
   return rows.map(mapSettlement);
+}
+
+/** Open settlements the signed-in user must pay or is waiting to receive. */
+export async function listMyOpenSettlements(uid: string) {
+  await ensureSettlementSchema();
+  const sql = await getLedgerSql();
+  const rows = asRows<Record<string, unknown>>(await sql`
+    SELECT * FROM money_settlements
+    WHERE (from_uid = ${uid} OR to_uid = ${uid})
+      AND UPPER(COALESCE(status, '')) NOT IN ('PAID', 'CANCELLED', 'CANCELED', 'EXPIRED')
+    ORDER BY updated_at DESC
+    LIMIT 40
+  `);
+  const mapped = rows.map(mapSettlement);
+  const ok = new Set<string>();
+  const no = new Set<string>();
+  const out = [];
+  for (const row of mapped) {
+    if (ok.has(row.bookId)) { out.push(row); continue; }
+    if (no.has(row.bookId)) continue;
+    const member = await ledgerMember(row.bookId, uid);
+    if (member) {
+      ok.add(row.bookId);
+      out.push(row);
+    } else {
+      no.add(row.bookId);
+    }
+  }
+  return out;
 }
 
 export async function getBookMemberUpiProfiles(bookId: string, actorUid: string) {
@@ -648,6 +703,7 @@ export async function reportUpiReturn(opts: {
       bookId: opts.bookId,
       action: 'Settlement paid',
       detail: `UPI payment of ₹${paiseToUpiAmount(Number(attempt.amount_paise || 0))} completed.`,
+      settlementId: String(attempt.settlement_id),
     });
   }
 
@@ -725,6 +781,7 @@ export async function confirmSettlementReceived(opts: {
     bookId: opts.bookId,
     action: 'Settlement paid',
     detail: `Your ₹${paiseToUpiAmount(settlement.amountPaise)} payment was confirmed.`,
+    settlementId: settlement.id,
   });
 
   return { status: 'PAID', settlementId: settlement.id };

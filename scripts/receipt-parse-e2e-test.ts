@@ -5,6 +5,7 @@
  */
 import { extractMoneyAmount, reconcileVisionAmount } from '../src/lib/amount-parse.ts';
 import { parsePpStructureText, needsPpStructure } from '../api/_lib/paddle-structure.ts';
+import { matchDuplicateExpenses } from '../src/lib/duplicate-match.ts';
 
 type Case = {
   id: string;
@@ -566,6 +567,14 @@ console.log('\n• Duplicate detection fingerprint');
 const a = parsePpStructureText(cases[0].text);
 const b = parsePpStructureText(cases[0].text);
 assert(Boolean(a && b && a.amount === b.amount && a.date === b.date), 'same receipt yields same amount+date fingerprint');
+
+{
+  const row = { id: 'saved', amount: a?.amount, date: a?.date, description: a?.merchant || 'CRED', merchant: a?.merchant || 'CRED', receiptHash: 'pdf-sha-1' };
+  const sameFile = matchDuplicateExpenses([row], { receiptHash: 'pdf-sha-1', amount: 0 });
+  assert(sameFile.length === 1 && sameFile[0].reason === 'receipt_hash', 'same PDF hash blocks a second save');
+  const forceDifferent = matchDuplicateExpenses([row], { receiptHash: 'other-sha', amount: 12, date: '2099-01-01', description: 'Other', merchant: 'Other' });
+  assert(forceDifferent.length === 0, 'Different entry path has no duplicate match');
+}
 
 console.log('\n• Vision vs OCR reconcile (masked UPI decoy)');
 {

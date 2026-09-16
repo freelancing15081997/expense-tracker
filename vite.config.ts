@@ -12,6 +12,7 @@ export default defineConfig(() => {
       alias: {
         '@': path.resolve(__dirname, '.'),
       },
+      conditions: ['browser', 'import', 'module', 'default'],
     },
     build: {
       outDir: 'dist',

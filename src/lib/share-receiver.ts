@@ -66,11 +66,11 @@ export async function onShareReceived(handler: (payload: SharedPayload) => void)
   };
 }
 
-function isSupportedShareMime(mime: string, fileName = '') {
+function isSupportedShareMime(mime: string, fileName = '', dataBase64 = '') {
   const m = mime.toLowerCase();
   const name = fileName.toLowerCase();
   if (m.startsWith('image/')) return true;
-  if (m === 'application/pdf' || name.endsWith('.pdf')) return true;
+  if (m === 'application/pdf' || name.endsWith('.pdf') || /^JVBER/i.test(String(dataBase64).slice(0, 16))) return true;
   if (
     m.includes('spreadsheet')
     || m.includes('excel')
@@ -88,7 +88,7 @@ export function sharedFileDataUrl(payload: SharedPayload): string | null {
   if (!payload.dataBase64) return null;
   const mime = String(payload.mimeType || 'application/octet-stream').split(';')[0].trim();
   const fileName = String(payload.fileName || '');
-  if (!isSupportedShareMime(mime, fileName)) return null;
+  if (!isSupportedShareMime(mime, fileName, payload.dataBase64)) return null;
   let resolved = mime;
   if (fileName.endsWith('.xlsx') && !mime.includes('sheet') && !mime.includes('excel')) {
     resolved = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -97,6 +97,8 @@ export function sharedFileDataUrl(payload: SharedPayload): string | null {
   } else if (fileName.endsWith('.csv') && !mime.includes('csv')) {
     resolved = 'text/csv';
   } else if (fileName.endsWith('.pdf') && mime !== 'application/pdf') {
+    resolved = 'application/pdf';
+  } else if (/^JVBER/i.test(String(payload.dataBase64 || '').slice(0, 16))) {
     resolved = 'application/pdf';
   }
   return `data:${resolved};base64,${payload.dataBase64}`;

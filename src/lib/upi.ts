@@ -61,14 +61,39 @@ export function buildUpiPayUri(params: UpiPayParams) {
   return `upi://pay?${q.toString()}`;
 }
 
+export type UpiAppId = 'generic' | 'gpay' | 'phonepe' | 'paytm' | 'bhim' | 'cred' | 'whatsapp';
+
+/** Android package names so Pay opens the chosen partner, not a random UPI app. */
+export const UPI_APP_PACKAGES: Record<UpiAppId, string | null> = {
+  generic: null,
+  gpay: 'com.google.android.apps.nbu.paisa.user',
+  phonepe: 'com.phonepe.app',
+  paytm: 'net.one97.paytm',
+  bhim: 'in.org.npci.upiapp',
+  cred: 'com.dreamplug.androidapp',
+  whatsapp: 'com.whatsapp',
+};
+
+export const UPI_PAY_APPS: Array<{ id: UpiAppId; label: string }> = [
+  { id: 'phonepe', label: 'PhonePe' },
+  { id: 'gpay', label: 'Google Pay' },
+  { id: 'paytm', label: 'Paytm' },
+  { id: 'cred', label: 'CRED' },
+  { id: 'whatsapp', label: 'WhatsApp' },
+  { id: 'bhim', label: 'BHIM' },
+  { id: 'generic', label: 'Any UPI app' },
+];
+
 /** Optional app-specific intents. May be unsupported — callers must handle fallback. */
-export function buildAppUpiUri(app: 'generic' | 'gpay' | 'phonepe' | 'paytm' | 'bhim', params: UpiPayParams) {
+export function buildAppUpiUri(app: UpiAppId, params: UpiPayParams) {
   const base = buildUpiPayUri(params);
   const qs = base.replace(/^upi:\/\/pay\?/, '');
   if (app === 'gpay') return `tez://upi/pay?${qs}`;
   if (app === 'phonepe') return `phonepe://pay?${qs}`;
   if (app === 'paytm') return `paytmmp://pay?${qs}`;
   if (app === 'bhim') return `bhim://upi/pay?${qs}`;
+  if (app === 'cred') return `upi://pay?${qs}`;
+  if (app === 'whatsapp') return `upi://pay?${qs}`;
   return base;
 }
 
@@ -116,7 +141,7 @@ export async function launchUpiUri(uri: string): Promise<{ opened: boolean; erro
 }
 
 /** Launch UPI pay and read native intent result when available (Android). */
-export async function launchUpiPayNative(uri: string): Promise<{
+export async function launchUpiPayNative(uri: string, packageName?: string | null): Promise<{
   ok: boolean;
   outcome: 'success' | 'failed' | 'cancelled' | 'submitted' | 'unknown';
   status?: string;
@@ -131,9 +156,9 @@ export async function launchUpiPayNative(uri: string): Promise<{
     const { Capacitor, registerPlugin } = await import('@capacitor/core');
     if (!Capacitor.isNativePlatform()) return null;
     const UpiPay = registerPlugin<{
-      pay: (opts: { uri: string }) => Promise<Record<string, unknown>>;
+      pay: (opts: { uri: string; packageName?: string }) => Promise<Record<string, unknown>>;
     }>('UpiPay');
-    const res = await UpiPay.pay({ uri });
+    const res = await UpiPay.pay({ uri, packageName: packageName || undefined });
     const outcome = String(res.outcome || 'unknown') as 'success' | 'failed' | 'cancelled' | 'submitted' | 'unknown';
     return {
       ok: Boolean(res.ok),

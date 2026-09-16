@@ -1,7 +1,7 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
+import { useParams, Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useFeatures } from '../lib/use-features';
 import { useToast } from '../context/ToastContext';
@@ -20,7 +20,7 @@ import { notifyLedgerMembers } from '../lib/notify-team';
 import { CapacitorService } from '../lib/capacitor';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send, Copy, CopyPlus, Paperclip, Mail, Megaphone, Shield, Pin, PinOff, SlidersHorizontal, ArrowUpDown, Star, Wallet, ArrowUpRight, TrendingUp, Receipt } from 'lucide-react';
+import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send, Copy, CopyPlus, Paperclip, Mail, Megaphone, Shield, Pin, PinOff, SlidersHorizontal, ArrowUpDown, Star, Wallet, ArrowUpRight, TrendingUp, Receipt, Mic, PenLine, ScanLine } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Tabs from '@radix-ui/react-tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
@@ -61,6 +61,7 @@ import ReceiptCaptureFlow, { type ReceiptLaunch } from '../components/ReceiptCap
 import SplitExpenseSheet from '../components/SplitExpenseSheet';
 import '../components/split-premium.css';
 import SettlementsPanel from '../components/SettlementsPanel';
+import VoiceEntrySheet from '../components/VoiceEntrySheet';
 import { rememberMoneyBook } from '../components/ShareIntentListener';
 import UpiSetupSheet from '../components/UpiSetupSheet';
 import { ExpenseSuccessCard, MoneySheet } from '../components/money/MoneyUi';
@@ -188,15 +189,17 @@ function entryEvidence(exp: any) {
 export default function BookView() {
   const { bookId } = useParams();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const { currentUser, userProfile, refreshUserProfile } = useAuth();
   const { on: hasFeature } = useFeatures();
   const [book, setBook] = useState<any>(null);
   const [expenses, setExpenses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [upiSetupOpen, setUpiSetupOpen] = useState(false);
+  const [voiceOpen, setVoiceOpen] = useState(false);
   
   // Modals state
-  const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
+  const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(() => Boolean((location.state as { openEntry?: boolean } | null)?.openEntry));
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
   const [isMembersModalOpen, setIsMembersModalOpen] = useState(() => Boolean((location.state as { openPeople?: boolean } | null)?.openPeople));
@@ -381,14 +384,14 @@ export default function BookView() {
     };
     void start();
     const timer = window.setInterval(() => {
-      if (!bookId) return;
+      if (!bookId || document.visibilityState !== 'visible') return;
       listExpenses(bookId).then((rows) => {
         if (!alive) return;
         setExpenses(rows
           .filter((row) => row && !row.deleted && !row.deletedAt && row.status !== 'deleted' && !hiddenExpenseIds.current.has(String(row.id)))
           .sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt)));
       }).catch(() => undefined);
-    }, 20000);
+    }, 45000);
     return () => {
       alive = false;
       window.clearInterval(timer);
@@ -522,9 +525,9 @@ export default function BookView() {
   }, [bookId, location.search]);
 
   useEffect(() => {
-    if ((location.state as { openPeople?: boolean } | null)?.openPeople) {
-      setIsMembersModalOpen(true);
-    }
+    const st = location.state as { openPeople?: boolean; openEntry?: boolean } | null;
+    if (st?.openPeople) setIsMembersModalOpen(true);
+    if (st?.openEntry) setIsExpenseModalOpen(true);
   }, [location.state, bookId]);
 
   useEffect(() => {
@@ -624,7 +627,10 @@ export default function BookView() {
       });
     };
     load();
-    const timer = window.setInterval(load, 15000);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      load();
+    }, 30000);
     return () => {
       alive = false;
       window.clearInterval(timer);
@@ -1107,6 +1113,26 @@ export default function BookView() {
     } finally { setIsSaving(false); }
   };
 
+  const scanReceiptEntry = async () => {
+    if (!bookId || !canWrite) return;
+    try {
+      await CapacitorService.requestCameraPermission();
+      const photo = await CapacitorService.takePicture({ source: CameraSource.Prompt, quality: 85 });
+      const dataUrl = photo.dataUrl || (photo.base64String ? `data:image/jpeg;base64,${photo.base64String}` : '');
+      if (!dataUrl) throw new Error('No photo data');
+      setReceiptLaunch({
+        source: 'camera',
+        imageDataUrl: dataUrl,
+        fileName: `receipt-${Date.now()}.jpg`,
+        mimeType: 'image/jpeg',
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Could not open camera';
+      if (/cancel/i.test(msg)) return;
+      addToast(msg, 'error');
+    }
+  };
+
   const attachReceiptFromCamera = async (source: CameraSource = CameraSource.Prompt) => {
     if (!bookId || !canWrite) return;
     setUploadingReceipt(true);
@@ -1360,7 +1386,6 @@ export default function BookView() {
   const monthOut = expenses.filter((e) => e.entryType !== 'in' && e.entryType !== 'transfer' && String(e.date || '').startsWith(monthKey)).reduce((sum, exp) => sum + Number(exp.amount || 0), 0);
   const reimbursableOpen = expenses.filter((e) => e.reimbursable).reduce((sum, exp) => sum + Number(exp.amount || 0), 0);
   const budget = Number(book.monthlyBudget || 0);
-  
   const chartData = expenses.filter(e => e.entryType !== 'in' && e.entryType !== 'transfer').reduce((acc: any[], exp) => {
     const existing = acc.find(a => a.name === exp.category);
     if (existing) existing.total += exp.amount;
@@ -1368,8 +1393,6 @@ export default function BookView() {
     return acc;
   }, []).sort((a, b) => b.total - a.total).slice(0, 5);
 
-  
-  // Filter and Pagination Logic
   const anomalySet = anomalyIds(expenses);
   const dupeSet = nearDupeIds(expenses);
   const staleSet = staleReimburseIds(expenses);
@@ -1406,7 +1429,6 @@ export default function BookView() {
     if (sortKey === 'amount') return (Number(a.amount || 0) - Number(b.amount || 0)) * dir;
     if (sortKey === 'description') return String(a.description || '').localeCompare(String(b.description || '')) * dir;
     if (sortKey === 'category') return String(a.category || '').localeCompare(String(b.category || '')) * dir;
-    // "Date" column sorts by when the record was created (not receipt paid date).
     return (expenseMillis(a.createdAt) - expenseMillis(b.createdAt)) * dir;
   });
   const runningById = new Map<string, number>();
@@ -1541,16 +1563,27 @@ export default function BookView() {
             </button>
           )}
           {canWrite && (
+            <>
             <button 
               type="button"
               data-add-entry
               onClick={() => { void CapacitorService.hapticTick(); openNewExpense(); }}
-              className="btn-entry-form"
+              className="act-3d act-3d-add"
               title="Add expense with full details"
             >
-              <Plus className="w-4 h-4" />
-              <span>Add expense</span>
+              <span className="act-3d-orb" aria-hidden><PenLine className="w-4 h-4" /></span>
+              <span>Add entry</span>
             </button>
+            <button
+              type="button"
+              className="act-3d"
+              title="Voice entry"
+              onClick={() => { void CapacitorService.hapticTick(); setVoiceOpen(true); }}
+            >
+              <span className="act-3d-orb tone-mic" aria-hidden><Mic className="w-4 h-4" /></span>
+              <span className="hidden sm:inline">Voice</span>
+            </button>
+            </>
           )}
           </div>
         </div>
@@ -1560,10 +1593,26 @@ export default function BookView() {
             type="button"
             data-add-entry
             onClick={() => { void CapacitorService.hapticTick(); openNewExpense(); }}
-            className="btn-entry-form flex-1 !h-11"
+            className="act-3d act-3d-add flex-1 !h-12"
           >
-            <Plus className="w-4 h-4" />
-            Add expense
+            <span className="act-3d-orb" aria-hidden><PenLine className="w-4 h-4" /></span>
+            Add entry
+          </button>
+          <button
+            type="button"
+            className="act-3d !h-12 !px-3 shrink-0"
+            title="Scan receipt"
+            onClick={() => { void CapacitorService.hapticTick(); void scanReceiptEntry(); }}
+          >
+            <span className="act-3d-orb tone-scan" aria-hidden><ScanLine className="w-4 h-4" /></span>
+          </button>
+          <button
+            type="button"
+            className="act-3d !h-12 !px-3 shrink-0"
+            title="Voice entry"
+            onClick={() => { void CapacitorService.hapticTick(); setVoiceOpen(true); }}
+          >
+            <span className="act-3d-orb tone-mic" aria-hidden><Mic className="w-4 h-4" /></span>
           </button>
           <button
             type="button"
@@ -1787,6 +1836,7 @@ export default function BookView() {
               myUpiName={String((userProfile as any)?.upiDisplayName || userProfile?.displayName || '')}
               onToast={addToast}
               onProfileRefresh={() => void refreshUserProfile()}
+              initialPayId={searchParams.get('pay') || ''}
             />
           ) : null}
           <div className="flex flex-wrap items-center gap-2">
@@ -2372,6 +2422,7 @@ export default function BookView() {
               myUpiName={String((userProfile as any)?.upiDisplayName || userProfile?.displayName || '')}
               onToast={addToast}
               onProfileRefresh={() => void refreshUserProfile()}
+              initialPayId={searchParams.get('pay') || ''}
             />
           ) : (
             <div className="byjan-card p-8 text-center text-sm text-slate-500">Sign in to view split transactions.</div>
@@ -2852,6 +2903,21 @@ export default function BookView() {
           onToast={addToast}
         />
       ) : null}
+
+      <VoiceEntrySheet
+        open={voiceOpen}
+        onClose={() => setVoiceOpen(false)}
+        onToast={addToast}
+        onReady={(parsed) => {
+          openNewExpense();
+          setAmount(parsed.amount ? String(parsed.amount) : '');
+          setMerchant(parsed.merchant);
+          setDescription(parsed.merchant || parsed.transcript);
+          setEntryType(parsed.entryType);
+          if (parsed.category && parsed.category !== 'Uncategorized') setCategory(parsed.category);
+          if (parsed.entryType === 'in') setTxType('INCOME');
+        }}
+      />
 
       <UpiSetupSheet
         open={upiSetupOpen}

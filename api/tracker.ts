@@ -290,6 +290,8 @@ async function handleExpenses(req: VercelRequest, res: VercelResponse) {
       const input = body.expense && typeof body.expense === 'object' && !Array.isArray(body.expense)
         ? body.expense as Record<string, unknown>
         : {};
+      const amt = Number(input.amount || 0);
+      if (!Number.isFinite(amt) || amt < 0) throw new ApiError(400, 'Amount cannot be negative');
       if (!body.force) {
         const matches = await ledgerFindDuplicateExpense(bookId, input);
         if (matches.length) throw new ApiError(409, 'A matching entry is already on this ledger', { matches });
@@ -310,7 +312,7 @@ async function handleExpenses(req: VercelRequest, res: VercelResponse) {
         idempotencyKey: idempotencyKey || undefined,
         ...(body.force ? { duplicateConfirmedDifferent: true } : {}),
       }, { insertOnly: true, allowDuplicateHash: Boolean(body.force) });
-      await mergeCategory(bookId, String(saved.expense.category || '')).catch(() => undefined);
+      await mergeCategory(bookId, String((saved.expense as Record<string, unknown>).category || '')).catch(() => undefined);
       await ledgerAudit({
         bookId,
         actorUid: user.uid,
@@ -352,7 +354,7 @@ async function handleExpenses(req: VercelRequest, res: VercelResponse) {
         lastEditedByUid: user.uid,
         lastEditedAt: new Date().toISOString(),
       });
-      await mergeCategory(bookId, String(saved.expense.category || '')).catch(() => undefined);
+      await mergeCategory(bookId, String((saved.expense as Record<string, unknown>).category || '')).catch(() => undefined);
       await ledgerAudit({
         bookId,
         actorUid: user.uid,
@@ -423,6 +425,31 @@ async function handleNotifications(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
+    if (op === 'pingSelf') {
+      const profile = await ledgerGetUser(user.uid);
+      const pushToken = String(profile?.pushToken || '').trim();
+      if (!pushToken) throw new ApiError(400, 'No push token on this account yet. Open the Android app while signed in, then try again.');
+      await ledgerAddNotification({
+        userId: user.uid,
+        bookId: '',
+        bookName: 'Byjan',
+        kind: 'system',
+        action: 'Test notification',
+        detail: 'Sent to this device from Byjan',
+        link: '/',
+        createdAt: new Date().toISOString(),
+        read: false,
+      });
+      const { sendFcm } = await pushModule();
+      await sendFcm(pushToken, {
+        title: 'Byjan',
+        body: 'Test alert — pending payments and books are on Home',
+        data: { url: '/#/', bookId: '' },
+      });
+      apiJson(res, 200, { ok: true, sent: true });
+      return;
+    }
+
     if (op === 'create') {
       const targetUid = String(body.userId || '').trim();
       const bookId = String(body.bookId || '').trim();
@@ -439,6 +466,7 @@ async function handleNotifications(req: VercelRequest, res: VercelResponse) {
         detail: String(body.detail || ''),
         senderName: String(body.senderName || user.email),
         ledgerMail: String(body.ledgerMail || ''),
+        settlementId: String(body.settlementId || ''),
         link: String(body.link || ''),
         createdAt: new Date().toISOString(),
         read: false,
@@ -448,10 +476,16 @@ async function handleNotifications(req: VercelRequest, res: VercelResponse) {
       if (pushToken) {
         try {
           const { sendFcm } = await pushModule();
+          const settlementId = String(body.settlementId || '');
+          const path = String(body.link || (settlementId ? `/book/${bookId}?pay=${encodeURIComponent(settlementId)}` : `/book/${bookId}`));
           void sendFcm(pushToken, {
             title: String(body.bookName || 'Byjan'),
             body: `${String(body.senderName || user.email)} ${String(body.action || 'updated the book').toLowerCase()}`,
-            data: { bookId, url: `/#/book/${bookId}` },
+            data: {
+              bookId,
+              settlementId,
+              url: `/#${path.startsWith('/') ? path : `/${path}`}`,
+            },
           });
         } catch {
           /* push is best-effort */

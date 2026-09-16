@@ -9,6 +9,8 @@ import {
 import { canStartPayment, paiseToUpiAmount, paymentStatusLabel } from '../lib/upi';
 import SettlementPaySheet from './SettlementPaySheet';
 import UpiSetupSheet from './UpiSetupSheet';
+import { UpiBrandMark } from './UpiBrandMark';
+import './split-premium.css';
 
 type Props = {
   bookId: string;
@@ -18,6 +20,7 @@ type Props = {
   myUpiName?: string;
   onToast: (msg: string, kind?: 'success' | 'error') => void;
   onProfileRefresh?: () => void;
+  initialPayId?: string;
   /** compact = toolbar collapse; page = full Splits tab */
   variant?: 'compact' | 'page';
 };
@@ -41,6 +44,7 @@ export default function SettlementsPanel({
   onToast,
   onProfileRefresh,
   variant = 'compact',
+  initialPayId = '',
 }: Props) {
   const [rows, setRows] = useState<MoneySettlementRow[]>([]);
   const [members, setMembers] = useState<Array<{ uid: string; displayName: string; hasUpi: boolean; email: string }>>([]);
@@ -79,6 +83,15 @@ export default function SettlementsPanel({
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (!initialPayId || !rows.length) return;
+    const hit = rows.find((r) => r.id === initialPayId);
+    if (hit) {
+      setPayTarget(hit);
+      setOpen(true);
+    }
+  }, [initialPayId, rows]);
 
   const mine = useMemo(
     () => rows.filter((r) => r.fromUid === currentUid || r.toUid === currentUid),
@@ -255,10 +268,19 @@ export default function SettlementsPanel({
                 {row.status !== 'PAID' ? (
                   <button
                     type="button"
-                    className="byjan-btn !h-9 !px-3 text-xs shrink-0"
+                    className="byjan-btn !h-9 !px-3 text-xs shrink-0 inline-flex items-center"
                     onClick={() => setPayTarget(row)}
                   >
-                    {iOwe && canStartPayment(row.status) ? (['FAILED', 'CANCELLED', 'UNKNOWN'].includes(String(row.status).toUpperCase()) ? 'Retry' : 'Pay') : 'Open'}
+                    {iOwe && canStartPayment(row.status) ? (
+                      <>
+                        <span className="sp-pay-brands" aria-hidden>
+                          <span><UpiBrandMark app="phonepe" size={16} /></span>
+                          <span><UpiBrandMark app="paytm" size={16} /></span>
+                          <span><UpiBrandMark app="cred" size={16} /></span>
+                        </span>
+                        {['FAILED', 'CANCELLED', 'UNKNOWN'].includes(String(row.status).toUpperCase()) ? 'Retry' : 'Pay'}
+                      </>
+                    ) : 'Open'}
                   </button>
                 ) : (
                   <span className="text-[11px] font-bold text-emerald-700 shrink-0">PAID</span>

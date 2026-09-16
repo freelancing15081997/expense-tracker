@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { User, onAuthStateChanged } from 'firebase/auth';
 import { auth, googleRedirectReady } from '../lib/firebase';
 import { getMe, upsertMe } from '../lib/me';
@@ -78,6 +78,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const lastUid = useRef('');
 
   const refreshUserProfile = async () => {
     const user = auth.currentUser;
@@ -108,6 +109,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (cancelled) return;
       unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
         stopSession();
+        const prevUid = lastUid.current;
+        lastUid.current = user?.uid || '';
+        if (user && prevUid && prevUid !== user.uid) {
+          setUserProfile(null);
+          setStoreUser('');
+          void import('../lib/expenses').then((m) => m.clearExpensesListCache()).catch(() => undefined);
+          void import('../lib/search-catalog').then((m) => m.clearSearchCatalog()).catch(() => undefined);
+          void import('../components/ShareIntentListener').then((m) => m.clearShareCaches()).catch(() => undefined);
+          void import('../lib/user-cache').then((m) => m.clearStoredUserCaches()).catch(() => undefined);
+          void import('../lib/store').then((m) => m.clearStoreCache()).catch(() => undefined);
+        }
         setCurrentUser(user);
         if (!user) {
           setStoreUser('');

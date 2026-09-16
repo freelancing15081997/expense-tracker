@@ -148,10 +148,26 @@ export class CapacitorService {
   }
 
   private static handleNotificationAction(action: any) {
-    const data = action.notification.data;
-    if (data.url) {
-      window.location.href = data.url;
+    const data = action?.notification?.data || action?.notification || {};
+    const url = String(data.url || '');
+    const bookId = String(data.bookId || '');
+    const settlementId = String(data.settlementId || data.pay || '');
+    const hashIdx = url.indexOf('#');
+    if (hashIdx >= 0) {
+      window.location.hash = url.slice(hashIdx);
+      return;
     }
+    if (url.startsWith('/book/') || url.startsWith('/settings') || url.startsWith('/notifications')) {
+      window.location.hash = `#${url}`;
+      return;
+    }
+    if (bookId) {
+      window.location.hash = settlementId
+        ? `#/book/${bookId}?pay=${encodeURIComponent(settlementId)}`
+        : `#/book/${bookId}`;
+      return;
+    }
+    window.location.hash = '#/notifications';
   }
 
   private static async setupAppListeners() {

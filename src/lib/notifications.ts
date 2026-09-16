@@ -12,6 +12,8 @@ export type AppNotification = {
   [key: string]: unknown;
 };
 
+export { notificationPath } from './notification-path';
+
 export async function listNotifications() {
   const payload = await apiPost<{ notifications?: AppNotification[] }>('/api/notifications', { op: 'list' });
   return Array.isArray(payload.notifications) ? payload.notifications : [];
@@ -23,6 +25,10 @@ export async function markNotificationRead(id: string) {
 
 export async function markAllNotificationsRead() {
   await apiPost('/api/notifications', { op: 'markAllRead' });
+}
+
+export async function pingSelfNotification() {
+  return apiPost<{ ok?: boolean; sent?: boolean }>('/api/notifications', { op: 'pingSelf' });
 }
 
 export async function createNotification(input: {

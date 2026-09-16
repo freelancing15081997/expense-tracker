@@ -21,6 +21,7 @@ import {
   createSettlementsFromSplit,
   ensureSettlementSchema,
   getBookMemberUpiProfiles,
+  listMyOpenSettlements,
   listSettlementsForBook,
   markSettlementReview,
   reportUpiReturn,
@@ -29,6 +30,7 @@ import {
   startUpiPayment,
 } from './settlement-upi.js';
 import { extractMoneyAmount, reconcileVisionAmount } from './amount-parse.js';
+import { validateSplitPayload } from './split-validate.js';
 
 async function ensureMoneySchema() {
   const sql = await getLedgerSql();
@@ -664,6 +666,16 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
       const row = Array.isArray(rows) ? rows[0] : null;
       if (!row) throw new ApiError(404, 'Expense not found');
       const expenseData = (row.data && typeof row.data === 'object' ? row.data : {}) as Record<string, unknown>;
+      const book = await ledgerGetBookForUser(bookId, user.uid);
+      const memberUids = book?.roles && typeof book.roles === 'object'
+        ? Object.keys(book.roles as Record<string, unknown>)
+        : [];
+      const splitErr = validateSplitPayload({
+        expenseAmount: Number(expenseData.amount || 0),
+        split,
+        memberUids,
+      });
+      if (splitErr) throw new ApiError(400, splitErr);
       const data = {
         ...expenseData,
         moneySplit: split,
@@ -706,6 +718,12 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
       const bookId = String(body.bookId || '').trim();
       if (!bookId) throw new ApiError(400, 'Missing ledger');
       const settlements = await listSettlementsForBook(bookId, user.uid);
+      apiJson(res, 200, { settlements });
+      return;
+    }
+
+    if (op === 'listMySettlements') {
+      const settlements = await listMyOpenSettlements(user.uid);
       apiJson(res, 200, { settlements });
       return;
     }

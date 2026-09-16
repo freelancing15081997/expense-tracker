@@ -17,17 +17,41 @@ type ListAllValue = { expenses: LedgerExpense[]; books: Array<Record<string, unk
 
 let listAllCache: { uid: string; at: number; value: ListAllValue } | null = null;
 let listAllInflight: { uid: string; promise: Promise<ListAllValue> } | null = null;
+const listByBook = new Map<string, { at: number; rows: LedgerExpense[]; inflight?: Promise<LedgerExpense[]> }>();
+let listEpoch = 0;
 
-export async function listExpenses(bookId: string) {
-  const payload = await apiPost<{ expenses?: LedgerExpense[] }>('/api/expenses', { op: 'list', bookId });
-  return Array.isArray(payload.expenses) ? payload.expenses : [];
+export async function listExpenses(bookId: string, opts?: { force?: boolean }) {
+  const now = Date.now();
+  const hit = listByBook.get(bookId);
+  if (!opts?.force && hit && now - hit.at < 8_000) return hit.rows;
+  if (!opts?.force && hit?.inflight) return hit.inflight;
+
+  const epoch = listEpoch;
+  const promise = (async () => {
+    const payload = await apiPost<{ expenses?: LedgerExpense[] }>('/api/expenses', { op: 'list', bookId });
+    const rows = Array.isArray(payload.expenses) ? payload.expenses : [];
+    if (epoch === listEpoch) listByBook.set(bookId, { at: Date.now(), rows });
+    return rows;
+  })();
+
+  if (epoch === listEpoch) {
+    listByBook.set(bookId, { at: hit?.at || 0, rows: hit?.rows || [], inflight: promise });
+  }
+  try {
+    return await promise;
+  } finally {
+    const cur = listByBook.get(bookId);
+    if (cur?.inflight === promise) {
+      listByBook.set(bookId, { at: cur.at, rows: cur.rows });
+    }
+  }
 }
 
 /** Single-flight + uid-scoped cache — Dashboard and search catalog share one network call. */
 export async function listAllExpenses() {
   const uid = String(auth.currentUser?.uid || '');
   const now = Date.now();
-  if (listAllCache && listAllCache.uid === uid && now - listAllCache.at < 45_000) {
+  if (listAllCache && listAllCache.uid === uid && now - listAllCache.at < 60_000) {
     return listAllCache.value;
   }
   if (listAllInflight && listAllInflight.uid === uid) return listAllInflight.promise;
@@ -56,8 +80,10 @@ export async function listAllExpenses() {
 }
 
 export function clearExpensesListCache() {
+  listEpoch += 1;
   listAllCache = null;
   listAllInflight = null;
+  listByBook.clear();
 }
 
 export async function createExpense(bookId: string, expense: Record<string, unknown>, opts?: { force?: boolean; idempotencyKey?: string }) {

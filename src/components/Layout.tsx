@@ -2,10 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { logout } from '../lib/firebase';
-import { Bell, CheckCircle2, X, Mail, LayoutDashboard, BookOpen, Settings, BookText } from 'lucide-react';
+import { Bell, CheckCircle2, X, Mail, LayoutDashboard, Settings, BookText, Activity as ActivityIcon } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { listNotifications, markNotificationRead } from '../lib/notifications';
+import { listNotifications, markNotificationRead, notificationPath } from '../lib/notifications';
 import { warmSearchCatalog } from '../lib/search-catalog';
 import BrandLogo from './BrandLogo';
 import GlobalSearch, { SearchTrigger } from './GlobalSearch';
@@ -100,7 +100,7 @@ export default function Layout() {
     if (!currentUser?.uid) return;
     const tick = window.setInterval(() => {
       if (document.visibilityState === 'visible') loadNotifications({ silent: true });
-    }, 12000);
+    }, 45000);
     const onVis = () => {
       if (document.visibilityState === 'visible') loadNotifications({ silent: true });
     };
@@ -120,10 +120,10 @@ export default function Layout() {
 
   const unreadCount = notifications.filter((n) => !n.read).length;
   const onHome = location.pathname === '/';
-  const onBooks = location.pathname.startsWith('/books');
   const onSettings = location.pathname === '/settings';
   const onLedger = location.pathname.startsWith('/book/');
   const onLedgers = location.pathname === '/expenses' || onLedger;
+  const onActivity = location.pathname === '/activity';
 
   const handleMarkAsRead = async (id: string) => {
     try {
@@ -148,7 +148,7 @@ export default function Layout() {
           <button
             type="button"
             onClick={openNotifications}
-            className="relative w-10 h-10 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 flex items-center justify-center"
+            className="byjan-bell"
             title="Notifications"
           >
             <Bell className="w-5 h-5" />
@@ -192,7 +192,7 @@ export default function Layout() {
           <button
             type="button"
             onClick={openNotifications}
-            className="relative w-10 h-10 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 flex items-center justify-center shadow-[0_1px_2px_rgba(11,31,58,0.06)]"
+            className="byjan-bell"
             title="Notifications"
           >
             <Bell className="w-5 h-5" />
@@ -241,7 +241,7 @@ export default function Layout() {
                 notifications.map((notif) => (
                     <Link
                       key={notif.id}
-                      to={notif.bookId ? `/book/${notif.bookId}` : '#'}
+                      to={notificationPath(notif)}
                       onClick={() => {
                         void CapacitorService.hapticTick();
                         setNotificationsPanelOpen(false);
@@ -278,18 +278,16 @@ export default function Layout() {
         {hasFeature('money') && (
           <Link to="/expenses" className="dash-tab" data-on={onLedgers} onClick={() => void CapacitorService.hapticTick()}>
             <BookText className="w-5 h-5" />
-            Money
+            Books
           </Link>
         )}
-        {hasFeature('business') && (
-          <Link to="/books" className="dash-tab" data-on={onBooks} onClick={() => void CapacitorService.hapticTick()}>
-            <BookOpen className="w-5 h-5" />
-            Business
-          </Link>
-        )}
+        <Link to="/activity" className="dash-tab" data-on={onActivity} onClick={() => void CapacitorService.hapticTick()}>
+          <ActivityIcon className="w-5 h-5" />
+          Activity
+        </Link>
         <Link to="/settings" className="dash-tab" data-on={onSettings} onClick={() => void CapacitorService.hapticTick()}>
           <Settings className="w-5 h-5" />
-          Settings
+          More
         </Link>
       </nav>
     </div>

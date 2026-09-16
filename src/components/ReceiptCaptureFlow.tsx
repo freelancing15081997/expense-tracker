@@ -120,7 +120,10 @@ async function parseReceiptNow(
   let imageBase64 = '';
   let imageMime = launch.mimeType || 'image/jpeg';
   const sheet = isSpreadsheet(imageMime, receiptName);
-  const isPdf = imageMime === 'application/pdf' || /\.pdf$/i.test(receiptName);
+  const rawB64 = String(launch.imageDataUrl || '').replace(/^data:[^;]+;base64,/i, '').replace(/\s+/g, '');
+  const isPdf = imageMime === 'application/pdf'
+    || /\.pdf$/i.test(receiptName)
+    || /^JVBER/i.test(rawB64.slice(0, 16));
   const rawLen = String(launch.imageDataUrl || '').length;
   // Spreadsheets / huge blobs → server. Images + PDFs → on-device PP-OCRv4 (PdfRenderer for PDF).
   const useStructuredPath = sheet || rawLen > 2_400_000;
@@ -201,7 +204,7 @@ async function parseReceiptNow(
     }
 
     // Image or PDF → on-device PP-OCRv4 (PDF pages rendered via PdfRenderer) + ₹ rules.
-    const { prepareReceiptImage, uploadPreparedReceipt, uploadLedgerReceipt } = await import('../lib/money-receipts');
+    const { prepareReceiptImage, uploadPreparedReceipt } = await import('../lib/money-receipts');
     const { localParseReceiptImage, prepareOcrImage } = await import('../lib/document-ocr');
     const { amountGroundedInText, extractMoneyAmount } = await import('../lib/amount-parse');
 
@@ -211,27 +214,56 @@ async function parseReceiptNow(
       reasons: [],
     }));
 
-    // PDFs: send the original file to the API (pdf-parse). Do not OCR ₹ — that becomes 4 / ~400.
+    // PDFs: read the text layer on-device first. Never OCR ₹ (that becomes 4 / ~400).
     if (isPdf) {
       onStatus('Reading PDF…', 22);
       imageMime = 'application/pdf';
-      imageBase64 = String(launch.imageDataUrl || '').replace(/^data:[^;]+;base64,/i, '').replace(/\s+/g, '');
-      const pdfName = /\.pdf$/i.test(receiptName) ? receiptName : `${receiptName.replace(/\.\w+$/, '')}.pdf`;
-      try {
-        const uploaded = await uploadLedgerReceipt(bookId, {
-          dataUrl: launch.imageDataUrl,
-          fileName: pdfName,
-          mimeType: 'application/pdf',
+      imageBase64 = rawB64 || String(launch.imageDataUrl || '').replace(/^data:[^;]+;base64,/i, '').replace(/\s+/g, '');
+      const pdfName = /\.pdf$/i.test(receiptName) ? receiptName : `${String(receiptName || 'receipt').replace(/\.\w+$/, '')}.pdf`;
+      const { extractPdfTextClient } = await import('../lib/pdf-text-client');
+      const pdfText = await extractPdfTextClient(imageBase64);
+      const fromPdf = pdfText ? extractMoneyAmount(pdfText) : null;
+      const uploadPromisePdf = uploadLedgerReceipt(bookId, {
+        dataUrl: launch.imageDataUrl?.startsWith('data:') ? launch.imageDataUrl : `data:application/pdf;base64,${imageBase64}`,
+        fileName: pdfName,
+        mimeType: 'application/pdf',
+      }).catch(() => null);
+
+      if (fromPdf && fromPdf.amount > 0) {
+        const uploaded = await uploadPromisePdf;
+        if (uploaded) {
+          receiptPath = uploaded.receiptPath || receiptPath;
+          receiptName = uploaded.receiptName || pdfName;
+        }
+        preview = scrubPreview({
+          ...draftPreview(launch, {
+            amountPaise: Math.round(fromPdf.amount * 100),
+            merchant: fromPdf.merchant || '',
+            description: fromPdf.description || receiptName,
+            paymentMethod: fromPdf.paymentMethod || 'upi',
+            direction: fromPdf.entryType === 'in' ? 'MONEY_IN' : 'MONEY_OUT',
+            date: fromPdf.date,
+            processingStatus: 'READY',
+            confidence: fromPdf.confidence,
+            receiptPath,
+            receiptName,
+            reasons: [],
+          }),
+          id: newMoneyId('cap'),
         });
+        onStatus('Almost ready…', 78);
+        return { preview, previews: [preview] };
+      }
+
+      onStatus('Reading PDF amount…', 62);
+      const uploaded = await uploadPromisePdf;
+      if (uploaded) {
         receiptPath = uploaded.receiptPath || receiptPath;
         receiptName = uploaded.receiptName || pdfName;
-      } catch {
-        // Still parse inline PDF bytes.
       }
-      onStatus('Reading PDF amount…', 62);
       const result = await safeProcess({
         bookId,
-        text: String(launch.text || '').slice(0, 8000),
+        text: [String(launch.text || ''), pdfText].filter(Boolean).join('\n').slice(0, 8000),
         receiptPath,
         receiptName,
         source: launch.source || 'share',
@@ -259,6 +291,17 @@ async function parseReceiptNow(
         });
         return { preview, previews: [preview] };
       }
+      const uploadedLate = await uploadPromisePdf;
+      preview = scrubPreview({
+        ...preview,
+        processingStatus: 'REVIEW_REQUIRED',
+        financialStatus: 'DRAFT',
+        confidence: 'low',
+        receiptPath: uploadedLate?.receiptPath || receiptPath,
+        receiptName: uploadedLate?.receiptName || pdfName,
+        reasons: [],
+      });
+      return { preview, previews: [preview] };
     }
 
     onStatus(isPdf ? 'Reading PDF…' : 'Reading receipt…', 22);
@@ -432,7 +475,7 @@ async function parseReceiptNow(
   return { preview, previews: [preview] };
 }
 
-type Phase = 'pick' | 'working' | 'failed' | 'duplicate_confirm';
+type Phase = 'pick' | 'working' | 'failed' | 'duplicate_confirm' | 'review';
 
 type PendingDup = {
   bookId: string;
@@ -491,6 +534,13 @@ export default function ReceiptCaptureFlow({
   const [error, setError] = useState('');
   const [activeBookId, setActiveBookId] = useState('');
   const [pendingDup, setPendingDup] = useState<PendingDup | null>(null);
+  const [review, setReview] = useState<{
+    bookId: string;
+    row: CapturePreview;
+    receiptHash: string;
+    needsEdit: boolean;
+    payload: Record<string, unknown>;
+  } | null>(null);
   const savingRef = useRef(false);
   const doneRef = useRef(false);
   const tickRef = useRef<number | null>(null);
@@ -604,6 +654,58 @@ export default function ReceiptCaptureFlow({
       }
       setPhase('failed');
       setStatusLine('Couldn’t finish — retry');
+    } finally {
+      savingRef.current = false;
+      setBusy(false);
+    }
+  };
+
+  const confirmReview = async () => {
+    if (!review || savingRef.current || doneRef.current) return;
+    if (!(Number(review.payload.amount || 0) > 0) && !(Number(review.row.amountPaise || 0) > 0)) {
+      setError('Enter a valid amount before saving');
+      return;
+    }
+    savingRef.current = true;
+    setBusy(true);
+    setError('');
+    try {
+      const payload = {
+        ...review.payload,
+        amount: Number(review.payload.amount || review.row.amountPaise / 100 || 0),
+        merchant: review.row.merchant || review.payload.merchant,
+        description: review.row.description || review.payload.description,
+        category: review.row.category || review.payload.category,
+        paymentMethod: review.row.paymentMethod || review.payload.paymentMethod,
+      };
+      if (payload.amount > 0) payload.status = 'recorded';
+      const saved = await createExpense(review.bookId, payload, {
+        force: false,
+        idempotencyKey: String(review.row.id || newMoneyId('cap')),
+      });
+      setPct(100);
+      doneRef.current = true;
+      clearPendingCapture();
+      onConfirmed(
+        { ...saved, bookId: String(saved.bookId || review.bookId), _needsEdit: review.needsEdit },
+        { count: 1, needsEdit: review.needsEdit },
+      );
+      onClose();
+    } catch (err: any) {
+      const status = Number(err?.status || 0);
+      const msg = String(err?.message || '');
+      if (status === 409 || /already on this ledger|already recorded|matching entry/i.test(msg)) {
+        const matches = Array.isArray(err?.extra?.matches) ? err.extra.matches : [];
+        setPendingDup({
+          bookId: review.bookId,
+          existing: (matches[0] || review.payload) as Record<string, unknown>,
+          payload: review.payload,
+          needsEdit: review.needsEdit,
+        });
+        setPhase('duplicate_confirm');
+        return;
+      }
+      setError(err instanceof Error ? err.message : 'Could not save');
     } finally {
       savingRef.current = false;
       setBusy(false);
@@ -729,6 +831,14 @@ export default function ReceiptCaptureFlow({
           // Duplicate check is best-effort; still try to save.
         }
 
+        if (rows.length === 1) {
+          setReview({ bookId, row, receiptHash, needsEdit, payload: payload as Record<string, unknown> });
+          setPhase('review');
+          setStatusLine('Confirm before saving');
+          setPct(100);
+          return;
+        }
+
         try {
           const saved = await createExpense(bookId, payload, {
             force: false,
@@ -809,6 +919,7 @@ export default function ReceiptCaptureFlow({
     doneRef.current = false;
     setError('');
     setPendingDup(null);
+    setReview(null);
     setPct(6);
     setStatusLine('Opening your share…');
 
@@ -953,6 +1064,53 @@ export default function ReceiptCaptureFlow({
                   onSelect={(id) => { void saveNow(id); }}
                 />
               )}
+            </div>
+          </>
+        ) : phase === 'review' && review ? (
+          <>
+            <p className="sr-kicker">Review</p>
+            <h2 className="sr-title" style={{ textAlign: 'left', maxWidth: 'none' }}>Confirm before it is saved</h2>
+            <p className="sr-detail" style={{ textAlign: 'left', maxWidth: 'none' }}>
+              Check amount and merchant. Uncertain reads stay here until you confirm.
+            </p>
+            {Number(review.row.amountPaise || 0) <= 0 ? (
+              <p className="sr-dup-warn">Amount was not read clearly — type it below.</p>
+            ) : null}
+            <label className="sr-detail" style={{ display: 'block', marginTop: 12 }}>
+              Amount
+              <input
+                className="byjan-input mt-1"
+                type="number"
+                inputMode="decimal"
+                value={review.row.amountPaise ? review.row.amountPaise / 100 : ''}
+                onChange={(e) => {
+                  const n = Number(e.target.value || 0);
+                  setReview({
+                    ...review,
+                    row: { ...review.row, amountPaise: Math.round(n * 100) },
+                    payload: { ...review.payload, amount: n, status: n > 0 ? 'recorded' : 'draft' },
+                  });
+                }}
+              />
+            </label>
+            <label className="sr-detail" style={{ display: 'block', marginTop: 10 }}>
+              Merchant / description
+              <input
+                className="byjan-input mt-1"
+                value={String(review.row.merchant || review.row.description || '')}
+                onChange={(e) => setReview({
+                  ...review,
+                  row: { ...review.row, merchant: e.target.value, description: e.target.value },
+                  payload: { ...review.payload, merchant: e.target.value, description: e.target.value },
+                })}
+              />
+            </label>
+            {error ? <p className="sr-error">{error}</p> : null}
+            <div className="sr-actions" style={{ marginTop: 16 }}>
+              <button type="button" className="sr-btn-ghost" disabled={busy} onClick={onClose}>Cancel</button>
+              <button type="button" className="sr-btn" disabled={busy} onClick={() => void confirmReview()}>
+                {busy ? 'Saving…' : 'Save entry'}
+              </button>
             </div>
           </>
         ) : phase === 'duplicate_confirm' && pendingDup ? (

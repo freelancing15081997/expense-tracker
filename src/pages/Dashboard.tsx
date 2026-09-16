@@ -8,7 +8,7 @@ import { useBooksTenantMeta } from '../lib/tenant';
 import { getCurrencySymbol } from '../lib/currency';
 import { initials, readRecentLedgers, sparkDays } from '../lib/ledger-advanced';
 import { formatIndianAmount, workspaceBridges } from '../lib/bridge-automations';
-import { Plus, Check, X, Users, ArrowUpRight, RefreshCw, Wallet, TrendingUp, Receipt, BookOpen, Shield, ChevronRight, IndianRupee } from 'lucide-react';
+import { Plus, Check, X, Users, ArrowUpRight, RefreshCw, Wallet, TrendingUp, Receipt, BookOpen, Shield, ChevronRight, IndianRupee, ScanLine, PenLine } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 import { ListControls, usePagedList } from '../components/ListControls';
@@ -20,6 +20,9 @@ import { useFeatures } from '../lib/use-features';
 import ReceiptCaptureFlow, { type ReceiptLaunch } from '../components/ReceiptCaptureFlow';
 import { cacheMoneyBooks, readPendingCapture, clearPendingCapture, rememberMoneyBook } from '../components/ShareIntentListener';
 import { readUserJson, writeUserJson } from '../lib/user-cache';
+import PendingPayStrip from '../components/PendingPayStrip';
+import { CapacitorService } from '../lib/capacitor';
+import { CameraSource } from '@capacitor/camera';
 
 interface BookItem {
   id: string;
@@ -349,6 +352,34 @@ export default function Dashboard() {
     event?.stopPropagation();
     navigate(`/book/${bookId}`, { state: { openPeople: true } });
   };
+  const scanHomeReceipt = async () => {
+    try {
+      await CapacitorService.requestCameraPermission();
+      const photo = await CapacitorService.takePicture({ source: CameraSource.Prompt, quality: 85 });
+      const dataUrl = photo.dataUrl || (photo.base64String ? `data:image/jpeg;base64,${photo.base64String}` : '');
+      if (!dataUrl) throw new Error('No photo data');
+      const preferred = (recentBooks[0] || visibleBooks[0])?.id || '';
+      setReceiptLaunch({
+        source: 'camera',
+        imageDataUrl: dataUrl,
+        fileName: `receipt-${Date.now()}.jpg`,
+        mimeType: 'image/jpeg',
+        preferredBookId: preferred || undefined,
+        requireBookPick: visibleBooks.length !== 1,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Could not open camera';
+      if (/cancel/i.test(msg)) return;
+      addToast(msg, 'error');
+    }
+  };
+
+  const addHomeEntry = () => {
+    const book = recentBooks[0] || visibleBooks[0];
+    if (book) navigate(`/book/${book.id}`, { state: { openEntry: true } });
+    else setShowNewBook(true);
+  };
+
   const peopleCount = (book: BookItem) => Math.max(Object.keys(book.roles || {}).length, book.ownerId ? 1 : 0);
 
   const renderLedgerCard = (book: BookItem) => {
@@ -522,8 +553,20 @@ export default function Dashboard() {
               </Link>
             )}
             {hasFeature('money') && (
+              <button type="button" className="home-cta" onClick={() => { void CapacitorService.hapticTick(); void scanHomeReceipt(); }}>
+                <span className="home-cta-orb tone-scan" aria-hidden><ScanLine className="w-4 h-4" /></span>
+                Scan
+              </button>
+            )}
+            {hasFeature('money') && (
+              <button type="button" className="home-cta" onClick={() => { void CapacitorService.hapticTick(); addHomeEntry(); }}>
+                <span className="home-cta-orb tone-2" aria-hidden><PenLine className="w-4 h-4" /></span>
+                Add entry
+              </button>
+            )}
+            {hasFeature('money') && (
               <button type="button" className="home-cta" onClick={() => setShowNewBook(true)}>
-                <span className="home-cta-orb tone-2" aria-hidden><Plus className="w-4 h-4" /></span>
+                <span className="home-cta-orb tone-plus" aria-hidden><Plus className="w-4 h-4" /></span>
                 New book
               </button>
             )}
@@ -535,6 +578,8 @@ export default function Dashboard() {
             )}
           </div>
         </section>
+
+        {hasFeature('money') && uid ? <PendingPayStrip uid={uid} /> : null}
 
         {hasFeature('money') && (loading || visibleBooks.length > 0) && (
           <section className="home-continue">
@@ -610,6 +655,35 @@ export default function Dashboard() {
             </div>
           </section>
         )}
+
+        <ReceiptCaptureFlow
+          open={Boolean(receiptLaunch)}
+          launch={receiptLaunch}
+          onClose={() => {
+            setReceiptLaunch(null);
+            clearPendingCapture();
+          }}
+          onConfirmed={(expense, extras) => {
+            const bookId = String(expense.bookId || '');
+            setReceiptLaunch(null);
+            clearPendingCapture();
+            if (bookId) rememberMoneyBook(bookId);
+            if (extras?.duplicate) {
+              addToast('Same receipt — nothing new added', 'success');
+              if (bookId) navigate(`/book/${bookId}`);
+              else void fetchData({ silent: true });
+              return;
+            }
+            addToast(
+              extras?.needsEdit
+                ? 'Could not read amount — saved as draft for you to edit'
+                : 'Entry saved',
+              extras?.needsEdit ? 'error' : 'success',
+            );
+            if (bookId) navigate(`/book/${bookId}`);
+            else void fetchData({ silent: true });
+          }}
+        />
       </div>
     );
   }
@@ -644,6 +718,21 @@ export default function Dashboard() {
         </div>
         )}
       </section>
+
+      {uid ? <PendingPayStrip uid={uid} /> : null}
+
+      {canSeeMoney && (
+        <div className="home-cta-row" style={{ marginTop: 4 }}>
+          <button type="button" className="act-3d act-3d-add" onClick={() => { void CapacitorService.hapticTick(); void scanHomeReceipt(); }}>
+            <span className="act-3d-orb tone-scan" aria-hidden><ScanLine className="w-4 h-4" /></span>
+            Scan receipt
+          </button>
+          <button type="button" className="act-3d" onClick={() => { void CapacitorService.hapticTick(); addHomeEntry(); }}>
+            <span className="act-3d-orb" aria-hidden><PenLine className="w-4 h-4" /></span>
+            Add entry
+          </button>
+        </div>
+      )}
 
       {canSeeMoney && books.length > 0 && (
         <section className="md3-panel">

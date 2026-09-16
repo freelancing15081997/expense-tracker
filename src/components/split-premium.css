@@ -204,6 +204,107 @@
   box-shadow: 0 8px 18px -10px rgba(18, 184, 168, 0.7);
 }
 
+.sp-partners {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.sp-partner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 246, 235, 0.1);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.045);
+  color: #f4f1ea;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.sp-partner:disabled {
+  opacity: 0.45;
+}
+
+.sp-partner-mark {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  overflow: hidden;
+  flex-shrink: 0;
+  box-shadow: 0 6px 12px -8px rgba(0, 0, 0, 0.7);
+}
+
+.sp-partner-mark svg {
+  display: block;
+}
+
+.sp-pay-brands {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  margin-right: 8px;
+}
+
+.sp-pay-brands > span {
+  display: inline-flex;
+  margin-left: -7px;
+  border-radius: 7px;
+  box-shadow: 0 0 0 1.5px #fff;
+  overflow: hidden;
+  line-height: 0;
+}
+
+.sp-pay-brands > span:first-child {
+  margin-left: 0;
+}
+
+.sp-swipe {
+  position: relative;
+  height: 56px;
+  border-radius: 18px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,246,235,0.12);
+  overflow: hidden;
+  margin-bottom: 12px;
+  touch-action: none;
+}
+.sp-swipe-hint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: rgba(244,241,234,0.45);
+  pointer-events: none;
+}
+.sp-swipe-knob {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 64px;
+  height: 44px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #1ce0cc, #12b8a8);
+  color: #06241f;
+  font-size: 13px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
 .sp-toolbar {
   display: flex;
   gap: 8px;

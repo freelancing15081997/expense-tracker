@@ -5,6 +5,8 @@ import { buildCapturePreview } from '../src/lib/money-capture';
 import { parseBankSms } from '../src/lib/bridge-automations';
 import { buildEqualPersonSplits, suggestSettlements } from '../src/lib/money-splits';
 import { learnRuleFromCorrection, buildEvidenceTrail, equalSplitShares } from '../src/lib/money-helpers';
+import { nearDupeIds } from '../src/lib/ledger-advanced';
+import { matchDuplicateExpenses } from '../src/lib/duplicate-match';
 
 let passed = 0;
 let failed = 0;
@@ -82,6 +84,34 @@ assert(trail.some((s) => s.label === 'Source'), 'evidence has source');
 console.log('What-if');
 const wi = whatIfReduceCategory(sample, 'Food', 20);
 assert(wi.projectedSaving > 0, 'what-if saving > 0');
+
+console.log('Duplicates');
+{
+  const ledger = [
+    { id: 'e1', amount: 182961, date: '2026-09-14', description: 'CRED bill', merchant: 'CRED', receiptHash: 'abc123', upiRef: 'UTR998877', invoiceNumber: 'INV-4401', entryType: 'out' },
+    { id: 'e2', amount: 400, date: '2026-09-14', description: 'Swiggy', merchant: 'Swiggy', receiptHash: 'zzz', entryType: 'out' },
+  ];
+  const byHash = matchDuplicateExpenses(ledger, { receiptHash: 'abc123', amount: 0 });
+  assert(byHash[0]?.id === 'e1' && byHash[0].reason === 'receipt_hash', 'same file hash is a duplicate');
+  const byUpi = matchDuplicateExpenses(ledger, { upiRef: 'UTR998877' });
+  assert(byUpi[0]?.reason === 'upi_ref', 'same UPI ref is a duplicate');
+  const byInv = matchDuplicateExpenses(ledger, { amount: 182961, invoiceNumber: 'INV-4401' });
+  assert(byInv[0]?.reason === 'invoice', 'same invoice + amount is a duplicate');
+  const exact = matchDuplicateExpenses(ledger, { amount: 182961, date: '2026-09-14', description: 'CRED bill' });
+  assert(exact[0]?.reason === 'exact', 'same amount+date+description is a duplicate');
+  const soft = matchDuplicateExpenses(ledger, { date: '2026-09-14', merchant: 'CRED', amount: 4, allowSoft: true });
+  assert(soft[0]?.reason === 'soft_merchant', 're-parse with drifted amount still flags same merchant');
+  const skipSelf = matchDuplicateExpenses(ledger, { receiptHash: 'abc123', exceptId: 'e1' });
+  assert(skipSelf.length === 0, 'exceptId is not treated as a duplicate of itself');
+  const fresh = matchDuplicateExpenses(ledger, { amount: 99, date: '2026-09-15', description: 'New cafe', merchant: 'Cafe' });
+  assert(fresh.length === 0, 'different receipt is not a duplicate');
+  const near = nearDupeIds([
+    { id: 'a', amount: 500, date: '2026-09-10', description: 'Swiggy lunch', entryType: 'out' },
+    { id: 'b', amount: 500, date: '2026-09-11', description: 'Swiggy', entryType: 'out' },
+    { id: 'c', amount: 120, date: '2026-09-11', description: 'Uber', entryType: 'out' },
+  ]);
+  assert(near.has('a') && near.has('b') && !near.has('c'), 'near-dupe flags same amount in 3-day window');
+}
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

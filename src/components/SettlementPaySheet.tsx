@@ -8,6 +8,9 @@ import {
   type MoneySettlementRow,
 } from '../lib/money-api';
 import {
+  UPI_APP_PACKAGES,
+  UPI_PAY_APPS,
+  type UpiAppId,
   buildAppUpiUri,
   copyText,
   launchUpiPayNative,
@@ -15,6 +18,7 @@ import {
   paiseToUpiAmount,
   paymentStatusLabel,
 } from '../lib/upi';
+import { UpiBrandMark } from './UpiBrandMark';
 import './split-premium.css';
 
 type Props = {
@@ -28,14 +32,6 @@ type Props = {
   onToast: (msg: string, kind?: 'success' | 'error') => void;
   onNeedReceiverUpi?: (toUid: string) => void;
 };
-
-const APPS: Array<{ id: 'generic' | 'gpay' | 'phonepe' | 'paytm' | 'bhim'; label: string }> = [
-  { id: 'generic', label: 'Any UPI app' },
-  { id: 'gpay', label: 'Google Pay' },
-  { id: 'phonepe', label: 'PhonePe' },
-  { id: 'paytm', label: 'Paytm' },
-  { id: 'bhim', label: 'BHIM' },
-];
 
 type Phase = 'ready' | 'waiting' | 'paid' | 'failed' | 'unclear';
 
@@ -54,8 +50,12 @@ export default function SettlementPaySheet({
   const [phase, setPhase] = useState<Phase>('ready');
   const [attemptId, setAttemptId] = useState('');
   const [statusMsg, setStatusMsg] = useState('');
-  const [lastApp, setLastApp] = useState<typeof APPS[number]['id']>('generic');
+  const [lastApp, setLastApp] = useState<UpiAppId>('generic');
   const [fallback, setFallback] = useState<{ upiId: string; amount: string; note: string; title: string } | null>(null);
+  const [payUnlocked, setPayUnlocked] = useState(false);
+  const [swipeX, setSwipeX] = useState(0);
+  const swipeStart = React.useRef<number | null>(null);
+  const swipeXRef = React.useRef(0);
   const [payMeta, setPayMeta] = useState<{ upiId: string; recipientName: string; amount: string; upiUri: string } | null>(null);
 
   const role = useMemo(() => {
@@ -72,6 +72,10 @@ export default function SettlementPaySheet({
     setStatusMsg('');
     setFallback(null);
     setPayMeta(null);
+    setPayUnlocked(false);
+    setSwipeX(0);
+    swipeXRef.current = 0;
+    swipeStart.current = null;
   }, [open, settlement?.id]);
 
   if (!open || !settlement) return null;
@@ -115,7 +119,7 @@ export default function SettlementPaySheet({
     onToast(res.message || 'Couldn’t verify payment yet', 'error');
   };
 
-  const startPay = async (app: typeof APPS[number]['id']) => {
+  const startPay = async (app: UpiAppId) => {
     setBusy(true);
     setStatusMsg('');
     setLastApp(app);
@@ -162,8 +166,15 @@ export default function SettlementPaySheet({
         return;
       }
 
-      const native = await launchUpiPayNative(uri);
-      if (native) {
+      const pkg = UPI_APP_PACKAGES[app];
+      let native = await launchUpiPayNative(uri, pkg);
+      if (native?.status === 'NO_UPI_APP' && meta.upiUri && uri !== meta.upiUri) {
+        native = await launchUpiPayNative(meta.upiUri, pkg);
+      }
+      if (native?.status === 'NO_UPI_APP' && meta.upiUri) {
+        native = await launchUpiPayNative(meta.upiUri);
+      }
+      if (native && native.status !== 'NO_UPI_APP') {
         await applyNativeResult(res.attemptId, native);
         return;
       }
@@ -319,10 +330,53 @@ export default function SettlementPaySheet({
 
         {role === 'payer' && phase === 'ready' ? (
           <>
-            <p className="sp-kicker" style={{ marginBottom: 8 }}>Choose payment app</p>
-            <div className="sp-methods" style={{ gridTemplateColumns: '1fr 1fr', marginBottom: 12 }}>
-              {APPS.map((app) => (
-                <button key={app.id} type="button" disabled={busy} onClick={() => void startPay(app.id)}>
+            {!payUnlocked ? (
+              <>
+                <p className="sp-kicker" style={{ marginBottom: 8 }}>Swipe to pay</p>
+                <div
+                  className="sp-swipe"
+                  onPointerDown={(e) => {
+                    swipeStart.current = e.clientX;
+                    (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+                  }}
+                  onPointerMove={(e) => {
+                    if (swipeStart.current == null) return;
+                    const w = Math.max(1, (e.currentTarget as HTMLDivElement).clientWidth - 76);
+                    const next = Math.max(0, Math.min(1, (e.clientX - swipeStart.current) / w));
+                    swipeXRef.current = next;
+                    setSwipeX(next);
+                  }}
+                  onPointerUp={() => {
+                    if (swipeXRef.current > 0.82) {
+                      setPayUnlocked(true);
+                      setSwipeX(1);
+                    } else {
+                      setSwipeX(0);
+                      swipeXRef.current = 0;
+                    }
+                    swipeStart.current = null;
+                  }}
+                >
+                  <span className="sp-swipe-knob" style={{ left: `calc(6px + ${swipeX} * (100% - 76px))` }}>Pay</span>
+                  <span className="sp-swipe-hint">Swipe to choose UPI app</span>
+                </div>
+              </>
+            ) : (
+              <>
+            <p className="sp-kicker" style={{ marginBottom: 8 }}>Pay with</p>
+            <div className="sp-partners">
+              {UPI_PAY_APPS.map((app) => (
+                <button
+                  key={app.id}
+                  type="button"
+                  className="sp-partner"
+                  disabled={busy}
+                  aria-label={`Pay with ${app.label}`}
+                  onClick={() => void startPay(app.id)}
+                >
+                  <span className="sp-partner-mark">
+                    <UpiBrandMark app={app.id} size={32} />
+                  </span>
                   {app.label}
                 </button>
               ))}
@@ -330,6 +384,8 @@ export default function SettlementPaySheet({
             <p style={{ fontSize: 12, color: 'rgba(244,241,234,0.45)', marginBottom: 8 }}>
               Success or failure is read automatically when you return from the UPI app. On failure you’ll get Retry here.
             </p>
+              </>
+            )}
           </>
         ) : null}
 

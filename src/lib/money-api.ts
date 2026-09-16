@@ -129,6 +129,17 @@ export async function saveMyUpi(input: { upiId: string; upiDisplayName?: string;
   }
 }
 
+export async function listMySettlements() {
+  try {
+    const payload = await apiPost<{ settlements?: MoneySettlementRow[] }>('/api/money', { op: 'listMySettlements' });
+    return payload.settlements || [];
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : '';
+    if (/unknown money operation/i.test(msg)) return [];
+    throw err;
+  }
+}
+
 export async function listSettlements(bookId: string) {
   try {
     const payload = await apiPost<{ settlements?: MoneySettlementRow[] }>('/api/money', { op: 'listSettlements', bookId });
