@@ -175,7 +175,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (op === 'list') {
       const rows = await ledgerList('invites', [{ type: 'where', field: 'email', op: '==', value: user.email }]);
       const invites = rows
-        .map((row) => ({ id: row.id, ...row.data }))
+        .map((row) => ({ id: row.id, ...(row.data as Record<string, unknown>) }) as Record<string, unknown> & { id: string })
         .filter((row) => String(row.invitedBy || '') !== user.uid);
       json(res, 200, { invites });
       return;

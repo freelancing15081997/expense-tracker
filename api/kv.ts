@@ -482,7 +482,7 @@ function listFromSnap(snap: WorkspaceSnap, colPath: string) {
 async function pgLoadWorkspace(ws: string): Promise<WorkspaceSnap> {
   const loaded = await erpLoadWorkspace(ws);
   if (loaded.tenant || Object.keys(loaded.docs).length) {
-    return { v: 1, tenant: loaded.tenant, docs: loaded.docs };
+    return { v: 1, tenant: loaded.tenant as Record<string, unknown> | null, docs: loaded.docs as Record<string, Record<string, unknown>> };
   }
   const sql = await ensurePg();
   const prefix = `erp_workspaces/${ws}/`;

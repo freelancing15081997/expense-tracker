@@ -2414,7 +2414,11 @@ async function processItem(item: any) {
     if (seen.status === 'duplicate_pending') {
       const pendingId = String(seen.pendingId || '').trim();
       const pending = pendingId ? await docGet(`inbound_pending/${pendingId}`) : null;
-      const existingId = String(pending?.existingExpenseId || pending?.existing?.id || '').trim();
+      const existingId = String(
+        (pending as Record<string, unknown> | null)?.existingExpenseId
+          || ((pending as Record<string, unknown> | null)?.existing as { id?: unknown } | undefined)?.id
+          || '',
+      ).trim();
       const existing = existingId ? await docGet(`books/${bookId}/expenses/${existingId}`) : null;
       if (isLiveExpense(existing)) return { skipped: 'duplicate', bookId };
     }

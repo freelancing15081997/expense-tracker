@@ -1526,7 +1526,7 @@ export async function ledgerListLiveExpenses(bookId: string) {
   return rows.map((row) => ({ id: row.id, ...(asObject(row.data) || {}) })) as Array<Record<string, unknown> & { id: string }>;
 }
 
-export async function ledgerGetExpense(bookId: string, expenseId: string) {
+export async function ledgerGetExpense(bookId: string, expenseId: string): Promise<(Record<string, unknown> & { id: string }) | null> {
   const data = asObject(await ledgerGet(`books/${bookId}/expenses/${expenseId}`));
   if (!data || flag(data)) return null;
   return { id: expenseId, ...data };

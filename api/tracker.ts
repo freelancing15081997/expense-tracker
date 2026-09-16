@@ -677,7 +677,7 @@ async function handleBooks(req: VercelRequest, res: VercelResponse) {
       const loaded = await erpLoadWorkspace(ws);
       apiJson(res, 200, {
         tenant: loaded.tenant,
-        collections: packBooksCollections(loaded.docs),
+        collections: packBooksCollections(loaded.docs as Record<string, Record<string, unknown>>),
       });
       return;
     }
@@ -809,7 +809,7 @@ async function handleBooks(req: VercelRequest, res: VercelResponse) {
         const ws = String(wsIds[0] || '');
         assertErpWorkspace(user.uid, `erp_workspaces/${ws}`);
         const loaded = await erpLoadWorkspace(ws);
-        const grouped = packBooksCollections(loaded.docs);
+        const grouped = packBooksCollections(loaded.docs as Record<string, Record<string, unknown>>);
         apiJson(res, 200, {
           results: parsed.map((row) => {
             const col = row.qPath.split('/').filter(Boolean).slice(2).join('/');

@@ -20,6 +20,10 @@ function cleanPath(path) {
   if (!clean || !/^[a-zA-Z0-9_./@+-]+$/.test(clean)) throw new Error("Invalid path");
   return clean;
 }
+/**
+ * @param {unknown} value
+ * @returns {Record<string, unknown> | null}
+ */
 function asObject(value) {
   if (typeof value === "string") {
     try {
@@ -29,7 +33,7 @@ function asObject(value) {
     }
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  return value;
+  return /** @type {Record<string, unknown>} */ (value);
 }
 var sqlMem = null;
 var schemaReady = false;
@@ -692,6 +696,10 @@ async function erpList(prefix) {
   }
   return out;
 }
+/**
+ * @param {string} ws
+ * @returns {Promise<{ tenant: Record<string, unknown> | null, docs: Record<string, Record<string, unknown>> }>}
+ */
 async function erpLoadWorkspace(ws) {
   const id = text(ws);
   const sql = await getLedgerSql();
@@ -702,7 +710,8 @@ async function erpLoadWorkspace(ws) {
       WHERE workspace_id = ${id} AND deleted = FALSE
     `
   );
-  const docs = {};
+  /** @type {Record<string, Record<string, unknown>>} */
+  const docs = /** @type {Record<string, Record<string, unknown>>} */ ({});
   let tenant = tenantRows[0] ? asObject(tenantRows[0].data) : null;
   if (tenant) docs["meta/tenant"] = tenant;
   for (const rec of recs) {
@@ -1397,10 +1406,15 @@ async function ledgerListLiveExpenses(bookId) {
   const rows = await ledgerList(`books/${bookId}/expenses`);
   return rows.map((row) => ({ id: row.id, ...asObject(row.data) || {} }));
 }
+/**
+ * @param {string} bookId
+ * @param {string} expenseId
+ * @returns {Promise<(Record<string, unknown> & { id: string }) | null>}
+ */
 async function ledgerGetExpense(bookId, expenseId) {
   const data = asObject(await ledgerGet(`books/${bookId}/expenses/${expenseId}`));
   if (!data || flag(data)) return null;
-  return { id: expenseId, ...data };
+  return /** @type {Record<string, unknown> & { id: string }} */ ({ id: expenseId, ...data });
 }
 async function ledgerSaveExpense(bookId, expense, opts) {
   const id = text(expense.id) || newLedgerId();

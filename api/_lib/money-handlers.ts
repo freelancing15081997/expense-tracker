@@ -222,6 +222,7 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
       const entryType = preview.direction === 'MONEY_IN' ? 'in' : preview.direction === 'TRANSFER' ? 'transfer' : 'out';
       const now = new Date().toISOString();
       const paidDate = String(preview.paidAt || preview.date || now.slice(0, 10)).slice(0, 10);
+      const receiptHash = preview.receiptHash ? String(preview.receiptHash) : undefined;
       const input = {
         amount,
         description: String(preview.description || 'Entry'),
@@ -237,6 +238,7 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
         captureSource: String(preview.source || 'manual'),
         receiptPath: preview.receiptPath ? String(preview.receiptPath) : undefined,
         receiptName: preview.receiptName ? String(preview.receiptName) : undefined,
+        receiptHash,
         processingStatus: 'COMPLETED',
         financialStatus: 'CONFIRMED',
         status: amount > 0 ? 'recorded' : 'draft',
@@ -245,7 +247,7 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
       if (!body.force) {
         const matches = await ledgerFindDuplicateExpense(bookId, {
           ...input,
-          receiptHash: input.receiptHash,
+          receiptHash,
           upiRef: input.upiRef,
         });
         if (matches.length) throw new ApiError(409, 'A matching entry is already on this ledger', { matches });
