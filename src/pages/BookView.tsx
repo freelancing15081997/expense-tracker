@@ -471,10 +471,16 @@ export default function BookView() {
     const wantsCapture = location.search.includes('capture=1');
 
     if (pending && (pending.imageDataUrl || pending.text)) {
-      const preferred = String(pending.preferredBookId || '');
-      const mustPick = pending.requireBookPick !== false && preferred !== bookId;
-      if (mustPick) {
+      // Share with 2+ books must use Dashboard choose-book — never auto-save here
+      // just because preferredBookId happens to match this book.
+      if (pending.requireBookPick === true) {
         navigate(`/expenses?capture=1&s=${Date.now().toString(36)}`, { replace: true });
+        return;
+      }
+
+      const preferred = String(pending.preferredBookId || '');
+      if (preferred && preferred !== bookId) {
+        navigate(`/book/${preferred}?capture=1&s=${Date.now().toString(36)}`, { replace: true });
         return;
       }
 

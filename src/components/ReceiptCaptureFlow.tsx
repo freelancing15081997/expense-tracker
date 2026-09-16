@@ -733,7 +733,9 @@ export default function ReceiptCaptureFlow({
       }));
       if (cached.length) setContexts(cached);
 
-      const wantPick = launch.requireBookPick === true || (!launch.preferredBookId && !initialBookId);
+      // requireBookPick=true always shows picker (even if a preferred book is suggested).
+      const wantPick = launch.requireBookPick === true
+        || (!launch.preferredBookId && !initialBookId);
       const lockedBook = !wantPick
         ? (launch.preferredBookId || initialBookId || (cached.length === 1 ? cached[0].id : ''))
         : (cached.length === 1 ? cached[0].id : '');
@@ -744,8 +746,11 @@ export default function ReceiptCaptureFlow({
         return;
       }
 
+      // Always enter pick UI first when multiple books — do not wait on network with blank screen.
       setPhase('pick');
       setBusy(true);
+      setStatusLine('Choose where to save this share');
+      setPct(10);
       try {
         const { listLedgers } = await import('../lib/ledgers');
         const ledgers = await listLedgers();

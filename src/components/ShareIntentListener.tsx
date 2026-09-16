@@ -131,7 +131,7 @@ export default function ShareIntentListener() {
     const cached = readCachedMoneyBooks();
     const onlyOne = cached.length === 1 ? cached[0] : null;
 
-    // If the user is already inside a Money book, keep that book — don't bounce to picker.
+    // Suggestion only (open book / last used) — never skips the picker when 2+ books.
     let openBookId = '';
     try {
       const m = String(window.location.pathname || '').match(/^\/book\/([^/?#]+)/);
@@ -140,14 +140,21 @@ export default function ShareIntentListener() {
       openBookId = '';
     }
 
-    // Prefer: explicit deep-link book → open book → single known book → else pick.
-    let preferred = pending.preferredBookId || openBookId || '';
+    const deepLinkBook = String(pending.preferredBookId || '').trim();
+    let preferred = '';
     let requirePick = true;
-    if (preferred) {
+
+    if (deepLinkBook) {
+      // Explicit book from deep link — go straight there.
+      preferred = deepLinkBook;
       requirePick = false;
     } else if (onlyOne) {
       preferred = onlyOne.id;
       requirePick = false;
+    } else {
+      // 2+ books (or unknown count): ALWAYS show Choose a Money book.
+      preferred = openBookId || cachedBookId() || '';
+      requirePick = true;
     }
 
     storePending({
@@ -174,6 +181,7 @@ export default function ShareIntentListener() {
         .filter((b) => b && !b.deleted && !b.deletedAt && !b.archived)
         .map((b) => ({ id: String(b.id), name: String(b.name || 'Money book'), currency: String(b.currency || 'INR') }));
       cacheMoneyBooks(visible);
+      // Only auto-skip picker when there is exactly one book (and we were waiting on pick).
       if (requirePick && visible.length === 1) {
         rememberMoneyBook(visible[0].id);
         storePending({
