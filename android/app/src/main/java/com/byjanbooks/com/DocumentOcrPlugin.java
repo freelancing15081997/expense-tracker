@@ -2,8 +2,11 @@ package com.byjanbooks.com;
 
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Color;
+import android.graphics.pdf.PdfRenderer;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.ParcelFileDescriptor;
 import android.util.Base64;
 import android.util.Log;
 
@@ -23,6 +26,10 @@ import com.google.mlkit.vision.text.TextRecognition;
 import com.google.mlkit.vision.text.TextRecognizer;
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -31,16 +38,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * On-device OCR for shared receipts / UPI screenshots.
+ * On-device OCR for shared receipts / UPI screenshots / PDF pages.
  * Primary: PaddleOCR Mobile PP-OCRv4 (Paddle-Lite).
  * Fallback: ML Kit if Paddle models fail to load.
- *
- * Uses paddleocr4android callback APIs (Kotlin Result is not callable from Java).
+ * PDFs: PdfRenderer → bitmap page(s) → OCR (no Gemini on share path).
  */
 @CapacitorPlugin(name = "DocumentOcr")
 public class DocumentOcrPlugin extends Plugin {
     private static final String TAG = "DocumentOcr";
     private static final int MAX_DECODE_BYTES = 5 * 1024 * 1024;
+    private static final int MAX_PDF_PAGES = 3;
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -160,6 +167,106 @@ public class DocumentOcrPlugin extends Plugin {
         return resultRef.get();
     }
 
+    private static boolean looksLikePdf(byte[] bytes, String mimeHint) {
+        if (mimeHint != null && mimeHint.toLowerCase().contains("pdf")) return true;
+        return bytes.length >= 5
+            && bytes[0] == 0x25
+            && bytes[1] == 0x50
+            && bytes[2] == 0x44
+            && bytes[3] == 0x46;
+    }
+
+    /** Render up to MAX_PDF_PAGES for on-device OCR. */
+    private List<Bitmap> renderPdfPages(byte[] bytes) throws Exception {
+        File tmp = File.createTempFile("byjan_ocr_", ".pdf", getContext().getCacheDir());
+        List<Bitmap> pages = new ArrayList<>();
+        ParcelFileDescriptor fd = null;
+        PdfRenderer renderer = null;
+        try {
+            try (FileOutputStream fos = new FileOutputStream(tmp)) {
+                fos.write(bytes);
+            }
+            fd = ParcelFileDescriptor.open(tmp, ParcelFileDescriptor.MODE_READ_ONLY);
+            renderer = new PdfRenderer(fd);
+            int count = Math.min(renderer.getPageCount(), MAX_PDF_PAGES);
+            for (int i = 0; i < count; i++) {
+                PdfRenderer.Page page = renderer.openPage(i);
+                try {
+                    float scale = 2f;
+                    int w = Math.max(1, Math.round(page.getWidth() * scale));
+                    int h = Math.max(1, Math.round(page.getHeight() * scale));
+                    int maxEdge = Math.max(w, h);
+                    if (maxEdge > 1600) {
+                        float down = 1600f / maxEdge;
+                        w = Math.max(1, Math.round(w * down));
+                        h = Math.max(1, Math.round(h * down));
+                    }
+                    Bitmap bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+                    bmp.eraseColor(Color.WHITE);
+                    page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);
+                    pages.add(bmp);
+                } finally {
+                    page.close();
+                }
+            }
+            return pages;
+        } finally {
+            if (renderer != null) {
+                try { renderer.close(); } catch (Throwable ignored) { /* */ }
+            }
+            if (fd != null) {
+                try { fd.close(); } catch (Throwable ignored) { /* */ }
+            }
+            //noinspection ResultOfMethodCallIgnored
+            tmp.delete();
+        }
+    }
+
+    private Bitmap decodeImageBitmap(byte[] bytes) {
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
+        int sample = 1;
+        int maxEdge = Math.max(bounds.outWidth, bounds.outHeight);
+        while (maxEdge / sample > 1600) sample *= 2;
+        if (bytes.length > 2_400_000 && sample < 2) sample = 2;
+
+        BitmapFactory.Options opts = new BitmapFactory.Options();
+        opts.inPreferredConfig = Bitmap.Config.ARGB_8888;
+        opts.inSampleSize = sample;
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.length, opts);
+    }
+
+    private String ocrBitmap(Bitmap bitmap) {
+        if (bitmap == null) return "";
+        try {
+            if (ensurePaddle()) {
+                OcrResult result = runPaddle(bitmap);
+                if (result != null && result.getSimpleText() != null) {
+                    return result.getSimpleText();
+                }
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "PP-OCRv4 page failed", t);
+        }
+        try {
+            CountDownLatch latch = new CountDownLatch(1);
+            AtomicReference<String> textRef = new AtomicReference<>("");
+            InputImage image = InputImage.fromBitmap(bitmap, 0);
+            mlkitClient().process(image)
+                .addOnSuccessListener(vision -> {
+                    textRef.set(vision.getText() != null ? vision.getText() : "");
+                    latch.countDown();
+                })
+                .addOnFailureListener(err -> latch.countDown());
+            latch.await(45, TimeUnit.SECONDS);
+            return textRef.get();
+        } catch (Throwable t) {
+            Log.w(TAG, "ML Kit page failed", t);
+            return "";
+        }
+    }
+
     @Override
     protected void handleOnDestroy() {
         worker.shutdownNow();
@@ -178,6 +285,7 @@ public class DocumentOcrPlugin extends Plugin {
     @PluginMethod
     public void recognizeBase64(PluginCall call) {
         String raw = call.getString("base64", "");
+        String mimeHint = call.getString("mimeType", "");
         if (raw == null) raw = "";
         raw = raw.replaceFirst("^data:[^;]+;base64,", "").replaceAll("\\s+", "");
         if (raw.length() < 64) {
@@ -188,17 +296,18 @@ public class DocumentOcrPlugin extends Plugin {
             return;
         }
         if (raw.length() > MAX_DECODE_BYTES * 2) {
-            call.reject("Image too large for on-device OCR");
+            call.reject("Document too large for on-device OCR");
             return;
         }
 
         final String b64 = raw;
+        final String mime = mimeHint != null ? mimeHint : "";
         worker.execute(() -> {
             byte[] bytes;
             try {
                 bytes = Base64.decode(b64, Base64.DEFAULT);
             } catch (Exception err) {
-                main.post(() -> call.reject("Invalid image data"));
+                main.post(() -> call.reject("Invalid document data"));
                 return;
             }
             if (bytes == null || bytes.length < 32) {
@@ -209,59 +318,66 @@ public class DocumentOcrPlugin extends Plugin {
                 return;
             }
 
-            BitmapFactory.Options bounds = new BitmapFactory.Options();
-            bounds.inJustDecodeBounds = true;
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
-            int sample = 1;
-            int maxEdge = Math.max(bounds.outWidth, bounds.outHeight);
-            while (maxEdge / sample > 1600) sample *= 2;
-            if (bytes.length > 2_400_000 && sample < 2) sample = 2;
+            List<Bitmap> bitmaps = new ArrayList<>();
+            String engine = "ppocrv4";
+            try {
+                if (looksLikePdf(bytes, mime)) {
+                    bitmaps.addAll(renderPdfPages(bytes));
+                    engine = "ppocrv4-pdf";
+                } else {
+                    Bitmap one = decodeImageBitmap(bytes);
+                    if (one != null) bitmaps.add(one);
+                }
+            } catch (Throwable t) {
+                Log.e(TAG, "Decode/render failed", t);
+                main.post(() -> call.reject("Could not read document"));
+                return;
+            }
 
-            BitmapFactory.Options opts = new BitmapFactory.Options();
-            opts.inPreferredConfig = Bitmap.Config.ARGB_8888;
-            opts.inSampleSize = sample;
-            final Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, opts);
-            if (bitmap == null) {
-                main.post(() -> call.reject("Could not decode image"));
+            if (bitmaps.isEmpty()) {
+                main.post(() -> call.reject("Could not decode document"));
                 return;
             }
 
             try {
-                if (ensurePaddle()) {
-                    OcrResult result = runPaddle(bitmap);
-                    if (result != null) {
-                        String text = result.getSimpleText() != null ? result.getSimpleText() : "";
-                        JSObject out = new JSObject();
-                        out.put("text", text);
-                        out.put("engine", "ppocrv4");
-                        out.put("ms", result.getInferenceTime());
-                        if (!bitmap.isRecycled()) bitmap.recycle();
-                        main.post(() -> call.resolve(out));
-                        return;
+                StringBuilder all = new StringBuilder();
+                float ms = 0;
+                boolean usedPaddle = ensurePaddle();
+                for (int i = 0; i < bitmaps.size(); i++) {
+                    Bitmap bmp = bitmaps.get(i);
+                    String pageText;
+                    if (usedPaddle) {
+                        OcrResult result = runPaddle(bmp);
+                        if (result != null) {
+                            pageText = result.getSimpleText() != null ? result.getSimpleText() : "";
+                            ms += result.getInferenceTime();
+                        } else {
+                            pageText = ocrBitmap(bmp);
+                            engine = engine.contains("pdf") ? "mlkit-pdf" : "mlkit";
+                        }
+                    } else {
+                        pageText = ocrBitmap(bmp);
+                        engine = engine.contains("pdf") ? "mlkit-pdf" : "mlkit";
                     }
-                    Log.w(TAG, "PP-OCRv4 run empty, falling back to ML Kit");
+                    if (pageText != null && !pageText.isEmpty()) {
+                        if (all.length() > 0) all.append('\n');
+                        all.append(pageText.trim());
+                    }
                 }
-            } catch (Throwable t) {
-                Log.w(TAG, "PP-OCRv4 crashed, falling back to ML Kit", t);
-            }
 
-            try {
-                InputImage image = InputImage.fromBitmap(bitmap, 0);
-                mlkitClient().process(image)
-                    .addOnSuccessListener(vision -> {
-                        JSObject out = new JSObject();
-                        out.put("text", vision.getText() != null ? vision.getText() : "");
-                        out.put("engine", "mlkit");
-                        call.resolve(out);
-                        if (!bitmap.isRecycled()) bitmap.recycle();
-                    })
-                    .addOnFailureListener(err -> {
-                        if (!bitmap.isRecycled()) bitmap.recycle();
-                        call.reject(err.getMessage() != null ? err.getMessage() : "OCR failed");
-                    });
+                JSObject out = new JSObject();
+                out.put("text", all.toString());
+                out.put("engine", engine);
+                out.put("ms", ms);
+                out.put("pages", bitmaps.size());
+                main.post(() -> call.resolve(out));
             } catch (Throwable t) {
-                if (!bitmap.isRecycled()) bitmap.recycle();
+                Log.e(TAG, "OCR failed", t);
                 main.post(() -> call.reject(t.getMessage() != null ? t.getMessage() : "OCR failed"));
+            } finally {
+                for (Bitmap bmp : bitmaps) {
+                    if (bmp != null && !bmp.isRecycled()) bmp.recycle();
+                }
             }
         });
     }

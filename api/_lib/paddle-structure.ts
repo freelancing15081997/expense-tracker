@@ -84,30 +84,35 @@ function parseIndianDate(text: string): string | null {
 function pickLabeledAmount(text: string): { amount: number; score: number } | null {
   // Downgrade balance / available balance so debit totals win on SMS.
   const balPenalty = /\b(?:avl|available|closing|opening)\s*bal(?:ance)?\b/i;
+  const curr = String.raw`(?:₹|₨|rs\.?|inr|rupees?)`;
+  const docHasRupee = new RegExp(curr, 'i').test(text);
 
-  const patterns: Array<{ re: RegExp; score: number }> = [
-    { re: /(?:grand\s*total|net\s*payable|amount\s*payable|total\s*amount|amount\s*paid|invoice\s*value|bill\s*amount|you\s*paid)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d{1,2})?)/gi, score: 90 },
-    { re: /(?:paid\s*successfully|payment\s*successful)\s*[:\-]?\s*(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d{1,2})?)/gi, score: 88 },
-    { re: /(?:debited\s*(?:by|from)?|credited\s*(?:by|to|from)?|payment\s*of|money\s*sent)\s*(?:₹|rs\.?|inr|rs)?\s*([\d,]+(?:\.\d{1,2})?)/gi, score: 92 },
-    { re: /(?:total\s*due|net\s*amount)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d{1,2})?)/gi, score: 85 },
-    { re: /(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d{1,2})?)/gi, score: 70 },
-    { re: /([\d,]+(?:\.\d{1,2})?)\s*(?:₹|rs\.?|inr)\b/gi, score: 68 },
+  const patterns: Array<{ re: RegExp; score: number; requireCurrency: boolean }> = [
+    { re: new RegExp(String.raw`(?:grand\s*total|net\s*payable|amount\s*payable|total\s*amount|amount\s*paid|invoice\s*value|bill\s*amount|you\s*paid)\s*[:\-]?\s*${curr}\s*([\d,]+(?:\.\d{1,2})?)`, 'gi'), score: 94, requireCurrency: true },
+    { re: new RegExp(String.raw`(?:paid\s*successfully|payment\s*successful)\s*[:\-]?\s*${curr}\s*([\d,]+(?:\.\d{1,2})?)`, 'gi'), score: 92, requireCurrency: true },
+    { re: new RegExp(String.raw`(?:debited\s*(?:by|from)?|credited\s*(?:by|to|from)?|payment\s*of|money\s*sent)\s*${curr}\s*([\d,]+(?:\.\d{1,2})?)`, 'gi'), score: 96, requireCurrency: true },
+    { re: new RegExp(String.raw`(?:total\s*due|net\s*amount)\s*[:\-]?\s*${curr}\s*([\d,]+(?:\.\d{1,2})?)`, 'gi'), score: 90, requireCurrency: true },
+    { re: new RegExp(String.raw`${curr}\s*([\d,]+(?:\.\d{1,2})?)`, 'gi'), score: 78, requireCurrency: true },
+    { re: new RegExp(String.raw`([\d,]+(?:\.\d{1,2})?)\s*${curr}\b`, 'gi'), score: 76, requireCurrency: true },
+    // No-currency labeled totals — only when document has no ₹ mark.
+    { re: /(?:grand\s*total|net\s*payable|amount\s*payable|total\s*amount|bill\s*amount)\s*[:\-]?\s*([\d,]+(?:\.\d{1,2})?)/gi, score: 50, requireCurrency: false },
   ];
   let best: { amount: number; score: number } | null = null;
-  for (const { re, score } of patterns) {
+  for (const { re, score, requireCurrency } of patterns) {
+    if (requireCurrency === false && docHasRupee) continue;
     const clone = new RegExp(re.source, re.flags);
     let m: RegExpExecArray | null;
     while ((m = clone.exec(text)) !== null) {
       const token = m[1];
       const n = toNum(token);
       if (!Number.isFinite(n) || n < 1 || n >= 5_000_000) continue;
-      // Bare years only — keep labeled totals like Grand Total 1999.00
       if (score < 70 && Number.isInteger(n) && n >= 1900 && n <= 2100) continue;
       const around = text.slice(Math.max(0, m.index - 3), Math.min(text.length, m.index + token.length + 3));
       if (/\d{1,2}:\d{2}/.test(around)) continue;
       const context = text.slice(Math.max(0, m.index - 24), Math.min(text.length, m.index + token.length + 8));
       let s = score;
       if (balPenalty.test(context)) s -= 40;
+      if (/\b(?:sub\s*total|subtotal|cgst|sgst|igst|discount)\b/i.test(context)) s -= 10;
       if (score < 68 && Number.isInteger(n) && n <= 99) continue;
       if (!best || s > best.score) best = { amount: n, score: s };
       else if (s === best.score && /\.\d{1,2}$/.test(token)) best = { amount: n, score: s };

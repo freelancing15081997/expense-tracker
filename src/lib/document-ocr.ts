@@ -69,13 +69,18 @@ export async function recognizeDocumentText(base64: string, mimeType = 'image/jp
   return { text: '', engine: 'web-skip' };
 }
 
-/** Light resize for OCR only — keep digits sharp (separate from upload compress). */
+/** Light resize for OCR only — keep digits sharp (separate from upload compress). PDFs pass through untouched. */
 export async function prepareOcrImage(dataUrl: string, mimeType = 'image/jpeg'): Promise<{ base64: string; mime: string }> {
+  const clean = String(dataUrl || '').replace(/^data:[^;]+;base64,/i, '').replace(/\s+/g, '');
+  const isPdf = mimeType === 'application/pdf' || /^JVBER/i.test(clean.slice(0, 16));
+  if (isPdf || !mimeType.startsWith('image/')) {
+    return { base64: clean, mime: isPdf ? 'application/pdf' : mimeType };
+  }
   const fallback = () => ({
-    base64: String(dataUrl || '').replace(/^data:[^;]+;base64,/i, '').replace(/\s+/g, ''),
+    base64: clean,
     mime: mimeType.startsWith('image/') ? mimeType : 'image/jpeg',
   });
-  if (typeof document === 'undefined' || !mimeType.startsWith('image/')) return fallback();
+  if (typeof document === 'undefined') return fallback();
   try {
     const src = dataUrl.startsWith('data:') ? dataUrl : `data:${mimeType};base64,${dataUrl}`;
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {

@@ -122,8 +122,8 @@ async function parseReceiptNow(
   const sheet = isSpreadsheet(imageMime, receiptName);
   const isPdf = imageMime === 'application/pdf' || /\.pdf$/i.test(receiptName);
   const rawLen = String(launch.imageDataUrl || '').length;
-  // Spreadsheets / huge scans → structured path. Everyday UPI & receipts → on-device PP-OCRv4.
-  const useStructuredPath = sheet || (isPdf && rawLen > 1_200_000) || rawLen > 2_400_000;
+  // Spreadsheets / huge blobs → server. Images + PDFs → on-device PP-OCRv4 (PdfRenderer for PDF).
+  const useStructuredPath = sheet || rawLen > 2_400_000;
 
   const scrubPreview = (preview: CapturePreview): CapturePreview => ({
     ...preview,
@@ -199,11 +199,11 @@ async function parseReceiptNow(
       };
     }
 
-    // Normal receipt / UPI → on-device PP-OCRv4 (or ML Kit) + local amount rules. No Gemini on share.
+    // Image or PDF → on-device PP-OCRv4 (PDF pages rendered via PdfRenderer) + ₹ rules. No Gemini.
     const { prepareReceiptImage, uploadPreparedReceipt } = await import('../lib/money-receipts');
     const { localParseReceiptImage, prepareOcrImage } = await import('../lib/document-ocr');
 
-    onStatus('Reading receipt…', 22);
+    onStatus(isPdf ? 'Reading PDF…' : 'Reading receipt…', 22);
     const ocrPromise = prepareOcrImage(launch.imageDataUrl, imageMime)
       .then((ocrPrepared) => localParseReceiptImage(ocrPrepared.base64, ocrPrepared.mime, launch.text || ''))
       .catch(() => null);

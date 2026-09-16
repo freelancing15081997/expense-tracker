@@ -288,21 +288,158 @@ cash`,
     expectAmount: 2500,
     expectPayment: 'bank',
   },
+  {
+    id: 'rupee-beats-qty-page',
+    label: '₹850 must beat qty 12 and page 3',
+    text: `Kirana Store
+Qty 12 pcs
+Page 3 of 4
+Date 16/09/2026
+Grand Total ₹850.00
+Thank you`,
+    expectAmount: 850,
+    expectNotAmount: [12, 3, 4, 16, 9, 2026],
+  },
+  {
+    id: 'rupee-beats-invoice-no',
+    label: '₹1,499 must beat invoice 8891 and HSN',
+    text: `TAX INVOICE
+Invoice No INV-8891
+HSN 9983
+Subtotal 1300.00
+CGST 99.00
+Grand Total ₹1,499.00`,
+    expectAmount: 1499,
+    expectNotAmount: [8891, 9983, 99, 1300],
+  },
+  {
+    id: 'inr-symbol-variant',
+    label: 'INR 420 with decoy 9999 phone',
+    text: `Paid to Cafe
+INR 420.00
+Phone 9876543210
+Ref 999988887777`,
+    expectAmount: 420,
+    expectNotAmount: [9999, 9876543210],
+  },
+  {
+    id: 'handwritten-rs-messy',
+    label: 'Handwritten-style OCR noise with Rs',
+    text: `Paid petrol
+Rs 1,250
+Pump 7
+Bill 334455
+cash`,
+    expectAmount: 1250,
+    expectNotAmount: [7, 334455],
+  },
+  {
+    id: 'pdf-style-statement-line',
+    label: 'PDF bank statement line prefers debit ₹',
+    text: `Statement
+16/09/2026 UPI-SWIGGY
+Debited by ₹349.00
+Closing Bal Rs.8,200.00`,
+    expectAmount: 349,
+    expectNotAmount: [8200, 16],
+  },
 ];
 
 let passed = 0;
 let failed = 0;
 const failures: string[] = [];
 
-function assert(cond: boolean, msg: string) {
+function assert(cond: boolean, msg: string, quiet = false) {
   if (cond) {
     passed += 1;
-    console.log(`  ✓ ${msg}`);
+    if (!quiet) console.log(`  ✓ ${msg}`);
   } else {
     failed += 1;
     failures.push(msg);
     console.error(`  ✗ ${msg}`);
   }
+}
+
+/** Deterministic PRNG for reproducible 10k corpus. */
+function mulberry32(seed: number) {
+  let t = seed >>> 0;
+  return () => {
+    t += 0x6d2b79f5;
+    let r = Math.imul(t ^ (t >>> 15), 1 | t);
+    r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function pick<T>(rand: () => number, arr: T[]): T {
+  return arr[Math.floor(rand() * arr.length) % arr.length];
+}
+
+function formatInr(n: number, style: '₹' | 'Rs.' | 'Rs' | 'INR' | 'rupees') {
+  const withComma = n.toLocaleString('en-IN', {
+    minimumFractionDigits: Number.isInteger(n) ? 0 : 2,
+    maximumFractionDigits: 2,
+  });
+  if (style === '₹') return `₹${withComma}`;
+  if (style === 'Rs.') return `Rs.${withComma}`;
+  if (style === 'Rs') return `Rs ${withComma}`;
+  if (style === 'INR') return `INR ${withComma}`;
+  return `rupees ${withComma}`;
+}
+
+type GenCase = { id: string; text: string; expectAmount: number; expectNotAmount: number[] };
+
+/** Build ≥10_000 OCR-like receipt texts across formats (UPI, GST, fuel, handwritten, PDF lines). */
+function buildMassCorpus(count = 10_000): GenCase[] {
+  const rand = mulberry32(20260916);
+  const merchants = [
+    'Swiggy', 'Zomato', 'Kirana Store', 'HPCL', 'Apollo Pharmacy', 'Amazon', 'Flipkart',
+    'Cafe Coffee', 'Uber', 'Ola', 'BESCOM', 'BigBasket', 'DMart', 'IRCTC', 'Petrol Pump',
+    'Medical Store', 'Dominos', 'Reliance Fresh', 'Local Tailor', 'Handwritten Note',
+  ];
+  const currStyles: Array<'₹' | 'Rs.' | 'Rs' | 'INR' | 'rupees'> = ['₹', 'Rs.', 'Rs', 'INR', 'rupees'];
+  const templates: Array<(p: {
+    amount: number;
+    decoyA: number;
+    decoyB: number;
+    day: number;
+    merchant: string;
+    curr: string;
+    ref: string;
+  }) => string> = [
+    (p) => `Payment successful\n${p.day} Sep 2026\nTo ${p.merchant}\nYou paid ${p.curr}\nUPI ID XXXXX${p.decoyA}@oksbi\nUPI Ref ${p.ref}`,
+    (p) => `Payment Successful\nPaid to ${p.merchant}\n${p.curr}\n${p.day}/09/2026 18:42\nFrom A/c ending ${p.decoyB}\nPhonePe`,
+    (p) => `TAX INVOICE\n${p.merchant}\nInvoice No INV-${p.decoyA}\nHSN ${p.decoyB}\nQty ${p.day} pcs\nSubtotal ${Math.max(32, p.amount - 50)}.00\nGrand Total ${p.curr}`,
+    (p) => `${p.merchant}\nPetrol ${p.day}.00 Ltr\nRate ${p.decoyA}.40\nAmount Paid ${p.curr}\nPump ${p.decoyB}`,
+    (p) => `Dear Customer, ${p.curr} debited from A/c XX${p.decoyA} on ${p.day}-09-26 UPI/${p.merchant}. Avl Bal Rs.${(p.amount + p.decoyB).toLocaleString('en-IN')}.00`,
+    (p) => `Paid ${p.merchant}\n${p.curr}\ncash\nBill ${p.ref}\nnote page ${p.decoyA}`,
+    (p) => `Money Sent\nTo ${p.merchant}\n${p.curr}\nVPA xx${p.decoyB}@ybl\nPaytm UPI`,
+    (p) => `Statement line\n${p.day}/09/2026 UPI-${p.merchant}\nDebited by ${p.curr}\nClosing Bal Rs.${(8000 + p.decoyA).toLocaleString('en-IN')}.00`,
+    (p) => `Retail Invoice\n${p.merchant}\nPage ${p.decoyA} of ${p.decoyB}\nTotal Amount ${p.curr}\nThank you visit again`,
+    (p) => `Handwritten OCR\nPaid ${p.merchant}\n${p.curr}\n${p.day} Sep\nref ${p.ref}`,
+  ];
+
+  const out: GenCase[] = [];
+  for (let i = 0; i < count; i++) {
+    const amount = Math.round((50 + rand() * 49_950) * 100) / 100;
+    // Decoys that must never win when ₹ is present
+    const decoyA = 100 + Math.floor(rand() * 8900); // 100–8999
+    const decoyB = 10 + Math.floor(rand() * 90); // 10–99
+    const day = 1 + Math.floor(rand() * 28);
+    const merchant = pick(rand, merchants);
+    const style = pick(rand, currStyles);
+    const curr = formatInr(amount, style);
+    const ref = String(100000000000 + Math.floor(rand() * 899999999999));
+    const tpl = templates[i % templates.length];
+    const text = tpl({ amount, decoyA, decoyB, day, merchant, curr, ref });
+    out.push({
+      id: `mass-${i}`,
+      text,
+      expectAmount: amount,
+      expectNotAmount: [decoyA, decoyB, day].filter((n) => Math.abs(n - amount) > 0.011),
+    });
+  }
+  return out;
 }
 
 console.log('\n=== Indian receipt / document E2E parse ===\n');
@@ -372,9 +509,34 @@ console.log('\n• Vision vs OCR reconcile (masked UPI decoy)');
   assert(same === 550, `reconcile keeps 550 got ${same}`);
 }
 
+console.log('\n• Mass corpus: 10,000 OCR-like receipts (UPI/GST/fuel/SMS/handwritten/PDF lines)');
+{
+  const mass = buildMassCorpus(10_000);
+  let massOk = 0;
+  const sampleFails: string[] = [];
+  for (const c of mass) {
+    const hit = extractMoneyAmount(c.text);
+    const got = hit?.amount || 0;
+    const okAmt = Math.abs(got - c.expectAmount) < 0.011;
+    const okDecoy = c.expectNotAmount.every((bad) => got !== bad);
+    if (!okAmt || !okDecoy) {
+      const msg = `${c.id}: got ${got} want ${c.expectAmount}`;
+      if (sampleFails.length < 12) sampleFails.push(`${msg}\n${c.text.slice(0, 180)}`);
+    } else {
+      massOk += 1;
+    }
+  }
+  assert(massOk === 10_000, `mass corpus: ${massOk}/10000 correct (₹ preferred over decoys)`);
+  if (sampleFails.length) {
+    console.error('\nSample mass failures:');
+    for (const s of sampleFails) console.error(`---\n${s}`);
+  }
+}
+
 console.log(`\n=== Result: ${passed} passed, ${failed} failed ===`);
 if (failures.length) {
   console.error('\nFailures:');
-  for (const f of failures) console.error(` - ${f}`);
+  for (const f of failures.slice(0, 40)) console.error(` - ${f}`);
+  if (failures.length > 40) console.error(` ... and ${failures.length - 40} more`);
 }
 process.exit(failed ? 1 : 0);
