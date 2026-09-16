@@ -219,7 +219,11 @@ export async function uploadLedgerFile(bookId: string, file: {
   return { receiptPath: path, receiptName: fileName, receiptUrl: '', dataUrl: file.dataUrl };
 }
 
-/** Upload already-compressed bytes (no second canvas pass). */
+function isPdfBytes(bytes: Uint8Array): boolean {
+  return bytes.length >= 4 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46;
+}
+
+/** Upload already-compressed bytes (no second canvas pass). Preserves PDF/docs — never force .jpg. */
 export async function uploadPreparedReceipt(bookId: string, prepared: {
   bytes: Uint8Array;
   mime: string;
@@ -230,16 +234,43 @@ export async function uploadPreparedReceipt(bookId: string, prepared: {
   const token = await waitForToken();
   if (!token) throw new Error('Sign in again to upload this receipt');
 
+  const mime = String(prepared.mime || 'image/jpeg').split(';')[0].trim();
+  const rawName = prepared.fileName || 'receipt.jpg';
+  const pdf = mime === 'application/pdf' || /\.pdf$/i.test(rawName) || isPdfBytes(prepared.bytes);
+
+  // PDFs and non-images must keep original bytes + extension (preview + server parse depend on it).
+  if (pdf || !mime.startsWith('image/')) {
+    let bytes = prepared.bytes;
+    let dataUrl = prepared.dataUrl;
+    if (!bytes.length || bytes.length > MAX_UPLOAD_BYTES * 4) {
+      throw new Error('Document is too large to upload');
+    }
+    const ext = pdf ? 'pdf' : ((rawName.split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin');
+    const uploadMime = pdf ? 'application/pdf' : mime;
+    const fileName = pdf && !/\.pdf$/i.test(rawName) ? `${rawName.replace(/\.\w+$/, '')}.pdf` : rawName;
+    const fileId = newMoneyId('rcpt').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const path = await uploadBinaryOnce({
+      bookId,
+      fileId,
+      ext,
+      mime: uploadMime,
+      fileName,
+      bytes,
+      token,
+    });
+    return { receiptPath: path, receiptName: fileName, receiptUrl: '', dataUrl };
+  }
+
   let bytes = prepared.bytes;
   let dataUrl = prepared.dataUrl;
   if (!bytes.length || bytes.length > MAX_UPLOAD_BYTES) {
-    const tiny = await compressForUpload(prepared.dataUrl, prepared.mime || 'image/jpeg', TINY_TARGET_BYTES);
+    const tiny = await compressForUpload(prepared.dataUrl, mime || 'image/jpeg', TINY_TARGET_BYTES);
     bytes = tiny.bytes;
     dataUrl = tiny.dataUrl;
   }
   if (!bytes.length || bytes.length > MAX_UPLOAD_BYTES) throw new Error('Receipt image is too large after compress.');
 
-  const fileName = (prepared.fileName || 'receipt.jpg').replace(/\.\w+$/, '.jpg');
+  const fileName = rawName.replace(/\.\w+$/, '') + '.jpg';
   const fileId = newMoneyId('rcpt').replace(/[^a-zA-Z0-9_-]/g, '_');
   const path = await uploadBinaryOnce({
     bookId,

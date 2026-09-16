@@ -763,13 +763,16 @@ export default function BookView() {
     try {
       const res = await fetch(apiUrl(`/api/blob/file?path=${encodeURIComponent(exp.receiptPath)}`), { headers: await authHeaders() });
       if (!res.ok) throw new Error('Could not open attachment');
-      const blob = await res.blob();
+      const buf = await res.arrayBuffer();
       const fileName = String(exp.receiptName || exp.receiptPath.split('/').pop() || title);
+      const blobType = res.headers.get('content-type') || '';
+      const { sniffAttachmentKind, blobUrlForAttachment } = await import('../lib/receipt-preview');
+      const kind = sniffAttachmentKind(buf, fileName, blobType);
       if (receiptPreview?.url) URL.revokeObjectURL(receiptPreview.url);
       setReceiptPreview({
-        url: URL.createObjectURL(blob),
+        url: blobUrlForAttachment(buf, kind, blobType),
         title,
-        kind: attachmentKind(fileName, blob.type),
+        kind,
         fileName,
       });
     } catch (err: any) {

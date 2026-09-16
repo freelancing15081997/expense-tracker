@@ -147,8 +147,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       json(res, 404, { error: 'File not found' });
       return;
     }
+    const sniffContentType = (body: Buffer, stored: string, objectKey: string) => {
+      if (body.length >= 4 && body[0] === 0x25 && body[1] === 0x50 && body[2] === 0x44 && body[3] === 0x46) {
+        return 'application/pdf';
+      }
+      if (body.length >= 3 && body[0] === 0xff && body[1] === 0xd8 && body[2] === 0xff) return 'image/jpeg';
+      if (body.length >= 4 && body[0] === 0x89 && body[1] === 0x50 && body[2] === 0x4e && body[3] === 0x47) return 'image/png';
+      const lowerKey = objectKey.toLowerCase();
+      if (lowerKey.endsWith('.pdf')) return 'application/pdf';
+      const t = String(stored || '').toLowerCase();
+      if (t.includes('pdf')) return 'application/pdf';
+      if (t.startsWith('image/')) return t.split(';')[0];
+      return stored || 'application/octet-stream';
+    };
+    const contentType = sniffContentType(file.body, file.contentType, key);
     res.statusCode = 200;
-    res.setHeader('content-type', file.contentType);
+    res.setHeader('content-type', contentType);
     res.setHeader('cache-control', 'private, max-age=3600');
     res.end(file.body);
   } catch (err: any) {

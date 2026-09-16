@@ -194,15 +194,16 @@ export function extractMoneyAmount(text: string): ParsedMoneyAmount | null {
   walk(new RegExp(String.raw`(?:payment\s+successful)\s*[:\-]?\s*${RUPEE_TOKEN}\s*([\d,]+(?:\.\d{1,2})?)`, 'gi'), 54, true);
   walk(new RegExp(String.raw`(?:grand\s*total|net\s*payable|amount\s*payable|total\s*due|invoice\s*value|total\s*amount|bill\s*amount)\s*[:\-]?\s*${RUPEE_TOKEN}\s*([\d,]+(?:\.\d{1,2})?)`, 'gi'), 52, true);
 
-  // Labeled totals WITHOUT currency — only used when the document has no ₹ mark at all.
-  walk(/(?:grand\s*total|net\s*payable|amount\s*payable|total\s*due|invoice\s*value|total\s*amount|bill\s*amount)\s*[:\-]?\s*([\d,]+(?:\.\d{1,2})?)/gi, 34, true);
+  // Labeled invoice totals without currency (common on PDF/OCR when ₹ is on another line).
+  walk(/(?:grand\s*total|net\s*payable|amount\s*payable|total\s*due|invoice\s*value|total\s*amount|bill\s*amount|balance\s*due|amount\s*due|net\s*amount|total\s*[:\-]|amount\s*[:\-])\s*([\d,]+(?:\.\d{1,2})?)/gi, 40, true);
 
   // Any currency-marked amount (hero ₹ on UPI screens).
   walk(new RegExp(String.raw`${RUPEE_TOKEN}\s*([\d,]+(?:\.\d{1,2})?)`, 'gi'), 28, false);
   walk(new RegExp(String.raw`([\d,]+(?:\.\d{1,2})?)\s*${RUPEE_TOKEN}\b`, 'gi'), 26, false);
 
-  // Bare numbers ONLY when the document has no rupee/INR mark whatsoever.
-  if (!hits.some((h) => h.hasCurrency) && !docHasRupee) {
+  // Bare numbers ONLY when the document has no rupee/INR mark and no labeled total.
+  const hasLabeled = hits.some((h) => h.labeled);
+  if (!hits.some((h) => h.hasCurrency) && !docHasRupee && !hasLabeled) {
     const loose = new RegExp(/\b([\d,]{1,}(?:\.\d{1,2})?)\b/g);
     let m: RegExpExecArray | null;
     while ((m = loose.exec(raw)) !== null) {
@@ -213,14 +214,19 @@ export function extractMoneyAmount(text: string): ParsedMoneyAmount | null {
 
   if (!hits.length) return null;
 
-  // Hard rule: if any ₹/Rs/INR hit exists, ignore every non-currency candidate.
+  // Labeled totals (Grand Total, Net Payable, …) beat random currency hits and bare digits.
+  const labeledHits = hits.filter((h) => h.labeled);
   const currencyHits = hits.filter((h) => h.hasCurrency);
-  const candidates = currencyHits.length ? currencyHits : (docHasRupee ? [] : hits);
-  if (!candidates.length) return null;
-
-  const labeled = candidates.filter((h) => h.labeled && h.score >= 48);
-  const strongCurrency = candidates.filter((h) => h.hasCurrency && h.score >= 26);
-  const pool = labeled.length ? labeled : (strongCurrency.length ? strongCurrency : candidates);
+  let pool: AmountHit[];
+  if (labeledHits.length) {
+    pool = labeledHits;
+  } else if (currencyHits.length) {
+    pool = currencyHits;
+  } else if (!docHasRupee) {
+    pool = hits;
+  } else {
+    return null;
+  }
 
   // Highest score wins; ties → earlier on screen (hero amount), NEVER larger amount.
   pool.sort((a, b) => b.score - a.score || a.index - b.index);

@@ -349,6 +349,18 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
       push('receipt.book_selected', 'BOOK_SELECTED');
       push('receipt.extracting', 'EXTRACTING');
 
+      let docText = text;
+      const isPdfDoc = imageMime === 'application/pdf' || /\.pdf$/i.test(receiptName);
+      if (isPdfDoc && imageBase64.length > 64) {
+        try {
+          const { extractPdfText } = await import('./pdf-text.js');
+          const pdfText = await extractPdfText(Buffer.from(imageBase64, 'base64'));
+          if (pdfText) docText = [docText, pdfText].filter(Boolean).join('\n').slice(0, 16_000);
+        } catch {
+          // OCR / vision fallback below.
+        }
+      }
+
       const { isSpreadsheetMime, parseSpreadsheetBuffer } = await import('./excel-ledger.js');
       if (isSpreadsheetMime(imageMime, receiptName) && imageBase64 && imageBase64.length > 64) {
         const sheet = await parseSpreadsheetBuffer({
@@ -405,7 +417,7 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
             base64: imageBase64,
             mimeType: imageMime || 'image/jpeg',
             fileName: receiptName,
-            hintText: text,
+            hintText: docText,
             timeoutMs: 22_000,
           });
         } catch {
@@ -424,11 +436,20 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
             const safeMime = mimeGuess.startsWith('image/') || mimeGuess === 'application/pdf'
               ? mimeGuess
               : (String(receiptName || '').toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
+            if (safeMime === 'application/pdf' || /\.pdf$/i.test(receiptName)) {
+              try {
+                const { extractPdfText } = await import('./pdf-text.js');
+                const pdfText = await extractPdfText(file.body);
+                if (pdfText) docText = [docText, pdfText].filter(Boolean).join('\n').slice(0, 16_000);
+              } catch {
+                // Vision OCR below.
+              }
+            }
             vision = await parseReceiptImage({
               base64: file.body.toString('base64'),
               mimeType: safeMime,
               fileName: receiptName,
-              hintText: text,
+              hintText: docText,
               timeoutMs: 22_000,
             });
           } else if (!vision) {
@@ -461,7 +482,7 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
         }
       }
 
-      const textParsed = parseAmountFromText(text || '');
+      const textParsed = parseAmountFromText(docText || '');
       const { enrichWithPpStructure, needsPpStructure, parsePpStructureText } = await import('./paddle-structure.js');
 
       // PP-Structure on share/OCR text (and optional remote PaddleOCR for complex docs).
@@ -470,27 +491,27 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
         const wantStructure = needsPpStructure({
           mimeType: imageMime,
           fileName: receiptName,
-          text,
+          text: docText,
           imageBase64Length: imageBase64?.length || 0,
         }) || !(vision && vision.amount > 0);
         if (wantStructure) {
           structured = await enrichWithPpStructure({
-            text,
+            text: docText,
             imageBase64: (!(vision && vision.amount > 0) ? imageBase64 : undefined),
             mimeType: imageMime,
             fileName: receiptName,
           });
-        } else if (text) {
-          structured = parsePpStructureText(text, receiptName);
+        } else if (docText) {
+          structured = parsePpStructureText(docText, receiptName);
         }
       } catch {
-        structured = text ? parsePpStructureText(text, receiptName) : null;
+        structured = docText ? parsePpStructureText(docText, receiptName) : null;
       }
 
       // Prefer ₹-labeled OCR/text when Gemini invents masked UPI tails (e.g. 112 from XX112@oksbi).
       const amount = reconcileVisionAmount(
         vision?.amount || 0,
-        text || '',
+        docText || '',
         textParsed || (structured
           ? {
               amount: structured.amount,

@@ -188,8 +188,17 @@ public class DocumentOcrPlugin extends Plugin {
             }
             fd = ParcelFileDescriptor.open(tmp, ParcelFileDescriptor.MODE_READ_ONLY);
             renderer = new PdfRenderer(fd);
-            int count = Math.min(renderer.getPageCount(), MAX_PDF_PAGES);
-            for (int i = 0; i < count; i++) {
+            int pageCount = renderer.getPageCount();
+            // Totals often sit on the last page — prefer first + last over only first pages.
+            java.util.LinkedHashSet<Integer> pageIndices = new java.util.LinkedHashSet<>();
+            if (pageCount <= MAX_PDF_PAGES) {
+                for (int i = 0; i < pageCount; i++) pageIndices.add(i);
+            } else {
+                pageIndices.add(0);
+                pageIndices.add(pageCount - 1);
+                if (MAX_PDF_PAGES >= 3 && pageCount > 2) pageIndices.add(pageCount - 2);
+            }
+            for (int i : pageIndices) {
                 PdfRenderer.Page page = renderer.openPage(i);
                 try {
                     float scale = 2f;

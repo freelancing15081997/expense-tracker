@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { X, Download, FileText, CheckCircle2 } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
+import { X, Download, FileText, CheckCircle2, ExternalLink } from 'lucide-react';
+import { openNativePdfPreview } from '../lib/receipt-preview';
 
 export type AttachmentKind = 'image' | 'pdf' | 'file';
 
@@ -31,9 +33,12 @@ export const ReceiptModal: React.FC<Props> = ({
   fileName,
 }) => {
   const [imageReady, setImageReady] = useState(false);
+  const [openingNativePdf, setOpeningNativePdf] = useState(false);
+  const isNative = Capacitor.isNativePlatform();
 
   useEffect(() => {
     setImageReady(false);
+    setOpeningNativePdf(false);
   }, [imageUrl]);
 
   if (!loading && !imageUrl) return null;
@@ -49,6 +54,17 @@ export const ReceiptModal: React.FC<Props> = ({
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const handleOpenPdf = async () => {
+    if (!imageUrl || openingNativePdf) return;
+    setOpeningNativePdf(true);
+    try {
+      const opened = await openNativePdfPreview(imageUrl, downloadName);
+      if (!opened && !isNative) handleDownload();
+    } finally {
+      setOpeningNativePdf(false);
+    }
   };
 
   return (
@@ -114,11 +130,39 @@ export const ReceiptModal: React.FC<Props> = ({
             </div>
           )}
           {kind === 'pdf' && imageUrl && !loading && (
-            <iframe
-              src={imageUrl}
-              title={expenseTitle || 'PDF attachment'}
-              className="w-full h-[62vh] rounded-lg bg-white border border-slate-200"
-            />
+            <div className="w-full space-y-3">
+              {isNative ? (
+                <div className="text-center space-y-4 py-6">
+                  <FileText className="w-12 h-12 text-slate-400 mx-auto" />
+                  <p className="text-sm text-slate-600">PDF receipts open in your device viewer.</p>
+                  <button type="button" onClick={() => void handleOpenPdf()} disabled={openingNativePdf} className="byjan-btn">
+                    <ExternalLink className="w-4 h-4" />
+                    {openingNativePdf ? 'Opening…' : 'Open PDF'}
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <object
+                    data={imageUrl}
+                    type="application/pdf"
+                    title={expenseTitle || 'PDF attachment'}
+                    className="w-full h-[62vh] rounded-lg bg-white border border-slate-200"
+                  >
+                    <iframe
+                      src={imageUrl}
+                      title={expenseTitle || 'PDF attachment'}
+                      className="w-full h-[62vh] rounded-lg bg-white border border-slate-200"
+                    />
+                  </object>
+                  <div className="flex justify-center">
+                    <button type="button" onClick={handleDownload} className="byjan-btn-ghost text-xs">
+                      <Download className="w-4 h-4" />
+                      Download PDF
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           )}
           {kind === 'file' && imageUrl && !loading && (
             <div className="text-center space-y-3">

@@ -199,18 +199,17 @@ async function parseReceiptNow(
       };
     }
 
-    // Image or PDF → on-device PP-OCRv4 (PDF pages rendered via PdfRenderer) + ₹ rules. No Gemini.
+    // Image or PDF → on-device PP-OCRv4 (PDF pages rendered via PdfRenderer) + ₹ rules.
     const { prepareReceiptImage, uploadPreparedReceipt } = await import('../lib/money-receipts');
     const { localParseReceiptImage, prepareOcrImage } = await import('../lib/document-ocr');
 
     onStatus(isPdf ? 'Reading PDF…' : 'Reading receipt…', 22);
-    const ocrPromise = prepareOcrImage(launch.imageDataUrl, imageMime)
-      .then((ocrPrepared) => localParseReceiptImage(ocrPrepared.base64, ocrPrepared.mime, launch.text || ''))
-      .catch(() => null);
+    const ocrPrepared = await prepareOcrImage(launch.imageDataUrl, imageMime);
+    const ocrPromise = localParseReceiptImage(ocrPrepared.base64, ocrPrepared.mime, launch.text || '').catch(() => null);
     const preparedPromise = prepareReceiptImage(launch.imageDataUrl, imageMime, false);
 
     const [local, prepared] = await Promise.all([ocrPromise, preparedPromise]);
-    imageMime = prepared.mime || 'image/jpeg';
+    imageMime = isPdf ? 'application/pdf' : (prepared.mime || 'image/jpeg');
     imageBase64 = String(prepared.dataUrl || '')
       .replace(/^data:[^;]+;base64,/i, '')
       .replace(/\s+/g, '');
@@ -219,12 +218,11 @@ async function parseReceiptNow(
       bytes: prepared.bytes,
       mime: imageMime,
       dataUrl: prepared.dataUrl,
-      fileName: receiptName,
+      fileName: isPdf && !/\.pdf$/i.test(receiptName) ? `${receiptName.replace(/\.\w+$/, '')}.pdf` : receiptName,
     }).catch(() => null);
 
     onStatus('Reading amount, merchant & date…', 48);
 
-    // Prefer on-device OCR + deterministic ₹ parse. Skip Gemini for mobile share.
     let preview = local && Number(local.amount || 0) > 0
       ? scrubPreview({
           ...draftPreview(launch, {
@@ -246,22 +244,26 @@ async function parseReceiptNow(
           receiptPath,
           receiptName,
           reasons: [],
-          // Keep OCR text for server-side PP-Structure / rules if amount not found locally.
         }));
 
-    // If local OCR has text but no amount yet, ask server for rules/PP-Structure only (no vision image).
+    // Local miss → server rules/PP-Structure on OCR text + stored PDF path (no wrong-number guess).
     if (!(Number(preview.amountPaise || 0) > 0) && (local?.text || launch.text)) {
-      const hintText = [launch.text || '', local?.text || ''].filter(Boolean).join('\n').slice(0, 4000);
-      onStatus('Checking amount from text…', 62);
+      const uploaded = await uploadPromise;
+      if (uploaded) {
+        receiptPath = uploaded.receiptPath || receiptPath;
+        receiptName = uploaded.receiptName || receiptName;
+      }
+      const hintText = [launch.text || '', local?.text || ''].filter(Boolean).join('\n').slice(0, 8000);
+      onStatus('Checking amount from document…', 62);
       const result = await safeProcess({
         bookId,
         text: hintText,
-        receiptPath: '',
+        receiptPath,
         receiptName,
         source: launch.source || 'share',
         idempotencyKey: `parse_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
         autoConfirm: true,
-        // Intentionally omit imageBase64 so money-handlers skips Gemini vision.
+        imageMime,
       });
       if (result.preview && Number(result.preview.amountPaise || 0) > 0) {
         preview = scrubPreview({
@@ -269,6 +271,15 @@ async function parseReceiptNow(
           id: result.preview.id || newMoneyId('cap'),
           receiptPath: result.preview.receiptPath || receiptPath,
           receiptName: result.preview.receiptName || receiptName,
+          reasons: [],
+        });
+      } else if (!(Number(preview.amountPaise || 0) > 0)) {
+        // No amount found — leave as draft for manual edit, never invent from random numbers.
+        preview = scrubPreview({
+          ...preview,
+          processingStatus: 'REVIEW_REQUIRED',
+          financialStatus: 'DRAFT',
+          confidence: 'low',
           reasons: [],
         });
       }
