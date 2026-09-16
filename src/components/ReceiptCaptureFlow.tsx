@@ -168,8 +168,9 @@ async function parseReceiptNow(
         source: launch.source || 'share',
         idempotencyKey: `parse_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
         autoConfirm: true,
-        imageBase64: imageBase64 || undefined,
+        imageBase64: sheet ? (imageBase64 || undefined) : undefined,
         imageMime,
+        skipVision: !sheet,
       });
       if (result.previews?.length) {
         const previews = result.previews.map((p, i) => scrubPreview({
@@ -255,6 +256,7 @@ async function parseReceiptNow(
       }
       const hintText = [launch.text || '', local?.text || ''].filter(Boolean).join('\n').slice(0, 8000);
       onStatus('Checking amount from document…', 62);
+      const { amountGroundedInText } = await import('../lib/amount-parse');
       const result = await safeProcess({
         bookId,
         text: hintText,
@@ -264,8 +266,11 @@ async function parseReceiptNow(
         idempotencyKey: `parse_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
         autoConfirm: true,
         imageMime,
+        skipVision: true,
       });
-      if (result.preview && Number(result.preview.amountPaise || 0) > 0) {
+      const serverPaise = Number(result.preview?.amountPaise || 0);
+      const serverAmt = serverPaise / 100;
+      if (result.preview && serverPaise > 0 && (!hintText || amountGroundedInText(hintText, serverAmt))) {
         preview = scrubPreview({
           ...result.preview,
           id: result.preview.id || newMoneyId('cap'),

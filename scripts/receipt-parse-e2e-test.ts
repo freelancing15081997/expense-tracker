@@ -343,6 +343,40 @@ Closing Bal Rs.8,200.00`,
     expectAmount: 349,
     expectNotAmount: [8200, 16],
   },
+  {
+    id: 'four-hundred-not-ids',
+    label: '₹400 must beat customer id and card number',
+    text: `TAX INVOICE
+Customer ID 882156
+Card Number 4111 1111 1111 1111
+Date 16/09/2026
+Amount 400
+Grand Total Rs.400.00
+Thank you`,
+    expectAmount: 400,
+    expectNotAmount: [882156, 4111, 1111],
+  },
+  {
+    id: 'one-lakh-indian-format',
+    label: '₹1,00,000 must beat customer id',
+    text: `Invoice
+Customer ID 458921
+Card No 5241678912345678
+Amount 1,00,000.00
+Net Payable 100000`,
+    expectAmount: 100000,
+    expectNotAmount: [458921, 5241, 5678],
+  },
+  {
+    id: 'amount-400-no-colon',
+    label: 'Amount 400 without rupee colon still parses',
+    text: `Retail bill
+Customer ID 778899
+Amount 400
+Paid by UPI`,
+    expectAmount: 400,
+    expectNotAmount: [778899],
+  },
 ];
 
 let passed = 0;
@@ -507,6 +541,17 @@ console.log('\n• Vision vs OCR reconcile (masked UPI decoy)');
   assert(fixed === 550, `reconcile 112→550 got ${fixed}`);
   const same = reconcileVisionAmount(550, ocr, extractMoneyAmount(ocr));
   assert(same === 550, `reconcile keeps 550 got ${same}`);
+}
+
+console.log('\n• Never keep invented amounts that are not on the receipt');
+{
+  const rec400 = `Retail bill\nCustomer ID 778899\nYou paid ₹400.00\nCard 4111 1111 1111 1111`;
+  const parsed400 = extractMoneyAmount(rec400);
+  assert(parsed400?.amount === 400, `₹400 parse got ${parsed400?.amount}`);
+  const invented = reconcileVisionAmount(12840, rec400, parsed400);
+  assert(invented === 400, `invented 12840 dropped, got ${invented}`);
+  const noTextInvent = reconcileVisionAmount(9999, 'Thank you visit again', extractMoneyAmount('Thank you visit again'));
+  assert(noTextInvent === 0, `ungrounded vision 9999 → 0 got ${noTextInvent}`);
 }
 
 console.log('\n• Mass corpus: 10,000 OCR-like receipts (UPI/GST/fuel/SMS/handwritten/PDF lines)');

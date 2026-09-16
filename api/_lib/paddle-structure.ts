@@ -181,9 +181,10 @@ export function parsePpStructureText(text: string, fileName = ''): PpStructureRe
   const raw = String(text || '').replace(/\u00a0/g, ' ').trim();
   if (!raw || raw.length < 8) return null;
 
+      const fallback = extractMoneyAmount(raw);
   const labeled = pickLabeledAmount(raw);
-  const fallback = extractMoneyAmount(raw);
-  const amount = labeled?.amount || fallback?.amount || 0;
+  // Canonical ₹/label parser first — never prefer a first-on-page ₹ that is not the total.
+  const amount = fallback?.amount || labeled?.amount || 0;
   if (!(amount > 0)) return null;
 
   const merchant = pickMerchant(raw) || String(fileName || '').replace(/\.[a-z0-9]+$/i, '').replace(/[_-]+/g, ' ').trim();

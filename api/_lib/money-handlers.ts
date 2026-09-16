@@ -409,9 +409,11 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
 
       let vision: Awaited<ReturnType<typeof import('./receipt-vision.js').parseReceiptImage>> | null = null;
       const { parseReceiptImage } = await import('./receipt-vision.js');
+      const { amountGroundedInText } = await import('./amount-parse.js');
+      const shareLocalOnly = source === 'share' || source === 'sms' || Boolean(body.skipVision);
 
-      // Fast path: compressed inline image/PDF from the app (avoids R2 round-trip before Gemini).
-      if (imageBase64 && imageBase64.length > 64 && imageBase64.length < 1.8 * 1024 * 1024) {
+      // Share/SMS: on-device OCR + rules only. Gemini invents amounts that are not on the receipt.
+      if (!shareLocalOnly && imageBase64 && imageBase64.length > 64 && imageBase64.length < 1.8 * 1024 * 1024) {
         try {
           vision = await parseReceiptImage({
             base64: imageBase64,
@@ -425,8 +427,8 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
         }
       }
 
-      // Fallback: read stored receipt from R2 (email-compatible path).
-      if ((!vision || vision.amount <= 0) && receiptPath) {
+      // Fallback: read stored receipt from R2 (email-compatible path). Never on share — local OCR already ran.
+      if (!shareLocalOnly && (!vision || vision.amount <= 0) && receiptPath) {
         try {
           const { r2FileKey, r2GetBytes } = await import('./r2.js');
           const key = r2FileKey(String(receiptPath));
@@ -480,6 +482,10 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
             };
           }
         }
+      }
+
+      if (vision && vision.amount > 0 && docText && !amountGroundedInText(docText, vision.amount)) {
+        vision = { ...vision, amount: 0, notes: [vision.notes, 'ungrounded_amount'].filter(Boolean).join('; ') };
       }
 
       const textParsed = parseAmountFromText(docText || '');

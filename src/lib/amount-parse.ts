@@ -37,13 +37,81 @@ function toNum(raw: string) {
   return Number.isFinite(n) ? n : NaN;
 }
 
-function isPlausibleAmount(n: number, opts?: { labeled?: boolean; hasDecimals?: boolean; hasCurrency?: boolean }) {
+function indianGroup(intStr: string) {
+  if (intStr.length <= 3) return intStr;
+  const last3 = intStr.slice(-3);
+  const head = intStr.slice(0, -3).replace(/\B(?=(\d{2})+(?!\d))/g, ',');
+  return `${head},${last3}`;
+}
+
+function usGroup(intStr: string) {
+  return intStr.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+function hasIndianGrouping(token: string) {
+  return /^\d{1,2}(,\d{2})+,\d{3}(?:\.\d{1,2})?$/.test(String(token || '').trim());
+}
+
+function isPlausibleAmount(n: number, opts?: { labeled?: boolean; hasDecimals?: boolean; hasCurrency?: boolean; token?: string }) {
   if (!Number.isFinite(n) || n < 1 || n >= 5_000_000) return false;
+  const intDigits = String(Math.trunc(n)).length;
+  // Card / account / UTR length — never money even with a stray ₹ nearby.
+  if (intDigits >= 12) return false;
   // Years / OCR junk
-  if (n >= 1900 && n <= 2100 && Number.isInteger(n) && !opts?.hasCurrency) return false;
+  if (n >= 1900 && n <= 2100 && Number.isInteger(n) && !opts?.hasCurrency && !opts?.labeled) return false;
   // Calendar day / month fragments (e.g. "26 Sep") — never treat as rupees unless currency.
   if (!opts?.hasCurrency && !opts?.labeled && Number.isInteger(n) && n <= 31 && !opts?.hasDecimals) return false;
   return true;
+}
+
+const ID_LABEL_RE = /\b(?:customer\s*(?:id|no|number|code|identification)|cust(?:omer)?\s*(?:id|no|number)|client\s*(?:id|code|no)|member\s*(?:id|no)|consumer\s*(?:id|no|number)|card\s*(?:no|number|#|num)|credit\s*card|debit\s*card|pan\s*(?:no|number)|aadhaar|aadhar|cif|crn|folio|policy\s*(?:no|number)|application\s*(?:no|id)|booking\s*(?:id|no)|order\s*(?:id|no)|txn(?:saction)?\s*(?:id|no)|utr|rrn|cheque\s*(?:no|number)|account\s*(?:no|number|#)|a\/c\s*(?:no|number)|mobile\s*(?:no|number)|phone\s*(?:no|number)|pin\s*code|hsn|sac|invoice\s*(?:no|number|#)|bill\s*(?:no|number|#)|vehicle\s*(?:no|number)|chassis|engine\s*no)\b/gi;
+const MONEY_LABEL_RE = /\b(?:grand\s*total|net\s*payable|amount\s*payable|total\s*amount|bill\s*amount|amount\s*paid|amount\s*due|balance\s*due|net\s*amount|invoice\s*value|you\s+paid|total\s*due|total\s*paid|paid\s*successfully|successfully\s*paid|debited|credited|amount|total)\b/gi;
+
+function lastMatchIndex(re: RegExp, s: string): number {
+  const clone = new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`);
+  let last = -1;
+  let m: RegExpExecArray | null;
+  while ((m = clone.exec(s)) !== null) last = m.index;
+  return last;
+}
+
+function closestLabelIsId(before: string): boolean {
+  const idAt = lastMatchIndex(ID_LABEL_RE, before);
+  const moneyAt = lastMatchIndex(MONEY_LABEL_RE, before);
+  if (idAt < 0) return false;
+  return idAt >= moneyAt;
+}
+
+/** True when this token sits inside a PAN/card digit run (4111 1111 1111 1111 or 16-digit). */
+function isInsideCardNumber(raw: string, index: number, token: string): boolean {
+  const span = raw.slice(Math.max(0, index - 24), Math.min(raw.length, index + token.length + 24));
+  if (/\b(?:\d{4}[\s-]){3}\d{4}\b/.test(span)) return true;
+  if (/\b\d{13,19}\b/.test(span.replace(/[\s-]/g, ''))) {
+    const compact = span.replace(/[\s-]/g, '');
+    if (/\d{13,19}/.test(compact) && token.replace(/\D/g, '').length <= 6) return true;
+  }
+  return false;
+}
+
+/** True when `amount` actually appears in document text (never trust hallucinated vision). */
+export function amountGroundedInText(text: string, amount: number): boolean {
+  if (!(amount > 0) || !text) return false;
+  const raw = String(text).replace(/\u00a0/g, ' ');
+  const intPart = Math.trunc(amount);
+  const cents = Math.round(Math.abs(amount - intPart) * 100);
+  const intStr = String(intPart);
+  const tails = cents > 0
+    ? [`\\.${String(cents).padStart(2, '0')}`, `\\.${cents}`, '']
+    : ['', '\\.00', '\\.0'];
+  const bodies = [...new Set([intStr, indianGroup(intStr), usGroup(intStr)])]
+    .map((b) => b.replace(/,/g, ',?'));
+  for (const body of bodies) {
+    for (const tail of tails) {
+      const re = new RegExp(`(?<!\\d)${body}${tail}(?!\\d)`);
+      if (re.test(raw)) return true;
+    }
+  }
+  return false;
 }
 
 function matchHasCurrency(fullMatch: string): boolean {
@@ -57,11 +125,16 @@ export function textHasRupeeMark(text: string): boolean {
 
 /** Masked UPI ID / A/c ending / VPA tail — never money. */
 export function isDecoyAmountContext(raw: string, index: number, token: string): boolean {
-  const before = raw.slice(Math.max(0, index - 28), index);
+  const before = raw.slice(Math.max(0, index - 48), index);
   const after = raw.slice(index + token.length, Math.min(raw.length, index + token.length + 28));
   const around = `${before}${token}${after}`;
   const digits = String(token).replace(/\D/g, '');
   const currRe = new RegExp(RUPEE_TOKEN, 'i');
+
+  if (isInsideCardNumber(raw, index, token)) return true;
+
+  // Closest label wins: "Customer ID 8821" is an ID; "Amount 400" is money.
+  if (closestLabelIsId(before) && !currRe.test(around.slice(-24))) return true;
 
   // VPA: 112@oksbi / xx112@ybl / user112@paytm
   if (/^\s*@[a-z0-9.\-]{2,}/i.test(after)) return true;
@@ -77,8 +150,8 @@ export function isDecoyAmountContext(raw: string, index: number, token: string):
     return true;
   }
 
-  // Long reference / phone-like digit runs without currency
-  if (digits.length >= 8 && !currRe.test(around)) return true;
+  // Long reference / phone-like digit runs without currency (IDs, UTRs, cards).
+  if (digits.length >= 8 && !currRe.test(around) && !hasIndianGrouping(token)) return true;
 
   // UTR / txn / ref keywords immediately before
   if (/\b(?:ref(?:erence)?|upi|utr|txn|transaction\s*id|rrn|order\s*id)\b/i.test(before)
@@ -86,11 +159,13 @@ export function isDecoyAmountContext(raw: string, index: number, token: string):
     return true;
   }
 
-  // Qty / items / page / GSTIN fragment without currency
-  if (/\b(?:qty|quantity|pcs?|items?|page|pg|gstin|hsn|sac|invoice\s*#?|bill\s*#?)\b/i.test(before)
+  // Qty / items / page / GSTIN / invoice-no fragments without currency
+  if (/\b(?:qty|quantity|pcs?|items?|page|pg|gstin|hsn|sac|invoice\s*(?:no|number|#)|bill\s*(?:no|number|#))\b/i.test(before)
     && !currRe.test(around)) {
     return true;
   }
+  // Bare "Bill 334455" receipt numbers (not "Retail bill … Amount 400")
+  if (/\bbill\s+$/i.test(before) && digits.length >= 4 && !currRe.test(around)) return true;
 
   return false;
 }
@@ -143,7 +218,7 @@ export function extractMoneyAmount(text: string): ParsedMoneyAmount | null {
   const push = (token: string, score: number, index: number, labeled: boolean, hasCurrency: boolean) => {
     const n = toNum(token);
     const hasDecimals = /\.\d{1,2}$/.test(token);
-    if (!isPlausibleAmount(n, { labeled, hasDecimals, hasCurrency })) return;
+    if (!isPlausibleAmount(n, { labeled, hasDecimals, hasCurrency, token })) return;
     if (isDecoyAmountContext(raw, index, token)) return;
 
     // Skip numbers that sit inside a date fragment (26/09/2024, 26 Sep, Sep 26).
@@ -156,8 +231,8 @@ export function extractMoneyAmount(text: string): ParsedMoneyAmount | null {
     const around = raw.slice(Math.max(0, index - 4), Math.min(raw.length, index + token.length + 4));
     if (/\d{1,2}:\d{2}/.test(around)) return;
 
-    // "Payment successful 26" is a status + day — never ₹26 unless currency is present.
-    if (Number.isInteger(n) && n <= 31 && !hasDecimals && !hasCurrency) {
+    // Calendar day next to “Payment successful 26” — never ₹26 unless labeled or currency.
+    if (Number.isInteger(n) && n <= 31 && !hasDecimals && !hasCurrency && !labeled) {
       return;
     }
 
@@ -169,6 +244,7 @@ export function extractMoneyAmount(text: string): ParsedMoneyAmount | null {
     if (/\b(?:avl|available|closing|opening)\s*bal/i.test(ctx)) s -= 40;
     if (/\b(?:debited|credited|paid|sent|you\s+paid)\b/i.test(ctx)) s += 8;
     if (hasDecimals && hasCurrency) s += 4;
+    if (hasIndianGrouping(token)) s += 10;
     // Subtotal / tax lines lose to grand total / you paid.
     if (/\b(?:sub\s*total|subtotal|cgst|sgst|igst|taxable|discount|qty)\b/i.test(ctx) && !/\b(?:grand\s*total|net\s*payable|you\s+paid|amount\s*paid)\b/i.test(ctx)) {
       s -= 12;
@@ -194,8 +270,9 @@ export function extractMoneyAmount(text: string): ParsedMoneyAmount | null {
   walk(new RegExp(String.raw`(?:payment\s+successful)\s*[:\-]?\s*${RUPEE_TOKEN}\s*([\d,]+(?:\.\d{1,2})?)`, 'gi'), 54, true);
   walk(new RegExp(String.raw`(?:grand\s*total|net\s*payable|amount\s*payable|total\s*due|invoice\s*value|total\s*amount|bill\s*amount)\s*[:\-]?\s*${RUPEE_TOKEN}\s*([\d,]+(?:\.\d{1,2})?)`, 'gi'), 52, true);
 
-  // Labeled invoice totals without currency (common on PDF/OCR when ₹ is on another line).
-  walk(/(?:grand\s*total|net\s*payable|amount\s*payable|total\s*due|invoice\s*value|total\s*amount|bill\s*amount|balance\s*due|amount\s*due|net\s*amount|total\s*[:\-]|amount\s*[:\-])\s*([\d,]+(?:\.\d{1,2})?)/gi, 40, true);
+  // Labeled invoice totals without currency (PDF/OCR often drops ₹ or the colon).
+  walk(/(?:grand\s*total|net\s*payable|amount\s*payable|total\s*due|invoice\s*value|total\s*amount|bill\s*amount|balance\s*due|amount\s*due|net\s*amount|amount\s*paid|total\s*paid)\s*[:\-]?\s*([\d,]+(?:\.\d{1,2})?)/gi, 40, true);
+  walk(/(?:^|[^\w])(?:amount|total)\s*[:\-]?\s*([\d,]+(?:\.\d{1,2})?)/gi, 36, true);
 
   // Any currency-marked amount (hero ₹ on UPI screens).
   walk(new RegExp(String.raw`${RUPEE_TOKEN}\s*([\d,]+(?:\.\d{1,2})?)`, 'gi'), 28, false);
@@ -279,9 +356,14 @@ export function reconcileVisionAmount(
   text: string,
   textParsed?: ParsedMoneyAmount | null,
 ): number {
-  const vision = Number(visionAmount || 0);
   const parsed = textParsed && textParsed.amount > 0 ? textParsed : extractMoneyAmount(text);
   const textAmt = parsed && parsed.amount > 0 ? parsed.amount : 0;
+  let vision = Number(visionAmount || 0);
+  // Never keep a model-invented number that is not on the document.
+  if (vision > 0 && text && !amountGroundedInText(text, vision)) vision = 0;
+  if (textAmt > 0 && text && !amountGroundedInText(text, textAmt)) {
+    return vision > 0 ? vision : 0;
+  }
   if (!(vision > 0) && !(textAmt > 0)) return 0;
   if (!(vision > 0)) return textAmt;
   if (!(textAmt > 0)) return vision;
@@ -295,7 +377,7 @@ export function reconcileVisionAmount(
   if (!visionInRupee && textStrong) return textAmt;
   if (parsed && parsed.score >= 48) return textAmt;
   if (textInRupee && !visionInRupee) return textAmt;
-  return vision;
+  return textAmt;
 }
 
 /** Pick between two parses by confidence/score — never by larger rupee value. */

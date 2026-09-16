@@ -53,6 +53,7 @@ export async function processReceiptJob(input: {
   imageBase64?: string;
   imageMime?: string;
   mimeType?: string;
+  skipVision?: boolean;
 }) {
   return apiPost<{
     flowState?: string;
