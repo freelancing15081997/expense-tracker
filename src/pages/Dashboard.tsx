@@ -261,20 +261,31 @@ export default function Dashboard() {
         mimeType: pending.mimeType,
         source: pending.source || 'share',
         preferredBookId: pending.preferredBookId,
+        // Explicit true when flagged — never coerce away the picker.
         requireBookPick: pending.requireBookPick !== false,
       });
-      // Move into React state so a later manual add is not mistaken for another share.
-      clearPendingCapture();
+      // Keep pending until the sheet closes / confirms so a remount or URL strip
+      // cannot lose the share before Choose Money book appears.
     };
 
     const params = new URLSearchParams(location.search);
     if (params.get('capture') === '1') {
       const pending = readPendingCapture();
-      if (!pending?.imageDataUrl && !pending?.text) {
-        navigate(location.pathname, { replace: true });
-      } else {
+      if (pending?.imageDataUrl || pending?.text) {
         openFromPending();
         navigate(location.pathname, { replace: true });
+      } else {
+        // Pending not ready yet (navigate raced ahead) — keep ?capture=1 briefly.
+        const t = window.setTimeout(() => {
+          const again = readPendingCapture();
+          if (again?.imageDataUrl || again?.text) {
+            openFromPending();
+            navigate(location.pathname, { replace: true });
+          } else {
+            navigate(location.pathname, { replace: true });
+          }
+        }, 120);
+        return () => window.clearTimeout(t);
       }
     }
 

@@ -717,40 +717,42 @@ export default function ReceiptCaptureFlow({
     setPct(6);
     setStatusLine('Opening your share…');
 
-    // Soft progress while waiting on books / network.
     tickRef.current = window.setInterval(() => {
       setPct((p) => (p < 22 ? p + 1.2 : p));
     }, 180);
 
     const run = async () => {
+      // requireBookPick must always show the picker when picking is required.
+      // Never auto-save into preferredBookId while picking is required.
+      const wantPick = launch.requireBookPick === true
+        || (!launch.preferredBookId && !initialBookId);
+
+      if (wantPick) {
+        setPhase('pick');
+        setBusy(true);
+        setStatusLine('Choose where to save this share');
+        setPct(10);
+      }
+
       const cached = readCachedMoneyBooks().map((b) => ({
         id: b.id,
         name: b.name,
         currency: b.currency || 'INR',
-        score: 10,
-        reason: b.id === launch.preferredBookId ? 'Last used' : 'Authorized Money book',
+        score: b.id === launch.preferredBookId ? 20 : 10,
+        reason: b.id === launch.preferredBookId ? 'Suggested' : 'Authorized Money book',
         memberCount: 1,
       }));
       if (cached.length) setContexts(cached);
 
-      // requireBookPick=true always shows picker (even if a preferred book is suggested).
-      const wantPick = launch.requireBookPick === true
-        || (!launch.preferredBookId && !initialBookId);
-      const lockedBook = !wantPick
-        ? (launch.preferredBookId || initialBookId || (cached.length === 1 ? cached[0].id : ''))
-        : (cached.length === 1 ? cached[0].id : '');
-
-      if (lockedBook && !wantPick) {
-        setPhase('working');
-        await saveNow(lockedBook);
-        return;
+      if (!wantPick) {
+        const lockedBook = launch.preferredBookId || initialBookId || (cached.length === 1 ? cached[0].id : '');
+        if (lockedBook) {
+          setPhase('working');
+          await saveNow(lockedBook);
+          return;
+        }
       }
 
-      // Always enter pick UI first when multiple books — do not wait on network with blank screen.
-      setPhase('pick');
-      setBusy(true);
-      setStatusLine('Choose where to save this share');
-      setPct(10);
       try {
         const { listLedgers } = await import('../lib/ledgers');
         const ledgers = await listLedgers();
@@ -768,6 +770,7 @@ export default function ReceiptCaptureFlow({
           .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
         setContexts(bookRows);
         cacheMoneyBooks(bookRows.map((b) => ({ id: b.id, name: b.name, currency: b.currency })));
+
         if (bookRows.length === 1) {
           await saveNow(bookRows[0].id);
           return;
@@ -777,14 +780,19 @@ export default function ReceiptCaptureFlow({
           setPhase('failed');
           return;
         }
+
+        // 2+ books → always stay on picker.
         setPhase('pick');
         setPct(10);
         setStatusLine('Choose where to save this share');
       } catch {
         if (!cancelled) {
-          if (cached.length) {
+          if (cached.length > 1 || wantPick) {
             setPhase('pick');
+            if (cached.length) setContexts(cached);
             setStatusLine('Choose where to save this share');
+          } else if (cached.length === 1) {
+            await saveNow(cached[0].id);
           } else {
             setError('Could not load Money books');
             setPhase('failed');
@@ -839,11 +847,17 @@ export default function ReceiptCaptureFlow({
             </p>
             {error ? <p className="sr-error">{error}</p> : null}
             <div className="sr-pick">
-              <ContextSelector
-                contexts={contexts}
-                selectedId=""
-                onSelect={(id) => { void saveNow(id); }}
-              />
+              {contexts.length === 0 ? (
+                <p className="sr-detail" style={{ textAlign: 'left' }}>
+                  {busy ? 'Loading Money books…' : 'No Money books found.'}
+                </p>
+              ) : (
+                <ContextSelector
+                  contexts={contexts}
+                  selectedId=""
+                  onSelect={(id) => { void saveNow(id); }}
+                />
+              )}
             </div>
           </>
         ) : phase === 'duplicate_confirm' && pendingDup ? (

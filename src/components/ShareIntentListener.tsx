@@ -111,8 +111,8 @@ function notifyCaptureReady() {
 }
 
 /**
- * Listens for Android share intents. Always lands on book picker when 2+ books
- * so the user is never stuck auto-saving into the wrong book.
+ * Android share → always show Choose Money book when 2+ books.
+ * Pending is kept until Dashboard/BookView consumes it into ReceiptCaptureFlow.
  */
 export default function ShareIntentListener() {
   const navigate = useNavigate();
@@ -123,15 +123,13 @@ export default function ShareIntentListener() {
   const routePending = async (pending: PendingCapture) => {
     const fp = fingerprint(pending);
     const now = Date.now();
-    // Only drop exact duplicates within 1.5s (double fire from onNewIntent + plugin).
     if (fp && fp === lastFp.current && now - lastAt.current < 1500) return;
     lastFp.current = fp;
     lastAt.current = now;
 
-    const cached = readCachedMoneyBooks();
-    const onlyOne = cached.length === 1 ? cached[0] : null;
+    const deepLinkBook = String(pending.preferredBookId || '').trim();
 
-    // Suggestion only (open book / last used) — never skips the picker when 2+ books.
+    // Suggestion only — never used to skip the picker when multiple books exist.
     let openBookId = '';
     try {
       const m = String(window.location.pathname || '').match(/^\/book\/([^/?#]+)/);
@@ -140,55 +138,60 @@ export default function ShareIntentListener() {
       openBookId = '';
     }
 
-    const deepLinkBook = String(pending.preferredBookId || '').trim();
-    let preferred = '';
-    let requirePick = true;
-
-    if (deepLinkBook) {
-      // Explicit book from deep link — go straight there.
-      preferred = deepLinkBook;
-      requirePick = false;
-    } else if (onlyOne) {
-      preferred = onlyOne.id;
-      requirePick = false;
-    } else {
-      // 2+ books (or unknown count): ALWAYS show Choose a Money book.
-      preferred = openBookId || cachedBookId() || '';
-      requirePick = true;
-    }
+    // Default: always pick. Only deep-link bookId skips (single-book confirmed after listLedgers).
+    let preferred = deepLinkBook || openBookId || cachedBookId() || '';
+    let requirePick = !deepLinkBook;
 
     storePending({
       ...pending,
       preferredBookId: preferred || undefined,
       requireBookPick: requirePick,
     });
-    notifyCaptureReady();
 
     const tok = Date.now().toString(36);
     if (!requirePick && preferred) {
       rememberMoneyBook(preferred);
       navigate(`/book/${preferred}?capture=1&s=${tok}`, { replace: false });
     } else {
-      // Unique query so Dashboard re-opens picker even if already on /expenses.
+      // Always land on Dashboard picker route first — notify AFTER navigate so pending is not
+      // cleared by a listener before the capture=1 effect can open the sheet.
       navigate(`/expenses?capture=1&s=${tok}`, { replace: false });
+      window.setTimeout(() => notifyCaptureReady(), 0);
     }
 
-    // Refresh book cache in background for next share.
+    // Confirm book count from server — only skip picker when there is exactly one ledger.
     void listLedgers().then((books) => {
       const visible = (books || [])
         .filter((b) => b && !b.deleted && !b.deletedAt && !b.archived)
         .map((b) => ({ id: String(b.id), name: String(b.name || 'Money book'), currency: String(b.currency || 'INR') }));
       cacheMoneyBooks(visible);
-      // Only auto-skip picker when there is exactly one book (and we were waiting on pick).
-      if (requirePick && visible.length === 1) {
-        rememberMoneyBook(visible[0].id);
+
+      if (deepLinkBook) return;
+
+      if (visible.length === 1) {
+        const only = visible[0];
+        rememberMoneyBook(only.id);
         storePending({
           ...pending,
-          preferredBookId: visible[0].id,
+          preferredBookId: only.id,
           requireBookPick: false,
         });
-        notifyCaptureReady();
-        navigate(`/book/${visible[0].id}?capture=1&s=${Date.now().toString(36)}`, { replace: false });
+        navigate(`/book/${only.id}?capture=1&s=${Date.now().toString(36)}`, { replace: false });
+        window.setTimeout(() => notifyCaptureReady(), 0);
+        return;
+      }
+
+      // 2+ books: keep requireBookPick. Do not re-navigate (avoids remounting the picker).
+      if (visible.length > 1) {
+        const still = readPendingCapture();
+        if (still && (still.imageDataUrl || still.text)) {
+          storePending({
+            ...still,
+            preferredBookId: preferred || still.preferredBookId,
+            requireBookPick: true,
+          });
+          notifyCaptureReady();
+        }
       }
     }).catch(() => undefined);
   };
@@ -198,7 +201,6 @@ export default function ShareIntentListener() {
       addToast(payload.error, 'error');
       return;
     }
-    // Second+ shares often exceed bridge size — resolve full bytes from native pending.
     const full = await resolveSharePayload(payload);
     const dataUrl = sharedFileDataUrl(full);
     const text = String(full.text || '').trim();
@@ -269,6 +271,7 @@ export function readPendingCapture(): PendingCapture | null {
     const raw = sessionStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as PendingCapture & { _hasImage?: boolean };
+    // Large shares keep bytes only in memory — if memory was wiped, cannot recover.
     if (!parsed?.text && !parsed?.imageDataUrl) return null;
     return {
       text: parsed.text ? String(parsed.text) : undefined,
