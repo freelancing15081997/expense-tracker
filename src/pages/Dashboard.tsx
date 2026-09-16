@@ -18,7 +18,7 @@ import { clearStoreCache } from '../lib/store';
 import { roleLabel } from '../lib/plain-language';
 import { useFeatures } from '../lib/use-features';
 import ReceiptCaptureFlow, { type ReceiptLaunch } from '../components/ReceiptCaptureFlow';
-import { cacheMoneyBooks, readPendingCapture, clearPendingCapture } from '../components/ShareIntentListener';
+import { cacheMoneyBooks, readPendingCapture, clearPendingCapture, rememberMoneyBook } from '../components/ShareIntentListener';
 import { readUserJson, writeUserJson } from '../lib/user-cache';
 
 interface BookItem {
@@ -263,6 +263,8 @@ export default function Dashboard() {
         preferredBookId: pending.preferredBookId,
         requireBookPick: pending.requireBookPick !== false,
       });
+      // Move into React state so a later manual add is not mistaken for another share.
+      clearPendingCapture();
     };
 
     const params = new URLSearchParams(location.search);
@@ -744,11 +746,15 @@ export default function Dashboard() {
       <ReceiptCaptureFlow
         open={Boolean(receiptLaunch)}
         launch={receiptLaunch}
-        onClose={() => setReceiptLaunch(null)}
+        onClose={() => {
+          setReceiptLaunch(null);
+          clearPendingCapture();
+        }}
         onConfirmed={(expense, extras) => {
           const bookId = String(expense.bookId || '');
           setReceiptLaunch(null);
           clearPendingCapture();
+          if (bookId) rememberMoneyBook(bookId);
           if (extras?.duplicate) {
             addToast('Same receipt — nothing new added', 'success');
             if (bookId) navigate(`/book/${bookId}`);
@@ -761,6 +767,7 @@ export default function Dashboard() {
               : 'Shared entry saved',
             extras?.needsEdit ? 'error' : 'success',
           );
+          // Land in the book so the next manual entry uses book actions, not the picker.
           if (bookId) navigate(`/book/${bookId}`);
           else void fetchData({ silent: true });
         }}

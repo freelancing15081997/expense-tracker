@@ -131,9 +131,17 @@ export default function ShareIntentListener() {
     const cached = readCachedMoneyBooks();
     const onlyOne = cached.length === 1 ? cached[0] : null;
 
-    // Prefer explicit bookId from deep link; otherwise 1 known book; else always pick.
-    // Never auto-use "last book" when 2+ books — user must choose (warm + cold).
-    let preferred = pending.preferredBookId || '';
+    // If the user is already inside a Money book, keep that book — don't bounce to picker.
+    let openBookId = '';
+    try {
+      const m = String(window.location.pathname || '').match(/^\/book\/([^/?#]+)/);
+      openBookId = m?.[1] ? decodeURIComponent(m[1]) : '';
+    } catch {
+      openBookId = '';
+    }
+
+    // Prefer: explicit deep-link book → open book → single known book → else pick.
+    let preferred = pending.preferredBookId || openBookId || '';
     let requirePick = true;
     if (preferred) {
       requirePick = false;

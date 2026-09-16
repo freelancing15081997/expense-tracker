@@ -500,7 +500,13 @@ export default function ReceiptCaptureFlow({
       );
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save');
+      const msg = err instanceof Error ? err.message : 'Could not save';
+      // Force path must not leave the user stuck on "already recorded".
+      if (/already recorded|already on this ledger|matching entry/i.test(msg)) {
+        setError('Could not save as a different entry — try again in a moment');
+      } else {
+        setError(msg);
+      }
       setPhase('failed');
       setStatusLine('Couldn’t finish — retry');
     } finally {

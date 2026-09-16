@@ -1416,9 +1416,23 @@ async function ledgerGetExpense(bookId, expenseId) {
   if (!data || flag(data)) return null;
   return /** @type {Record<string, unknown> & { id: string }} */ ({ id: expenseId, ...data });
 }
+/**
+ * @param {string} bookId
+ * @param {Record<string, unknown>} expense
+ * @param {{ insertOnly?: boolean, allowDuplicateHash?: boolean }} [opts]
+ */
 async function ledgerSaveExpense(bookId, expense, opts) {
   const id = text(expense.id) || newLedgerId();
   const row = { ...expense, id };
+  // User confirmed "Different entry" — uniquify hash so the same file can post again.
+  if (opts?.allowDuplicateHash) {
+    const original = text(row.receiptHash);
+    if (original) {
+      row.receiptHashOriginal = original;
+      row.duplicateConfirmedDifferent = true;
+      row.receiptHash = `${original}#dup#${id}`;
+    }
+  }
   try {
     const wrote = await ledgerSet(`books/${bookId}/expenses/${id}`, row, Boolean(opts?.insertOnly));
     if (opts?.insertOnly && !wrote) {
@@ -1427,7 +1441,25 @@ async function ledgerSaveExpense(bookId, expense, opts) {
     }
   } catch (err) {
     if (ledgerUniqueViolation(err)) {
-      const existing = await ledgerLiveExpenseByHash(bookId, text(row.receiptHash));
+      const original = text(row.receiptHashOriginal) || text(row.receiptHash).replace(/#dup#.*$/, "");
+      if (original && !String(row.receiptHash || "").includes("#dup#")) {
+        row.receiptHashOriginal = original;
+        row.duplicateConfirmedDifferent = true;
+        row.receiptHash = `${original}#dup#${id}`;
+        const wrote = await ledgerSet(`books/${bookId}/expenses/${id}`, row, Boolean(opts?.insertOnly));
+        if (wrote || !opts?.insertOnly) return { expense: row, created: true };
+      }
+      // Already uniquified but still colliding — try a fresh suffix.
+      if (original && opts?.allowDuplicateHash) {
+        row.receiptHash = `${original}#dup#${id}#${Date.now().toString(36)}`;
+        try {
+          const wrote = await ledgerSet(`books/${bookId}/expenses/${id}`, row, Boolean(opts?.insertOnly));
+          if (wrote || !opts?.insertOnly) return { expense: row, created: true };
+        } catch (err2) {
+          if (!ledgerUniqueViolation(err2)) throw err2;
+        }
+      }
+      const existing = await ledgerLiveExpenseByHash(bookId, original || text(row.receiptHash));
       const dup = new Error("This receipt is already recorded");
       dup.status = 409;
       dup.existing = existing;

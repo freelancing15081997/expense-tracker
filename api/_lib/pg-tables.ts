@@ -1566,6 +1566,15 @@ export async function ledgerSaveExpense(
         const wrote = await ledgerSet(`books/${bookId}/expenses/${id}`, row, Boolean(opts?.insertOnly));
         if (wrote || !opts?.insertOnly) return { expense: row, created: true };
       }
+      if (original && opts?.allowDuplicateHash) {
+        row.receiptHash = `${original}#dup#${id}#${Date.now().toString(36)}`;
+        try {
+          const wrote = await ledgerSet(`books/${bookId}/expenses/${id}`, row, Boolean(opts?.insertOnly));
+          if (wrote || !opts?.insertOnly) return { expense: row, created: true };
+        } catch (err2) {
+          if (!ledgerUniqueViolation(err2)) throw err2;
+        }
+      }
       const existing = await ledgerLiveExpenseByHash(bookId, original || text(row.receiptHash));
       const dup: Error & { status?: number; existing?: Record<string, unknown> | null } = new Error('This receipt is already recorded');
       dup.status = 409;

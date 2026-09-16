@@ -2771,7 +2771,10 @@ export default function BookView() {
         launch={receiptLaunch}
         bookId={bookId}
         bookName={String(book?.name || '')}
-        onClose={() => setReceiptLaunch(null)}
+        onClose={() => {
+          setReceiptLaunch(null);
+          clearPendingCapture();
+        }}
         onConfirmed={(expense, extras) => {
           applyExpenseLocal(expense);
           setReceiptLaunch(null);
