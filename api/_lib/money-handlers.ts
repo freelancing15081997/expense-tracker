@@ -351,13 +351,26 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
 
       let docText = text;
       const isPdfDoc = imageMime === 'application/pdf' || /\.pdf$/i.test(receiptName);
+      const { extractPdfText } = await import('./pdf-text.js');
       if (isPdfDoc && imageBase64.length > 64) {
         try {
-          const { extractPdfText } = await import('./pdf-text.js');
           const pdfText = await extractPdfText(Buffer.from(imageBase64, 'base64'));
           if (pdfText) docText = [docText, pdfText].filter(Boolean).join('\n').slice(0, 16_000);
         } catch {
-          // OCR / vision fallback below.
+          // R2 / OCR fallback below.
+        }
+      }
+      // Share path skips Gemini — still read the stored PDF text layer (CRED receipts, invoices).
+      if (isPdfDoc && receiptPath && !/\bamount\b/i.test(docText)) {
+        try {
+          const { r2FileKey, r2GetBytes } = await import('./r2.js');
+          const file = await r2GetBytes(r2FileKey(String(receiptPath)));
+          if (file?.body?.length) {
+            const pdfText = await extractPdfText(file.body);
+            if (pdfText) docText = [docText, pdfText].filter(Boolean).join('\n').slice(0, 16_000);
+          }
+        } catch {
+          // Keep OCR/hint text.
         }
       }
 
@@ -596,7 +609,7 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
           ? (structured?.confidence === 'high' || merchant ? 'high' : 'medium')
           : 'low',
         reasons,
-        raw: text,
+        raw: docText || text,
         timeline,
       };
 

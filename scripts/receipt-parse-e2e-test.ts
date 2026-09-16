@@ -377,6 +377,25 @@ Paid by UPI`,
     expectAmount: 400,
     expectNotAmount: [778899],
   },
+  {
+    id: 'cred-rbl-lakh',
+    label: 'CRED RBL bill payment ₹1,00,000 not order/customer ids',
+    text: `bill payment receipt order ID 2D4ZWYX0NYVN transaction reference id DP316244OS8FUQ06MNGM date 1 Sep, 2026 6:50 AM amount ₹100000 payment method UPI biller account details biller name RBL Bank category CREDIT CARD Customer ID XXXX-7452 paid via CRED app (Dreamplug Technologies Pvt. Ltd.) -- 1 of 1 --`,
+    expectAmount: 100000,
+    expectNotAmount: [316244, 7452, 2026, 50, 1],
+  },
+  {
+    id: 'cred-ocr-credit-card-before-amount',
+    label: 'CRED screenshot OCR: CREDIT CARD must not hide ₹1,00,000',
+    text: `Bill payment successful
+RBL Bank
+CREDIT CARD
+Customer ID XXXX-7452
+amount ₹1,00,000
+Paid via UPI`,
+    expectAmount: 100000,
+    expectNotAmount: [7452],
+  },
 ];
 
 let passed = 0;

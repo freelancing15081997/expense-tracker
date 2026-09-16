@@ -224,53 +224,41 @@ async function parseReceiptNow(
 
     onStatus('Reading amount, merchant & date…', 48);
 
-    let preview = local && Number(local.amount || 0) > 0
-      ? scrubPreview({
-          ...draftPreview(launch, {
-            amountPaise: Math.round(local.amount * 100),
-            merchant: local.merchant || '',
-            description: local.description || local.merchant || receiptName,
-            paymentMethod: local.paymentMethod || 'upi',
-            direction: local.entryType === 'in' ? 'MONEY_IN' : 'MONEY_OUT',
-            date: local.date,
-            processingStatus: 'READY',
-            confidence: local.confidence || 'high',
-            receiptPath,
-            receiptName,
-            reasons: [],
-          }),
-          id: newMoneyId('cap'),
-        })
-      : scrubPreview(draftPreview(launch, {
-          receiptPath,
-          receiptName,
-          reasons: [],
-        }));
+    const { amountGroundedInText, extractMoneyAmount } = await import('../lib/amount-parse');
+    const ocrText = [launch.text || '', local?.text || ''].filter(Boolean).join('\n');
 
-    // Local miss → server rules/PP-Structure on OCR text + stored PDF path (no wrong-number guess).
-    if (!(Number(preview.amountPaise || 0) > 0) && (local?.text || launch.text)) {
+    let preview = scrubPreview(draftPreview(launch, {
+      receiptPath,
+      receiptName,
+      reasons: [],
+    }));
+
+    // PDFs: embedded text layer is the source of truth (CRED / invoices). OCR of rendered
+    // pages often invents ~400 from chrome; never keep that over PDF text.
+    const shouldAskServer = isPdf || (!(Number(local?.amount || 0) > 0) && Boolean(ocrText));
+    if (shouldAskServer) {
       const uploaded = await uploadPromise;
       if (uploaded) {
         receiptPath = uploaded.receiptPath || receiptPath;
         receiptName = uploaded.receiptName || receiptName;
       }
-      const hintText = [launch.text || '', local?.text || ''].filter(Boolean).join('\n').slice(0, 8000);
-      onStatus('Checking amount from document…', 62);
-      const { amountGroundedInText } = await import('../lib/amount-parse');
+      onStatus(isPdf ? 'Reading PDF amount…' : 'Checking amount from document…', 62);
       const result = await safeProcess({
         bookId,
-        text: hintText,
+        text: ocrText.slice(0, 8000),
         receiptPath,
         receiptName,
         source: launch.source || 'share',
         idempotencyKey: `parse_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
         autoConfirm: true,
         imageMime,
+        imageBase64: isPdf ? imageBase64 : undefined,
         skipVision: true,
       });
       const serverPaise = Number(result.preview?.amountPaise || 0);
       const serverAmt = serverPaise / 100;
-      if (result.preview && serverPaise > 0 && (!hintText || amountGroundedInText(hintText, serverAmt))) {
+      const groundText = [ocrText, String(result.preview?.raw || '')].filter(Boolean).join('\n');
+      if (result.preview && serverPaise > 0 && (!groundText || amountGroundedInText(groundText, serverAmt))) {
         preview = scrubPreview({
           ...result.preview,
           id: result.preview.id || newMoneyId('cap'),
@@ -278,16 +266,59 @@ async function parseReceiptNow(
           receiptName: result.preview.receiptName || receiptName,
           reasons: [],
         });
-      } else if (!(Number(preview.amountPaise || 0) > 0)) {
-        // No amount found — leave as draft for manual edit, never invent from random numbers.
-        preview = scrubPreview({
-          ...preview,
-          processingStatus: 'REVIEW_REQUIRED',
-          financialStatus: 'DRAFT',
-          confidence: 'low',
+      }
+    }
+
+    if (!(Number(preview.amountPaise || 0) > 0) && local && Number(local.amount || 0) > 0
+      && (!ocrText || amountGroundedInText(ocrText, local.amount))) {
+      preview = scrubPreview({
+        ...draftPreview(launch, {
+          amountPaise: Math.round(local.amount * 100),
+          merchant: local.merchant || '',
+          description: local.description || local.merchant || receiptName,
+          paymentMethod: local.paymentMethod || 'upi',
+          direction: local.entryType === 'in' ? 'MONEY_IN' : 'MONEY_OUT',
+          date: local.date,
+          processingStatus: 'READY',
+          confidence: local.confidence || 'high',
+          receiptPath,
+          receiptName,
           reasons: [],
+        }),
+        id: newMoneyId('cap'),
+      });
+    }
+
+    if (!(Number(preview.amountPaise || 0) > 0) && ocrText) {
+      const fromText = extractMoneyAmount(ocrText);
+      if (fromText && fromText.amount > 0 && amountGroundedInText(ocrText, fromText.amount)) {
+        preview = scrubPreview({
+          ...draftPreview(launch, {
+            amountPaise: Math.round(fromText.amount * 100),
+            merchant: fromText.merchant || '',
+            description: fromText.description || receiptName,
+            paymentMethod: fromText.paymentMethod || 'upi',
+            direction: fromText.entryType === 'in' ? 'MONEY_IN' : 'MONEY_OUT',
+            date: fromText.date,
+            processingStatus: 'READY',
+            confidence: fromText.confidence,
+            receiptPath,
+            receiptName,
+            reasons: [],
+          }),
+          id: newMoneyId('cap'),
         });
       }
+    }
+
+    if (!(Number(preview.amountPaise || 0) > 0)) {
+      preview = scrubPreview({
+        ...preview,
+        processingStatus: 'REVIEW_REQUIRED',
+        financialStatus: 'DRAFT',
+        confidence: 'low',
+        reasons: [],
+      });
     }
 
     onStatus('Almost ready…', 78);

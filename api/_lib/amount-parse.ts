@@ -64,7 +64,7 @@ function isPlausibleAmount(n: number, opts?: { labeled?: boolean; hasDecimals?: 
   return true;
 }
 
-const ID_LABEL_RE = /\b(?:customer\s*(?:id|no|number|code|identification)|cust(?:omer)?\s*(?:id|no|number)|client\s*(?:id|code|no)|member\s*(?:id|no)|consumer\s*(?:id|no|number)|card\s*(?:no|number|#|num)|credit\s*card|debit\s*card|pan\s*(?:no|number)|aadhaar|aadhar|cif|crn|folio|policy\s*(?:no|number)|application\s*(?:no|id)|booking\s*(?:id|no)|order\s*(?:id|no)|txn(?:saction)?\s*(?:id|no)|utr|rrn|cheque\s*(?:no|number)|account\s*(?:no|number|#)|a\/c\s*(?:no|number)|mobile\s*(?:no|number)|phone\s*(?:no|number)|pin\s*code|hsn|sac|invoice\s*(?:no|number|#)|bill\s*(?:no|number|#)|vehicle\s*(?:no|number)|chassis|engine\s*no)\b/gi;
+const ID_LABEL_RE = /\b(?:customer\s*(?:id|no|number|code|identification)|cust(?:omer)?\s*(?:id|no|number)|client\s*(?:id|code|no)|member\s*(?:id|no)|consumer\s*(?:id|no|number)|card\s*(?:no|number|#|num)|pan\s*(?:no|number)|aadhaar|aadhar|cif|crn|folio|policy\s*(?:no|number)|application\s*(?:no|id)|booking\s*(?:id|no)|order\s*(?:id|no)|txn(?:saction)?\s*(?:id|no)|utr|rrn|cheque\s*(?:no|number)|account\s*(?:no|number|#)|a\/c\s*(?:no|number)|mobile\s*(?:no|number)|phone\s*(?:no|number)|pin\s*code|hsn|sac|invoice\s*(?:no|number|#)|bill\s*(?:no|number|#)|vehicle\s*(?:no|number)|chassis|engine\s*no)\b/gi;
 const MONEY_LABEL_RE = /\b(?:grand\s*total|net\s*payable|amount\s*payable|total\s*amount|bill\s*amount|amount\s*paid|amount\s*due|balance\s*due|net\s*amount|invoice\s*value|you\s+paid|total\s*due|total\s*paid|paid\s*successfully|successfully\s*paid|debited|credited|amount|total)\b/gi;
 
 function lastMatchIndex(re: RegExp, s: string): number {
@@ -144,8 +144,8 @@ export function isDecoyAmountContext(raw: string, index: number, token: string):
   if (/[x*]{2,}\s*$/i.test(before)) return true;
   if (/[x*]{2,}\d*$/i.test(`${before}${token}`)) return true;
 
-  // Account / card / UPI ending fragments without currency
-  if (/\b(?:ending(?:\s+in|\s+with)?|ends?\s+with|a\/c|a\.c\.|account|acc(?:ount)?\.?|card|upi\s*id|vpa|mobile|phone)\b/i.test(before)
+  // Account / card-number / UPI ending fragments — not “CREDIT CARD” as a biller category.
+  if (/\b(?:ending(?:\s+in|\s+with)?|ends?\s+with|a\/c|a\.c\.|account|acc(?:ount)?\.?|card\s*(?:no|number|#|ending)|upi\s*id|vpa|mobile|phone)\b/i.test(before)
     && !currRe.test(around)) {
     return true;
   }
@@ -209,8 +209,17 @@ export function amountAppearsAsRupee(text: string, amount: number): boolean {
  * Ranked amount parse. Prefer ₹/Rs/INR marked totals over every other number.
  * Never break ties by taking the larger number.
  */
+function normalizeOcrMoneyText(text: string) {
+  let s = String(text || '').replace(/\u00a0/g, ' ');
+  // OCR often emits ₹ as a lone “2” between Amount and the digits.
+  s = s.replace(/\bamount\s+2\s+(?=[\d,])/gi, 'amount ₹ ');
+  // Indian grouping with spaces: 1 00 000 → 1,00,000
+  s = s.replace(/\b(\d{1,2})\s+(\d{2})\s+(\d{3})(?!\d)/g, '$1,$2,$3');
+  return s.replace(/\s+/g, ' ').trim();
+}
+
 export function extractMoneyAmount(text: string): ParsedMoneyAmount | null {
-  const raw = String(text || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+  const raw = normalizeOcrMoneyText(text);
   if (!raw) return null;
   const docHasRupee = textHasRupeeMark(raw);
 
