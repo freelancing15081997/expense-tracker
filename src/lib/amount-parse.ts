@@ -211,8 +211,9 @@ export function amountAppearsAsRupee(text: string, amount: number): boolean {
  */
 function normalizeOcrMoneyText(text: string) {
   let s = String(text || '').replace(/\u00a0/g, ' ');
-  // OCR often emits ₹ as a lone “2” between Amount and the digits.
-  s = s.replace(/\bamount\s+2\s+(?=[\d,])/gi, 'amount ₹ ');
+  // OCR often emits ₹ as a lone “2” or “4” between Amount and the digits (₹ → 4).
+  s = s.replace(/\bamount\s+[24]\s+(?=[\d,])/gi, 'amount ₹ ');
+  s = s.replace(/\bamount\s+[24](1,?00,?000|[\d,]{5,7})(?!\d)/gi, 'amount ₹ $1');
   // Indian grouping with spaces: 1 00 000 → 1,00,000
   s = s.replace(/\b(\d{1,2})\s+(\d{2})\s+(\d{3})(?!\d)/g, '$1,$2,$3');
   return s.replace(/\s+/g, ' ').trim();
@@ -228,6 +229,8 @@ export function extractMoneyAmount(text: string): ParsedMoneyAmount | null {
     const n = toNum(token);
     const hasDecimals = /\.\d{1,2}$/.test(token);
     if (!isPlausibleAmount(n, { labeled, hasDecimals, hasCurrency, token })) return;
+    // OCR of ₹ as “4” / “2” must not become a ₹4 labeled total.
+    if (labeled && !hasCurrency && !hasDecimals && Number.isInteger(n) && n <= 9) return;
     if (isDecoyAmountContext(raw, index, token)) return;
 
     // Skip numbers that sit inside a date fragment (26/09/2024, 26 Sep, Sep 26).

@@ -396,6 +396,20 @@ Paid via UPI`,
     expectAmount: 100000,
     expectNotAmount: [7452],
   },
+  {
+    id: 'rupee-ocr-as-four',
+    label: 'OCR ₹ as 4 must not save amount 4 on CRED 100000',
+    text: `bill payment receipt order ID 2D4ZWYX0NYVN amount 4 100000 payment method UPI category CREDIT CARD Customer ID XXXX-7452`,
+    expectAmount: 100000,
+    expectNotAmount: [4, 7452],
+  },
+  {
+    id: 'cred-indusind-rupee-as-four',
+    label: 'CRED IndusInd ₹182961 — OCR ₹ as 4 must not win',
+    text: `bill payment receipt order ID ZE1Q6VQPE1W transaction reference id DP316241XAYA2C5MXHDT date 29 Aug, 2026 8:34 AM amount 4 182961 payment method UPI biller name IndusInd Bank category CREDIT CARD Customer ID XXXX-0600 paid via CRED app`,
+    expectAmount: 182961,
+    expectNotAmount: [4, 29, 34, 600],
+  },
 ];
 
 let passed = 0;
