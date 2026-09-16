@@ -168,11 +168,9 @@ export default function ShareIntentListener() {
     if (!requirePick && preferred) {
       rememberMoneyBook(preferred);
       navigate(`/book/${preferred}?capture=1&s=${tok}`, { replace: false });
-      addToast('Reading shared file…', 'success');
     } else {
       // Unique query so Dashboard re-opens picker even if already on /expenses.
       navigate(`/expenses?capture=1&s=${tok}`, { replace: false });
-      addToast('Choose a Money book…', 'success');
     }
 
     // Refresh book cache in background for next share.
