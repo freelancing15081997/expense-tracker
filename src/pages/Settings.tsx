@@ -54,6 +54,7 @@ export default function Settings() {
   const [auditEvents, setAuditEvents] = useState<Array<Record<string, unknown>>>([]);
   const [auditLoading, setAuditLoading] = useState(true);
   const [upiOpen, setUpiOpen] = useState(false);
+  const [appVersion, setAppVersion] = useState('');
 
   useEffect(() => {
     setDisplayName(userProfile?.displayName || '');
@@ -63,6 +64,12 @@ export default function Settings() {
   useEffect(() => {
     if (searchParams.get('upi') === '1') setUpiOpen(true);
   }, [searchParams]);
+
+  useEffect(() => {
+    void import('@capacitor/app').then(({ App }) => App.getInfo())
+      .then((info) => setAppVersion(String(info?.version || '')))
+      .catch(() => setAppVersion(''));
+  }, []);
 
   useEffect(() => {
     setAuditLoading(true);
@@ -112,7 +119,7 @@ export default function Settings() {
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Preferences</p>
         <h1 className="font-display text-[28px] font-semibold tracking-[-0.04em] text-[#0B1F3A]">Settings</h1>
-        <p className="text-sm text-slate-500 mt-1">These options apply everywhere. Sign out is on your photo in the top-right.</p>
+        <p className="text-sm text-slate-500 mt-1">These options apply everywhere. Sign out is on your photo in the top-right.{appVersion ? ` App ${appVersion}.` : ''}</p>
       </div>
 
       <div className="grid sm:grid-cols-2 gap-3">

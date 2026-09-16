@@ -168,7 +168,7 @@ async function parseReceiptNow(
         source: launch.source || 'share',
         idempotencyKey: `parse_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
         autoConfirm: true,
-        imageBase64: sheet ? (imageBase64 || undefined) : undefined,
+        imageBase64: (sheet || isPdf) ? (imageBase64 || undefined) : undefined,
         imageMime,
         skipVision: !sheet,
       });
@@ -201,8 +201,65 @@ async function parseReceiptNow(
     }
 
     // Image or PDF → on-device PP-OCRv4 (PDF pages rendered via PdfRenderer) + ₹ rules.
-    const { prepareReceiptImage, uploadPreparedReceipt } = await import('../lib/money-receipts');
+    const { prepareReceiptImage, uploadPreparedReceipt, uploadLedgerReceipt } = await import('../lib/money-receipts');
     const { localParseReceiptImage, prepareOcrImage } = await import('../lib/document-ocr');
+    const { amountGroundedInText, extractMoneyAmount } = await import('../lib/amount-parse');
+
+    let preview = scrubPreview(draftPreview(launch, {
+      receiptPath,
+      receiptName,
+      reasons: [],
+    }));
+
+    // PDFs: send the original file to the API (pdf-parse). Do not OCR ₹ — that becomes 4 / ~400.
+    if (isPdf) {
+      onStatus('Reading PDF…', 22);
+      imageMime = 'application/pdf';
+      imageBase64 = String(launch.imageDataUrl || '').replace(/^data:[^;]+;base64,/i, '').replace(/\s+/g, '');
+      const pdfName = /\.pdf$/i.test(receiptName) ? receiptName : `${receiptName.replace(/\.\w+$/, '')}.pdf`;
+      try {
+        const uploaded = await uploadLedgerReceipt(bookId, {
+          dataUrl: launch.imageDataUrl,
+          fileName: pdfName,
+          mimeType: 'application/pdf',
+        });
+        receiptPath = uploaded.receiptPath || receiptPath;
+        receiptName = uploaded.receiptName || pdfName;
+      } catch {
+        // Still parse inline PDF bytes.
+      }
+      onStatus('Reading PDF amount…', 62);
+      const result = await safeProcess({
+        bookId,
+        text: String(launch.text || '').slice(0, 8000),
+        receiptPath,
+        receiptName,
+        source: launch.source || 'share',
+        idempotencyKey: `parse_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+        autoConfirm: true,
+        imageMime: 'application/pdf',
+        imageBase64: imageBase64 || undefined,
+        skipVision: true,
+      });
+      const serverPaise = Number(result.preview?.amountPaise || 0);
+      if (result.preview && serverPaise > 0) {
+        preview = scrubPreview({
+          ...result.preview,
+          id: result.preview.id || newMoneyId('cap'),
+          receiptPath: result.preview.receiptPath || receiptPath,
+          receiptName: result.preview.receiptName || receiptName,
+          reasons: [],
+        });
+        onStatus('Almost ready…', 78);
+        preview = scrubPreview({
+          ...preview,
+          receiptPath: preview.receiptPath || receiptPath,
+          receiptName: preview.receiptName || receiptName,
+          reasons: [],
+        });
+        return { preview, previews: [preview] };
+      }
+    }
 
     onStatus(isPdf ? 'Reading PDF…' : 'Reading receipt…', 22);
     const ocrPrepared = await prepareOcrImage(launch.imageDataUrl, imageMime);
@@ -224,25 +281,17 @@ async function parseReceiptNow(
 
     onStatus('Reading amount, merchant & date…', 48);
 
-    const { amountGroundedInText, extractMoneyAmount } = await import('../lib/amount-parse');
     const ocrText = [launch.text || '', local?.text || ''].filter(Boolean).join('\n');
 
-    let preview = scrubPreview(draftPreview(launch, {
-      receiptPath,
-      receiptName,
-      reasons: [],
-    }));
-
-    // PDFs: embedded text layer is the source of truth (CRED / invoices). OCR of rendered
-    // pages often invents ~400 from chrome; never keep that over PDF text.
-    const shouldAskServer = isPdf || (!(Number(local?.amount || 0) > 0) && Boolean(ocrText));
+    // Images (and PDF fallback): ask the server when local OCR has no amount.
+    const shouldAskServer = !(Number(local?.amount || 0) > 0) && Boolean(ocrText);
     if (shouldAskServer) {
       const uploaded = await uploadPromise;
       if (uploaded) {
         receiptPath = uploaded.receiptPath || receiptPath;
         receiptName = uploaded.receiptName || receiptName;
       }
-      onStatus(isPdf ? 'Reading PDF amount…' : 'Checking amount from document…', 62);
+      onStatus('Checking amount from document…', 62);
       const result = await safeProcess({
         bookId,
         text: ocrText.slice(0, 8000),
@@ -252,7 +301,6 @@ async function parseReceiptNow(
         idempotencyKey: `parse_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
         autoConfirm: true,
         imageMime,
-        imageBase64: isPdf ? imageBase64 : undefined,
         skipVision: true,
       });
       const serverPaise = Number(result.preview?.amountPaise || 0);

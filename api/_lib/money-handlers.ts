@@ -352,25 +352,33 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
       let docText = text;
       const isPdfDoc = imageMime === 'application/pdf' || /\.pdf$/i.test(receiptName);
       const { extractPdfText } = await import('./pdf-text.js');
+      let pdfLayer = '';
       if (isPdfDoc && imageBase64.length > 64) {
         try {
-          const pdfText = await extractPdfText(Buffer.from(imageBase64, 'base64'));
-          if (pdfText) docText = [docText, pdfText].filter(Boolean).join('\n').slice(0, 16_000);
+          pdfLayer = await extractPdfText(Buffer.from(imageBase64, 'base64'));
         } catch {
-          // R2 / OCR fallback below.
+          pdfLayer = '';
         }
       }
-      // Share path skips Gemini — still read the stored PDF text layer (CRED receipts, invoices).
-      if (isPdfDoc && receiptPath && !/\bamount\b/i.test(docText)) {
+      // Share skips Gemini — still read the stored PDF. Do not skip just because OCR said "amount".
+      if (isPdfDoc && receiptPath && !pdfLayer) {
         try {
           const { r2FileKey, r2GetBytes } = await import('./r2.js');
           const file = await r2GetBytes(r2FileKey(String(receiptPath)));
           if (file?.body?.length) {
-            const pdfText = await extractPdfText(file.body);
-            if (pdfText) docText = [docText, pdfText].filter(Boolean).join('\n').slice(0, 16_000);
+            pdfLayer = await extractPdfText(file.body);
           }
         } catch {
           // Keep OCR/hint text.
+        }
+      }
+      if (pdfLayer) {
+        const pdfParsed = parseAmountFromText(pdfLayer);
+        if (pdfParsed && pdfParsed.amount > 0) {
+          // CRED / invoices: PDF text layer is the amount source of truth. OCR of ₹ → 4 must not mix in.
+          docText = pdfLayer;
+        } else {
+          docText = [docText, pdfLayer].filter(Boolean).join('\n').slice(0, 16_000);
         }
       }
 
