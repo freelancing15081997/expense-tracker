@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import { FileText, Image as ImageIcon, Loader2 } from 'lucide-react';
 import type { BooksFile } from '../core/types';
 import { booksFileUrl } from '../storage/adapter';
@@ -38,8 +38,8 @@ export default function AttachmentList({ files, empty = 'No supporting files yet
                 {busy ? <Loader2 className="w-4 h-4 text-slate-500 animate-spin" /> : isImage ? <ImageIcon className="w-4 h-4 text-slate-500" /> : <FileText className="w-4 h-4 text-slate-500" />}
               </span>
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-[#0B1F3A] truncate">{file.name}</p>
-                <p className="text-[11px] text-slate-500">{file.ext.toUpperCase()} · {Math.max(1, Math.round(file.size / 1024))} KB</p>
+                <p className="text-sm font-medium text-[#0B0F1F] truncate">{file.name}</p>
+                <p className="text-[11px] text-slate-500">{file.ext.toUpperCase()} Â· {Math.max(1, Math.round(file.size / 1024))} KB</p>
               </div>
               <button type="button" className="byjan-btn-ghost h-8 px-3 text-xs" disabled={Boolean(openingId)} onClick={() => void openFile(file)}>
                 {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowDownLeft, ArrowUpRight, ChevronDown, RefreshCw, Search, Users } from 'lucide-react';
 import {
   listMemberUpi,
@@ -38,7 +38,7 @@ function statusTone(status: string) {
 export default function SettlementsPanel({
   bookId,
   currentUid,
-  symbol = '₹',
+  symbol = 'â‚¹',
   myUpiId = '',
   myUpiName = '',
   onToast,
@@ -149,7 +149,7 @@ export default function SettlementsPanel({
           <div>
             <p className="stx-kicker">Split settlements</p>
             <h3 className="stx-title">Transactions</h3>
-            <p className="stx-sub">Separate from expenses — pay, retry failed UPI, and track who’s owed.</p>
+            <p className="stx-sub">Separate from expenses â€” pay, retry failed UPI, and track whoâ€™s owed.</p>
           </div>
           <button type="button" className="byjan-btn-ghost !h-9 !px-2.5" disabled={loading} onClick={() => void refresh()}>
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
@@ -178,9 +178,9 @@ export default function SettlementsPanel({
       ) : null}
 
       {iNeedUpi ? (
-        <div className="mb-2 rounded-xl border border-teal-200 bg-teal-50/70 px-3 py-2">
-          <p className="text-sm font-semibold text-teal-900">Add your UPI ID</p>
-          <p className="text-xs text-teal-800/80 mt-0.5">Needed so teammates can pay you.</p>
+        <div className="mb-2 rounded-xl border border-indigo-200 bg-indigo-50/70 px-3 py-2">
+          <p className="text-sm font-semibold text-indigo-900">Add your UPI ID</p>
+          <p className="text-xs text-indigo-800/80 mt-0.5">Needed so teammates can pay you.</p>
           <button type="button" className="byjan-btn !h-9 mt-2" onClick={() => setUpiOpen(true)}>
             Add UPI ID
           </button>
@@ -195,11 +195,11 @@ export default function SettlementsPanel({
               <span className="text-slate-700 truncate">{m.displayName}</span>
               <button
                 type="button"
-                className="text-teal-700 font-semibold text-xs shrink-0"
+                className="text-[#2440DB] font-semibold text-xs shrink-0"
                 disabled={askUid === m.uid}
                 onClick={() => void askUpi(m.uid)}
               >
-                {askUid === m.uid ? 'Asking…' : 'Ask'}
+                {askUid === m.uid ? 'Askingâ€¦' : 'Ask'}
               </button>
             </div>
           ))}
@@ -255,14 +255,14 @@ export default function SettlementsPanel({
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-2">
-                    <p className="text-sm font-semibold text-[#0B1F3A] truncate">
+                    <p className="text-sm font-semibold text-[#0B0F1F] truncate">
                       {label} {symbol}{paiseToUpiAmount(row.amountPaise)}
                     </p>
                     <span className={`stx-badge tone-${tone}`}>{paymentStatusLabel(row.status)}</span>
                   </div>
                   <p className="text-[12px] text-slate-500 truncate mt-0.5">
                     {row.expenseDescription || row.merchant || 'Split'}
-                    {row.receiverNameSnapshot ? ` · ${row.receiverNameSnapshot}` : ''}
+                    {row.receiverNameSnapshot ? ` Â· ${row.receiverNameSnapshot}` : ''}
                   </p>
                 </div>
                 {row.status !== 'PAID' ? (

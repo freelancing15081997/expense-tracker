@@ -1,4 +1,4 @@
-import { formatMoney, lineAmount } from '../core/money';
+﻿import { formatMoney, lineAmount } from '../core/money';
 import { formatDisplayDate, getRuntimePrefs } from '../../lib/app-prefs';
 import type { FinanceDocument, FinanceParty, FinanceTenant } from '../core/types';
 import { documentProfile } from '../modules/documents/kindProfile';
@@ -17,7 +17,7 @@ function companyBlock(tenant: FinanceTenant) {
     nl(tenant.address),
     escapeHtml([tenant.city, tenant.state, tenant.pincode].filter(Boolean).join(', ')),
     prefs.printShowGstin && tenant.gstin ? escapeHtml(`GSTIN ${tenant.gstin}`) : '',
-    escapeHtml([tenant.phone, tenant.email].filter(Boolean).join(' · ')),
+    escapeHtml([tenant.phone, tenant.email].filter(Boolean).join(' Â· ')),
   ].filter(Boolean).join('<br/>');
 }
 
@@ -50,7 +50,7 @@ export function printFinanceDocument(input: {
       : `<p>CGST ${formatMoney(document.tax.cgstMinor, tenant.baseCurrency)}</p><p>SGST ${formatMoney(document.tax.sgstMinor, tenant.baseCurrency)}</p>`;
   win.document.write(`<!doctype html><html><head><title>${document.number}</title>
     <style>
-      body { font-family: Inter, Arial, sans-serif; color: #0B1F3A; padding: 32px; }
+      body { font-family: Inter, Arial, sans-serif; color: #0B0F1F; padding: 32px; }
       .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; }
       img.logo { max-height: 64px; max-width: 140px; object-fit: contain; }
       img.byjan-mark { width: 28px; height: 28px; object-fit: cover; object-position: 50% 10%; border-radius: 6px; border: 1px solid #E5E7EB; background: #fff; }
@@ -70,21 +70,21 @@ export function printFinanceDocument(input: {
         ${byjanMark()}
         ${getRuntimePrefs().printShowLogo && companyLogo ? `<img class="logo" src="${companyLogo}" alt="Company" />` : ''}
         <h1>${escapeHtml(tenant.name)}</h1>
-        <p class="muted">Byjan · Trace Financials Easily</p>
+        <p class="muted">Byjan Â· Trace Financials Easily</p>
         <p class="muted">${companyBlock(tenant)}</p>
       </div>
       <div style="text-align:right">
         ${partyLogo ? `<img class="logo" src="${partyLogo}" alt="Party" />` : ''}
         <p><strong>${escapeHtml(profile.singular)}</strong></p>
         <p>${escapeHtml(document.number)}</p>
-        <p class="muted">${escapeHtml(profile.issueDateLabel)} ${escapeHtml(formatDisplayDate(document.date))}${document.dueDate && profile.dueDateLabel ? ` · ${escapeHtml(profile.dueDateLabel)} ${escapeHtml(formatDisplayDate(document.dueDate))}` : ''}</p>
+        <p class="muted">${escapeHtml(profile.issueDateLabel)} ${escapeHtml(formatDisplayDate(document.date))}${document.dueDate && profile.dueDateLabel ? ` Â· ${escapeHtml(profile.dueDateLabel)} ${escapeHtml(formatDisplayDate(document.dueDate))}` : ''}</p>
         ${document.poNumber && profile.referenceLabel ? `<p class="muted">${escapeHtml(profile.referenceLabel)} ${escapeHtml(document.poNumber)}</p>` : ''}
         ${document.placeOfSupply && profile.placeOfSupplyLabel ? `<p class="muted">${escapeHtml(profile.placeOfSupplyLabel)} ${escapeHtml(document.placeOfSupply)}</p>` : ''}
       </div>
     </div>
     <div class="grid">
       ${profile.billToLabel ? `<div class="box"><p class="label">${escapeHtml(profile.billToLabel)}</p><p>${nl(billTo)}</p></div>` : ''}
-      ${profile.shipToLabel ? `<div class="box"><p class="label">${escapeHtml(profile.shipToLabel)}</p><p>${nl(shipTo) || '—'}</p></div>` : ''}
+      ${profile.shipToLabel ? `<div class="box"><p class="label">${escapeHtml(profile.shipToLabel)}</p><p>${nl(shipTo) || 'â€”'}</p></div>` : ''}
     </div>
     <table>
       <thead><tr><th>Description</th>${profile.showQty ? `<th class="num">${escapeHtml(profile.qtyLabel)}</th>` : ''}<th class="num">${escapeHtml(profile.rateLabel)}</th>${profile.showTax ? '<th class="num">Tax</th>' : ''}<th class="num">Amount</th></tr></thead>
@@ -124,7 +124,7 @@ export function printCustomerStatement(input: {
     <tr>
       <td>${escapeHtml(row.number)}</td>
       <td>${escapeHtml(row.date)}</td>
-      <td>${escapeHtml(row.dueDate || '—')}</td>
+      <td>${escapeHtml(row.dueDate || 'â€”')}</td>
       <td>${escapeHtml(row.kind.replace('_', ' '))}</td>
       <td class="num">${formatMoney(row.totalMinor, tenant.baseCurrency)}</td>
       <td class="num">${formatMoney(row.outstanding, tenant.baseCurrency)}</td>
@@ -132,7 +132,7 @@ export function printCustomerStatement(input: {
   `).join('');
   win.document.write(`<!doctype html><html><head><title>Statement ${escapeHtml(party?.name || '')}</title>
     <style>
-      body { font-family: Inter, Arial, sans-serif; color: #0B1F3A; padding: 32px; }
+      body { font-family: Inter, Arial, sans-serif; color: #0B0F1F; padding: 32px; }
       .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; }
       img.logo { max-height: 64px; max-width: 140px; object-fit: contain; }
       img.byjan-mark { width: 28px; height: 28px; object-fit: cover; object-position: 50% 10%; border-radius: 6px; border: 1px solid #E5E7EB; background: #fff; }
@@ -147,7 +147,7 @@ export function printCustomerStatement(input: {
         ${byjanMark()}
         ${getRuntimePrefs().printShowLogo && companyLogo ? `<img class="logo" src="${companyLogo}" alt="Company" />` : ''}
         <h1>${escapeHtml(tenant.name)}</h1>
-        <p class="muted">Byjan · Trace Financials Easily</p>
+        <p class="muted">Byjan Â· Trace Financials Easily</p>
         <p class="muted">${companyBlock(tenant)}</p>
       </div>
       <div style="text-align:right">

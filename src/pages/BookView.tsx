@@ -1,4 +1,4 @@
-import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+﻿import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
@@ -158,7 +158,7 @@ function expenseDateLabel(exp: any) {
   const created = expenseCreatedDay(exp);
   const paid = expensePaidDay(exp);
   if (created && paid && paid !== created) {
-    return `${formatDayLabel(created)} · Paid ${formatDayLabel(paid)}`;
+    return `${formatDayLabel(created)} Â· Paid ${formatDayLabel(paid)}`;
   }
   if (created) return formatDayLabel(created);
   if (paid) return `Paid ${formatDayLabel(paid)}`;
@@ -168,18 +168,18 @@ function expenseDateLabel(exp: any) {
 function moneyKindMeta(entryType?: string, txType?: string) {
   const tx = String(txType || '').toUpperCase();
   if (tx === 'REFUND') return { label: 'Refund', cls: 'money-kind-in', sign: '+' };
-  if (tx === 'REVERSAL') return { label: 'Reversal', cls: 'money-kind-out', sign: '−' };
+  if (tx === 'REVERSAL') return { label: 'Reversal', cls: 'money-kind-out', sign: 'âˆ’' };
   if (tx === 'CREDIT_CARD_PAYMENT') return { label: 'Card payment', cls: 'money-kind-xfer', sign: '' };
   if (tx === 'CASH_WITHDRAWAL') return { label: 'Cash out', cls: 'money-kind-xfer', sign: '' };
   if (tx === 'CASH_DEPOSIT') return { label: 'Cash in', cls: 'money-kind-in', sign: '+' };
   if (entryType === 'in') return { label: 'Money in', cls: 'money-kind-in', sign: '+' };
   if (entryType === 'transfer') return { label: 'Transfer', cls: 'money-kind-xfer', sign: '' };
-  return { label: 'Money out', cls: 'money-kind-out', sign: '−' };
+  return { label: 'Money out', cls: 'money-kind-out', sign: 'âˆ’' };
 }
 
 function entryEvidence(exp: any) {
   const trail = buildEvidenceTrail(exp || {});
-  if (trail.length > 1) return trail.slice(0, 2).map((s) => s.detail).join(' · ');
+  if (trail.length > 1) return trail.slice(0, 2).map((s) => s.detail).join(' Â· ');
   if (exp?.source === 'email') return 'Source: Email';
   if (exp?.receiptPath) return 'Receipt attached';
   if (exp?.status === 'draft') return 'Needs your confirm';
@@ -474,7 +474,7 @@ export default function BookView() {
     const wantsCapture = location.search.includes('capture=1');
 
     if (pending && (pending.imageDataUrl || pending.text)) {
-      // Share with 2+ books must use Dashboard choose-book — never auto-save here
+      // Share with 2+ books must use Dashboard choose-book â€” never auto-save here
       // just because preferredBookId happens to match this book.
       if (pending.requireBookPick === true) {
         navigate(`/expenses?capture=1&s=${Date.now().toString(36)}`, { replace: true });
@@ -525,10 +525,23 @@ export default function BookView() {
   }, [bookId, location.search]);
 
   useEffect(() => {
-    const st = location.state as { openPeople?: boolean; openEntry?: boolean } | null;
+    const st = location.state as { openPeople?: boolean; openEntry?: boolean; openVoice?: boolean } | null;
     if (st?.openPeople) setIsMembersModalOpen(true);
     if (st?.openEntry) setIsExpenseModalOpen(true);
+    if (st?.openVoice) setVoiceOpen(true);
   }, [location.state, bookId]);
+
+  // Raised center + button on the tab bar fires these while a book is open.
+  useEffect(() => {
+    const onQuick = (event: Event) => {
+      const kind = (event as CustomEvent<string>).detail;
+      if (kind === 'scan') void scanReceiptEntry();
+      else if (kind === 'add') openNewExpense();
+      else if (kind === 'voice') setVoiceOpen(true);
+    };
+    window.addEventListener('byjan-quick', onQuick);
+    return () => window.removeEventListener('byjan-quick', onQuick);
+  });
 
   useEffect(() => {
     const density = localStorage.getItem('byjan.density') || '';
@@ -1083,7 +1096,7 @@ export default function BookView() {
             setOfflineCount(listOfflineQueue(bookId).length);
             applyExpenseLocal({ ...payload, id: payload.idempotencyKey, offlineQueued: true });
             setIsExpenseModalOpen(false);
-            addToast('Saved offline — will sync when you are back online', 'success');
+            addToast('Saved offline â€” will sync when you are back online', 'success');
             setIsSaving(false);
             return;
           }
@@ -1351,7 +1364,7 @@ export default function BookView() {
         note: `Send receipts to ${mailbox} and Byjan will record them for the team.`,
         extraHtml: `<div style="white-space:pre-wrap;font-size:15px;line-height:1.65;color:#334155;margin:8px 0 16px">${body.replace(/</g, '&lt;')}</div>${openLedgerButtonHtml(book.id, 'Open ledger')}`,
       });
-      await notifyTeamMembers(title, body, `Announcement · ${book.name}: ${title}`, html);
+      await notifyTeamMembers(title, body, `Announcement Â· ${book.name}: ${title}`, html);
       setAnnounceTitle('');
       setAnnounceBody('');
       addToast('Announcement sent to the ledger team.', 'success');
@@ -1365,7 +1378,7 @@ export default function BookView() {
 
   const handleDeleteLedger = async () => {
     if (!currentUser || !bookId || !book) return;
-    if (!confirm(`Delete ledger “${book.name}”?`)) return;
+    if (!confirm(`Delete ledger â€œ${book.name}â€?`)) return;
     setDeletingLedger(true);
     try {
       await softDeleteLedger(bookId);
@@ -1515,7 +1528,7 @@ export default function BookView() {
           </Link>
           <div className="min-w-0 flex-1">
             <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Money book</p>
-            <h1 className="text-[18px] sm:text-[20px] font-display font-semibold text-[#0B1F3A] truncate leading-tight">{book.name}</h1>
+            <h1 className="text-[18px] sm:text-[20px] font-display font-semibold text-[#0B0F1F] truncate leading-tight">{book.name}</h1>
             <div className="mt-1 flex items-center gap-1.5 flex-wrap">
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 uppercase">
                 {roleLabel(myRole)}
@@ -1525,9 +1538,9 @@ export default function BookView() {
                   {offlineCount} offline
                 </span>
               )}
-              <Link to="/reports" className="text-[10px] font-semibold text-[#12B8A8]">Reports</Link>
+              <Link to="/reports" className="text-[10px] font-semibold text-[#3654FF]">Reports</Link>
               <button type="button" onClick={() => void togglePinned()} className="text-[10px] font-semibold text-slate-500 inline-flex items-center gap-1" title={book.pinned ? 'Unpin book' : 'Pin book'}>
-                {book.pinned ? <Pin className="w-3 h-3 text-[#12B8A8]" /> : <PinOff className="w-3 h-3" />}
+                {book.pinned ? <Pin className="w-3 h-3 text-[#3654FF]" /> : <PinOff className="w-3 h-3" />}
                 {book.pinned ? 'Pinned' : 'Pin'}
               </button>
             </div>
@@ -1627,19 +1640,19 @@ export default function BookView() {
       </div>
 
         <Tabs.List className="flex gap-5 border-b border-slate-200/60 overflow-x-auto">
-          <Tabs.Trigger value="ledger" className="pb-1.5 text-[13px] font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B1F3A] data-[state=active]:border-b-2 data-[state=active]:border-[#12B8A8] transition-colors whitespace-nowrap">
+          <Tabs.Trigger value="ledger" className="pb-1.5 text-[13px] font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B0F1F] data-[state=active]:border-b-2 data-[state=active]:border-[#3654FF] transition-colors whitespace-nowrap">
             Expenses
           </Tabs.Trigger>
-          <Tabs.Trigger value="splits" className="pb-1.5 text-[13px] font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B1F3A] data-[state=active]:border-b-2 data-[state=active]:border-[#12B8A8] transition-colors whitespace-nowrap">
+          <Tabs.Trigger value="splits" className="pb-1.5 text-[13px] font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B0F1F] data-[state=active]:border-b-2 data-[state=active]:border-[#3654FF] transition-colors whitespace-nowrap">
             Splits
           </Tabs.Trigger>
-          <Tabs.Trigger value="email" className="pb-1.5 text-[13px] font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B1F3A] data-[state=active]:border-b-2 data-[state=active]:border-[#12B8A8] transition-colors whitespace-nowrap">
+          <Tabs.Trigger value="email" className="pb-1.5 text-[13px] font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B0F1F] data-[state=active]:border-b-2 data-[state=active]:border-[#3654FF] transition-colors whitespace-nowrap">
             Email
           </Tabs.Trigger>
-          <Tabs.Trigger value="analytics" className="pb-1.5 text-[13px] font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B1F3A] data-[state=active]:border-b-2 data-[state=active]:border-[#12B8A8] transition-colors whitespace-nowrap">
+          <Tabs.Trigger value="analytics" className="pb-1.5 text-[13px] font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B0F1F] data-[state=active]:border-b-2 data-[state=active]:border-[#3654FF] transition-colors whitespace-nowrap">
             Reports
           </Tabs.Trigger>
-          <Tabs.Trigger value="audit" className="pb-1.5 text-[13px] font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B1F3A] data-[state=active]:border-b-2 data-[state=active]:border-[#12B8A8] transition-colors whitespace-nowrap">
+          <Tabs.Trigger value="audit" className="pb-1.5 text-[13px] font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B0F1F] data-[state=active]:border-b-2 data-[state=active]:border-[#3654FF] transition-colors whitespace-nowrap">
             History
           </Tabs.Trigger>
         </Tabs.List>
@@ -1651,7 +1664,7 @@ export default function BookView() {
                 <span className="md3-stat-icon" aria-hidden><Wallet className="w-4 h-4" /></span>
                 <span className="md3-stat-label">Net</span>
                 <strong className={cn('md3-stat-value byjan-money', balance >= 0 ? 'is-in' : '')}>
-                  {balance < 0 ? '−' : ''}{getCurrencySymbol(book.currency)}{Math.abs(balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  {balance < 0 ? 'âˆ’' : ''}{getCurrencySymbol(book.currency)}{Math.abs(balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </strong>
               </div>
               <div className="md3-stat tone-out">
@@ -1718,7 +1731,7 @@ export default function BookView() {
                 <SlidersHorizontal className="w-4 h-4" />
                 <span className="hidden sm:inline">Filters</span>
                 {activeFilterCount > 0 && (
-                  <span className="ml-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[#0B1F3A] text-white text-[10px] font-bold inline-flex items-center justify-center">
+                  <span className="ml-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[#3654FF] text-white text-[10px] font-bold inline-flex items-center justify-center">
                     {activeFilterCount}
                   </span>
                 )}
@@ -1769,7 +1782,7 @@ export default function BookView() {
               <div className="flex items-center justify-between">
                 <p className="text-sm font-semibold text-slate-900">Filters</p>
                 {activeFilterCount > 0 && (
-                  <button type="button" onClick={clearFilters} className="text-xs font-semibold text-slate-500 hover:text-[#0B1F3A]">Clear all</button>
+                  <button type="button" onClick={clearFilters} className="text-xs font-semibold text-slate-500 hover:text-[#0B0F1F]">Clear all</button>
                 )}
               </div>
               <div className="flex flex-wrap gap-2">
@@ -1942,8 +1955,8 @@ export default function BookView() {
           {filteredExpenses.length > 0 && (
             <p className="text-[11px] font-semibold text-slate-500 mb-2">
               {filteredExpenses.length} {filteredExpenses.length === 1 ? 'entry' : 'entries'}
-              <span className="text-emerald-600"> · In {getCurrencySymbol(book.currency)}{filterIn.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-              <span> · Out {getCurrencySymbol(book.currency)}{filterOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+              <span className="text-emerald-600"> Â· In {getCurrencySymbol(book.currency)}{filterIn.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+              <span> Â· Out {getCurrencySymbol(book.currency)}{filterOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
             </p>
           )}
 
@@ -1969,21 +1982,21 @@ export default function BookView() {
                       </th>
                     )}
                     <th className="px-3.5 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                      <button type="button" onClick={() => toggleSort('description')} className="inline-flex items-center gap-1 hover:text-[#0B1F3A]">
-                        Description <ArrowUpDown className="w-3 h-3" />{sortKey === 'description' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+                      <button type="button" onClick={() => toggleSort('description')} className="inline-flex items-center gap-1 hover:text-[#0B0F1F]">
+                        Description <ArrowUpDown className="w-3 h-3" />{sortKey === 'description' ? (sortDir === 'asc' ? 'â†‘' : 'â†“') : ''}
                       </button>
                     </th>
                     {visibleColumns.date && (
                       <th className="px-3.5 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                        <button type="button" onClick={() => toggleSort('date')} className="inline-flex items-center gap-1 hover:text-[#0B1F3A]">
-                          Created <ArrowUpDown className="w-3 h-3" />{sortKey === 'date' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+                        <button type="button" onClick={() => toggleSort('date')} className="inline-flex items-center gap-1 hover:text-[#0B0F1F]">
+                          Created <ArrowUpDown className="w-3 h-3" />{sortKey === 'date' ? (sortDir === 'asc' ? 'â†‘' : 'â†“') : ''}
                         </button>
                       </th>
                     )}
                     {visibleColumns.category && (
                       <th className="px-3.5 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                        <button type="button" onClick={() => toggleSort('category')} className="inline-flex items-center gap-1 hover:text-[#0B1F3A]">
-                          Category <ArrowUpDown className="w-3 h-3" />{sortKey === 'category' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+                        <button type="button" onClick={() => toggleSort('category')} className="inline-flex items-center gap-1 hover:text-[#0B0F1F]">
+                          Category <ArrowUpDown className="w-3 h-3" />{sortKey === 'category' ? (sortDir === 'asc' ? 'â†‘' : 'â†“') : ''}
                         </button>
                       </th>
                     )}
@@ -1992,8 +2005,8 @@ export default function BookView() {
                     {visibleColumns.author && <th className="px-3.5 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Author</th>}
                     {visibleColumns.amount && (
                       <th className="px-3.5 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wider text-right">
-                        <button type="button" onClick={() => toggleSort('amount')} className="inline-flex items-center gap-1 ml-auto hover:text-[#0B1F3A]">
-                          Amount <ArrowUpDown className="w-3 h-3" />{sortKey === 'amount' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+                        <button type="button" onClick={() => toggleSort('amount')} className="inline-flex items-center gap-1 ml-auto hover:text-[#0B0F1F]">
+                          Amount <ArrowUpDown className="w-3 h-3" />{sortKey === 'amount' ? (sortDir === 'asc' ? 'â†‘' : 'â†“') : ''}
                         </button>
                       </th>
                     )}
@@ -2028,7 +2041,7 @@ export default function BookView() {
                                 type="button"
                                 onClick={() => void openReceipt(exp)}
                                 disabled={openingReceiptId === exp.id}
-                                className="text-teal-700 hover:text-teal-900 disabled:opacity-70"
+                                className="text-[#2440DB] hover:text-indigo-900 disabled:opacity-70"
                                 title="Open attachment"
                               >
                                 {openingReceiptId === exp.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Paperclip className="w-3.5 h-3.5" />}
@@ -2051,7 +2064,7 @@ export default function BookView() {
                             </span>
                           </td>
                         )}
-                        {visibleColumns.merchant && <td className="px-3.5 py-2 text-slate-600 text-sm truncate max-w-[140px]" title={exp.merchant || ''}>{exp.merchant || '—'}</td>}
+                        {visibleColumns.merchant && <td className="px-3.5 py-2 text-slate-600 text-sm truncate max-w-[140px]" title={exp.merchant || ''}>{exp.merchant || 'â€”'}</td>}
                         {visibleColumns.method && <td className="px-3.5 py-2 text-slate-500 text-sm capitalize">{exp.paymentMethod || 'cash'}</td>}
                         {visibleColumns.author && <td className="px-3.5 py-2 text-slate-600 text-sm truncate max-w-[120px]" title={`Entered by: ${exp.enteredBy || exp.paidByName}${exp.lastEditedBy ? '\nLast edited by: ' + exp.lastEditedBy : ''}`}>{exp.enteredBy || exp.paidByName}</td>}
                         {visibleColumns.amount && (
@@ -2158,11 +2171,11 @@ export default function BookView() {
                     </div>
                     <p className="entry-card-meta">
                       {expenseDateLabel(exp)}
-                      {exp.merchant ? ` · ${exp.merchant}` : ''}
-                      {` · ${exp.category || 'Uncategorized'}`}
-                      {exp.paymentMethod ? ` · ${exp.paymentMethod}` : ''}
+                      {exp.merchant ? ` Â· ${exp.merchant}` : ''}
+                      {` Â· ${exp.category || 'Uncategorized'}`}
+                      {exp.paymentMethod ? ` Â· ${exp.paymentMethod}` : ''}
                     </p>
-                    {why ? <p className="entry-card-why">{why}{exp.enteredBy || exp.paidByName ? ` · ${exp.enteredBy || exp.paidByName}` : ''}</p> : (
+                    {why ? <p className="entry-card-why">{why}{exp.enteredBy || exp.paidByName ? ` Â· ${exp.enteredBy || exp.paidByName}` : ''}</p> : (
                       <p className="entry-card-why">{exp.enteredBy || exp.paidByName}</p>
                     )}
                     {canWrite && (
@@ -2284,7 +2297,7 @@ export default function BookView() {
             pageSize={emailList.pageSize}
             onPageSize={emailList.setPageSize}
             total={emailList.filtered.length}
-            placeholder="Search status, sender, subject…"
+            placeholder="Search status, sender, subjectâ€¦"
           />
 
           <div className="space-y-3">
@@ -2294,7 +2307,7 @@ export default function BookView() {
               <div className="byjan-card p-8 text-center text-sm text-slate-500">No email activity for this ledger yet. Forward a receipt to the inbound address or add an entry to notify the team.</div>
             ) : (
               emailList.pageRows.map((event) => {
-                const when = event.createdAt ? new Date(event.createdAt).toLocaleString() : '—';
+                const when = event.createdAt ? new Date(event.createdAt).toLocaleString() : 'â€”';
                 const isInbound = event.direction !== 'outbound';
                 const status = isInbound ? resolvedStatus(event) : String(event.status || '');
                 return (
@@ -2303,8 +2316,8 @@ export default function BookView() {
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-slate-900 truncate">{event.subject || event.action || (isInbound ? 'Inbound receipt' : 'Team email')}</p>
                         <p className="text-xs text-slate-500 mt-0.5">
-                          {isInbound ? (event.fromEmail || 'unknown') : (event.toEmail || '—')}
-                          <span className="text-slate-300 px-1.5">·</span>
+                          {isInbound ? (event.fromEmail || 'unknown') : (event.toEmail || 'â€”')}
+                          <span className="text-slate-300 px-1.5">Â·</span>
                           {when}
                         </p>
                       </div>
@@ -2317,7 +2330,7 @@ export default function BookView() {
                       <div className="text-xs text-slate-600 space-y-0.5">
                         {event.reason ? <p>{event.reason}</p> : null}
                         {event.detail ? <p>{event.detail}</p> : null}
-                        {event.amount != null && event.amount !== '' ? <p>{event.category || 'Uncategorized'} · {event.amount}</p> : null}
+                        {event.amount != null && event.amount !== '' ? <p>{event.category || 'Uncategorized'} Â· {event.amount}</p> : null}
                         {event.description ? <p className="text-slate-500">{event.description}</p> : null}
                       </div>
                     ) : null}
@@ -2401,10 +2414,10 @@ export default function BookView() {
                   <p className="text-sm font-semibold text-slate-900">{String(event.action || 'Event')}</p>
                   <p className="text-xs text-slate-500 mt-1">
                     {String(event.actorEmail || event.actorUid || 'Someone')}
-                    <span className="text-slate-300 px-1.5">·</span>
-                    {event.createdAt ? new Date(String(event.createdAt)).toLocaleString() : '—'}
+                    <span className="text-slate-300 px-1.5">Â·</span>
+                    {event.createdAt ? new Date(String(event.createdAt)).toLocaleString() : 'â€”'}
                   </p>
-                  {event.entityType ? <p className="text-xs text-slate-500 mt-1">{String(event.entityType)} {event.entityId ? `· ${String(event.entityId)}` : ''}</p> : null}
+                  {event.entityType ? <p className="text-xs text-slate-500 mt-1">{String(event.entityType)} {event.entityId ? `Â· ${String(event.entityId)}` : ''}</p> : null}
                 </article>
               ))}
             </div>
@@ -2437,7 +2450,7 @@ export default function BookView() {
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 z-[90]" />
           <Dialog.Content
-            className="record-sheet fixed z-[100] grid gap-4 p-5 max-h-[90vh] overflow-y-auto bg-white border border-slate-200 shadow-[0_28px_72px_-18px_rgba(11,31,58,0.42)]"
+            className="record-sheet fixed z-[100] grid gap-4 p-5 max-h-[90vh] overflow-y-auto bg-white border border-slate-200 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)]"
             onCloseAutoFocus={(event) => event.preventDefault()}
           >
             <div className="record-sheet-handle md:hidden" aria-hidden />
@@ -2465,7 +2478,7 @@ export default function BookView() {
                     onClick={() => { setTxType(opt.txType); setEntryType(opt.entryType); }}
                     className={cn(
                       'rounded-xl border px-2 py-2 text-left text-[12px] font-semibold transition-colors',
-                      txType === opt.txType ? 'border-[#0B1F3A] bg-[#0B1F3A] text-white' : 'border-slate-200 text-slate-600',
+                      txType === opt.txType ? 'border-[#3654FF] bg-[#3654FF] text-white' : 'border-slate-200 text-slate-600',
                     )}
                   >
                     <span className="block">{opt.label}</span>
@@ -2492,7 +2505,7 @@ export default function BookView() {
                   placeholder="e.g. Swiggy, rent, salary"
                 />
                 {editingExpense?.source === 'email' ? (
-                  <p className="mt-1 text-[11px] text-slate-500">From inbound email — you can update this description anytime.</p>
+                  <p className="mt-1 text-[11px] text-slate-500">From inbound email â€” you can update this description anytime.</p>
                 ) : null}
               </div>
               {editingExpense?.source === 'email' && (editingExpense.emailBody || editingExpense.emailSubject) ? (
@@ -2615,7 +2628,7 @@ export default function BookView() {
                 </Dialog.Close>
                 <button type="submit" disabled={isSaving} className="byjan-btn">
                   {isSaving && <span className="app-loader-ring app-loader-ring-sm" />}
-                  {isSaving ? (editingExpense ? 'Saving…' : 'Adding…') : (editingExpense ? 'Save changes' : 'Add expense')}
+                  {isSaving ? (editingExpense ? 'Savingâ€¦' : 'Addingâ€¦') : (editingExpense ? 'Save changes' : 'Add expense')}
                 </button>
               </div>
             </form>
@@ -2626,7 +2639,7 @@ export default function BookView() {
       <Dialog.Root open={isAnnounceOpen} onOpenChange={setIsAnnounceOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 z-[90]" />
-          <Dialog.Content className="fixed left-[50%] top-[50%] z-[100] grid w-full max-w-md translate-x-[-50%] translate-y-[-50%] gap-4 p-5 rounded-[22px] bg-white border border-slate-200 shadow-[0_28px_72px_-18px_rgba(11,31,58,0.42)]">
+          <Dialog.Content className="fixed left-[50%] top-[50%] z-[100] grid w-full max-w-md translate-x-[-50%] translate-y-[-50%] gap-4 p-5 rounded-[22px] bg-white border border-slate-200 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)]">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <Dialog.Title className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <Megaphone className="w-4 h-4 text-slate-500" /> Announce to the team
@@ -2672,7 +2685,7 @@ export default function BookView() {
       <Dialog.Root open={isMembersModalOpen} onOpenChange={setIsMembersModalOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 z-[90]" />
-          <Dialog.Content className="fixed left-[50%] top-[50%] z-[100] flex flex-col w-full max-w-lg max-h-[85vh] translate-x-[-50%] translate-y-[-50%] overflow-hidden rounded-[22px] bg-white border border-slate-200 shadow-[0_28px_72px_-18px_rgba(11,31,58,0.42)]">
+          <Dialog.Content className="fixed left-[50%] top-[50%] z-[100] flex flex-col w-full max-w-lg max-h-[85vh] translate-x-[-50%] translate-y-[-50%] overflow-hidden rounded-[22px] bg-white border border-slate-200 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)]">
             <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
               <Dialog.Title className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <Users className="w-4 h-4 text-slate-500" /> People & access
@@ -2841,12 +2854,12 @@ export default function BookView() {
           clearPendingCapture();
           void refreshExpenses();
           if (extras?.duplicate) {
-            addToast('Same receipt — nothing new added', 'success');
+            addToast('Same receipt â€” nothing new added', 'success');
             setSuccessExpense(null);
             return;
           }
           if (extras?.needsEdit) {
-            addToast('Could not read amount — saved as draft for you to edit', 'error');
+            addToast('Could not read amount â€” saved as draft for you to edit', 'error');
             setSuccessExpense(null);
             return;
           }
@@ -2898,7 +2911,7 @@ export default function BookView() {
           onSaved={(personSplits) => {
             setExpenses((curr) => curr.map((e) => String(e.id) === String(splitTarget.id) ? { ...e, personSplits } : e));
             setSplitTarget(null);
-            addToast('Split saved — settlements ready to pay', 'success');
+            addToast('Split saved â€” settlements ready to pay', 'success');
           }}
           onToast={addToast}
         />

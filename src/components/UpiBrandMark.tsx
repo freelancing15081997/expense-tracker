@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 
 /** Brand-color marks for UPI partners (original marks in official brand colors, not trademark artwork). */
 export function UpiBrandMark({ app, size = 28 }: { app: string; size?: number }) {
@@ -56,15 +56,15 @@ export function UpiBrandMark({ app, size = 28 }: { app: string; size?: number })
     );
   }
   if (app === 'bhim') {
-    if (s <= 18) return letter('#F7A800', 'B', '#0B1F3A');
+    if (s <= 18) return letter('#F7A800', 'B', '#0B0F1F');
     return (
       <svg width={s} height={s} viewBox="0 0 32 32" aria-hidden>
         <rect width="32" height="32" rx="8" fill="#F7A800" />
         <rect x="0" y="11" width="32" height="10" fill="#fff" />
         <rect x="0" y="21" width="32" height="11" rx="8" fill="#128807" />
-        <text x="16" y="19.5" textAnchor="middle" fontSize="8" fontWeight="800" fontFamily="Arial,Helvetica,sans-serif" fill="#0B1F3A">BHIM</text>
+        <text x="16" y="19.5" textAnchor="middle" fontSize="8" fontWeight="800" fontFamily="Arial,Helvetica,sans-serif" fill="#0B0F1F">BHIM</text>
       </svg>
     );
   }
-  return letter('#0B1F3A', 'U', '#12B8A8');
+  return letter('#0B0F1F', 'U', '#3654FF');
 }

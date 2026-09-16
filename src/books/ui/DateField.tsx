@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { addMonths, format, isSameDay, isSameMonth, parseISO, startOfMonth } from 'date-fns';
 import { formatDisplayDate } from '../../lib/app-prefs';
@@ -54,12 +54,12 @@ export function DateField({
       </button>
       {required && <input type="hidden" value={value} required />}
       {open && (
-        <div className="absolute z-50 mt-2 w-[280px] rounded-2xl border border-[#E5E7EB] bg-white p-3 shadow-[0_18px_40px_-20px_rgba(11,31,58,0.35)]">
+        <div className="absolute z-50 mt-2 w-[280px] rounded-2xl border border-[#E5E7EB] bg-white p-3 shadow-[0_18px_40px_-20px_rgba(30,45,120,0.35)]">
           <div className="flex items-center justify-between mb-2">
             <button type="button" className="p-1 rounded-lg hover:bg-slate-100" onClick={() => setMonth(addMonths(month, -1))} aria-label="Previous month">
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <p className="text-sm font-semibold text-[#0B1F3A]">{format(month, 'MMMM yyyy')}</p>
+            <p className="text-sm font-semibold text-[#0B0F1F]">{format(month, 'MMMM yyyy')}</p>
             <button type="button" className="p-1 rounded-lg hover:bg-slate-100" onClick={() => setMonth(addMonths(month, 1))} aria-label="Next month">
               <ChevronRight className="w-4 h-4" />
             </button>
@@ -81,7 +81,7 @@ export function DateField({
                     setOpen(false);
                   }}
                   className={`h-8 rounded-lg text-xs ${
-                    active ? 'bg-[#0B1F3A] text-white font-semibold' : inMonth ? 'text-[#0B1F3A] hover:bg-slate-100' : 'text-slate-300'
+                    active ? 'bg-[#3654FF] text-white font-semibold' : inMonth ? 'text-[#0B0F1F] hover:bg-slate-100' : 'text-slate-300'
                   }`}
                 >
                   {day.getDate()}
@@ -92,7 +92,7 @@ export function DateField({
           <div className="flex justify-end mt-2">
             <button
               type="button"
-              className="text-xs font-semibold text-teal-700 hover:underline"
+              className="text-xs font-semibold text-[#2440DB] hover:underline"
               onClick={() => {
                 onChange(format(new Date(), 'yyyy-MM-dd'));
                 setOpen(false);

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+﻿import React, { useMemo, useState } from 'react';
 import { useBooks } from '../../context/BooksProvider';
 import { parseMoney, todayISO } from '../../core/money';
 import { btnGhost, btnPrimary, Card, Field, IconBtn, inputClass, PageShell, RecordFlyout, Status } from '../../ui';
@@ -57,7 +57,7 @@ export default function Recurring() {
             key={id}
             type="button"
             onClick={() => { setTab(id); setOpen(false); }}
-            className={`h-9 px-3 rounded-lg text-sm font-semibold ${tab === id ? 'bg-[#0B1F3A] text-white' : 'bg-white border border-slate-200 text-slate-700'}`}
+            className={`h-9 px-3 rounded-lg text-sm font-semibold ${tab === id ? 'bg-[#3654FF] text-white' : 'bg-white border border-slate-200 text-slate-700'}`}
           >
             {label}
           </button>
@@ -194,8 +194,8 @@ export default function Recurring() {
                     <p className="font-medium truncate">{row.name}</p>
                     <p className="text-slate-500 truncate">
                       {party?.name || row.description || 'No party'}
-                      {row.autoPost ? ' · auto-post' : ''}
-                      {row.lastRunAt ? ` · last ${row.lastRunAt.slice(0, 10)}` : ''}
+                      {row.autoPost ? ' Â· auto-post' : ''}
+                      {row.lastRunAt ? ` Â· last ${row.lastRunAt.slice(0, 10)}` : ''}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
@@ -218,7 +218,7 @@ export default function Recurring() {
                           }
                         }}
                       >
-                        {running === row.id ? 'Running…' : 'Run now'}
+                        {running === row.id ? 'Runningâ€¦' : 'Run now'}
                       </button>
                     )}
                   </div>

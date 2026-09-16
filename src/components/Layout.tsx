@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Link, Outlet, useLocation } from 'react-router-dom';
+﻿import React, { useState, useEffect, useRef } from 'react';
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { logout } from '../lib/firebase';
-import { Bell, CheckCircle2, X, Mail, LayoutDashboard, Settings, BookText, Activity as ActivityIcon } from 'lucide-react';
+import { Bell, CheckCircle2, X, Mail, LayoutDashboard, Settings, BookText, Activity as ActivityIcon, Plus, ScanLine, PenLine, Mic } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { listNotifications, markNotificationRead, notificationPath } from '../lib/notifications';
@@ -25,8 +25,24 @@ export default function Layout() {
   const { currentUser, userProfile } = useAuth();
   const { on: hasFeature } = useFeatures();
   const location = useLocation();
+  const navigate = useNavigate();
   const tenant = useBooksTenantMeta();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [fabOpen, setFabOpen] = useState(false);
+
+  // Quick actions from the raised center button. Dashboard and BookView listen.
+  const fireQuickAction = (kind: 'scan' | 'add' | 'voice') => {
+    void CapacitorService.hapticTick();
+    setFabOpen(false);
+    const path = location.pathname;
+    const handledHere = path === '/' || path === '/expenses' || path.startsWith('/book/');
+    if (handledHere) {
+      window.dispatchEvent(new CustomEvent('byjan-quick', { detail: kind }));
+    } else {
+      navigate('/');
+      window.setTimeout(() => window.dispatchEvent(new CustomEvent('byjan-quick', { detail: kind })), 380);
+    }
+  };
   const [isSidebarHovered, setIsSidebarHovered] = useState(false);
   const [railPinned, setRailPinned] = useState(() => {
     try { return localStorage.getItem('byjan.rail.pin') === '1'; } catch { return false; }
@@ -47,6 +63,7 @@ export default function Layout() {
 
   useEffect(() => {
     setMobileMenuOpen(false);
+    setFabOpen(false);
   }, [location.pathname]);
 
   useEffect(() => {
@@ -140,7 +157,7 @@ export default function Layout() {
       <div className="md:hidden bg-white border-b border-slate-200/80 flex items-center justify-between px-3 py-2.5 z-[80] pt-[max(0.6rem,env(safe-area-inset-top))]">
         <Link to="/" className="flex items-center gap-2.5" title="Home">
           <BrandLogo size="sm" className="!w-10 !h-10" />
-          <span className="font-display font-semibold text-[17px] text-[#0B1F3A] tracking-tight">Byjan</span>
+          <span className="font-display font-semibold text-[17px] text-[#0B0F1F] tracking-tight">Byjan</span>
         </Link>
         <div className="flex items-center gap-1">
           <WorkspaceSwitcher variant="header" />
@@ -270,6 +287,26 @@ export default function Layout() {
         </>
       )}
 
+      {fabOpen && (
+        <>
+          <div className="dash-fab-scrim md:hidden" onClick={() => setFabOpen(false)} />
+          <div className="dash-fab-menu md:hidden" role="menu" aria-label="Quick actions">
+            <button type="button" className="dash-fab-item" onClick={() => fireQuickAction('voice')}>
+              <span className="dash-fab-label">Voice</span>
+              <span className="dash-fab-btn tone-rose"><Mic className="w-5 h-5" /></span>
+            </button>
+            <button type="button" className="dash-fab-item" onClick={() => fireQuickAction('add')}>
+              <span className="dash-fab-label">Add entry</span>
+              <span className="dash-fab-btn tone-brand"><PenLine className="w-5 h-5" /></span>
+            </button>
+            <button type="button" className="dash-fab-item" onClick={() => fireQuickAction('scan')}>
+              <span className="dash-fab-label">Scan</span>
+              <span className="dash-fab-btn tone-gold"><ScanLine className="w-5 h-5" /></span>
+            </button>
+          </div>
+        </>
+      )}
+
       <nav className="dash-tabbar md:hidden" aria-label="Primary">
         <Link to="/" className="dash-tab" data-on={onHome} onClick={() => void CapacitorService.hapticTick()}>
           <LayoutDashboard className="w-5 h-5" />
@@ -281,6 +318,7 @@ export default function Layout() {
             Books
           </Link>
         )}
+        {hasFeature('money') && <span className="dash-tab-gap" aria-hidden />}
         <Link to="/activity" className="dash-tab" data-on={onActivity} onClick={() => void CapacitorService.hapticTick()}>
           <ActivityIcon className="w-5 h-5" />
           Activity
@@ -289,6 +327,18 @@ export default function Layout() {
           <Settings className="w-5 h-5" />
           More
         </Link>
+        {hasFeature('money') && (
+          <button
+            type="button"
+            className="dash-fab-center"
+            data-open={fabOpen}
+            aria-label={fabOpen ? 'Close quick actions' : 'Quick actions'}
+            aria-expanded={fabOpen}
+            onClick={() => { void CapacitorService.hapticTick(); setFabOpen((v) => !v); }}
+          >
+            <Plus className="w-6 h-6" />
+          </button>
+        )}
       </nav>
     </div>
   );

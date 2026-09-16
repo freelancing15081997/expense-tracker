@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Loader2, X, AlertTriangle, Check } from 'lucide-react';
 import { confirmCapture } from '../lib/money-api';
@@ -55,15 +55,15 @@ export default function CapturePreviewSheet({
     <Dialog.Root open={open} onOpenChange={(v) => { if (!busy && !v) onClose(); }}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-slate-900/45 z-[120]" />
-        <Dialog.Content className="record-sheet fixed inset-x-0 bottom-0 z-[130] max-h-[88vh] overflow-y-auto rounded-t-[24px] bg-white px-5 pt-4 pb-8 shadow-[0_-20px_60px_-12px_rgba(11,31,58,0.35)]">
+        <Dialog.Content className="record-sheet fixed inset-x-0 bottom-0 z-[130] max-h-[88vh] overflow-y-auto rounded-t-[24px] bg-white px-5 pt-4 pb-8 shadow-[0_-20px_60px_-12px_rgba(30,45,120,0.35)]">
           <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-slate-200" />
           <div className="flex items-start justify-between gap-3">
             <div>
-              <Dialog.Title className="font-display text-[20px] font-semibold text-[#0B1F3A] tracking-[-0.03em]">
+              <Dialog.Title className="font-display text-[20px] font-semibold text-[#0B0F1F] tracking-[-0.03em]">
                 Review before adding
               </Dialog.Title>
               <Dialog.Description className="text-[13px] text-slate-500 mt-0.5">
-                Byjan parsed this — confirm before it is saved.
+                Byjan parsed this â€” confirm before it is saved.
               </Dialog.Description>
             </div>
             <Dialog.Close className="p-2 rounded-xl text-slate-400 hover:text-slate-700" aria-label="Close">

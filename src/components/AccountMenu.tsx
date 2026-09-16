@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+﻿import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { BookOpen, BookText, LogOut, Settings, Shield, X } from 'lucide-react';
@@ -62,7 +62,7 @@ export default function AccountMenu() {
                   {photo ? <img src={photo} alt="" /> : initial}
                 </span>
                 <div className="min-w-0">
-                  <p className="font-display text-[16px] font-semibold text-[#0B1F3A] truncate">{name}</p>
+                  <p className="font-display text-[16px] font-semibold text-[#0B0F1F] truncate">{name}</p>
                   <p className="text-[12px] text-slate-500 truncate">{email}</p>
                 </div>
               </div>
@@ -112,7 +112,7 @@ export default function AccountMenu() {
             </Link>
             <button type="button" onClick={() => void handleSignOut()} disabled={signingOut} className="account-action account-action-danger">
               <LogOut className="w-4 h-4" />
-              {signingOut ? 'Signing out…' : 'Sign out'}
+              {signingOut ? 'Signing outâ€¦' : 'Sign out'}
             </button>
           </div>
         </>,

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, Loader2, Search, Shield } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -104,7 +104,7 @@ export default function AccessControl() {
         </Link>
         <div className="min-w-0">
           <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Super user</p>
-          <h1 className="font-display text-[26px] font-semibold tracking-[-0.04em] text-[#0B1F3A]">Access & roles</h1>
+          <h1 className="font-display text-[26px] font-semibold tracking-[-0.04em] text-[#0B0F1F]">Access & roles</h1>
         </div>
       </div>
       <p className="text-[13px] text-slate-500 mb-4">
@@ -129,16 +129,16 @@ export default function AccessControl() {
       ) : people.length === 0 ? (
         <div className="access-card p-5">
           <Shield className="w-8 h-8 text-slate-300 mb-2" />
-          <p className="font-semibold text-[#0B1F3A]">No people to search yet</p>
+          <p className="font-semibold text-[#0B0F1F]">No people to search yet</p>
           <p className="text-sm text-slate-500 mt-1">
-            Invite someone from a money book’s People button. After they join, they show up here so you can control what they can use.
+            Invite someone from a money bookâ€™s People button. After they join, they show up here so you can control what they can use.
           </p>
         </div>
       ) : (
         <div className="access-split">
           <div className="access-card overflow-hidden">
             {filtered.length === 0 ? (
-              <p className="p-4 text-sm text-slate-500">No person matches “{query.trim()}”.</p>
+              <p className="p-4 text-sm text-slate-500">No person matches â€œ{query.trim()}â€.</p>
             ) : filtered.map((person) => {
               const on = selectedId === person.uid;
               return (
@@ -150,7 +150,7 @@ export default function AccessControl() {
                 >
                   <span className="access-avatar">{(person.displayName || person.email || '?').charAt(0).toUpperCase()}</span>
                   <span className="min-w-0 text-left">
-                    <span className="block text-sm font-semibold text-[#0B1F3A] truncate">{person.displayName || 'Person'}</span>
+                    <span className="block text-sm font-semibold text-[#0B0F1F] truncate">{person.displayName || 'Person'}</span>
                     <span className="block text-[12px] text-slate-500 truncate">{person.email || person.uid}</span>
                   </span>
                   {person.uid === uid ? <span className="access-you">You</span> : null}
@@ -162,7 +162,7 @@ export default function AccessControl() {
           {selected && draft ? (
             <div className="access-card p-4">
               <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Features</p>
-              <h2 className="font-display text-[20px] font-semibold tracking-[-0.03em] text-[#0B1F3A] mt-1">{selected.displayName}</h2>
+              <h2 className="font-display text-[20px] font-semibold tracking-[-0.03em] text-[#0B0F1F] mt-1">{selected.displayName}</h2>
               <p className="text-[13px] text-slate-500 mb-3">{selected.email}</p>
               {isYou ? (
                 <p className="text-sm text-slate-500 mb-2">You always keep full access. Pick someone else to turn features on or off.</p>
@@ -190,7 +190,7 @@ export default function AccessControl() {
                         role="switch"
                       >
                         <span className="min-w-0 text-left">
-                          <span className="block text-sm font-semibold text-[#0B1F3A]">{row.label}</span>
+                          <span className="block text-sm font-semibold text-[#0B0F1F]">{row.label}</span>
                           <span className="block text-[12px] text-slate-500">{row.hint}</span>
                         </span>
                         <span className={`access-switch ${checked ? 'is-on' : ''}`} aria-hidden="true">
@@ -209,7 +209,7 @@ export default function AccessControl() {
             </div>
           ) : (
             <div className="access-card p-5">
-              <p className="font-semibold text-[#0B1F3A]">Pick a person</p>
+              <p className="font-semibold text-[#0B0F1F]">Pick a person</p>
               <p className="text-sm text-slate-500 mt-1">Search the list, tap a name, then choose what they can use.</p>
             </div>
           )}
@@ -219,8 +219,8 @@ export default function AccessControl() {
       {!loading && (
         <div className="access-card p-4 mt-4">
           <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Role defaults</p>
-          <h2 className="font-display text-[18px] font-semibold tracking-[-0.03em] text-[#0B1F3A] mt-1">ROLE → FEATURE</h2>
-          <p className="text-[13px] text-slate-500 mb-3">Effective access is User override → Role → secure default. New features stay off unless configured.</p>
+          <h2 className="font-display text-[18px] font-semibold tracking-[-0.03em] text-[#0B0F1F] mt-1">ROLE â†’ FEATURE</h2>
+          <p className="text-[13px] text-slate-500 mb-3">Effective access is User override â†’ Role â†’ secure default. New features stay off unless configured.</p>
           <div className="flex flex-wrap gap-2 mb-3">
             {['DEFAULT_USER', 'viewer', 'contributor', 'admin'].map((key) => (
               <button
@@ -252,7 +252,7 @@ export default function AccessControl() {
               aria-checked={Boolean(roleDraft[row.key])}
             >
               <span className="min-w-0 text-left">
-                <span className="block text-sm font-semibold text-[#0B1F3A]">{row.label}</span>
+                <span className="block text-sm font-semibold text-[#0B0F1F]">{row.label}</span>
                 <span className="block text-[12px] text-slate-500">{row.hint}</span>
               </span>
               <span className={`access-switch ${roleDraft[row.key] ? 'is-on' : ''}`} aria-hidden="true"><i /></span>

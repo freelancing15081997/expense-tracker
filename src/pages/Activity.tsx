@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { listAllExpenses } from '../lib/expenses';
@@ -32,7 +32,7 @@ export default function Activity() {
       at: String(r.createdAt || r.date || ''),
       kind: 'money' as const,
       title: String(r.description || r.merchant || 'Entry'),
-      detail: `${r.entryType === 'in' ? '+' : '−'}${getCurrencySymbol(String(r.currency || userProfile?.defaultCurrency || 'INR'))}${formatIndianAmount(Number(r.amount || 0))}`,
+      detail: `${r.entryType === 'in' ? '+' : 'âˆ’'}${getCurrencySymbol(String(r.currency || userProfile?.defaultCurrency || 'INR'))}${formatIndianAmount(Number(r.amount || 0))}`,
       href: r.bookId ? `/book/${r.bookId}` : '/expenses',
     }));
     const notes = notifs.map((n) => ({
@@ -51,8 +51,8 @@ export default function Activity() {
   return (
     <div className="max-w-xl mx-auto pb-8">
       <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Activity</p>
-      <h1 className="font-display text-[26px] font-semibold text-[#0B1F3A] tracking-tight">What’s happening</h1>
-      {loading ? <p className="mt-6 text-sm text-slate-500">Loading…</p> : null}
+      <h1 className="font-display text-[26px] font-semibold text-[#0B0F1F] tracking-tight">Whatâ€™s happening</h1>
+      {loading ? <p className="mt-6 text-sm text-slate-500">Loadingâ€¦</p> : null}
       {!loading && items.length === 0 ? <p className="mt-6 text-sm text-slate-500">No activity yet.</p> : null}
       <ul className="mt-4 space-y-2">
         {items.map((row) => (
@@ -62,7 +62,7 @@ export default function Activity() {
               onClick={() => { if ('nid' in row && row.unread && row.nid) void markNotificationRead(row.nid); }}
               className="block rounded-2xl border border-slate-200 bg-white px-4 py-3"
             >
-              <p className="text-sm font-semibold text-[#0B1F3A]">{row.title}</p>
+              <p className="text-sm font-semibold text-[#0B0F1F]">{row.title}</p>
               <p className="text-[13px] text-slate-500 mt-0.5">{row.detail}</p>
             </Link>
           </li>

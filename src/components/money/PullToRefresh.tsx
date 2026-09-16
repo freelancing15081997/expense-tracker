@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+﻿import React, { useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 
 type Props = {
@@ -73,7 +73,7 @@ export default function PullToRefresh({ onRefresh, children, className, disabled
         style={{ height: offset || (busy ? 48 : 0) }}
         aria-hidden={!busy && offset < 8}
       >
-        <Loader2 className={`w-5 h-5 ${busy || offset >= 56 ? 'animate-spin text-teal-600' : ''}`} />
+        <Loader2 className={`w-5 h-5 ${busy || offset >= 56 ? 'animate-spin text-[#3654FF]' : ''}`} />
       </div>
       {children}
     </div>

@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import BooksProvider, { useBooks } from '../context/BooksProvider';
 import { BooksLoader } from '../ui/BooksLoader';
@@ -48,7 +48,7 @@ function BooksReady({ children }: { children: React.ReactNode }) {
   if (error) {
     return (
       <div className="max-w-lg mx-auto mt-10 bg-white border border-slate-200 rounded-xl p-5">
-        <h1 className="font-display text-[18px] font-semibold text-[#0B1F3A]">Couldn’t open Books</h1>
+        <h1 className="font-display text-[18px] font-semibold text-[#0B0F1F]">Couldnâ€™t open Books</h1>
         <p className="text-sm text-slate-600 mt-2">{error}</p>
         <button className="byjan-btn mt-4" onClick={() => refresh()}>
           Retry

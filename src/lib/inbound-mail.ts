@@ -1,4 +1,4 @@
-import { ensureLedgerMailbox } from './ledgers';
+﻿import { ensureLedgerMailbox } from './ledgers';
 
 export const INBOUND_MAIL_DOMAIN = 'easypado.com';
 
@@ -50,7 +50,7 @@ export function openInviteButtonHtml(inviteId: string, label = 'Open invitation 
   const href = inviteAppLink(inviteId);
   return `
     <p style="text-align:center;margin:28px 0 8px">
-      <a href="${href}" style="display:inline-block;background:#0B1F3A;color:#ffffff;text-decoration:none;padding:12px 18px;font-family:Arial,Helvetica,sans-serif;font-size:13px">${label}</a>
+      <a href="${href}" style="display:inline-block;background:#0B0F1F;color:#ffffff;text-decoration:none;padding:12px 18px;font-family:Arial,Helvetica,sans-serif;font-size:13px">${label}</a>
     </p>
     <p style="margin:14px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.55;color:#64748b">This link only works for the invited email. Sign out first if another account is already open on this device.</p>
   `;
@@ -67,9 +67,9 @@ export function openLedgerButtonHtml(bookId: string, label = 'Open ledger in Byj
   const href = ledgerAppLink(bookId);
   return `
     <p style="text-align:center;margin:28px 0 8px">
-      <a href="${href}" style="display:inline-block;background:#0B1F3A;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:700;font-size:14px">${label}</a>
+      <a href="${href}" style="display:inline-block;background:#0B0F1F;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:700;font-size:14px">${label}</a>
     </p>
-    <p style="text-align:center;color:#64748b;font-size:12px;margin:0">Or paste this link into your browser:<br/><a href="${href}" style="color:#0B1F3A">${href}</a></p>
+    <p style="text-align:center;color:#64748b;font-size:12px;margin:0">Or paste this link into your browser:<br/><a href="${href}" style="color:#0B0F1F">${href}</a></p>
   `;
 }
 
@@ -94,7 +94,7 @@ export function wrapByjanEmailHtml(opts: {
     .map((row) => `
       <tr>
         <td style="padding:11px 0;border-bottom:1px solid #edf2f7;width:32%;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;font-family:Arial,Helvetica,sans-serif">${escapeEmail(row.label)}</td>
-        <td style="padding:11px 0;border-bottom:1px solid #edf2f7;font-size:14px;color:#0B1F3A;font-family:Arial,Helvetica,sans-serif">${escapeEmail(row.value)}</td>
+        <td style="padding:11px 0;border-bottom:1px solid #edf2f7;font-size:14px;color:#0B0F1F;font-family:Arial,Helvetica,sans-serif">${escapeEmail(row.value)}</td>
       </tr>`).join('');
   return `<!DOCTYPE html>
 <html lang="en">
@@ -104,17 +104,17 @@ export function wrapByjanEmailHtml(opts: {
     <tr><td align="center">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border:1px solid #dbe3ea;border-radius:16px;overflow:hidden">
         <tr>
-          <td style="padding:26px 32px 18px;background:#0B1F3A">
+          <td style="padding:26px 32px 18px;background:#0B0F1F">
             <p style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:22px;color:#ffffff;letter-spacing:0.12em">BYJAN</p>
-            <p style="margin:8px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:#12B8A8">${escapeEmail(opts.kicker)}</p>
+            <p style="margin:8px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:#3654FF">${escapeEmail(opts.kicker)}</p>
           </td>
         </tr>
         <tr>
-          <td style="height:4px;background:#12B8A8;font-size:0;line-height:0">&nbsp;</td>
+          <td style="height:4px;background:#3654FF;font-size:0;line-height:0">&nbsp;</td>
         </tr>
         <tr>
           <td style="padding:28px 32px 8px">
-            <h1 style="margin:0 0 12px;font-family:Georgia,'Times New Roman',serif;font-size:22px;line-height:1.3;color:#0B1F3A;font-weight:normal">${escapeEmail(opts.title)}</h1>
+            <h1 style="margin:0 0 12px;font-family:Georgia,'Times New Roman',serif;font-size:22px;line-height:1.3;color:#0B0F1F;font-weight:normal">${escapeEmail(opts.title)}</h1>
             <p style="margin:0 0 20px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.65;color:#334155">${escapeEmail(opts.intro)}</p>
             ${rows ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">${rows}</table>` : ''}
             ${opts.note ? `<p style="margin:20px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.6;color:#64748b">${escapeEmail(opts.note)}</p>` : ''}
@@ -124,7 +124,7 @@ export function wrapByjanEmailHtml(opts: {
         <tr>
           <td style="padding:18px 32px 26px;border-top:1px solid #edf2f7;font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:1.7;color:#94a3b8">
             You received this because you are a member of a Byjan ledger.<br/>
-            Byjan · easypado.com · Service notice, not marketing.
+            Byjan Â· easypado.com Â· Service notice, not marketing.
           </td>
         </tr>
       </table>

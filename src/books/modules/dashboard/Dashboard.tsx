@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+﻿import React, { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useBooks } from '../../context/BooksProvider';
 import { signedBalance } from '../../engine/chartOfAccounts';
@@ -71,15 +71,15 @@ export default function Dashboard() {
             <div className="h-44">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={[
-                  { name: 'Income', amount: cards[3].value / 100, fill: '#12B8A8' },
-                  { name: 'Expenses', amount: cards[4].value / 100, fill: '#0B1F3A' },
+                  { name: 'Income', amount: cards[3].value / 100, fill: '#3654FF' },
+                  { name: 'Expenses', amount: cards[4].value / 100, fill: '#0B0F1F' },
                 ]}>
                   <XAxis dataKey="name" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fontSize: 11 }} width={48} axisLine={false} tickLine={false} />
                   <Tooltip formatter={(value: number) => formatMoney(Math.round(Number(value) * 100), currency)} />
                   <Bar dataKey="amount" radius={8}>
-                    <Cell fill="#12B8A8" />
-                    <Cell fill="#0B1F3A" />
+                    <Cell fill="#3654FF" />
+                    <Cell fill="#0B0F1F" />
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
@@ -97,7 +97,7 @@ export default function Dashboard() {
               { href: '/books/banking', label: `${unrec} unreconciled` },
             ].map((item) => (
               <Link key={item.href} to={item.href} className="ios-row">
-                <span className="text-[16px] font-medium text-[#0B1F3A] tracking-tight">{item.label}</span>
+                <span className="text-[16px] font-medium text-[#0B0F1F] tracking-tight">{item.label}</span>
                 <ChevronRight className="ios-chevron w-5 h-5" />
               </Link>
             ))}
@@ -114,7 +114,7 @@ export default function Dashboard() {
         ].map((item) => (
           <div key={item.label} className="ios-widget">
             <p className="ios-caption">{item.label}</p>
-            <p className="mt-2 text-[22px] font-semibold tracking-tight text-[#0B1F3A]">{item.value}</p>
+            <p className="mt-2 text-[22px] font-semibold tracking-tight text-[#0B0F1F]">{item.value}</p>
           </div>
         ))}
       </div>
@@ -136,7 +136,7 @@ export default function Dashboard() {
             {branch.items.map((item) => (
               <Link key={item.href} to={item.href} className="ios-row">
                 <span className="ios-glyph"><FeatureIcon href={item.href} className="w-4 h-4" /></span>
-                <span className="text-[16px] font-medium text-[#0B1F3A] tracking-tight truncate">{item.name}</span>
+                <span className="text-[16px] font-medium text-[#0B0F1F] tracking-tight truncate">{item.name}</span>
                 <ChevronRight className="ios-chevron w-5 h-5" />
               </Link>
             ))}
@@ -148,13 +148,13 @@ export default function Dashboard() {
         <div>
           <div className="flex items-center justify-between ios-section-label">
             <span>Recent journals</span>
-            <Link to="/books/journals" className="text-[#0B1F3A] font-semibold">Open</Link>
+            <Link to="/books/journals" className="text-[#0B0F1F] font-semibold">Open</Link>
           </div>
           <div className="ios-group">
             {journals.slice(0, 6).length === 0 ? <p className="ios-row ios-caption">No journals posted yet.</p> : journals.slice(0, 6).map((j) => (
               <div key={j.id} className="ios-row">
                 <span className="min-w-0">
-                  <span className="block text-[15px] font-medium text-[#0B1F3A] truncate">{j.number} · {j.description}</span>
+                  <span className="block text-[15px] font-medium text-[#0B0F1F] truncate">{j.number} Â· {j.description}</span>
                   <span className="block text-[12px] text-[#8e8e93]">{j.date}</span>
                 </span>
                 <Status value={j.status} />
@@ -165,7 +165,7 @@ export default function Dashboard() {
         <div>
           <div className="flex items-center justify-between ios-section-label">
             <span>Open documents</span>
-            <Link to="/books/invoices" className="text-[#0B1F3A] font-semibold">Invoices</Link>
+            <Link to="/books/invoices" className="text-[#0B0F1F] font-semibold">Invoices</Link>
           </div>
           <div className="ios-group">
             {documents.filter((d) => d.status === 'draft' || d.status === 'posted').slice(0, 6).length === 0 ? (
@@ -173,8 +173,8 @@ export default function Dashboard() {
             ) : documents.filter((d) => d.status === 'draft' || d.status === 'posted').slice(0, 6).map((d) => (
               <div key={d.id} className="ios-row">
                 <span className="min-w-0">
-                  <span className="block text-[15px] font-medium text-[#0B1F3A] truncate">{d.number}</span>
-                  <span className="block text-[12px] text-[#8e8e93] capitalize">{d.kind} · {d.date}</span>
+                  <span className="block text-[15px] font-medium text-[#0B0F1F] truncate">{d.number}</span>
+                  <span className="block text-[12px] text-[#8e8e93] capitalize">{d.kind} Â· {d.date}</span>
                 </span>
                 <Money minor={d.totalMinor - d.paidMinor} currency={currency} />
               </div>

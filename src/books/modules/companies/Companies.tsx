@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import { useBooks } from '../../context/BooksProvider';
 import { buildOrgTree, MAX_ORG_DEPTH } from '../../core/hierarchy';
 import { Card, Field, IconBtn, inputClass, PageShell } from '../../ui';
@@ -56,7 +56,7 @@ export default function Companies() {
               <select className={inputClass} value={parentId || tenantId || ''} onChange={(e) => setParentId(e.target.value)}>
                 {tree.map((row) => (
                   <option key={row.id} value={row.id}>
-                    {'— '.repeat(row.indent)}{row.name}
+                    {'â€” '.repeat(row.indent)}{row.name}
                   </option>
                 ))}
               </select>
@@ -76,14 +76,14 @@ export default function Companies() {
             return (
               <li key={row.id} className="py-3 flex items-center gap-3" style={{ paddingLeft: row.indent * 16 }}>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-[#0B1F3A] truncate">{row.name}</p>
+                  <p className="text-sm font-medium text-[#0B0F1F] truncate">{row.name}</p>
                   <p className="text-[11px] text-slate-500">
                     {row.kind === 'root' ? 'Root workspace' : row.kind === 'company' ? 'Company' : 'Subsidiary'}
-                    {active ? ' · open now' : ''}
+                    {active ? ' Â· open now' : ''}
                   </p>
                 </div>
                 {active ? (
-                  <span className="text-xs font-semibold text-teal-700">Current</span>
+                  <span className="text-xs font-semibold text-[#2440DB]">Current</span>
                 ) : (
                   <button type="button" className="text-sm text-slate-600 underline" onClick={() => switchWorkspace(row.id)}>
                     Open books

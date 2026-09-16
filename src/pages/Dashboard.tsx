@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+﻿import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -116,7 +116,7 @@ export default function Dashboard() {
         return;
       }
 
-      // One expenses API (includes books) + invites — no duplicate listLedgers.
+      // One expenses API (includes books) + invites â€” no duplicate listLedgers.
       const [allExp, inviteRows] = await Promise.all([
         listAllExpenses().catch(() => ({ expenses: [] as Array<Record<string, unknown>>, books: [] as Array<Record<string, unknown>> })),
         listLedgerInvites().catch(() => [] as InviteItem[]),
@@ -264,7 +264,7 @@ export default function Dashboard() {
         mimeType: pending.mimeType,
         source: pending.source || 'share',
         preferredBookId: pending.preferredBookId,
-        // Explicit true when flagged — never coerce away the picker.
+        // Explicit true when flagged â€” never coerce away the picker.
         requireBookPick: pending.requireBookPick !== false,
       });
       // Keep pending until the sheet closes / confirms so a remount or URL strip
@@ -278,7 +278,7 @@ export default function Dashboard() {
         openFromPending();
         navigate(location.pathname, { replace: true });
       } else {
-        // Pending not ready yet (navigate raced ahead) — keep ?capture=1 briefly.
+        // Pending not ready yet (navigate raced ahead) â€” keep ?capture=1 briefly.
         const t = window.setTimeout(() => {
           const again = readPendingCapture();
           if (again?.imageDataUrl || again?.text) {
@@ -380,6 +380,24 @@ export default function Dashboard() {
     else setShowNewBook(true);
   };
 
+  const voiceHomeEntry = () => {
+    const book = recentBooks[0] || visibleBooks[0];
+    if (book) navigate(`/book/${book.id}`, { state: { openVoice: true } });
+    else setShowNewBook(true);
+  };
+
+  // Raised center + button on the tab bar fires these.
+  useEffect(() => {
+    const onQuick = (event: Event) => {
+      const kind = (event as CustomEvent<string>).detail;
+      if (kind === 'scan') void scanHomeReceipt();
+      else if (kind === 'add') addHomeEntry();
+      else if (kind === 'voice') voiceHomeEntry();
+    };
+    window.addEventListener('byjan-quick', onQuick);
+    return () => window.removeEventListener('byjan-quick', onQuick);
+  });
+
   const peopleCount = (book: BookItem) => Math.max(Object.keys(book.roles || {}).length, book.ownerId ? 1 : 0);
 
   const renderLedgerCard = (book: BookItem) => {
@@ -399,12 +417,12 @@ export default function Dashboard() {
           </span>
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-2">
-              <h3 className="text-[15px] font-semibold text-[#0B1F3A] leading-tight tracking-tight truncate">{book.name}</h3>
+              <h3 className="text-[15px] font-semibold text-[#0B0F1F] leading-tight tracking-tight truncate">{book.name}</h3>
               <span className="md3-badge">{roleLabel(role)}</span>
             </div>
             <p className="text-[12px] text-slate-500 mt-0.5 truncate">
-              {book.archived ? 'Archived · ' : ''}{people} {people === 1 ? 'person' : 'people'}
-              {stat ? ` · ${stat.entries} records` : ''}
+              {book.archived ? 'Archived Â· ' : ''}{people} {people === 1 ? 'person' : 'people'}
+              {stat ? ` Â· ${stat.entries} records` : ''}
             </p>
           </div>
         </Link>
@@ -412,7 +430,7 @@ export default function Dashboard() {
           {canSeeMoney ? (
             <>
               <p className={`byjan-money md3-book-amt ${netNeg ? 'is-out' : 'is-in'}`}>
-                {stat ? `${netNeg ? '−' : ''}${symbol}${netVal.toLocaleString()}` : '—'}
+                {stat ? `${netNeg ? 'âˆ’' : ''}${symbol}${netVal.toLocaleString()}` : 'â€”'}
               </p>
               {canManage ? (
                 <button type="button" className="dash-people-btn" onClick={(event) => openPeople(book.id, event)}>
@@ -421,8 +439,8 @@ export default function Dashboard() {
               ) : stat ? (
                 <svg className="byjan-spark" viewBox="0 0 64 18" aria-hidden>
                   <polyline
-                    fill="rgba(11,31,58,0.06)"
-                    stroke="#12B8A8"
+                    fill="rgba(30,45,120,0.06)"
+                    stroke="#3654FF"
                     strokeWidth="1.5"
                     points={`0,18 ${stat.spark.map((v, i) => `${(i / Math.max(stat.spark.length - 1, 1)) * 64},${17 - (v / maxSpark) * 14}`).join(' ')} 64,18`}
                   />
@@ -444,7 +462,7 @@ export default function Dashboard() {
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 z-[90]" />
           <Dialog.Content
-            className="fixed left-[50%] top-[50%] z-[100] grid w-[calc(100%-1.5rem)] max-w-md translate-x-[-50%] translate-y-[-50%] gap-4 p-5 rounded-[22px] bg-white border border-slate-200 shadow-[0_28px_72px_-18px_rgba(11,31,58,0.42)]"
+            className="fixed left-[50%] top-[50%] z-[100] grid w-[calc(100%-1.5rem)] max-w-md translate-x-[-50%] translate-y-[-50%] gap-4 p-5 rounded-[22px] bg-white border border-slate-200 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)]"
             onCloseAutoFocus={(event) => event.preventDefault()}
           >
             <div className="flex items-center justify-between">
@@ -468,10 +486,10 @@ export default function Dashboard() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="INR">INR (₹)</SelectItem>
+                    <SelectItem value="INR">INR (â‚¹)</SelectItem>
                     <SelectItem value="USD">USD ($)</SelectItem>
-                    <SelectItem value="EUR">EUR (€)</SelectItem>
-                    <SelectItem value="GBP">GBP (£)</SelectItem>
+                    <SelectItem value="EUR">EUR (â‚¬)</SelectItem>
+                    <SelectItem value="GBP">GBP (Â£)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -497,7 +515,7 @@ export default function Dashboard() {
             {invites.map((invite) => (
               <div key={invite.id} className="dash-invite">
                 <div className="min-w-0">
-                  <p className="font-semibold text-[#0B1F3A] truncate">{invite.bookName}</p>
+                  <p className="font-semibold text-[#0B0F1F] truncate">{invite.bookName}</p>
                   <p className="text-xs text-slate-500">Invited as {roleLabel(invite.role)}</p>
                 </div>
                 <div className="flex gap-2 shrink-0">
@@ -624,7 +642,7 @@ export default function Dashboard() {
                       <span className="dash-skel" style={{ width: 52, height: 14, borderRadius: 6 }} aria-hidden />
                     ) : canSeeMoney && stat ? (
                       <span className={`byjan-money home-continue-amt ${netNeg ? 'is-out' : 'is-in'}`}>
-                        {netNeg ? '−' : ''}{symbol}{Math.abs(stat.net).toLocaleString()}
+                        {netNeg ? 'âˆ’' : ''}{symbol}{Math.abs(stat.net).toLocaleString()}
                       </span>
                     ) : (
                       <ChevronRight className="w-4 h-4 text-slate-300" />
@@ -642,7 +660,7 @@ export default function Dashboard() {
         {hasFeature('business') && businessTree.length > 0 && (
           <section className="home-continue">
             <div className="home-continue-head">
-              <h2>Business{tenant?.name ? ` · ${tenant.name}` : ''}</h2>
+              <h2>Business{tenant?.name ? ` Â· ${tenant.name}` : ''}</h2>
               <Link to="/books">Open</Link>
             </div>
             <div className="home-biz-row">
@@ -669,14 +687,14 @@ export default function Dashboard() {
             clearPendingCapture();
             if (bookId) rememberMoneyBook(bookId);
             if (extras?.duplicate) {
-              addToast('Same receipt — nothing new added', 'success');
+              addToast('Same receipt â€” nothing new added', 'success');
               if (bookId) navigate(`/book/${bookId}`);
               else void fetchData({ silent: true });
               return;
             }
             addToast(
               extras?.needsEdit
-                ? 'Could not read amount — saved as draft for you to edit'
+                ? 'Could not read amount â€” saved as draft for you to edit'
                 : 'Entry saved',
               extras?.needsEdit ? 'error' : 'success',
             );
@@ -775,7 +793,7 @@ export default function Dashboard() {
 
       {!canSeeMoney ? (
         <div className="dash-empty">
-          <p className="font-semibold text-[#0B1F3A]">Money is turned off for your account</p>
+          <p className="font-semibold text-[#0B0F1F]">Money is turned off for your account</p>
           <p className="text-sm text-slate-500 mt-1">Ask your super user to enable Money if you need access to money books.</p>
         </div>
       ) : (
@@ -784,7 +802,7 @@ export default function Dashboard() {
             <div>
               <p className="md3-kicker">Library</p>
               <h2>Your books</h2>
-              <p className="md3-sub">{visibleBooks.length} open · tap to open expenses</p>
+              <p className="md3-sub">{visibleBooks.length} open Â· tap to open expenses</p>
             </div>
             <div className="flex items-center gap-2">
               {books.some((book) => book.archived) && (
@@ -807,7 +825,7 @@ export default function Dashboard() {
             </div>
           ) : loadError && books.length === 0 ? (
             <div className="dash-empty">
-              <p className="font-semibold text-[#0B1F3A]">Could not load your money books</p>
+              <p className="font-semibold text-[#0B0F1F]">Could not load your money books</p>
               <p className="text-sm text-slate-500 mt-1">{loadError}</p>
               <button type="button" onClick={() => void fetchData()} className="byjan-btn mt-4">
                 <RefreshCw className="w-4 h-4" /> Retry
@@ -816,7 +834,7 @@ export default function Dashboard() {
           ) : books.length === 0 ? (
             <div className="dash-empty">
               <span className="md3-empty-icon"><IndianRupee className="w-6 h-6" /></span>
-              <h3 className="text-[15px] font-semibold text-[#0B1F3A]">No money books yet</h3>
+              <h3 className="text-[15px] font-semibold text-[#0B0F1F]">No money books yet</h3>
               <p className="ios-caption mt-1">A money book is a shared list of money in and money out. Create one, then add your first record.</p>
               <button type="button" onClick={() => setShowNewBook(true)} className="byjan-btn mt-4">
                 <Plus className="w-4 h-4" /> New money book
@@ -856,14 +874,14 @@ export default function Dashboard() {
           clearPendingCapture();
           if (bookId) rememberMoneyBook(bookId);
           if (extras?.duplicate) {
-            addToast('Same receipt — nothing new added', 'success');
+            addToast('Same receipt â€” nothing new added', 'success');
             if (bookId) navigate(`/book/${bookId}`);
             else void fetchData({ silent: true });
             return;
           }
           addToast(
             extras?.needsEdit
-              ? 'Could not read amount — saved as draft for you to edit'
+              ? 'Could not read amount â€” saved as draft for you to edit'
               : 'Shared entry saved',
             extras?.needsEdit ? 'error' : 'success',
           );

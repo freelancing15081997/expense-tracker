@@ -1,4 +1,4 @@
-import { Capacitor } from '@capacitor/core';
+﻿import { Capacitor } from '@capacitor/core';
 import { apiUrl } from './api';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { PushNotifications } from '@capacitor/push-notifications';
@@ -34,7 +34,7 @@ export class CapacitorService {
     try {
       if (isAndroid) {
         await StatusBar.setStyle({ style: Style.Light });
-        await StatusBar.setBackgroundColor({ color: '#0B1F3A' });
+        await StatusBar.setBackgroundColor({ color: '#3654FF' });
       }
 
       await this.initializePushNotifications();
@@ -42,7 +42,7 @@ export class CapacitorService {
       await this.checkNetworkStatus();
       
       this.initialized = true;
-      // Hide native splash as soon as the WebView is ready — no artificial 2s delay.
+      // Hide native splash as soon as the WebView is ready â€” no artificial 2s delay.
       void SplashScreen.hide({ fadeOutDuration: 180 });
       console.log('Capacitor initialized successfully');
     } catch (error) {

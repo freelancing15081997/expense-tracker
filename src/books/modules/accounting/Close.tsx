@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+﻿import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useBooks } from '../../context/BooksProvider';
 import { signedBalance } from '../../engine/chartOfAccounts';
@@ -21,7 +21,7 @@ export default function MonthEndClose() {
   const posted = journals.filter((j) => j.status === 'posted').length;
 
   const steps = useMemo(() => [
-    { id: 'bank', label: 'Bank reconciliation', ok: unrec.length === 0, href: '/books/banking', detail: unrec.length === 0 ? 'All bank journals marked reconciled' : `${unrec.length} unreconciled — open Banking and clear the statement difference` },
+    { id: 'bank', label: 'Bank reconciliation', ok: unrec.length === 0, href: '/books/banking', detail: unrec.length === 0 ? 'All bank journals marked reconciled' : `${unrec.length} unreconciled â€” open Banking and clear the statement difference` },
     { id: 'ar', label: 'AR review', ok: overdue.length === 0, href: '/books/collections', detail: overdue.length === 0 ? 'No overdue posted invoices' : `${overdue.length} overdue` },
     { id: 'ap', label: 'AP review', ok: unpaidBills.length === 0, href: '/books/payment-run', detail: unpaidBills.length === 0 ? 'No open posted bills' : `${unpaidBills.length} unpaid` },
     { id: 'drafts', label: 'Draft documents', ok: drafts.length === 0, href: '/books/invoices', detail: drafts.length === 0 ? 'No drafts' : `${drafts.length} still draft` },
@@ -57,7 +57,7 @@ export default function MonthEndClose() {
           {steps.map((step) => (
             <li key={step.id} className="px-4 py-3 flex items-center justify-between gap-3">
               <div>
-                <p className="text-sm font-semibold text-[#0B1F3A]">{step.label}</p>
+                <p className="text-sm font-semibold text-[#0B0F1F]">{step.label}</p>
                 <p className="text-xs text-slate-500">{step.detail}</p>
               </div>
               <div className="flex items-center gap-2">
@@ -90,7 +90,7 @@ export default function MonthEndClose() {
                 }
               }}
             >
-              {busy === current.id ? 'Closing…' : 'Close period'}
+              {busy === current.id ? 'Closingâ€¦' : 'Close period'}
             </IconBtn>
           )}
         </Card>

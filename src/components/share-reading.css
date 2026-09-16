@@ -1,4 +1,4 @@
-/* Share reading — Byjan ultra stage (scoped) */
+﻿/* Share reading â€” Byjan ultra stage (scoped) */
 
 .sr-root {
   position: fixed;
@@ -27,9 +27,9 @@
   border-radius: 28px 28px 0 0;
   border: 1px solid rgba(255, 255, 255, 0.14);
   background:
-    radial-gradient(120% 80% at 10% -10%, rgba(18, 184, 168, 0.4), transparent 52%),
+    radial-gradient(120% 80% at 10% -10%, rgba(54, 84, 255, 0.4), transparent 52%),
     radial-gradient(90% 60% at 100% 0%, rgba(255, 255, 255, 0.14), transparent 46%),
-    radial-gradient(70% 50% at 50% 120%, rgba(18, 184, 168, 0.12), transparent 55%),
+    radial-gradient(70% 50% at 50% 120%, rgba(54, 84, 255, 0.12), transparent 55%),
     linear-gradient(165deg, #1a2d48 0%, #0f1c30 42%, #09101c 100%);
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.16) inset,
@@ -76,9 +76,9 @@
   inset: 22px;
   border-radius: 28px;
   background:
-    linear-gradient(145deg, #1ce0cc 0%, #12B8A8 42%, #0B1F3A 100%);
+    linear-gradient(145deg, #1ce0cc 0%, #3654FF 42%, #0B0F1F 100%);
   box-shadow:
-    0 18px 40px -12px rgba(18, 184, 168, 0.55),
+    0 18px 40px -12px rgba(54, 84, 255, 0.55),
     0 1px 0 rgba(255, 255, 255, 0.35) inset;
   transform: rotateX(18deg) rotateY(-18deg);
   animation: sr-float 2.4s ease-in-out infinite;
@@ -88,8 +88,8 @@
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  border: 1.5px solid rgba(18, 184, 168, 0.35);
-  box-shadow: 0 0 0 8px rgba(18, 184, 168, 0.06);
+  border: 1.5px solid rgba(54, 84, 255, 0.35);
+  box-shadow: 0 0 0 8px rgba(54, 84, 255, 0.06);
   animation: sr-spin 4.5s linear infinite;
 }
 
@@ -106,7 +106,7 @@
   position: absolute;
   inset: -8px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(18, 184, 168, 0.28), transparent 68%);
+  background: radial-gradient(circle, rgba(54, 84, 255, 0.28), transparent 68%);
   filter: blur(8px);
   animation: sr-pulse 2s ease-in-out infinite;
 }
@@ -153,8 +153,8 @@
 .sr-meter-fill {
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #0B1F3A, #12B8A8 55%, #7ef0e0);
-  box-shadow: 0 0 18px rgba(18, 184, 168, 0.45);
+  background: linear-gradient(90deg, #0B0F1F, #3654FF 55%, #7ef0e0);
+  box-shadow: 0 0 18px rgba(54, 84, 255, 0.45);
   transition: width 280ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
@@ -201,9 +201,9 @@
 }
 
 .sr-book-card.is-on {
-  border-color: rgba(18, 184, 168, 0.55);
+  border-color: rgba(54, 84, 255, 0.55);
   background:
-    linear-gradient(135deg, rgba(18, 184, 168, 0.28), rgba(11, 31, 58, 0.35));
+    linear-gradient(135deg, rgba(54, 84, 255, 0.28), rgba(30, 45, 120, 0.35));
 }
 
 .sr-book-icon {
@@ -226,7 +226,7 @@
   color: #fff;
   background:
     linear-gradient(145deg, rgba(255,255,255,0.32), transparent 42%),
-    linear-gradient(160deg, #12B8A8 0%, #0B1F3A 78%);
+    linear-gradient(160deg, #3654FF 0%, #0B0F1F 78%);
   box-shadow: 0 14px 24px -14px rgba(0, 0, 0, 0.7), 0 1px 0 rgba(255,255,255,0.35) inset;
   transform: rotateX(14deg) rotateY(-12deg);
   animation: sr-tilt 3.2s ease-in-out infinite;
@@ -287,8 +287,8 @@
 }
 
 .sr-dup-card-new {
-  border-color: rgba(18, 184, 168, 0.35);
-  background: rgba(18, 184, 168, 0.1);
+  border-color: rgba(54, 84, 255, 0.35);
+  background: rgba(54, 84, 255, 0.1);
 }
 
 .sr-dup-label {
@@ -329,9 +329,9 @@
 }
 
 .sr-btn {
-  background: linear-gradient(180deg, #1ce0cc, #12B8A8);
+  background: linear-gradient(180deg, #1ce0cc, #3654FF);
   color: #06241f;
-  box-shadow: 0 12px 28px -14px rgba(18, 184, 168, 0.8);
+  box-shadow: 0 12px 28px -14px rgba(54, 84, 255, 0.8);
 }
 
 .sr-btn-ghost {
@@ -341,7 +341,7 @@
 }
 
 .sr-stage.is-failed .sr-orb-core {
-  background: linear-gradient(145deg, #fb7185, #9f1239 55%, #0B1F3A);
+  background: linear-gradient(145deg, #fb7185, #9f1239 55%, #0B0F1F);
 }
 
 @keyframes sr-up {
