@@ -122,7 +122,7 @@ async function parseReceiptNow(
   const sheet = isSpreadsheet(imageMime, receiptName);
   const isPdf = imageMime === 'application/pdf' || /\.pdf$/i.test(receiptName);
   const rawLen = String(launch.imageDataUrl || '').length;
-  // Spreadsheets / huge scans → structured path. Everyday UPI & receipts → OCR + Gemini.
+  // Spreadsheets / huge scans → structured path. Everyday UPI & receipts → on-device PP-OCRv4.
   const useStructuredPath = sheet || (isPdf && rawLen > 1_200_000) || rawLen > 2_400_000;
 
   const scrubPreview = (preview: CapturePreview): CapturePreview => ({
@@ -199,7 +199,7 @@ async function parseReceiptNow(
       };
     }
 
-    // Normal receipt / UPI → on-device OCR (instant when confident) + Gemini in parallel.
+    // Normal receipt / UPI → on-device PP-OCRv4 (or ML Kit) + local amount rules. No Gemini on share.
     const { prepareReceiptImage, uploadPreparedReceipt } = await import('../lib/money-receipts');
     const { localParseReceiptImage, prepareOcrImage } = await import('../lib/document-ocr');
 
@@ -222,136 +222,78 @@ async function parseReceiptNow(
       fileName: receiptName,
     }).catch(() => null);
 
-    const hintText = [launch.text || '', local?.text || ''].filter(Boolean).join('\n').slice(0, 2000);
+    onStatus('Reading amount, merchant & date…', 48);
 
-    onStatus('Reading amount, merchant & date…', 42);
-    let result = await safeProcess({
-      bookId,
-      text: hintText || launch.text || '',
-      receiptPath: '',
-      receiptName,
-      source: launch.source || 'share',
-      idempotencyKey: `parse_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
-      autoConfirm: true,
-      imageBase64,
-      imageMime,
-    });
+    // Prefer on-device OCR + deterministic ₹ parse. Skip Gemini for mobile share.
+    let preview = local && Number(local.amount || 0) > 0
+      ? scrubPreview({
+          ...draftPreview(launch, {
+            amountPaise: Math.round(local.amount * 100),
+            merchant: local.merchant || '',
+            description: local.description || local.merchant || receiptName,
+            paymentMethod: local.paymentMethod || 'upi',
+            direction: local.entryType === 'in' ? 'MONEY_IN' : 'MONEY_OUT',
+            date: local.date,
+            processingStatus: 'READY',
+            confidence: local.confidence || 'high',
+            receiptPath,
+            receiptName,
+            reasons: [],
+          }),
+          id: newMoneyId('cap'),
+        })
+      : scrubPreview(draftPreview(launch, {
+          receiptPath,
+          receiptName,
+          reasons: [],
+          // Keep OCR text for server-side PP-Structure / rules if amount not found locally.
+        }));
 
-    onStatus('Almost ready…', 70);
-    const uploaded = await uploadPromise;
-    if (uploaded) {
-      receiptPath = uploaded.receiptPath || receiptPath;
-      receiptName = uploaded.receiptName || receiptName;
-    }
-
-    let preview = result.preview
-      ? {
+    // If local OCR has text but no amount yet, ask server for rules/PP-Structure only (no vision image).
+    if (!(Number(preview.amountPaise || 0) > 0) && (local?.text || launch.text)) {
+      const hintText = [launch.text || '', local?.text || ''].filter(Boolean).join('\n').slice(0, 4000);
+      onStatus('Checking amount from text…', 62);
+      const result = await safeProcess({
+        bookId,
+        text: hintText,
+        receiptPath: '',
+        receiptName,
+        source: launch.source || 'share',
+        idempotencyKey: `parse_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+        autoConfirm: true,
+        // Intentionally omit imageBase64 so money-handlers skips Gemini vision.
+      });
+      if (result.preview && Number(result.preview.amountPaise || 0) > 0) {
+        preview = scrubPreview({
           ...result.preview,
           id: result.preview.id || newMoneyId('cap'),
           receiptPath: result.preview.receiptPath || receiptPath,
           receiptName: result.preview.receiptName || receiptName,
           reasons: [],
-        }
-      : draftPreview(launch, { receiptPath, receiptName, reasons: [] });
-
-    // Prefer local OCR when it found a ₹-labeled total and server invented a decoy
-    // (masked UPI tail like 112 from XX112@oksbi while receipt is ₹550).
-    const localPaise = local && local.amount > 0 ? Math.round(local.amount * 100) : 0;
-    const serverPaise = Number(preview.amountPaise || 0);
-    const ocrText = String(local?.text || hintText || '');
-    if (localPaise > 0 && serverPaise > 0 && localPaise !== serverPaise) {
-      const { amountAppearsAsRupee, reconcileVisionAmount } = await import('../lib/amount-parse');
-      const serverAmt = serverPaise / 100;
-      const localAmt = localPaise / 100;
-      const reconciled = reconcileVisionAmount(serverAmt, ocrText, {
-        amount: localAmt,
-        entryType: local?.entryType === 'in' ? 'in' : 'out',
-        description: local?.description || '',
-        merchant: local?.merchant || '',
-        paymentMethod: local?.paymentMethod || 'upi',
-        date: local?.date || '',
-        confidence: local?.confidence || 'medium',
-        score: Number(local?.score || (local?.confidence === 'high' ? 56 : 28)),
-      });
-      const preferLocal = reconciled === localAmt
-        || (amountAppearsAsRupee(ocrText, localAmt) && !amountAppearsAsRupee(ocrText, serverAmt))
-        || (local?.confidence === 'high' && Number(local?.score || 0) >= 48);
-      if (preferLocal) {
-        preview = {
-          ...preview,
-          amountPaise: localPaise,
-          merchant: local?.merchant || preview.merchant || '',
-          description: local?.description || preview.description || receiptName,
-          paymentMethod: local?.paymentMethod || preview.paymentMethod || 'upi',
-          direction: local?.entryType === 'in' ? 'MONEY_IN' : preview.direction,
-          processingStatus: 'READY',
-          confidence: local?.confidence || 'high',
-          reasons: [],
-        };
-      }
-    } else if (!serverPaise && localPaise > 0) {
-      preview = {
-        ...preview,
-        amountPaise: localPaise,
-        merchant: preview.merchant || local?.merchant || '',
-        description: preview.description || local?.description || receiptName,
-        paymentMethod: preview.paymentMethod || local?.paymentMethod || 'upi',
-        direction: local?.entryType === 'in' ? 'MONEY_IN' : preview.direction,
-        processingStatus: 'READY',
-        confidence: local?.confidence || 'medium',
-        reasons: [],
-      };
-    }
-
-    if (!(Number(preview.amountPaise || 0) > 0) && (receiptPath || imageBase64)) {
-      onStatus('Checking once more…', 82);
-      const retry = await safeProcess({
-        bookId,
-        text: hintText || launch.text || '',
-        receiptPath: receiptPath || '',
-        receiptName,
-        source: launch.source || 'share',
-        idempotencyKey: `parse_r2_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
-        autoConfirm: true,
-        imageBase64: imageBase64 || undefined,
-        imageMime,
-      });
-      if (retry.preview && Number(retry.preview.amountPaise || 0) > 0) {
-        preview = {
-          ...retry.preview,
-          id: retry.preview.id || preview.id || newMoneyId('cap'),
-          receiptPath: retry.preview.receiptPath || receiptPath,
-          receiptName: retry.preview.receiptName || receiptName,
-          reasons: [],
-        };
-        result = retry;
-      } else if (localPaise > 0) {
-        preview = {
-          ...preview,
-          amountPaise: localPaise,
-          merchant: preview.merchant || local?.merchant || '',
-          description: preview.description || local?.description || receiptName,
-          paymentMethod: preview.paymentMethod || local?.paymentMethod || 'upi',
-          processingStatus: 'READY',
-          reasons: [],
-        };
+        });
       }
     }
 
-    const cleaned = scrubPreview({
+    onStatus('Almost ready…', 78);
+    const uploaded = await uploadPromise;
+    if (uploaded) {
+      receiptPath = uploaded.receiptPath || receiptPath;
+      receiptName = uploaded.receiptName || receiptName;
+    }
+    preview = scrubPreview({
       ...preview,
       receiptPath: preview.receiptPath || receiptPath,
       receiptName: preview.receiptName || receiptName,
       reasons: [],
     });
+
     return {
-      preview: cleaned,
-      previews: result.previews?.length
-        ? result.previews.map((p) => scrubPreview({ ...p, reasons: [], receiptPath: p.receiptPath || receiptPath, receiptName: p.receiptName || receiptName }))
-        : [cleaned],
+      preview,
+      previews: [preview],
     };
   }
 
+  // Text-only share (no image)
   onStatus(sheet ? 'Importing rows…' : 'Reading amount, merchant & date…', 40);
   const result = await safeProcess({
     bookId,

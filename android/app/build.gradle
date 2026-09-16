@@ -56,7 +56,9 @@ dependencies {
     implementation 'com.google.firebase:firebase-messaging'
     implementation 'com.google.firebase:firebase-analytics'
     implementation 'com.google.android.gms:play-services-auth:21.3.0'
-    // On-device OCR for receipt / UPI share → draft (Gemini is fallback only)
+    // On-device PP-OCRv4 (Paddle-Lite) for receipt / UPI share — no Gemini on mobile path
+    implementation 'com.github.equationl.paddleocr4android:paddleocr4android:v1.2.9'
+    // Keep ML Kit as emergency fallback if Paddle init fails
     implementation 'com.google.mlkit:text-recognition:16.0.1'
     
     testImplementation "junit:junit:$junitVersion"

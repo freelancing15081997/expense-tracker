@@ -1,6 +1,6 @@
 /**
  * Local document OCR + deterministic amount parse.
- * Native ML Kit first; Gemini remains server-side fallback for hard cases.
+ * Native PP-OCRv4 (Paddle-Lite) first on Android; ML Kit fallback; no Gemini on share.
  */
 
 import { Capacitor, registerPlugin } from '@capacitor/core';
@@ -135,8 +135,11 @@ export async function localParseReceiptImage(
   return {
     ...best,
     text: [hintText, ocr.text].filter(Boolean).join('\n').slice(0, 4000),
-    engine: ocr.engine === 'mlkit' ? 'mlkit+rules' : best.engine,
-    confidence: best.confidence === 'high' || (ocr.engine === 'mlkit' && best.score && best.score >= 48)
+    engine: ocr.engine === 'ppocrv4' || ocr.engine === 'mlkit'
+      ? `${ocr.engine}+rules`
+      : best.engine,
+    confidence: best.confidence === 'high'
+      || ((ocr.engine === 'ppocrv4' || ocr.engine === 'mlkit') && best.score && best.score >= 48)
       ? 'high'
       : best.confidence,
   };
