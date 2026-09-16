@@ -26,8 +26,10 @@ import com.google.mlkit.vision.text.TextRecognition;
 import com.google.mlkit.vision.text.TextRecognizer;
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -36,6 +38,10 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.zip.DataFormatException;
+import java.util.zip.Inflater;
 
 /**
  * On-device OCR for shared receipts / UPI screenshots / PDF pages.
@@ -231,6 +237,87 @@ public class DocumentOcrPlugin extends Plugin {
         }
     }
 
+    /** Pull text from PDF content streams so CRED invoices don’t depend on OCR of the ₹ glyph. */
+    private String extractPdfEmbeddedText(byte[] bytes) {
+        if (bytes == null || bytes.length < 32) return "";
+        StringBuilder out = new StringBuilder();
+        try {
+            String latin = new String(bytes, StandardCharsets.ISO_8859_1);
+            int from = 0;
+            while (from < latin.length()) {
+                int streamAt = latin.indexOf("stream", from);
+                if (streamAt < 0) break;
+                int dataStart = streamAt + 6;
+                if (dataStart < latin.length() && latin.charAt(dataStart) == '\r') dataStart++;
+                if (dataStart < latin.length() && latin.charAt(dataStart) == '\n') dataStart++;
+                int end = latin.indexOf("endstream", dataStart);
+                if (end < 0) break;
+                if (end > dataStart && end - dataStart < 800_000) {
+                    byte[] chunk = new byte[end - dataStart];
+                    System.arraycopy(bytes, dataStart, chunk, 0, chunk.length);
+                    String inflated = inflatePdfStream(chunk);
+                    String cleaned = pdfStreamToText(inflated);
+                    if (cleaned.length() > 4) {
+                        if (out.length() > 0) out.append('\n');
+                        out.append(cleaned);
+                    }
+                }
+                from = end + 9;
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "PDF text extract failed", t);
+        }
+        return out.toString().replaceAll("\\s+", " ").trim();
+    }
+
+    private String inflatePdfStream(byte[] chunk) {
+        Inflater inf = new Inflater();
+        try {
+            inf.setInput(chunk);
+            byte[] buf = new byte[4096];
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            while (!inf.finished() && bos.size() < 200_000) {
+                int n;
+                try {
+                    n = inf.inflate(buf);
+                } catch (DataFormatException e) {
+                    return new String(chunk, StandardCharsets.ISO_8859_1);
+                }
+                if (n <= 0) break;
+                bos.write(buf, 0, n);
+            }
+            if (bos.size() > 16) return bos.toString("ISO-8859-1");
+        } catch (Throwable ignored) {
+            /* fall through */
+        } finally {
+            inf.end();
+        }
+        return new String(chunk, StandardCharsets.ISO_8859_1);
+    }
+
+    private String pdfStreamToText(String stream) {
+        if (stream == null || stream.isEmpty()) return "";
+        StringBuilder b = new StringBuilder();
+        Matcher m = Pattern.compile("\\((?:\\\\.|[^\\\\)]){1,120}\\)").matcher(stream);
+        while (m.find()) {
+            String lit = m.group();
+            lit = lit.substring(1, lit.length() - 1)
+                .replace("\\n", " ")
+                .replace("\\r", " ")
+                .replace("\\t", " ")
+                .replace("\\(", "(")
+                .replace("\\)", ")");
+            if (lit.trim().length() > 0) b.append(' ').append(lit);
+        }
+        if (b.length() < 12) {
+            for (int i = 0; i < stream.length(); i++) {
+                char c = stream.charAt(i);
+                if (c == '\u20b9' || c == '₹' || (c >= 32 && c < 127)) b.append(c);
+            }
+        }
+        return b.toString().replaceAll("\\s+", " ").trim();
+    }
+
     private Bitmap decodeImageBitmap(byte[] bytes) {
         BitmapFactory.Options bounds = new BitmapFactory.Options();
         bounds.inJustDecodeBounds = true;
@@ -329,29 +416,38 @@ public class DocumentOcrPlugin extends Plugin {
 
             List<Bitmap> bitmaps = new ArrayList<>();
             String engine = "ppocrv4";
+            String embedded = "";
             try {
                 if (looksLikePdf(bytes, mime)) {
-                    bitmaps.addAll(renderPdfPages(bytes));
-                    engine = "ppocrv4-pdf";
+                    embedded = extractPdfEmbeddedText(bytes);
+                    try {
+                        bitmaps.addAll(renderPdfPages(bytes));
+                    } catch (Throwable renderErr) {
+                        Log.w(TAG, "PdfRenderer failed, using embedded text", renderErr);
+                    }
+                    engine = embedded.length() > 20 ? "pdf-text" : "ppocrv4-pdf";
                 } else {
                     Bitmap one = decodeImageBitmap(bytes);
                     if (one != null) bitmaps.add(one);
                 }
             } catch (Throwable t) {
                 Log.e(TAG, "Decode/render failed", t);
-                main.post(() -> call.reject("Could not read document"));
-                return;
+                if (embedded.length() < 20) {
+                    main.post(() -> call.reject("Could not read document"));
+                    return;
+                }
             }
 
-            if (bitmaps.isEmpty()) {
+            if (bitmaps.isEmpty() && embedded.length() < 20) {
                 main.post(() -> call.reject("Could not decode document"));
                 return;
             }
 
             try {
                 StringBuilder all = new StringBuilder();
+                if (embedded.length() > 0) all.append(embedded);
                 float ms = 0;
-                boolean usedPaddle = ensurePaddle();
+                boolean usedPaddle = !bitmaps.isEmpty() && ensurePaddle();
                 for (int i = 0; i < bitmaps.size(); i++) {
                     Bitmap bmp = bitmaps.get(i);
                     String pageText;
@@ -364,9 +460,11 @@ public class DocumentOcrPlugin extends Plugin {
                             pageText = ocrBitmap(bmp);
                             engine = engine.contains("pdf") ? "mlkit-pdf" : "mlkit";
                         }
-                    } else {
+                    } else if (!bitmaps.isEmpty()) {
                         pageText = ocrBitmap(bmp);
                         engine = engine.contains("pdf") ? "mlkit-pdf" : "mlkit";
+                    } else {
+                        pageText = "";
                     }
                     if (pageText != null && !pageText.isEmpty()) {
                         if (all.length() > 0) all.append('\n');
