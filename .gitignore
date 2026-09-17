@@ -13,6 +13,7 @@ storage_requirements.txt
 vercel.env
 error.txt
 .vercel
+*firebase-adminsdk*.json
 
 # Android / Mobile
 android/.gradle

@@ -2,7 +2,7 @@
  * Closed-app tray: sign in, register FCM, leave the app, ping / add-entry, check shade.
  * Credentials: badrinathp316@gmail.com / 123456
  */
-import { execSync } from 'node:child_process';
+import { execSync, spawnSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -303,6 +303,23 @@ async function main() {
   const localShade = shadeDump();
   logStep('tray-local', { byjan: localShade.byjan, posted: localShade.posted }, true);
   try { adb(`shell cmd notification cancel ${PKG} 910017`); } catch { /* */ }
+
+  if (tokenMeta.pushToken) {
+    const sent = spawnSync(
+      'npx',
+      ['tsx', 'scripts/fcm-send.ts', tokenMeta.pushToken, 'Byjan', 'Teammate added an entry'],
+      { encoding: 'utf8', cwd: process.cwd(), shell: true },
+    );
+    let fcmLocal = {};
+    try { fcmLocal = JSON.parse(String(sent.stdout || '').trim().split('\n').pop() || '{}'); } catch { fcmLocal = { raw: String(sent.stdout || sent.stderr || '').slice(0, 200) }; }
+    logStep('local-fcm-send', { status: sent.status, result: fcmLocal }, sent.status === 0 && fcmLocal.ok === true);
+    await sleep(4000);
+    try { adb('shell cmd statusbar expand-notifications'); } catch { /* */ }
+    await sleep(800);
+    shot('e2e-closed-push-shade');
+    const afterLocal = shadeDump();
+    logStep('tray-after-local-fcm', { byjan: afterLocal.byjan, posted: afterLocal.posted, fcm: afterLocal.fcm }, afterLocal.byjan);
+  }
 
   let pingClosed = null;
   if (authSnap?.idToken) {
