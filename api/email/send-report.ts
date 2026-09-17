@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { readSession } from '../_lib/helpers';
 
+const FIREBASE_PROJECT = 'gen-lang-client-0616065043';
 const DEFAULT_FROM = 'byjanbooks@easypado.com';
 
 function mailFrom() {
@@ -23,6 +23,22 @@ function cors(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Headers', 'Authorization,Content-Type');
 }
 
+async function requireUid(req: VercelRequest) {
+  const header = String(req.headers.authorization || '');
+  const token = header.toLowerCase().startsWith('bearer ') ? header.slice(7).trim() : '';
+  if (!token) return '';
+  const { createRemoteJWKSet, jwtVerify } = await import('jose');
+  const { payload } = await jwtVerify(
+    token,
+    createRemoteJWKSet(new URL('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com')),
+    {
+      issuer: `https://securetoken.google.com/${FIREBASE_PROJECT}`,
+      audience: FIREBASE_PROJECT,
+    },
+  );
+  return String(payload.user_id || payload.sub || '');
+}
+
 function smtpConfig() {
   return {
     host: process.env.SMTP_HOST || 'smtp-relay.brevo.com',
@@ -35,17 +51,9 @@ function smtpConfig() {
   };
 }
 
-function cleanBase64(raw: string) {
+function cleanBase64(raw: unknown) {
   return String(raw || '').replace(/^data:application\/pdf[^,]*,/i, '').replace(/\s+/g, '');
 }
-
-export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: '8mb',
-    },
-  },
-};
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
@@ -60,7 +68,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    const uid = await readSession(req);
+    const uid = await requireUid(req);
     if (!uid) {
       json(res, 401, { error: 'Sign in required' });
       return;
