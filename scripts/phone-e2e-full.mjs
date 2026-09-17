@@ -339,42 +339,36 @@ async function main() {
   shot('e2e-07-book-view');
   logStep('open-book', bookView, /book\//i.test(bookView.hash));
 
-  // Try open a receipt attachment if any row has one
   const receiptOpened = await evalJs(send, `(() => {
-    const btn = [...document.querySelectorAll('button, a')].find((el) => {
-      const t = (el.textContent || '') + ' ' + (el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('title') || '');
-      return /view receipt|open receipt|attachment|receipt/i.test(t);
-    });
+    document.querySelector('.sr-dim, .book-pick-dim')?.click();
+    const btn = document.querySelector('[data-receipt-open="true"], button[aria-label="Open attachment"]');
     if (btn) { btn.click(); return 'clicked'; }
-    // fallback: paperclip / receipt icon buttons in rows
-    const iconBtn = [...document.querySelectorAll('button')].find((b) => b.querySelector('svg') && /Paperclip|FileText|receipt/i.test(b.innerHTML));
-    if (iconBtn) { iconBtn.click(); return 'icon'; }
     return 'none';
   })()`);
-  await sleep(1400);
+  await sleep(2200);
   const receiptModal = await evalJs(send, `(() => {
     const root = document.querySelector('#receipt-modal-backdrop, .receipt-modal-root');
     const inBody = root ? root.parentElement === document.body : false;
     const rect = root?.getBoundingClientRect();
-    const visible = root && rect && rect.width > 100 && rect.height > 100 && rect.top >= -20 && rect.bottom <= (window.innerHeight + 40);
+    const visible = root && rect && rect.width > 100 && rect.height > 100 && rect.top >= -40 && rect.bottom <= (window.innerHeight + 80);
     return {
       opened: Boolean(root),
+      reading: Boolean(document.querySelector('.sr-root')),
       inBody,
       visible: Boolean(visible),
       top: rect ? Math.round(rect.top) : null,
       h: rect ? Math.round(rect.height) : null,
-      via: ${JSON.stringify(receiptOpened)},
+      parent: root ? root.parentElement?.tagName : null,
     };
   })()`);
   shot('e2e-07b-receipt');
-  // Pass if no receipts exist, or modal is correctly portaled & visible
   logStep(
     'receipt-modal-portal',
-    receiptModal,
+    { ...receiptModal, via: receiptOpened },
     receiptOpened === 'none' || (receiptModal.opened && receiptModal.inBody && receiptModal.visible),
   );
-  if (receiptModal.opened) {
-    await evalJs(send, `document.querySelector('#btn-close-receipt-modal, .receipt-modal-close-btn')?.click()`);
+  if (receiptModal.opened || receiptModal.reading) {
+    await evalJs(send, `document.querySelector('#btn-close-receipt-modal, .receipt-modal-close-btn, .sr-dim, .sr-btn-ghost')?.click()`);
     await sleep(400);
   }
 

@@ -4389,6 +4389,12 @@ html[data-density="compact"] h1 {
   /* Keep tabs clear of the raised + button */
   padding-top: 18px;
 }
+.dash-fab-slot {
+  flex: 0 0 58px;
+  width: 58px;
+  height: 1px;
+  pointer-events: none;
+}
 .dash-tabbar .dash-tab {
   flex: 1 1 0;
   width: auto;

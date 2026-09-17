@@ -337,6 +337,7 @@ export default function Layout() {
             Books
           </MotionLink>
         )}
+        {showFab ? <span className="dash-fab-slot" aria-hidden /> : null}
         {hasFeature('money') && (
           <MotionLink to="/activity" className="dash-tab dash-tab-activity" data-on={onActivity} onClick={pulseNav} whileTap={reduceMotion ? undefined : { scale: 0.9, rotateX: 16 }} transition={tabSpring} style={{ transformPerspective: 700 }}>
             <Activity className="w-5 h-5" />

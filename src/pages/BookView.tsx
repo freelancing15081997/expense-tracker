@@ -2208,6 +2208,8 @@ export default function BookView() {
                                 disabled={openingReceiptId === exp.id}
                                 className="text-[#0ea396] hover:text-indigo-900 disabled:opacity-70"
                                 title="Open attachment"
+                                aria-label="Open attachment"
+                                data-receipt-open="true"
                               >
                                 {openingReceiptId === exp.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Paperclip className="w-3.5 h-3.5" />}
                               </button>
@@ -2357,6 +2359,8 @@ export default function BookView() {
                             disabled={openingReceiptId === exp.id}
                             className="entry-card-action"
                             title="Open attachment"
+                            aria-label="Open attachment"
+                            data-receipt-open="true"
                           >
                             {openingReceiptId === exp.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Paperclip className="w-3.5 h-3.5" />}
                           </button>
