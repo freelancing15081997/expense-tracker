@@ -400,9 +400,9 @@ export default function SettlementPaySheet({
             <>
               {requireSwipe && !payUnlocked ? (
                 <>
-                  <p className="sp-kicker" style={{ marginBottom: 8 }}>Swipe to unlock payment</p>
+                  <p className="sp-kicker" style={{ marginBottom: 8 }}>Slide to unlock payment</p>
                   <div
-                    className="sp-swipe"
+                    className={`sp-swipe${swipeX > 0.82 ? ' is-go' : ''}${swipeX > 0.08 ? ' is-drag' : ''}`}
                     onPointerDown={(e) => {
                       swipeStart.current = e.clientX;
                       (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
@@ -425,8 +425,12 @@ export default function SettlementPaySheet({
                       swipeStart.current = null;
                     }}
                   >
-                    <span className="sp-swipe-knob" style={{ left: `calc(6px + ${swipeX} * (100% - 76px))` }}>Pay</span>
-                    <span className="sp-swipe-hint">Swipe to choose UPI app</span>
+                    <span className="sp-swipe-track" aria-hidden />
+                    <span className="sp-swipe-fill" style={{ width: `${Math.max(18, swipeX * 100)}%` }} />
+                    <span className="sp-swipe-hint">{swipeX > 0.82 ? 'Release to pay' : 'Swipe to choose UPI app'}</span>
+                    <span className="sp-swipe-knob" style={{ left: `calc(6px + ${swipeX} * (100% - 76px))` }}>
+                      <img src="/logo.svg" alt="" />
+                    </span>
                   </div>
                 </>
               ) : (

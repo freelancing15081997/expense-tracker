@@ -61,7 +61,7 @@ export function buildUpiPayUri(params: UpiPayParams) {
   return `upi://pay?${q.toString()}`;
 }
 
-export type UpiAppId = 'generic' | 'gpay' | 'phonepe' | 'paytm' | 'bhim' | 'cred' | 'whatsapp';
+export type UpiAppId = 'generic' | 'gpay' | 'phonepe' | 'paytm' | 'bhim' | 'cred' | 'whatsapp' | 'amazonpay' | 'mobikwik';
 
 /** Android package names so Pay opens the chosen partner, not a random UPI app. */
 export const UPI_APP_PACKAGES: Record<UpiAppId, string | null> = {
@@ -72,6 +72,8 @@ export const UPI_APP_PACKAGES: Record<UpiAppId, string | null> = {
   bhim: 'in.org.npci.upiapp',
   cred: 'com.dreamplug.androidapp',
   whatsapp: 'com.whatsapp',
+  amazonpay: 'in.amazon.mShop.android.shopping',
+  mobikwik: 'com.mobikwik_new',
 };
 
 export const UPI_PAY_APPS: Array<{ id: UpiAppId; label: string }> = [
@@ -79,6 +81,8 @@ export const UPI_PAY_APPS: Array<{ id: UpiAppId; label: string }> = [
   { id: 'gpay', label: 'Google Pay' },
   { id: 'paytm', label: 'Paytm' },
   { id: 'cred', label: 'CRED' },
+  { id: 'amazonpay', label: 'Amazon Pay' },
+  { id: 'mobikwik', label: 'MobiKwik' },
   { id: 'whatsapp', label: 'WhatsApp' },
   { id: 'bhim', label: 'BHIM' },
   { id: 'generic', label: 'Any UPI app' },
@@ -94,6 +98,8 @@ export function buildAppUpiUri(app: UpiAppId, params: UpiPayParams) {
   if (app === 'bhim') return `bhim://upi/pay?${qs}`;
   if (app === 'cred') return `upi://pay?${qs}`;
   if (app === 'whatsapp') return `upi://pay?${qs}`;
+  if (app === 'amazonpay') return `upi://pay?${qs}`;
+  if (app === 'mobikwik') return `upi://pay?${qs}`;
   return base;
 }
 

@@ -1,5 +1,11 @@
 apply plugin: 'com.android.application'
 
+def byjanStoreFile = project.findProperty('BYJAN_RELEASE_STORE_FILE') ?: System.getenv('BYJAN_RELEASE_STORE_FILE')
+def byjanStorePassword = project.findProperty('BYJAN_RELEASE_STORE_PASSWORD') ?: System.getenv('BYJAN_RELEASE_STORE_PASSWORD')
+def byjanKeyAlias = project.findProperty('BYJAN_RELEASE_KEY_ALIAS') ?: System.getenv('BYJAN_RELEASE_KEY_ALIAS')
+def byjanKeyPassword = project.findProperty('BYJAN_RELEASE_KEY_PASSWORD') ?: System.getenv('BYJAN_RELEASE_KEY_PASSWORD')
+def byjanHasReleaseSigning = byjanStoreFile && byjanStorePassword && byjanKeyAlias && byjanKeyPassword
+
 android {
     namespace = "com.byjanbooks.com"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -18,11 +24,11 @@ android {
     }
     signingConfigs {
         release {
-            if (project.hasProperty('BYJAN_RELEASE_STORE_FILE')) {
-                storeFile file(BYJAN_RELEASE_STORE_FILE)
-                storePassword BYJAN_RELEASE_STORE_PASSWORD
-                keyAlias BYJAN_RELEASE_KEY_ALIAS
-                keyPassword BYJAN_RELEASE_KEY_PASSWORD
+            if (byjanHasReleaseSigning) {
+                storeFile file(byjanStoreFile)
+                storePassword byjanStorePassword
+                keyAlias byjanKeyAlias
+                keyPassword byjanKeyPassword
             }
         }
     }
@@ -30,7 +36,7 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-            if (project.hasProperty('BYJAN_RELEASE_STORE_FILE')) {
+            if (byjanHasReleaseSigning) {
                 signingConfig signingConfigs.release
             }
         }

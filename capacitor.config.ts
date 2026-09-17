@@ -49,15 +49,15 @@ const config: CapacitorConfig = {
       backgroundColor: '#0B1F3A',
     },
     LocalNotifications: {
-      smallIcon: 'ic_stat_icon_config_sample',
-      iconColor: '#0B1F3A',
+      smallIcon: 'ic_stat_byjan',
+      iconColor: '#F97316',
       sound: 'beep.wav',
     },
   },
   android: {
     allowMixedContent: false,
     captureInput: true,
-    webContentsDebuggingEnabled: true,
+    webContentsDebuggingEnabled: false,
   }
 };
 

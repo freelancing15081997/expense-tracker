@@ -27,7 +27,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { format } from 'date-fns';
 import { getCurrencySymbol } from '../lib/currency';
-import { CategoryBadge, CategoryIconMark } from '../lib/category-icons';
+import { CategoryBadge, CategoryIconMark, EntryFieldLabel, ENTRY_FIELD_ICONS, MONEY_KIND_VISUAL } from '../lib/category-icons';
 import { categoryForQuickAction, getPurposeTemplate, purposeFieldMeta, quickActionLabel, type QuickActionId } from '../lib/purpose-templates';
 import { suggestBookEvolution } from '../lib/book-evolution';
 import { bookInboundAddress, ledgerAppLink, openInviteButtonHtml, openLedgerButtonHtml, wrapByjanEmailHtml } from '../lib/inbound-mail';
@@ -62,6 +62,7 @@ import { buildCapturePreview } from '../lib/money-capture';
 import CapturePreviewSheet from '../components/CapturePreviewSheet';
 import ReceiptCaptureFlow, { type ReceiptLaunch } from '../components/ReceiptCaptureFlow';
 import SplitExpenseSheet from '../components/SplitExpenseSheet';
+import { ENTRY_PAY_METHODS, UpiBrandMark } from '../components/UpiBrandMark';
 import '../components/split-premium.css';
 import SettlementsPanel from '../components/SettlementsPanel';
 import VoiceEntrySheet from '../components/VoiceEntrySheet';
@@ -2734,7 +2735,10 @@ export default function BookView() {
             
                         <form onSubmit={handleSaveExpense} className="space-y-4">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {MONEY_KIND_OPTIONS.map((opt) => (
+                {MONEY_KIND_OPTIONS.map((opt) => {
+                  const visual = MONEY_KIND_VISUAL[opt.txType];
+                  const KindIcon = visual?.icon;
+                  return (
                   <button
                     key={opt.txType}
                     type="button"
@@ -2744,13 +2748,17 @@ export default function BookView() {
                       txType === opt.txType ? 'border-[#12B8A8] bg-[#12B8A8] text-white' : 'border-slate-200 text-slate-600',
                     )}
                   >
-                    <span className="block">{opt.label}</span>
-                    <span className={cn('block text-[10px] font-normal', txType === opt.txType ? 'text-white/70' : 'text-slate-400')}>{opt.hint}</span>
+                    <span className="flex items-center gap-1.5">
+                      {KindIcon ? <KindIcon className="w-3.5 h-3.5 shrink-0" strokeWidth={2.3} /> : null}
+                      <span>{opt.label}</span>
+                    </span>
+                    <span className={cn('block text-[10px] font-normal mt-0.5', txType === opt.txType ? 'text-white/70' : 'text-slate-400')}>{opt.hint}</span>
                   </button>
-                ))}
+                  );
+                })}
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Amount ({getCurrencySymbol(book.currency)})</label>
+                <EntryFieldLabel icon={ENTRY_FIELD_ICONS.amount}>Amount ({getCurrencySymbol(book.currency)})</EntryFieldLabel>
                 <input 
                   type="number" step="0.01" required autoFocus
                   value={amount} onChange={e=>setAmount(e.target.value)} 
@@ -2760,7 +2768,7 @@ export default function BookView() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Description</label>
+                <EntryFieldLabel icon={ENTRY_FIELD_ICONS.description}>Description</EntryFieldLabel>
                 <input 
                   type="text" required 
                   value={description} onChange={e=>setDescription(e.target.value)} 
@@ -2797,7 +2805,7 @@ export default function BookView() {
                 </div>
               )}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">{purposeFields.categoryLabel}</label>
+                <EntryFieldLabel icon={ENTRY_FIELD_ICONS.category}>{purposeFields.categoryLabel}</EntryFieldLabel>
                 {categoryOptions.length > 0 ? (
                   <div className="purpose-cat-row" role="listbox" aria-label={purposeFields.categoryLabel}>
                     {categoryOptions.slice(0, 10).map((cat) => (
@@ -2808,6 +2816,7 @@ export default function BookView() {
                         data-on={category === cat}
                         onClick={() => setCategory(cat)}
                       >
+                        <CategoryIconMark name={cat} />
                         {cat}
                       </button>
                     ))}
@@ -2839,30 +2848,44 @@ export default function BookView() {
                   />
                 )}
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Paid date</label>
-                  <input type="date" required value={entryDate} onChange={(e) => setEntryDate(e.target.value)} className="byjan-input" />
-                  <p className="mt-1 text-[11px] text-slate-500">
-                    {editingExpense
-                      ? `Receipt / payment date. Created ${formatDayLabel(expenseCreatedDay(editingExpense)) || 'when first saved'}.`
-                      : 'Date on the receipt or when money moved. Record created date is set automatically when you save.'}
-                  </p>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Payment method</label>
-                  <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} className="byjan-input">
-                    <option value="cash">Cash</option>
-                    <option value="card">Card</option>
-                    <option value="upi">UPI</option>
-                    <option value="bank">Bank transfer</option>
-                    <option value="wallet">Wallet</option>
-                  </select>
+              <div>
+                <EntryFieldLabel icon={ENTRY_FIELD_ICONS.date}>Paid date</EntryFieldLabel>
+                <input type="date" required value={entryDate} onChange={(e) => setEntryDate(e.target.value)} className="byjan-input" />
+                <p className="mt-1 text-[11px] text-slate-500">
+                  {editingExpense
+                    ? `Receipt / payment date. Created ${formatDayLabel(expenseCreatedDay(editingExpense)) || 'when first saved'}.`
+                    : 'Date on the receipt or when money moved. Record created date is set automatically when you save.'}
+                </p>
+              </div>
+              <div>
+                <EntryFieldLabel icon={ENTRY_FIELD_ICONS.payment}>Payment method</EntryFieldLabel>
+                <div className="entry-pay-grid" role="listbox" aria-label="Payment method">
+                  {ENTRY_PAY_METHODS.map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      className={`entry-pay-chip${paymentMethod === m.id ? ' is-on' : ''}`}
+                      onClick={() => setPaymentMethod(m.id)}
+                    >
+                      {m.apps.length ? (
+                        <span className="entry-pay-mini">
+                          {m.apps.slice(0, 3).map((app) => (
+                            <span key={app}>
+                              <UpiBrandMark app={app} size={20} />
+                            </span>
+                          ))}
+                        </span>
+                      ) : (
+                        <span className="entry-pay-cash" aria-hidden>₹</span>
+                      )}
+                      <span>{m.label}</span>
+                    </button>
+                  ))}
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Account</label>
+                  <EntryFieldLabel icon={ENTRY_FIELD_ICONS.account}>Account</EntryFieldLabel>
                   <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="byjan-input">
                     {readAccounts(book).map((acct) => (
                       <option key={acct.id} value={acct.id}>{acct.name}</option>
@@ -2888,6 +2911,7 @@ export default function BookView() {
                         data-on={purposeEntityType === ent}
                         onClick={() => setPurposeEntityType(ent)}
                       >
+                        <CategoryIconMark name={ent} />
                         {ent}
                       </button>
                     ))}
@@ -2895,7 +2919,7 @@ export default function BookView() {
                 </div>
               ) : null}
               <div className="relative">
-                <label className="block text-xs font-semibold text-slate-700 mb-1">{purposeFields.merchantLabel}</label>
+                <EntryFieldLabel icon={ENTRY_FIELD_ICONS.merchant}>{purposeFields.merchantLabel}</EntryFieldLabel>
                 <input
                   type="text"
                   value={merchant}
@@ -2923,11 +2947,11 @@ export default function BookView() {
                 )}
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">{purposeFields.tagsLabel}</label>
+                <EntryFieldLabel icon={ENTRY_FIELD_ICONS.tags}>{purposeFields.tagsLabel}</EntryFieldLabel>
                 <input type="text" value={tags} onChange={(e) => setTags(e.target.value)} className="byjan-input" placeholder="Comma-separated, e.g. trip, gst" />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Notes</label>
+                <EntryFieldLabel icon={ENTRY_FIELD_ICONS.notes}>Notes</EntryFieldLabel>
                 <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="byjan-input min-h-[72px]" placeholder={purposeFields.notesPlaceholder} />
               </div>
               <div className="flex flex-wrap gap-4 text-sm text-slate-700">

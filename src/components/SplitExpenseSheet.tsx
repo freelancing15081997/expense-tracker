@@ -1,8 +1,8 @@
-/** Premium Split sheet — payment-app depth, member select, live allocation. */
+/** Premium Split sheet — fill modes, live remaining, member select. */
 
 import React, { useMemo, useState } from 'react';
-import { Check, Equal, Layers, PencilLine, Percent, Save, Search, Users, UserCheck, X } from 'lucide-react';
-import { allocateSplit, buildMoneySplit, moneySplitToPersonSplits, peopleFromBook } from '../lib/money-splits';
+import { Check, Equal, Layers, Lock, PencilLine, Percent, Save, Search, Sparkles, Unlock, Users, UserCheck, X } from 'lucide-react';
+import { allocateSplit, buildMoneySplit, fillLockedAmounts, moneySplitToPersonSplits, peopleFromBook, type SplitFillMode } from '../lib/money-splits';
 import { saveMoneySplit } from '../lib/money-api';
 import { formatPaise, toPaise } from '../lib/money-core';
 import type { SplitMethod } from '../lib/money-flow';
@@ -16,6 +16,7 @@ type PersonRow = {
   percent: number;
   share: number;
   selected: boolean;
+  locked: boolean;
 };
 
 type Props = {
@@ -39,6 +40,12 @@ const METHODS: Array<{ id: SplitMethod; label: string; Icon: typeof Equal }> = [
   { id: 'shares', label: 'Shares', Icon: Layers },
 ];
 
+const FILL_MODES: Array<{ id: SplitFillMode; label: string; hint: string }> = [
+  { id: 'automatic', label: 'Automatic', hint: 'Everyone’s amount fills equally' },
+  { id: 'partial', label: 'Partial auto', hint: 'Lock a few amounts — the rest split' },
+  { id: 'manual', label: 'Manual', hint: 'Type every amount yourself' },
+];
+
 export default function SplitExpenseSheet({
   open,
   bookId,
@@ -54,6 +61,7 @@ export default function SplitExpenseSheet({
 }: Props) {
   const people = useMemo(() => peopleFromBook(book), [book]);
   const [method, setMethod] = useState<SplitMethod>('equal');
+  const [fillMode, setFillMode] = useState<SplitFillMode>('automatic');
   const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState('');
   const [rows, setRows] = useState<PersonRow[]>([]);
@@ -62,6 +70,7 @@ export default function SplitExpenseSheet({
     if (!open) return;
     setQuery('');
     setMethod('equal');
+    setFillMode('automatic');
     setRows(people.map((p) => ({
       uid: p.uid,
       name: p.name,
@@ -70,15 +79,36 @@ export default function SplitExpenseSheet({
       percent: Math.round(100 / Math.max(1, people.length)),
       share: 1,
       selected: true,
+      locked: false,
     })));
   }, [people, open]);
 
   const selected = useMemo(() => rows.filter((r) => r.selected), [rows]);
   const totalPaise = toPaise(amount);
-  const preview = allocateSplit(totalPaise, method, selected);
+
+  const effectiveFill: SplitFillMode = method === 'equal' ? 'automatic' : fillMode;
+  const rupeeFill = method === 'equal' || method === 'exact' || effectiveFill !== 'automatic';
+
+  const filled = useMemo(
+    () => fillLockedAmounts(totalPaise, selected, effectiveFill),
+    [totalPaise, selected, effectiveFill],
+  );
+
+  const participants = useMemo(
+    () => selected.map((r, i) => ({
+      ...r,
+      amountPaise: filled.amounts[i] ?? r.amountPaise,
+    })),
+    [selected, filled],
+  );
+
+  const preview = rupeeFill
+    ? allocateSplit(totalPaise, 'exact', participants)
+    : allocateSplit(totalPaise, method, selected);
+
   const allocated = preview.ok
     ? preview.allocations.reduce((s, a) => s + a.amountPaise, 0)
-    : selected.reduce((s, r) => s + Number(r.amountPaise || 0), 0);
+    : filled.amounts.reduce((s, n) => s + n, 0);
   const remaining = totalPaise - allocated;
 
   const filtered = useMemo(() => {
@@ -95,10 +125,21 @@ export default function SplitExpenseSheet({
   };
 
   const allocationFor = (uid: string, idxInSelected: number) => {
-    if (!preview.ok) return 0;
-    const hit = preview.allocations.find((a) => a.participantKey === uid);
-    if (hit) return hit.amountPaise;
-    return preview.allocations[idxInSelected]?.amountPaise || 0;
+    if (!rupeeFill && (method === 'percentage' || method === 'shares')) {
+      if (!preview.ok) return 0;
+      const hit = preview.allocations.find((a) => a.participantKey === uid);
+      if (hit) return hit.amountPaise;
+      return preview.allocations[idxInSelected]?.amountPaise || 0;
+    }
+    return filled.amounts[idxInSelected] || 0;
+  };
+
+  const lockAmount = (uid: string, rupees: number) => {
+    setFillMode((curr) => (curr === 'automatic' ? 'partial' : curr));
+    setMethod((curr) => (curr === 'equal' ? 'exact' : curr));
+    setRows((curr) => curr.map((r) => r.uid === uid
+      ? { ...r, amountPaise: Math.round(Number(rupees || 0) * 100), locked: true }
+      : r));
   };
 
   const save = async () => {
@@ -106,16 +147,18 @@ export default function SplitExpenseSheet({
       onToast('Select at least one member', 'error');
       return;
     }
-    if (!preview.ok) {
-      onToast(preview.error || 'Invalid split', 'error');
+    const ready = preview;
+    if (!ready.ok) {
+      onToast(ready.error || filled.error || 'Invalid split', 'error');
       return;
     }
+    const persistMethod: SplitMethod = rupeeFill ? 'exact' : method;
     const split = buildMoneySplit({
       expenseId,
       bookId,
       totalPaise,
-      method,
-      participants: selected,
+      method: persistMethod,
+      participants: persistMethod === 'exact' ? participants : selected,
     });
     if (!split) {
       onToast('Could not build split', 'error');
@@ -178,13 +221,42 @@ export default function SplitExpenseSheet({
               role="tab"
               aria-selected={method === m.id}
               className={method === m.id ? 'is-on' : ''}
-              onClick={() => setMethod(m.id)}
+              onClick={() => {
+                setMethod(m.id);
+                setFillMode(m.id === 'equal' ? 'automatic' : m.id === 'exact' ? 'partial' : fillMode);
+                if (m.id === 'equal') setRows((curr) => curr.map((r) => ({ ...r, locked: false })));
+              }}
             >
               <m.Icon className="w-4 h-4" strokeWidth={2.2} />
               {m.label}
             </button>
           ))}
         </div>
+
+        {method !== 'equal' ? (
+          <div className="sp-fill" role="radiogroup" aria-label="How amounts fill">
+            {FILL_MODES.map((mode) => (
+              <label key={mode.id} className={`sp-fill-opt${fillMode === mode.id ? ' is-on' : ''}`}>
+                <input
+                  type="radio"
+                  name="split-fill"
+                  checked={fillMode === mode.id}
+                  onChange={() => {
+                    setFillMode(mode.id);
+                    if (mode.id === 'automatic') setRows((curr) => curr.map((r) => ({ ...r, locked: false })));
+                  }}
+                />
+                <span className="sp-fill-check" aria-hidden>{fillMode === mode.id ? <Check className="w-3 h-3" strokeWidth={3} /> : null}</span>
+                <span>
+                  <strong>{mode.label}</strong>
+                  <em>{mode.hint}</em>
+                </span>
+              </label>
+            ))}
+          </div>
+        ) : (
+          <p className="sp-fill-note"><Sparkles className="w-3.5 h-3.5" /> Automatic — remaining always stays at zero</p>
+        )}
 
         <div className="sp-toolbar">
           <label className="sp-search">
@@ -209,8 +281,9 @@ export default function SplitExpenseSheet({
             filtered.map((row) => {
               const selectedIdx = selected.findIndex((s) => s.uid === row.uid);
               const liveAmt = row.selected ? allocationFor(row.uid, Math.max(0, selectedIdx)) : 0;
+              const canEditRupees = row.selected && rupeeFill && effectiveFill !== 'automatic';
               return (
-                <div key={row.uid} className={`sp-row ${row.selected ? 'is-on' : ''}`}>
+                <div key={row.uid} className={`sp-row ${row.selected ? 'is-on' : ''} ${row.locked ? 'is-locked' : ''}`}>
                   <button
                     type="button"
                     className="sp-check"
@@ -222,47 +295,55 @@ export default function SplitExpenseSheet({
                   <div className="sp-avatar" aria-hidden>{(row.name || '?').slice(0, 1).toUpperCase()}</div>
                   <div className="sp-meta">
                     <p className="sp-name">{row.name}</p>
-                    <p className="sp-email">{row.email}</p>
+                    <p className="sp-email">{row.locked ? 'Locked amount' : row.email}</p>
                   </div>
-                  {row.selected && method === 'exact' ? (
-                    <input
-                      className="sp-input"
-                      type="number"
-                      inputMode="decimal"
-                      placeholder="0"
-                      value={row.amountPaise ? row.amountPaise / 100 : ''}
-                      onChange={(e) => setRows((curr) => curr.map((r) => r.uid === row.uid
-                        ? { ...r, amountPaise: Math.round(Number(e.target.value || 0) * 100) }
-                        : r))}
-                    />
+                  {canEditRupees ? (
+                    <div className="sp-inline-edit">
+                      <button
+                        type="button"
+                        className="sp-lock"
+                        aria-label={row.locked ? 'Unlock amount' : 'Lock amount'}
+                        onClick={() => setRows((curr) => curr.map((r) => r.uid === row.uid ? { ...r, locked: !r.locked, amountPaise: liveAmt } : r))}
+                      >
+                        {row.locked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                      </button>
+                      <input
+                        className="sp-input"
+                        type="number"
+                        inputMode="decimal"
+                        placeholder="0"
+                        value={row.locked || effectiveFill === 'manual' ? (row.amountPaise ? row.amountPaise / 100 : '') : liveAmt / 100}
+                        onChange={(e) => lockAmount(row.uid, Number(e.target.value || 0))}
+                      />
+                    </div>
                   ) : null}
-                  {row.selected && method === 'percentage' ? (
+                  {row.selected && method === 'percentage' && !rupeeFill ? (
                     <div className="sp-inline-edit">
                       <input
                         className="sp-input sp-input-sm"
                         type="number"
                         value={row.percent}
                         onChange={(e) => setRows((curr) => curr.map((r) => r.uid === row.uid
-                          ? { ...r, percent: Number(e.target.value || 0) }
+                          ? { ...r, percent: Number(e.target.value || 0), locked: true }
                           : r))}
                       />
                       <span className="sp-share">{formatPaise(liveAmt, currencySymbol)}</span>
                     </div>
                   ) : null}
-                  {row.selected && method === 'shares' ? (
+                  {row.selected && method === 'shares' && !rupeeFill ? (
                     <div className="sp-inline-edit">
                       <input
                         className="sp-input sp-input-sm"
                         type="number"
                         value={row.share}
                         onChange={(e) => setRows((curr) => curr.map((r) => r.uid === row.uid
-                          ? { ...r, share: Number(e.target.value || 0) }
+                          ? { ...r, share: Number(e.target.value || 0), locked: true }
                           : r))}
                       />
                       <span className="sp-share">{formatPaise(liveAmt, currencySymbol)}</span>
                     </div>
                   ) : null}
-                  {row.selected && method === 'equal' ? (
+                  {row.selected && !canEditRupees && method !== 'percentage' && method !== 'shares' ? (
                     <span className="sp-share">{formatPaise(liveAmt, currencySymbol)}</span>
                   ) : null}
                   {!row.selected ? <span className="sp-share is-mute">—</span> : null}
@@ -272,9 +353,11 @@ export default function SplitExpenseSheet({
           )}
         </div>
 
-        {!preview.ok && selected.length > 0 ? (
-          <p className="sp-error">{preview.error}</p>
-        ) : null}
+        {(!preview.ok || !filled.ok) && selected.length > 0 ? (
+          <p className="sp-error">{preview.error || filled.error}</p>
+        ) : (
+          <p className="sp-hint">Example: total {currencySymbol}900, three people, one pays {currencySymbol}50 — the other two get {currencySymbol}425 each.</p>
+        )}
 
         <div className="sp-footer">
           <p className="sp-footer-meta">

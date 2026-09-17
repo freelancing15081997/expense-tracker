@@ -18,9 +18,10 @@ export default function BrandLogo({ size = 'sm', className = '' }: BrandLogoProp
       data-size={size}
     >
       <img
-        src="/logo.png"
+        src="/logo.svg"
         alt="Byjan — Trace Financials Easily"
         className="brand-logo-img"
+        onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/logo.png'; }}
       />
     </div>
   );

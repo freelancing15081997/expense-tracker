@@ -1,6 +1,7 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { listNotifications, markAllNotificationsRead, markNotificationRead, notificationPath } from '../lib/notifications';
+import { Bell, BookOpen, CheckCheck, Lock, Split, Wallet } from 'lucide-react';
+import { listNotifications, markAllNotificationsRead, markNotificationRead, notificationPath, notifyTimeAgo } from '../lib/notifications';
 import { useAuth } from '../context/AuthContext';
 
 const GROUPS = ['Payments', 'Splits', 'Books', 'Security', 'System'] as const;
@@ -12,6 +13,14 @@ function groupOf(row: Record<string, unknown>) {
   if (/security|login|lock/.test(hay)) return 'Security';
   if (/system|invite/.test(hay)) return 'System';
   return 'Books';
+}
+
+function GroupIcon({ group }: { group: string }) {
+  if (group === 'Payments') return <Wallet className="w-4 h-4" />;
+  if (group === 'Splits') return <Split className="w-4 h-4" />;
+  if (group === 'Security') return <Lock className="w-4 h-4" />;
+  if (group === 'System') return <Bell className="w-4 h-4" />;
+  return <BookOpen className="w-4 h-4" />;
 }
 
 export default function NotificationsPage() {
@@ -31,45 +40,69 @@ export default function NotificationsPage() {
     () => (filter === 'All' ? rows : rows.filter((r) => groupOf(r) === filter)),
     [rows, filter],
   );
+  const unread = rows.filter((r) => !r.read).length;
 
   return (
-    <div className="max-w-xl mx-auto pb-8">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Inbox</p>
-          <h1 className="font-display text-[26px] font-semibold text-[#0B0F1F] tracking-tight">Notifications</h1>
+    <div className="notify-page">
+      <div className="notify-page-head">
+        <div className="notify-page-brand">
+          <img src="/logo.svg" alt="" className="notify-byjan-mark" />
+          <div>
+            <p className="notify-kicker">Inbox</p>
+            <h1 className="notify-title">Notifications</h1>
+            <p className="notify-sub">{unread ? `${unread} unread` : 'You’re all caught up'}</p>
+          </div>
         </div>
-        <button type="button" className="text-xs font-semibold text-[#2440DB]" onClick={() => void markAllNotificationsRead().then(load)}>
+        <button type="button" className="notify-mark-all" onClick={() => void markAllNotificationsRead().then(load)}>
+          <CheckCheck className="w-4 h-4" />
           Mark all read
         </button>
       </div>
-      <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+      <div className="notify-filters" role="tablist" aria-label="Notification groups">
         {['All', ...GROUPS].map((g) => (
           <button
             key={g}
             type="button"
-            className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold border ${filter === g ? 'bg-[#12B8A8] text-white border-[#12B8A8]' : 'bg-white text-slate-600 border-slate-200'}`}
+            role="tab"
+            aria-selected={filter === g}
+            className={`notify-filter${filter === g ? ' is-on' : ''}`}
             onClick={() => setFilter(g as typeof filter)}
           >
+            {g !== 'All' ? <GroupIcon group={g} /> : <Bell className="w-3.5 h-3.5" />}
             {g}
           </button>
         ))}
       </div>
-      {filtered.length === 0 ? <p className="mt-6 text-sm text-slate-500">Nothing in this group.</p> : null}
-      <ul className="mt-4 space-y-2">
-        {filtered.map((n) => (
-          <li key={String(n.id)}>
-            <Link
-              to={notificationPath(n)}
-              onClick={() => { if (!n.read && n.id) void markNotificationRead(String(n.id)); }}
-              className={`block rounded-2xl border px-4 py-3 ${n.read ? 'bg-white border-slate-200' : 'bg-indigo-50 border-indigo-100'}`}
-            >
-              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">{groupOf(n)}</p>
-              <p className="text-sm font-semibold text-[#0B0F1F] mt-0.5">{String(n.bookName || 'Byjan')}</p>
-              <p className="text-[13px] text-slate-500">{String(n.senderName || 'Someone')} {String(n.action || 'updated the book').toLowerCase()}</p>
-            </Link>
-          </li>
-        ))}
+      {filtered.length === 0 ? <p className="notify-empty">Nothing in this group yet.</p> : null}
+      <ul className="notify-list">
+        {filtered.map((n) => {
+          const group = groupOf(n);
+          return (
+            <li key={String(n.id)}>
+              <Link
+                to={notificationPath(n)}
+                onClick={() => { if (!n.read && n.id) void markNotificationRead(String(n.id)); }}
+                className={`notify-card${n.read ? '' : ' is-unread'}`}
+              >
+                <span className={`notify-glyph tone-${group.toLowerCase()}`} aria-hidden>
+                  <img src="/logo.svg" alt="" />
+                </span>
+                <span className="notify-body">
+                  <span className="notify-card-top">
+                    <span className="notify-group">{group}</span>
+                    <span className="notify-time">{notifyTimeAgo(String(n.createdAt || n.created_at || ''))}</span>
+                  </span>
+                  <span className="notify-book">{String(n.bookName || 'Byjan')}</span>
+                  <span className="notify-copy">
+                    <b>{String(n.senderName || 'Someone')}</b> {String(n.action || 'updated the book').toLowerCase()}
+                  </span>
+                  {n.detail ? <span className="notify-detail">{String(n.detail)}</span> : null}
+                </span>
+                {!n.read ? <span className="notify-dot" aria-label="Unread" /> : null}
+              </Link>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );

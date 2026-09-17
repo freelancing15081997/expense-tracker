@@ -514,7 +514,11 @@ async function handleNotifications(req: VercelRequest, res: VercelResponse) {
         body: 'Test alert — pending payments and books are on Home',
         data: { url: '/#/' },
       });
-      apiJson(res, 200, { ok: Boolean(fcm?.ok), sent: Boolean(fcm?.ok), fcm: fcm?.ok ? 'sent' : (fcm?.error || 'failed') });
+      apiJson(res, 200, {
+        ok: Boolean(fcm.ok),
+        sent: Boolean(fcm.ok),
+        fcm: fcm.ok ? 'sent' : (fcm.error || 'failed'),
+      });
       return;
     }
 

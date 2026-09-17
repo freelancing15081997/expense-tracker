@@ -45,38 +45,24 @@ cd "C:\Users\pujar\Desktop\Expense Tracker\expense-tracker"
 
 ---
 
-### **Step 2: (Optional) Add Release Signing for Play Store**
+### **Step 2: Release signing + Play upload**
 
-If you want to build signed AAB for Play Store automatically:
+The **Publish to Google Play** workflow (`.github/workflows/play-publish.yml`) builds a signed AAB and, when `PLAY_SERVICE_ACCOUNT_JSON` is set, uploads it to the **internal** track as a draft.
 
-#### **Create/Use Your Keystore:**
+Keep the upload keystore off git (`android/app/byjan-upload.jks` and `android/play-signing.env` are gitignored). Back up both files somewhere safe.
 
-```bash
-# If you don't have one, create it:
-keytool -genkey -v -keystore byjan-release.keystore \
-  -alias byjan -keyalg RSA -keysize 2048 -validity 10000
-```
+#### **GitHub Actions secrets**
 
-#### **Convert Keystore to Base64:**
+| Secret | Value |
+| --- | --- |
+| `GOOGLE_SERVICES_JSON` | Base64 of `android/app/google-services.json` |
+| `KEYSTORE_FILE` | Base64 of `android/app/byjan-upload.jks` |
+| `KEYSTORE_PASSWORD` | From `android/play-signing.env` |
+| `KEY_ALIAS` | `byjan` |
+| `KEY_PASSWORD` | Same as store password unless you set a different key password |
+| `PLAY_SERVICE_ACCOUNT_JSON` | Raw JSON of a Play Developer API service account (not base64) |
 
-**On Windows (PowerShell):**
-```powershell
-[Convert]::ToBase64String([IO.File]::ReadAllBytes("byjan-release.keystore"))
-```
-
-#### **Add Signing Secrets to GitHub:**
-
-1. Go to: Settings → Secrets and variables → Actions
-2. Add these secrets:
-
-```
-KEYSTORE_FILE              = [base64 of keystore file]
-KEYSTORE_PASSWORD          = [your keystore password]
-KEY_ALIAS                  = byjan
-KEY_PASSWORD               = [your key password]
-```
-
-#### **Update Workflow (I'll do this for you if you want signed builds)**
+Manual run: **Actions → Publish to Google Play → Run workflow** (track `internal`, draft `true`). Tag `v*` also triggers it.
 
 ---
 
@@ -120,21 +106,14 @@ KEY_PASSWORD               = [your key password]
 
 ## 🏪 Deploy to Play Store
 
-### **Option 1: Manual (Current Setup)**
+Google does **not** let CI create the first app listing. Create **Byjan** once in [Play Console](https://play.google.com/console) with package `com.byjanbooks.com`, finish the store listing, then let GitHub upload AABs.
 
-1. Push code to `main` branch
-2. Wait for build to complete
-3. Download `app-release-bundle.aab` from artifacts
-4. Upload to Play Store Console
-
-### **Option 2: Automatic Deploy (Advanced)**
-
-I can set up automatic deployment to Play Store. You'll need:
-- Google Play Service Account
-- Upload key configured
-- Play Store API access
-
-Let me know if you want this!
+1. Create the app (default language, app or game, free/paid).
+2. Turn on **Play App Signing** (Google holds the app signing key; you keep the upload key).
+3. Fill listing, Data safety, content rating, target audience, and privacy policy `https://easypado.com/privacy.html`.
+4. Enable **Google Play Android Developer API** on a Google Cloud project, create a service account, download its JSON, and in Play Console → Users and permissions grant that account permission to release to testing tracks.
+5. Add the GitHub secrets above.
+6. Run **Publish to Google Play**. First upload should stay **internal testing / draft** until you add testers and complete the listing.
 
 ---
 

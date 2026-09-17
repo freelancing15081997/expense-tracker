@@ -4,6 +4,10 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.drawable.Drawable;
 import android.media.AudioAttributes;
 import android.media.RingtoneManager;
 import android.net.Uri;
@@ -11,6 +15,7 @@ import android.os.Build;
 import android.util.Log;
 
 import androidx.core.app.NotificationCompat;
+import androidx.core.content.ContextCompat;
 
 import com.google.firebase.messaging.RemoteMessage;
 
@@ -100,7 +105,8 @@ public class FirebaseMessagingService extends com.capacitorjs.plugins.pushnotifi
         Uri defaultSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
         NotificationCompat.Builder notificationBuilder = new NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_byjan)
-            .setColor(0xFF0B1F3A)
+            .setLargeIcon(byjanLargeIcon())
+            .setColor(0xFFF97316)
             .setContentTitle(title != null ? title : "Byjan")
             .setContentText(messageBody)
             .setStyle(new NotificationCompat.BigTextStyle().bigText(messageBody))
@@ -116,5 +122,26 @@ public class FirebaseMessagingService extends com.capacitorjs.plugins.pushnotifi
         NotificationManager notificationManager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         ensureChannel(notificationManager);
         notificationManager.notify(requestCode, notificationBuilder.build());
+    }
+
+    private Bitmap byjanLargeIcon() {
+        try {
+            Bitmap launcher = BitmapFactory.decodeResource(getResources(), R.mipmap.ic_launcher);
+            if (launcher != null) {
+                return Bitmap.createScaledBitmap(launcher, 192, 192, true);
+            }
+        } catch (Exception ignored) {}
+        int notifyId = getResources().getIdentifier("ic_byjan_notify", "drawable", getPackageName());
+        if (notifyId != 0) {
+            Bitmap png = BitmapFactory.decodeResource(getResources(), notifyId);
+            if (png != null) return Bitmap.createScaledBitmap(png, 192, 192, true);
+        }
+        Drawable d = ContextCompat.getDrawable(this, R.drawable.ic_byjan_color);
+        if (d == null) return null;
+        Bitmap bitmap = Bitmap.createBitmap(192, 192, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+        d.setBounds(0, 0, 192, 192);
+        d.draw(canvas);
+        return bitmap;
     }
 }

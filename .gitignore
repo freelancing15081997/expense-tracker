@@ -28,6 +28,7 @@ android/app/debug/
 # android/app/google-services.json  # Temporarily allowing for development
 android/app/*.keystore
 android/app/*.jks
+android/play-signing.env
 android/gradle.properties
 !android/gradle.properties.template
 

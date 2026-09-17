@@ -3,10 +3,10 @@ import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { logout } from '../lib/firebase';
-import { Bell, CheckCircle2, X, Mail, LayoutDashboard, Settings, BookText, Plus, ScanLine, PenLine, Mic, Activity } from 'lucide-react';
+import { Bell, CheckCircle2, X, LayoutDashboard, Settings, BookText, Plus, ScanLine, PenLine, Mic, Activity } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { listNotifications, markNotificationRead, notificationPath } from '../lib/notifications';
+import { listNotifications, markNotificationRead, notificationPath, notifyTimeAgo } from '../lib/notifications';
 import { warmSearchCatalog } from '../lib/search-catalog';
 import BrandLogo from './BrandLogo';
 import GlobalSearch, { SearchTrigger } from './GlobalSearch';
@@ -265,9 +265,12 @@ export default function Layout() {
           <div className="ios-notify-sheet">
             <div className="ios-notify-handle" aria-hidden />
             <div className="ios-notify-head">
-              <div>
-                <p className="ios-notify-kicker">Inbox</p>
-                <h2 className="ios-notify-title">Notifications</h2>
+              <div className="notify-page-brand is-sheet">
+                <img src="/logo.svg" alt="" className="notify-byjan-mark" />
+                <div>
+                  <p className="ios-notify-kicker">Inbox</p>
+                  <h2 className="ios-notify-title">Notifications</h2>
+                </div>
               </div>
               <button
                 type="button"
@@ -294,12 +297,13 @@ export default function Layout() {
                       className={cn('ios-notify-row', !notif.read && 'is-unread')}
                     >
                     <span className="ios-notify-glyph">
-                      {notif.kind === 'inbound' ? <Mail className="w-4 h-4" /> : <Bell className="w-4 h-4" />}
+                      <img src="/logo.svg" alt="" />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="ios-notify-book">{notif.bookName || 'Money book'}</span>
+                      <span className="ios-notify-book">{notif.bookName || 'Byjan'}</span>
                       <span className="ios-notify-copy"><b>{notif.senderName || 'Someone'}</b> {String(notif.action || 'updated the book').toLowerCase()}.</span>
                       {notif.detail ? <span className="ios-notify-detail">{notif.detail}</span> : null}
+                      <span className="notify-time">{notifyTimeAgo(String(notif.createdAt || ''))}</span>
                     </span>
                     {!notif.read && (
                       <button type="button" className="ios-notify-read" onClick={(e) => { e.preventDefault(); e.stopPropagation(); void handleMarkAsRead(notif.id); }} title="Mark as read">
@@ -310,6 +314,13 @@ export default function Layout() {
                 ))
               )}
             </div>
+            <Link
+              to="/notifications"
+              className="notify-see-all"
+              onClick={() => setNotificationsPanelOpen(false)}
+            >
+              See all notifications
+            </Link>
           </div>
         </>
       )}

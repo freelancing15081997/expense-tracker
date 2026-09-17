@@ -79,11 +79,30 @@ jobs:
           cd android
           ./gradlew assembleDebug --no-daemon
 
+      - name: Decode upload keystore
+        if: github.ref == 'refs/heads/main'
+        env:
+          KEYSTORE_FILE: ${{ secrets.KEYSTORE_FILE }}
+        run: |
+          if [ -n "$KEYSTORE_FILE" ]; then
+            echo "$KEYSTORE_FILE" | base64 -d > android/app/byjan-upload.jks
+          fi
+
       - name: Build Release AAB (for Play Store)
         if: github.ref == 'refs/heads/main'
+        env:
+          KEYSTORE_FILE: ${{ secrets.KEYSTORE_FILE }}
+          BYJAN_RELEASE_STORE_FILE: ${{ github.workspace }}/android/app/byjan-upload.jks
+          BYJAN_RELEASE_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          BYJAN_RELEASE_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          BYJAN_RELEASE_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           cd android
-          ./gradlew bundleRelease --no-daemon
+          if [ -n "$KEYSTORE_FILE" ]; then
+            ./gradlew bundleRelease --no-daemon
+          else
+            echo "Skipping signed bundle — add KEYSTORE_FILE and related secrets, or run the Publish to Google Play workflow."
+          fi
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
@@ -97,6 +116,7 @@ jobs:
         with:
           name: app-release-bundle
           path: android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: ignore
 
       - name: Get APK Info
         run: |

@@ -19,7 +19,50 @@ export function buildEqualPersonSplits(amount: number, book: Record<string, unkn
   return equalSplitShares(toPaise(amount), people);
 }
 
-/** Allocate totalPaise across participants; remainder goes to first row (safe currency rounding). */
+export type SplitFillMode = 'automatic' | 'partial' | 'manual';
+
+/** Equalize remaining after some members are locked (e.g. ₹50 of ₹900, rest split). */
+export function fillLockedAmounts(
+  totalPaise: number,
+  rows: Array<{ amountPaise?: number; locked?: boolean }>,
+  mode: SplitFillMode,
+): { amounts: number[]; ok: boolean; error?: string } {
+  const total = Math.round(totalPaise);
+  const n = rows.length;
+  if (!n) return { amounts: [], ok: false, error: 'Add at least one participant' };
+  if (total <= 0) return { amounts: rows.map(() => 0), ok: false, error: 'Expense total must be greater than zero' };
+
+  if (mode === 'automatic') {
+    const base = Math.floor(total / n);
+    const amounts = rows.map(() => base);
+    amounts[0] += total - base * n;
+    return { amounts, ok: true };
+  }
+
+  if (mode === 'manual') {
+    const amounts = rows.map((r) => Math.max(0, Math.round(Number(r.amountPaise || 0))));
+    const sum = amounts.reduce((s, a) => s + a, 0);
+    if (sum !== total) {
+      return { amounts, ok: false, error: `Allocated ${fromPaise(sum)} of ${fromPaise(total)}. Remaining ${fromPaise(total - sum)}` };
+    }
+    return { amounts, ok: true };
+  }
+
+  const amounts = rows.map((r) => (r.locked ? Math.max(0, Math.round(Number(r.amountPaise || 0))) : 0));
+  const freeIdx = rows.map((r, i) => (r.locked ? -1 : i)).filter((i) => i >= 0);
+  const lockedSum = amounts.reduce((s, a) => s + a, 0);
+  if (lockedSum > total) return { amounts, ok: false, error: 'Locked amounts are more than the total' };
+  if (!freeIdx.length) {
+    if (lockedSum !== total) return { amounts, ok: false, error: 'Unlock a member so the rest can fill automatically' };
+    return { amounts, ok: true };
+  }
+  const rest = total - lockedSum;
+  const base = Math.floor(rest / freeIdx.length);
+  freeIdx.forEach((i) => { amounts[i] = base; });
+  amounts[freeIdx[0]] += rest - base * freeIdx.length;
+  return { amounts, ok: true };
+}
+
 export function allocateSplit(
   totalPaise: number,
   method: SplitMethod,

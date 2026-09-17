@@ -1665,7 +1665,7 @@ export async function ledgerSaveExpense(
   bookId: string,
   expense: Record<string, unknown>,
   opts?: { insertOnly?: boolean; allowDuplicateHash?: boolean },
-) {
+): Promise<{ expense: Record<string, unknown> & { id: string }; created: boolean }> {
   const id = text(expense.id) || newLedgerId();
   const row: Record<string, unknown> = { ...expense, id };
   // User confirmed "Different entry" — keep original fingerprint for audit, but free the

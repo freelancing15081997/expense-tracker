@@ -3,7 +3,7 @@ import { summarizeExpenses, whatIfReduceCategory } from '../src/lib/money-report
 import { parseNaturalLanguageSearch, detectAnomalies, applyUserRules } from '../src/lib/money-intelligence';
 import { buildCapturePreview } from '../src/lib/money-capture';
 import { parseBankSms } from '../src/lib/bridge-automations';
-import { buildEqualPersonSplits, suggestSettlements } from '../src/lib/money-splits';
+import { buildEqualPersonSplits, fillLockedAmounts, suggestSettlements } from '../src/lib/money-splits';
 import { learnRuleFromCorrection, buildEvidenceTrail, equalSplitShares } from '../src/lib/money-helpers';
 import { nearDupeIds } from '../src/lib/ledger-advanced';
 import { matchDuplicateExpenses } from '../src/lib/duplicate-match';
@@ -76,6 +76,14 @@ const book = { roles: { a: { email: 'a@x.com' }, b: { email: 'b@x.com' } } };
 const personSplits = buildEqualPersonSplits(100, book).map((s, i) => ({ ...s, paidPaise: i === 0 ? 10000 : 0 }));
 const suggested = suggestSettlements([{ id: '1', personSplits }], [], [{ uid: 'a', name: 'A' }, { uid: 'b', name: 'B' }]);
 assert(suggested.length >= 1, 'suggests settlement');
+const locked = fillLockedAmounts(90000, [
+  { amountPaise: 5000, locked: true },
+  { amountPaise: 0, locked: false },
+  { amountPaise: 0, locked: false },
+], 'partial');
+assert(locked.ok && locked.amounts[0] === 5000 && locked.amounts[1] === 42500 && locked.amounts[2] === 42500, '₹50 of ₹900 remaining equalizes');
+const auto3 = fillLockedAmounts(90000, [{}, {}, {}], 'automatic');
+assert(auto3.ok && auto3.amounts.reduce((s, n) => s + n, 0) === 90000, 'automatic 3-way totals 900');
 
 console.log('Evidence trail');
 const trail = buildEvidenceTrail({ source: 'email', upiRef: 'UTR123', category: 'Food', entryType: 'out' });

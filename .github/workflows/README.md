@@ -28,11 +28,14 @@ Every time you push code:
 For builds to work, you need:
 - `GOOGLE_SERVICES_JSON` - Your Firebase configuration (base64 encoded)
 
-Optional for signed releases:
-- `KEYSTORE_FILE` - Your release keystore (base64 encoded)
-- `KEYSTORE_PASSWORD` - Keystore password
-- `KEY_ALIAS` - Key alias
-- `KEY_PASSWORD` - Key password
+Optional for signed Play Store uploads:
+- `KEYSTORE_FILE` — upload keystore, base64 encoded
+- `KEYSTORE_PASSWORD` — keystore password
+- `KEY_ALIAS` — key alias (`byjan`)
+- `KEY_PASSWORD` — key password
+- `PLAY_SERVICE_ACCOUNT_JSON` — Play Developer API service-account JSON (plain text)
+
+Run **Actions → Publish to Google Play** after those secrets exist. The first Play Console listing still has to be created by hand.
 
 ### See Also
 
