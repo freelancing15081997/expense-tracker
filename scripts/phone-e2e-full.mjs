@@ -31,7 +31,7 @@ function shot(name) {
   try {
     adb('shell screencap -p /sdcard/byjan-e2e.png');
     const dest = join(OUT, `${name}.png`);
-    execSync(`adb -s ${SERIAL} pull /sdcard/byjan-e2e.png "${dest}"`, { stdio: 'pipe' });
+    execSync(`"${ADB}" -s ${SERIAL} pull /sdcard/byjan-e2e.png "${dest}"`, { stdio: 'pipe' });
     copyFileSync(dest, join(process.cwd(), `tmp-phone-${name}.png`));
   } catch (err) {
     report.fails.push(`shot:${name}:${err.message}`);
@@ -83,7 +83,7 @@ function logStep(name, data, pass = true) {
 }
 
 async function ensureDevice() {
-  const list = execSync('adb devices', { encoding: 'utf8' });
+  const list = execSync(`"${ADB}" devices`, { encoding: 'utf8' });
   if (!list.includes(SERIAL)) {
     throw new Error(`Device ${SERIAL} not connected. adb devices:\n${list}`);
   }
@@ -91,25 +91,34 @@ async function ensureDevice() {
 
 async function attachWebview() {
   adb(`shell am force-stop ${PKG}`);
+  await sleep(800);
   try {
     adb(`shell am start -n ${PKG}/com.byjanbooks.com.MainActivity`);
   } catch {
     adb(`shell monkey -p ${PKG} -c android.intent.category.LAUNCHER 1`);
   }
-  await sleep(3500);
+  await sleep(4500);
   let pid = '';
-  for (let i = 0; i < 8; i += 1) {
-    pid = adb(`shell pidof ${PKG}`);
+  for (let i = 0; i < 10; i += 1) {
+    pid = String(adb(`shell pidof ${PKG}`) || '').trim().split(/\s+/)[0];
     if (pid) break;
     await sleep(800);
   }
   if (!pid) throw new Error('app pid missing');
   try { execSync(`"${ADB}" -s ${SERIAL} forward --remove tcp:9222`, { stdio: 'ignore' }); } catch { /* */ }
   adb(`forward tcp:9222 localabstract:webview_devtools_remote_${pid}`);
-  await sleep(600);
-  const list = await fetch('http://127.0.0.1:9222/json').then((r) => r.json());
-  const page = list.find((t) => t.type === 'page' && t.webSocketDebuggerUrl) || list[0];
-  if (!page) throw new Error('no webview page');
+  let page = null;
+  for (let i = 0; i < 15; i += 1) {
+    await sleep(700);
+    try {
+      const list = await fetch('http://127.0.0.1:9222/json').then((r) => r.json());
+      page = (Array.isArray(list) ? list : []).find((t) => t.type === 'page' && t.webSocketDebuggerUrl) || list[0];
+      if (page?.webSocketDebuggerUrl) break;
+    } catch {
+      /* webview inspector not ready yet */
+    }
+  }
+  if (!page?.webSocketDebuggerUrl) throw new Error(`no webview page for pid ${pid}`);
   return page.webSocketDebuggerUrl;
 }
 
@@ -452,7 +461,12 @@ async function main() {
   logStep('books-dashboard', booksPage, /expenses/i.test(booksPage.hash) && booksPage.activityTab === true);
 
   // Open first book + purpose quick actions + receipt
-  await evalJs(send, `document.querySelector('a[href*="book/"]')?.click()`);
+  await evalJs(send, `(() => {
+    const links = [...document.querySelectorAll('a[href*="book/"]')];
+    const ledger = links.find((a) => !/pay=/.test(a.getAttribute('href') || ''));
+    (ledger || links[0])?.click();
+    return Boolean(ledger || links[0]);
+  })()`);
   await sleep(2200);
   const bookView = await evalJs(send, `(() => ({
     hash: location.hash,

@@ -3,6 +3,7 @@ package com.byjanbooks.com;
 import android.app.NotificationManager;
 import android.content.Intent;
 import android.os.Bundle;
+import android.webkit.WebView;
 
 import com.getcapacitor.BridgeActivity;
 
@@ -15,6 +16,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(AppLockPlugin.class);
         registerPlugin(VoiceCapturePlugin.class);
         super.onCreate(savedInstanceState);
+        WebView.setWebContentsDebuggingEnabled(true);
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         FirebaseMessagingService.ensureChannel(nm);
         ShareReceiverPlugin.ingestIntent(this, getIntent());
