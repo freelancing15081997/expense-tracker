@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { useAppPrefs } from '../context/AppPrefsContext';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { upsertMe } from '../lib/me';
-import { Save, AlertCircle, CheckCircle2, Shield, BellRing, CircleHelp, UserX, Trash2 } from 'lucide-react';
+import { Save, AlertCircle, CheckCircle2, Shield, BellRing, CircleHelp, UserX, Trash2, Settings } from 'lucide-react';
 import { disableLock, lockConfig, lockIsEnabledFor, setLockPin, updateLockOptions } from '../lib/app-lock';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 import { useBooksTenantMeta } from '../lib/tenant';
@@ -321,6 +321,7 @@ export default function Settings() {
       <section className="byjan-card overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-200 bg-[#F8FAFC]">
           <h2 className="text-base font-semibold text-slate-900">Display</h2>
+          <p className="text-xs text-slate-500 mt-1">These apply to the whole app immediately — Home, books, Help, and this screen.</p>
         </div>
         <div className="p-5 grid md:grid-cols-2 gap-5">
           <Field label="Density">
@@ -332,7 +333,7 @@ export default function Settings() {
               </SelectContent>
             </Select>
           </Field>
-          <Field label="Icon size" hint="Toolbar, filters, export, and home action icons">
+          <Field label="Icon size" hint="Every Lucide icon in the app, including tabs and toolbars.">
             <Select value={prefs.iconSize} onValueChange={(v) => setPref('iconSize', v as AppPrefs['iconSize'])}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -342,7 +343,7 @@ export default function Settings() {
               </SelectContent>
             </Select>
           </Field>
-          <Field label="Text size">
+          <Field label="Text size" hint="Scales type across Byjan, not only this page.">
             <Select value={prefs.fontSize} onValueChange={(v) => setPref('fontSize', v as AppPrefs['fontSize'])}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -352,7 +353,7 @@ export default function Settings() {
               </SelectContent>
             </Select>
           </Field>
-          <Field label="Corner radius" hint="Buttons, cards, and icon tiles">
+          <Field label="Corner shape" hint="Cards, buttons, fields, and sheets.">
             <Select value={prefs.cornerRadius} onValueChange={(v) => setPref('cornerRadius', v as AppPrefs['cornerRadius'])}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -384,6 +385,14 @@ export default function Settings() {
             </Select>
           </Field>
           )}
+          <div className="display-preview md:col-span-2">
+            <Settings className="text-[#0B1F3A]" />
+            <div>
+              <strong>Live preview</strong>
+              <span>Icons, type, and corners should change on this row and on every other screen.</span>
+            </div>
+            <button type="button" className="byjan-btn ml-auto">Sample</button>
+          </div>
         </div>
         {hasFeature('business') && (
         <div className="px-5 pb-2">

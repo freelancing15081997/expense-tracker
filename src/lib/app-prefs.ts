@@ -139,10 +139,30 @@ export function setRuntimePrefs(next: AppPrefs) {
 export function applyUiChrome(prefs: AppPrefs) {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
+  const icon = prefs.iconSize === 'sm' ? '16px' : prefs.iconSize === 'lg' ? '26px' : '20px';
+  const type = prefs.fontSize === 'sm' ? '0.88' : prefs.fontSize === 'lg' ? '1.18' : '1';
+  const radius = prefs.cornerRadius === 'sharp' ? '6px' : prefs.cornerRadius === 'round' ? '24px' : '14px';
+  const btnRadius = prefs.cornerRadius === 'sharp' ? '4px' : prefs.cornerRadius === 'round' ? '999px' : '10px';
+  const tw = prefs.cornerRadius === 'sharp'
+    ? { sm: '4px', md: '6px', lg: '8px', xl: '8px', '2xl': '10px', '3xl': '12px' }
+    : prefs.cornerRadius === 'round'
+      ? { sm: '10px', md: '14px', lg: '18px', xl: '22px', '2xl': '28px', '3xl': '32px' }
+      : { sm: '6px', md: '8px', lg: '12px', xl: '14px', '2xl': '16px', '3xl': '24px' };
+
   root.dataset.density = prefs.uiDensity;
   root.dataset.icon = prefs.iconSize;
   root.dataset.type = prefs.fontSize;
   root.dataset.radius = prefs.cornerRadius;
+  root.style.setProperty('--ui-icon', icon);
+  root.style.setProperty('--ui-type', type);
+  root.style.setProperty('--ui-radius', radius);
+  root.style.setProperty('--ui-btn-radius', btnRadius);
+  root.style.setProperty('--radius-sm', tw.sm);
+  root.style.setProperty('--radius-md', tw.md);
+  root.style.setProperty('--radius-lg', tw.lg);
+  root.style.setProperty('--radius-xl', tw.xl);
+  root.style.setProperty('--radius-2xl', tw['2xl']);
+  root.style.setProperty('--radius-3xl', tw['3xl']);
 }
 
 export function formatDisplayDate(iso: string | null | undefined) {

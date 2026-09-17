@@ -1,10 +1,29 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { CircleHelp, LifeBuoy, Send } from 'lucide-react';
+import {
+  Bell,
+  BookText,
+  ChevronRight,
+  CircleHelp,
+  Download,
+  KeyRound,
+  LifeBuoy,
+  Lock,
+  RefreshCw,
+  Send,
+  Settings2,
+  Share2,
+  Smartphone,
+  Split,
+  Ticket,
+  UserX,
+  Wallet,
+  WifiOff,
+} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import {
-  HELP_TOPICS,
   createSupportTicket,
+  helpGroups,
   helpTopic,
   listSupportTickets,
   type HelpTopicId,
@@ -18,10 +37,31 @@ function formatWhen(value?: string) {
   return date.toLocaleString();
 }
 
+const ICONS: Record<string, React.ReactNode> = {
+  signin: <KeyRound />,
+  lock: <Lock />,
+  display: <Settings2 />,
+  account: <UserX />,
+  books: <BookText />,
+  receipts: <Smartphone />,
+  recurring: <RefreshCw />,
+  export: <Download />,
+  reports: <CircleHelp />,
+  splitpay: <Split />,
+  upi: <Wallet />,
+  sharing: <Share2 />,
+  notifications: <Bell />,
+  offline: <WifiOff />,
+  play: <Smartphone />,
+  other: <LifeBuoy />,
+};
+
 export default function HelpPage() {
   const { isSuperUser } = useAuth();
   const { addToast } = useToast();
+  const groups = useMemo(() => helpGroups(), []);
   const [topicId, setTopicId] = useState<HelpTopicId>('signin');
+  const [sub, setSub] = useState('');
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
@@ -49,10 +89,22 @@ export default function HelpPage() {
     void loadTickets();
   }, [loadTickets]);
 
+  const pickTopic = (id: HelpTopicId) => {
+    setTopicId(id);
+    setSub('');
+    setSubject(helpTopic(id).title);
+  };
+
+  const pickSub = (label: string) => {
+    setSub(label);
+    setSubject(`${topic.title}: ${label}`);
+    if (!message.trim()) setMessage(`${label}. `);
+  };
+
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     const details = message.trim();
-    if (needsDetails && details.length < 8) {
+    if ((needsDetails || topicId === 'other') && details.length < 8) {
       setError('Write what happened, or pick a question above if one already answers it.');
       return;
     }
@@ -61,11 +113,12 @@ export default function HelpPage() {
     try {
       const result = await createSupportTicket({
         category: topicId,
-        subject: subject.trim() || topic.title,
-        message: details || topic.answer,
+        subject: subject.trim() || (sub ? `${topic.title}: ${sub}` : topic.title),
+        message: details || `${sub ? `${sub}. ` : ''}${topic.answer}`,
       });
       setMessage('');
       setSubject('');
+      setSub('');
       addToast(result.mailed ? 'Ticket sent to Byjan Books' : 'Ticket saved. We have it even if email is delayed.', 'success');
       await loadTickets();
     } catch (err) {
@@ -76,115 +129,124 @@ export default function HelpPage() {
   };
 
   return (
-    <div className="max-w-3xl mx-auto space-y-5 pb-28 md:pb-10">
-      <div>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Support</p>
-        <h1 className="font-display text-[28px] font-semibold tracking-[-0.04em] text-[#0B1F3A]">Help</h1>
-        <p className="text-sm text-slate-500 mt-1">
-          Common answers first. If yours is not listed, choose Other, write it in your own words, and send it to Byjan Books.
-          Tickets are stored on your account so you can come back to them.
-        </p>
-      </div>
+    <div className="help-page">
+      <header className="help-hero">
+        <span className="help-hero-mark"><LifeBuoy /></span>
+        <div>
+          <p className="help-kicker">Byjan Books</p>
+          <h1>Help &amp; tickets</h1>
+          <p>Pick a topic, then a sub-option. If nothing fits, choose Other and type it. Tickets are stored on your account and emailed to byjanbooks@gmail.com.</p>
+        </div>
+      </header>
 
-      <section className="byjan-card p-4 space-y-3">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 flex items-center gap-1.5">
-          <CircleHelp className="w-3.5 h-3.5" /> Common questions
-        </p>
-        <div className="flex flex-wrap gap-2">
-          {HELP_TOPICS.map((row) => (
-            <button
-              key={row.id}
-              type="button"
-              className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${topicId === row.id ? 'bg-[#0B1F3A] text-white border-[#0B1F3A]' : 'bg-white text-slate-600 border-slate-200'}`}
-              onClick={() => setTopicId(row.id)}
-            >
-              {row.title}
-            </button>
+      <div className="help-layout">
+        <div className="help-stack">
+          {groups.map((group) => (
+            <section key={group.title} className="help-group">
+              <h2>{group.title}</h2>
+              <div className="help-topic-list">
+                {group.topics.map((row) => {
+                  const on = topicId === row.id;
+                  return (
+                    <div key={row.id} className={`help-topic ${on ? 'is-on' : ''}`}>
+                      <button type="button" className="help-topic-btn" onClick={() => pickTopic(row.id)}>
+                        <span className="help-topic-ico">{ICONS[row.id]}</span>
+                        <span className="help-topic-copy">
+                          <strong>{row.title}</strong>
+                          <em>{row.subs.slice(0, 2).join(' · ')}</em>
+                        </span>
+                        <ChevronRight />
+                      </button>
+                      {on ? (
+                        <div className="help-topic-body">
+                          <p>{row.answer}</p>
+                          <p className="help-sub-label">Sub-options</p>
+                          <div className="help-subs">
+                            {row.subs.map((label) => (
+                              <button
+                                key={label}
+                                type="button"
+                                className={sub === label ? 'is-on' : ''}
+                                onClick={() => pickSub(label)}
+                              >
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
           ))}
         </div>
-        <div className="rounded-2xl bg-slate-50 border border-slate-100 p-3">
-          <p className="text-sm font-semibold text-[#0B1F3A]">{topic.title}</p>
-          <p className="text-sm text-slate-600 mt-1 leading-relaxed">{topic.answer}</p>
-        </div>
-      </section>
 
-      <form onSubmit={handleSubmit} className="byjan-card p-4 space-y-3">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 flex items-center gap-1.5">
-          <LifeBuoy className="w-3.5 h-3.5" /> Send to Byjan Books
-        </p>
-        <p className="text-xs text-slate-500">
-          This creates a real ticket and emails <strong>byjanbooks@gmail.com</strong>. You will see it in Your tickets below.
-        </p>
-        <label className="block">
-          <span className="block text-sm font-medium text-slate-700 mb-1.5">Topic</span>
-          <select
-            className="w-full h-10 rounded-xl border border-slate-200 px-3 text-sm bg-white"
-            value={topicId}
-            onChange={(event) => setTopicId(event.target.value as HelpTopicId)}
-          >
-            {HELP_TOPICS.map((row) => (
-              <option key={row.id} value={row.id}>{row.title}</option>
-            ))}
-          </select>
-        </label>
-        <label className="block">
-          <span className="block text-sm font-medium text-slate-700 mb-1.5">Subject (optional)</span>
-          <input
-            className="w-full h-10 rounded-xl border border-slate-200 px-3 text-sm"
-            value={subject}
-            onChange={(event) => setSubject(event.target.value)}
-            placeholder={topic.title}
-            maxLength={120}
-          />
-        </label>
-        <label className="block">
-          <span className="block text-sm font-medium text-slate-700 mb-1.5">
-            {needsDetails ? 'What happened?' : 'Extra detail (optional)'}
-          </span>
-          <textarea
-            className="w-full min-h-[120px] rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            value={message}
-            onChange={(event) => setMessage(event.target.value)}
-            placeholder={needsDetails ? 'Write the issue in your own words.' : 'Add anything the common answer did not cover.'}
-            maxLength={4000}
-          />
-        </label>
-        {error ? <p className="text-sm text-rose-700">{error}</p> : null}
-        <button type="submit" disabled={sending} className="byjan-btn">
-          <Send className="w-4 h-4" />
-          {sending ? 'Sending…' : 'Send issue to Byjan Books'}
-        </button>
-      </form>
+        <form onSubmit={handleSubmit} className="help-compose">
+          <p className="help-kicker"><Ticket /> Send to Byjan Books</p>
+          <h2>{sub || topic.title}</h2>
+          <p className="help-compose-hint">This creates a real ticket. You will see it under Your tickets.</p>
+          <label>
+            <span>Topic</span>
+            <select value={topicId} onChange={(event) => pickTopic(event.target.value as HelpTopicId)}>
+              {groups.map((group) => (
+                <optgroup key={group.title} label={group.title}>
+                  {group.topics.map((row) => (
+                    <option key={row.id} value={row.id}>{row.title}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Subject</span>
+            <input
+              value={subject}
+              onChange={(event) => setSubject(event.target.value)}
+              placeholder={topic.title}
+              maxLength={120}
+            />
+          </label>
+          <label>
+            <span>{needsDetails || topicId === 'other' ? 'What happened?' : 'Extra detail'}</span>
+            <textarea
+              value={message}
+              onChange={(event) => setMessage(event.target.value)}
+              placeholder={sub ? `Add detail for “${sub}”.` : 'Write the issue in your own words.'}
+              maxLength={4000}
+            />
+          </label>
+          {error ? <p className="help-error">{error}</p> : null}
+          <button type="submit" disabled={sending} className="byjan-btn help-send">
+            <Send />
+            {sending ? 'Sending…' : 'Send issue'}
+          </button>
+        </form>
+      </div>
 
-      <section className="byjan-card p-4 space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Your tickets</p>
-          <button type="button" className="text-xs font-semibold text-[#0B8F84]" onClick={() => void loadTickets()}>
-            Refresh
+      <section className="help-tickets">
+        <div className="help-tickets-head">
+          <h2>Your tickets</h2>
+          <button type="button" className="byjan-btn-ghost" onClick={() => void loadTickets()}>
+            <RefreshCw /> Refresh
           </button>
         </div>
         {loading ? (
-          <p className="text-sm text-slate-500">Loading tickets…</p>
+          <p className="help-muted">Loading tickets…</p>
         ) : tickets.length === 0 ? (
-          <p className="text-sm text-slate-500">No tickets yet. Send one above and it will show up here.</p>
+          <div className="help-empty">No tickets yet. Pick a topic and send one — it will show here.</div>
         ) : (
-          <ul className="space-y-2">
+          <ul className="help-ticket-list">
             {tickets.map((ticket) => (
-              <li key={ticket.id} className="rounded-2xl border border-slate-100 p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-[#0B1F3A]">{ticket.subject}</p>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      {ticket.categoryLabel || ticket.category} · {ticket.id}
-                      {isSuperUser && ticket.email ? ` · ${ticket.email}` : ''}
-                    </p>
-                  </div>
-                  <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full ${ticket.status === 'open' ? 'bg-amber-50 text-amber-800' : 'bg-slate-100 text-slate-600'}`}>
-                    {ticket.status}
-                  </span>
+              <li key={ticket.id}>
+                <div>
+                  <strong>{ticket.subject}</strong>
+                  <span>{ticket.categoryLabel || ticket.category} · {ticket.id}{isSuperUser && ticket.email ? ` · ${ticket.email}` : ''}</span>
                 </div>
-                {ticket.message ? <p className="text-sm text-slate-600 mt-2 whitespace-pre-wrap">{ticket.message}</p> : null}
-                <p className="text-[11px] text-slate-400 mt-2">{formatWhen(ticket.createdAt)}</p>
+                <em className={ticket.status === 'open' ? 'is-open' : ''}>{ticket.status}</em>
+                {ticket.message ? <p>{ticket.message}</p> : null}
+                <time>{formatWhen(ticket.createdAt)}</time>
               </li>
             ))}
           </ul>

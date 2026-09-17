@@ -11,12 +11,20 @@ export const SUPPORT_INBOX = 'byjanbooks@gmail.com';
 
 export const SUPPORT_TOPICS = [
   { id: 'signin', title: 'Sign-in or Google login' },
-  { id: 'receipts', title: 'Receipt scan or camera' },
-  { id: 'splitpay', title: 'Split, UPI, or pay' },
-  { id: 'notifications', title: 'Notifications not arriving' },
-  { id: 'sharing', title: 'Invites, members, or access' },
-  { id: 'export', title: 'Export PDF or CSV' },
+  { id: 'lock', title: 'App lock, PIN, or fingerprint' },
+  { id: 'display', title: 'Text size, icons, or corners' },
+  { id: 'account', title: 'Deactivate or delete account' },
   { id: 'books', title: 'Money books or ledgers' },
+  { id: 'receipts', title: 'Receipt scan or camera' },
+  { id: 'recurring', title: 'Regular or repeating payments' },
+  { id: 'export', title: 'Export PDF or CSV' },
+  { id: 'reports', title: 'Reports and totals' },
+  { id: 'splitpay', title: 'Split a bill' },
+  { id: 'upi', title: 'UPI or Pay' },
+  { id: 'sharing', title: 'Invites, members, or access' },
+  { id: 'notifications', title: 'Notifications not arriving' },
+  { id: 'offline', title: 'Offline or slow sync' },
+  { id: 'play', title: 'Install, update, or Play Store' },
   { id: 'other', title: 'Other' },
 ] as const;
 

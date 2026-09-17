@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuth } from './AuthContext';
 import { getMe, upsertMe } from '../lib/me';
@@ -32,6 +32,7 @@ export const AppPrefsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const { currentUser, userProfile } = useAuth();
   const [prefs, setPrefs] = useState<AppPrefs>(() => getRuntimePrefs());
   const [pending, setPending] = useState<{ message: string; resolve: (ok: boolean) => void } | null>(null);
+  const persistTimer = useRef(0);
 
   useEffect(() => {
     setRuntimePrefs(prefs);
@@ -45,18 +46,32 @@ export const AppPrefsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (!currentUser) return;
     const fromProfile = userProfile && (userProfile as { appPrefs?: unknown }).appPrefs;
     if (fromProfile && typeof fromProfile === 'object') {
+      const local = getRuntimePrefs();
+      const stored = fromProfile as Record<string, unknown>;
       const next = normalizeAppPrefs({
-        ...(fromProfile as Record<string, unknown>),
-        defaultCurrency: userProfile?.defaultCurrency || DEFAULT_APP_PREFS.defaultCurrency,
+        ...local,
+        ...stored,
+        iconSize: stored.iconSize || local.iconSize,
+        fontSize: stored.fontSize || local.fontSize,
+        cornerRadius: stored.cornerRadius || local.cornerRadius,
+        uiDensity: stored.uiDensity || local.uiDensity,
+        defaultCurrency: userProfile?.defaultCurrency || local.defaultCurrency,
       });
       setPrefs(next);
       setRuntimePrefs(next);
     }
     void getMe().then((data) => {
       if (!data) return;
+      const local = getRuntimePrefs();
+      const stored = data.appPrefs && typeof data.appPrefs === 'object' ? data.appPrefs as Record<string, unknown> : {};
       const next = normalizeAppPrefs({
-        ...((data.appPrefs && typeof data.appPrefs === 'object') ? data.appPrefs as Record<string, unknown> : {}),
-        defaultCurrency: String(data.defaultCurrency || userProfile?.defaultCurrency || DEFAULT_APP_PREFS.defaultCurrency),
+        ...local,
+        ...stored,
+        iconSize: stored.iconSize || local.iconSize,
+        fontSize: stored.fontSize || local.fontSize,
+        cornerRadius: stored.cornerRadius || local.cornerRadius,
+        uiDensity: stored.uiDensity || local.uiDensity,
+        defaultCurrency: String(data.defaultCurrency || userProfile?.defaultCurrency || local.defaultCurrency),
       });
       setPrefs(next);
       setRuntimePrefs(next);
@@ -79,9 +94,20 @@ export const AppPrefsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setPrefs((prev) => {
       const next = { ...prev, [key]: value };
       setRuntimePrefs(next);
+      const live = key === 'iconSize' || key === 'fontSize' || key === 'cornerRadius' || key === 'uiDensity';
+      if (currentUser && live) {
+        window.clearTimeout(persistTimer.current);
+        persistTimer.current = window.setTimeout(() => {
+          void upsertMe({
+            appPrefs: next,
+            defaultCurrency: next.defaultCurrency,
+            updatedAt: new Date().toISOString(),
+          }).catch(() => undefined);
+        }, 350);
+      }
       return next;
     });
-  }, []);
+  }, [currentUser]);
 
   const confirmAction = useCallback((message: string, kind: 'post' | 'delete' = 'post') => {
     const needed = kind === 'delete' ? prefs.confirmDeletes : prefs.confirmPosting;
