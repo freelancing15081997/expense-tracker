@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.byjanbooks.com',
+  appId: 'com.byjanbooks.app',
   appName: 'Byjan',
   webDir: 'dist',
   server: {

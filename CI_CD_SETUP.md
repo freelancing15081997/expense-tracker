@@ -106,7 +106,7 @@ Manual run: **Actions → Publish to Google Play → Run workflow** (track `inte
 
 ## 🏪 Deploy to Play Store
 
-Google does **not** let CI create the first app listing. Create **Byjan** once in [Play Console](https://play.google.com/console) with package `com.byjanbooks.com`, finish the store listing, then let GitHub upload AABs.
+Google does **not** let CI create the first app listing. Create **Byjan** once in [Play Console](https://play.google.com/console) with package `com.byjanbooks.app`, finish the store listing, then let GitHub upload AABs.
 
 1. Create the app (default language, app or game, free/paid).
 2. Turn on **Play App Signing** (Google holds the app signing key; you keep the upload key).

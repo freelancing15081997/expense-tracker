@@ -10,7 +10,7 @@ android {
     namespace = "com.byjanbooks.com"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.byjanbooks.com"
+        applicationId "com.byjanbooks.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 12

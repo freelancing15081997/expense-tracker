@@ -131,7 +131,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "## Build Details" >> $GITHUB_STEP_SUMMARY
           echo "- **Build Type**: ${{ inputs.build_type }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Package**: com.byjanbooks.com" >> $GITHUB_STEP_SUMMARY
+          echo "- **Package**: com.byjanbooks.app" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "## Download" >> $GITHUB_STEP_SUMMARY
           echo "Scroll down to **Artifacts** section below to download your APK!" >> $GITHUB_STEP_SUMMARY

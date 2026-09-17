@@ -8,12 +8,49 @@
   "client": [
     {
       "client_info": {
+        "mobilesdk_app_id": "1:450686107760:android:4a29699062479f460734b5",
+        "android_client_info": {
+          "package_name": "com.byjanbooks.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "450686107760-hdlb65udu9lfo4u087ui439m13dtqkt5.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBLvHSzqgejS-5X9Uf9pRvMnnxdbCbDlZ0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "450686107760-hdlb65udu9lfo4u087ui439m13dtqkt5.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
         "mobilesdk_app_id": "1:450686107760:android:38fbfcf6be18bd3b0734b5",
         "android_client_info": {
           "package_name": "com.byjanbooks.com"
         }
       },
       "oauth_client": [
+        {
+          "client_id": "450686107760-jm0usq29m0jbp1e81ohaolbrggide52f.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.byjanbooks.com",
+            "certificate_hash": "0d7ab991f62d8e0250c1918696f4fb62fefe0128"
+          }
+        },
         {
           "client_id": "450686107760-hdlb65udu9lfo4u087ui439m13dtqkt5.apps.googleusercontent.com",
           "client_type": 3
