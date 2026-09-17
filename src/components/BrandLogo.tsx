@@ -1,4 +1,5 @@
 import React from 'react';
+import { BRAND_LOGO_SRC } from '../lib/brand';
 
 type BrandLogoProps = {
   size?: 'sm' | 'md' | 'lg';
@@ -18,7 +19,7 @@ export default function BrandLogo({ size = 'sm', className = '' }: BrandLogoProp
       data-size={size}
     >
       <img
-        src="/logo.png"
+        src={BRAND_LOGO_SRC}
         alt="Byjan — Trace Financials Easily"
         className="brand-logo-img"
       />

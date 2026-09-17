@@ -155,7 +155,7 @@ export async function sendFcm(token: string, message: PushMessage) {
             channelId: 'byjan_alerts',
             icon: 'ic_stat_byjan',
             image: 'https://easypado.com/logo.png',
-            color: '#F97316',
+            color: '#12B8A8',
             sound: 'default',
             defaultSound: true,
             defaultVibrateTimings: true,

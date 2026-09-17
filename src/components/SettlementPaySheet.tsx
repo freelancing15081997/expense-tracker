@@ -19,6 +19,7 @@ import {
   paymentStatusLabel,
 } from '../lib/upi';
 import { UpiBrandMark } from './UpiBrandMark';
+import { BRAND_LOGO_SRC } from '../lib/brand';
 import './split-premium.css';
 
 type Props = {
@@ -429,7 +430,7 @@ export default function SettlementPaySheet({
                     <span className="sp-swipe-fill" style={{ width: `${Math.max(18, swipeX * 100)}%` }} />
                     <span className="sp-swipe-hint">{swipeX > 0.82 ? 'Release to pay' : 'Swipe to choose UPI app'}</span>
                     <span className="sp-swipe-knob" style={{ left: `calc(6px + ${swipeX} * (100% - 76px))` }}>
-                      <img src="/logo.png" alt="" />
+                      <img src={BRAND_LOGO_SRC} alt="" />
                     </span>
                   </div>
                 </>

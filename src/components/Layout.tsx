@@ -17,6 +17,7 @@ import FeatureTour from './FeatureTour';
 import { useBooksTenantMeta } from '../lib/tenant';
 import { CapacitorService } from '../lib/capacitor';
 import { useFeatures } from '../lib/use-features';
+import { BRAND_LOGO_SRC } from '../lib/brand';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -266,7 +267,7 @@ export default function Layout() {
             <div className="ios-notify-handle" aria-hidden />
             <div className="ios-notify-head">
               <div className="notify-page-brand is-sheet">
-                <img src="/logo.png" alt="" className="notify-byjan-mark" />
+                <img src={BRAND_LOGO_SRC} alt="" className="notify-byjan-mark" />
                 <div>
                   <p className="ios-notify-kicker">Inbox</p>
                   <h2 className="ios-notify-title">Notifications</h2>
@@ -297,7 +298,7 @@ export default function Layout() {
                       className={cn('ios-notify-row', !notif.read && 'is-unread')}
                     >
                     <span className="ios-notify-glyph">
-                      <img src="/logo.png" alt="" />
+                      <img src={BRAND_LOGO_SRC} alt="" />
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="ios-notify-book">{notif.bookName || 'Byjan'}</span>

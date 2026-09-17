@@ -57,8 +57,8 @@ export default function AuthScene({
       </section>
 
       <section className="relative flex flex-col justify-center px-5 py-6 sm:px-8 overflow-y-auto">
-        <div className="lg:hidden mb-5 flex justify-center">
-          <BrandLogo size="md" />
+        <div className="lg:hidden mb-4 flex justify-center">
+          <BrandLogo size="lg" className="auth-mobile-logo" />
         </div>
         <div className="w-full max-w-[380px] mx-auto text-center">
           <h2 className="font-display text-[26px] font-semibold tracking-tight text-[#0B1F3A] text-center">{title}</h2>

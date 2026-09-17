@@ -50,7 +50,7 @@ const config: CapacitorConfig = {
     },
     LocalNotifications: {
       smallIcon: 'ic_stat_byjan',
-      iconColor: '#F97316',
+      iconColor: '#12B8A8',
       sound: 'beep.wav',
     },
   },

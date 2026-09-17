@@ -105,6 +105,12 @@ svg.byjan-glyph {
   object-position: center;
   background: #ffffff;
 }
+.auth-mobile-logo {
+  width: min(176px, 52vw) !important;
+  height: min(210px, 62vw) !important;
+  padding: 8px 10px !important;
+  box-shadow: none;
+}
 
 .font-display {
   font-family: var(--font-display);
@@ -1307,8 +1313,7 @@ html[data-radius="round"] { --ui-radius: 22px; --ui-btn-radius: 999px; }
 .byjan-card,
 .home-pill,
 .home-qa-tile,
-.home-recent-card,
-.brand-logo {
+.home-recent-card {
   border-radius: var(--ui-btn-radius, 10px);
 }
 .md3-panel,
