@@ -24,6 +24,7 @@
   --ui-icon: 18px;
   --ui-type: 1;
   --ui-radius: 14px;
+  --ui-btn-radius: 10px;
   --byjan-shadow:
     0 1px 1px rgba(11, 31, 58, 0.04),
     0 10px 24px -12px rgba(11, 31, 58, 0.18),
@@ -560,7 +561,9 @@ html[data-privacy="on"] .byjan-money {
   gap: 0.35rem;
   height: 2.25rem;
   padding: 0 0.75rem;
+  border: 0;
   border-radius: var(--ui-btn-radius, 10px);
+  background: var(--byjan-navy);
   color: #fff;
   font-size: 0.8125rem;
   font-weight: 600;
