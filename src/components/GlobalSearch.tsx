@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Search, X, Receipt, BookOpen, LayoutGrid, Loader2, FileText } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -29,10 +29,10 @@ export function SearchTrigger({
         data-open-search
         onPointerDown={fireOpen}
         onClick={fireOpen}
-        className="relative z-20 flex items-center gap-2.5 w-full px-4 h-11 text-sm text-slate-800 bg-[#F8FAFC] hover:bg-white rounded-2xl border border-slate-200 shadow-[0_1px_1px_rgba(30,45,120,0.04),0_8px_18px_-12px_rgba(30,45,120,0.18)] transition-colors"
+        className="relative z-20 flex items-center gap-2.5 w-full px-4 h-11 text-sm text-slate-800 bg-[#F8FAFC] hover:bg-white rounded-2xl border border-slate-200 shadow-[0_1px_1px_rgba(11,31,58,0.04),0_8px_18px_-12px_rgba(11,31,58,0.18)] transition-colors"
       >
         <Search className="w-5 h-5 text-slate-500" />
-        <span className="flex-1 text-left text-slate-500">Search ledgers, entries, invoices, peopleâ€¦</span>
+        <span className="flex-1 text-left text-slate-500">Search ledgers, entries, invoices, people…</span>
         <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 bg-slate-100 border border-slate-200 rounded">Ctrl+K</kbd>
       </button>
     );
@@ -44,7 +44,7 @@ export function SearchTrigger({
         data-open-search
         onPointerDown={fireOpen}
         onClick={fireOpen}
-        className="relative z-20 w-10 h-10 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 flex items-center justify-center shadow-[0_1px_2px_rgba(30,45,120,0.06)]"
+        className="relative z-20 w-10 h-10 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 flex items-center justify-center shadow-[0_1px_2px_rgba(11,31,58,0.06)]"
         title="Search (Ctrl+K)"
       >
         <Search className="w-5 h-5" />
@@ -137,7 +137,7 @@ export default function GlobalSearch() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search ledgers, entries, invoices, peopleâ€¦"
+            placeholder="Search ledgers, entries, invoices, people…"
             className="flex-1 text-sm outline-none text-slate-900 placeholder:text-slate-400"
             autoFocus
           />
@@ -148,7 +148,7 @@ export default function GlobalSearch() {
         </div>
         <div className="max-h-[60vh] overflow-y-auto">
           {results.length === 0 && !loading ? (
-            <div className="p-8 text-center text-sm text-slate-500">{searchQuery.trim() ? `No results for â€œ${searchQuery}â€` : 'Type to search everything you can open.'}</div>
+            <div className="p-8 text-center text-sm text-slate-500">{searchQuery.trim() ? `No results for “${searchQuery}”` : 'Type to search everything you can open.'}</div>
           ) : (
             <div className="py-1">
               {results.map((result) => (
@@ -163,7 +163,7 @@ export default function GlobalSearch() {
                   className="w-full px-4 py-3 hover:bg-slate-50 transition-colors text-left flex items-start gap-3 border-b border-slate-100 last:border-0"
                 >
                   <div className="mt-0.5">
-                    {result.type === 'feature' ? <LayoutGrid className="w-4 h-4 text-[#3654FF]" /> : result.type === 'book' ? <BookOpen className="w-4 h-4 text-blue-600" /> : result.type === 'record' ? <FileText className="w-4 h-4 text-indigo-600" /> : <Receipt className="w-4 h-4 text-emerald-600" />}
+                    {result.type === 'feature' ? <LayoutGrid className="w-4 h-4 text-teal-600" /> : result.type === 'book' ? <BookOpen className="w-4 h-4 text-blue-600" /> : result.type === 'record' ? <FileText className="w-4 h-4 text-indigo-600" /> : <Receipt className="w-4 h-4 text-emerald-600" />}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-0.5">
@@ -176,10 +176,10 @@ export default function GlobalSearch() {
                     </div>
                     <div className="flex items-center gap-2 text-xs text-slate-500">
                       <span>{result.hint}</span>
-                      {result.bookName && <><span>â€¢</span><span className="truncate">{result.bookName}</span></>}
-                      {result.category && <><span>â€¢</span><span>{result.category}</span></>}
-                      {result.enteredBy && <><span>â€¢</span><span>{result.enteredBy}</span></>}
-                      {result.date && <><span>â€¢</span><span>{result.date}</span></>}
+                      {result.bookName && <><span>•</span><span className="truncate">{result.bookName}</span></>}
+                      {result.category && <><span>•</span><span>{result.category}</span></>}
+                      {result.enteredBy && <><span>•</span><span>{result.enteredBy}</span></>}
+                      {result.date && <><span>•</span><span>{result.date}</span></>}
                     </div>
                   </div>
                 </button>

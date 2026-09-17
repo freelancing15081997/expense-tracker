@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { BarChart3, Download, Search, TrendingDown, TrendingUp, Wallet, ArrowLeft } from 'lucide-react';
 import { listAllExpenses } from '../lib/expenses';
@@ -64,7 +64,7 @@ export default function MoneyReports() {
         </Link>
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Money</p>
-          <h1 className="font-display text-[26px] font-semibold tracking-[-0.04em] text-[#0B0F1F]">Reports & insights</h1>
+          <h1 className="font-display text-[26px] font-semibold tracking-[-0.04em] text-[#0B1F3A]">Reports & insights</h1>
         </div>
       </div>
       <p className="text-[13px] text-slate-500 mb-4">{story.narrative}</p>
@@ -109,13 +109,29 @@ export default function MoneyReports() {
         </div>
       </section>
 
+      {summary.topCategories.length > 0 && (
+        <section className="access-card p-4 mb-4">
+          <p className="ios-section-label !px-0">What changed · categories</p>
+          <p className="text-[12px] text-slate-500 mb-2">Largest category spend this period — open a book to drill into entries.</p>
+          <div className="space-y-2">
+            {summary.topCategories.slice(0, 5).map((row) => (
+              <div key={row.name} className="flex items-center justify-between text-[13px]">
+                <span>{row.name}</span>
+                <span className="byjan-money text-rose-600">+{formatIndianAmount(row.amount, currency)}</span>
+              </div>
+            ))}
+          </div>
+          <Link to="/regular-payments" className="inline-block mt-3 text-[12px] font-semibold text-[#12B8A8]">Regular payments →</Link>
+        </section>
+      )}
+
       <label className="access-search mb-4 block">
         <Search className="w-4 h-4 text-slate-400" />
         <input
           type="search"
           value={nlQuery}
           onChange={(e) => setNlQuery(e.target.value)}
-          placeholder='Try "Food spending last month" or "Above â‚¹5000"'
+          placeholder='Try "Food spending last month" or "Above ₹5000"'
         />
       </label>
 
@@ -163,7 +179,7 @@ export default function MoneyReports() {
           <p className="ios-section-label !px-0">Budget this month</p>
           <p className="text-[13px] text-slate-600 mt-1">
             Spent {formatIndianAmount(budget.monthSpent, currency)} of {formatIndianAmount(budget.monthlyBudget, currency)}
-            {budget.over ? ' â€” over budget' : ` â€” ${formatIndianAmount(budget.remaining, currency)} left`}
+            {budget.over ? ' — over budget' : ` — ${formatIndianAmount(budget.remaining, currency)} left`}
           </p>
         </section>
       )}
@@ -201,18 +217,18 @@ export default function MoneyReports() {
           <p className="ios-section-label !px-0">Spending alerts</p>
           <div className="space-y-2 mt-2">
             {anomalies.map((row) => (
-              <div key={`${row.id}-${row.kind}`} className="text-[13px] text-slate-600">Â· {row.message}</div>
+              <div key={`${row.id}-${row.kind}`} className="text-[13px] text-slate-600">· {row.message}</div>
             ))}
           </div>
         </section>
       )}
 
       <section className="access-card p-4">
-        <p className="ios-section-label !px-0">What-if Â· reduce category spend</p>
+        <p className="ios-section-label !px-0">What-if · reduce category spend</p>
         <div className="flex flex-wrap gap-2 mt-2 items-end">
           <input className="byjan-input !h-10 !w-32" value={whatIfCat} onChange={(e) => setWhatIfCat(e.target.value)} />
           <input type="number" className="byjan-input !h-10 !w-20" value={whatIfPct} onChange={(e) => setWhatIfPct(Number(e.target.value))} />
-          <span className="text-[13px] text-slate-500">% less â†’ save ~{currency}{whatIf.projectedSaving.toLocaleString()}/mo</span>
+          <span className="text-[13px] text-slate-500">% less → save ~{currency}{whatIf.projectedSaving.toLocaleString()}/mo</span>
         </div>
         <p className="text-[11px] text-slate-400 mt-2">{whatIf.note}</p>
       </section>

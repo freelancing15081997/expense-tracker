@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useBooks } from '../../context/BooksProvider';
 import { useAppPrefs } from '../../../context/AppPrefsContext';
@@ -113,12 +113,12 @@ export default function Parties({ kind }: { kind: PartyKind }) {
                 {paging.slice.map((row) => (
                   <tr key={row.id} className={`border-b border-[#F3F4F6] cursor-pointer hover:bg-[#F8FAFC] ${selected?.id === row.id ? 'bg-[#F0FDFA]' : ''}`} onClick={() => show(row)}>
                     <td className="px-4 py-3">
-                      <p className="font-semibold text-[#0B0F1F]">{row.name}</p>
+                      <p className="font-semibold text-[#0B1F3A]">{row.name}</p>
                       <p className="text-xs text-[#6B7280]">{row.city || row.email || 'No location'}</p>
                     </td>
-                    <td className="px-4 py-3 text-[#4B5563]">{row.contactName || row.email || 'â€”'}</td>
-                    <td className="px-4 py-3 text-[#4B5563]">{row.taxId || 'â€”'}</td>
-                    <td className="px-4 py-3 text-[#4B5563]">{row.gstTreatment || 'â€”'}</td>
+                    <td className="px-4 py-3 text-[#4B5563]">{row.contactName || row.email || '—'}</td>
+                    <td className="px-4 py-3 text-[#4B5563]">{row.taxId || '—'}</td>
+                    <td className="px-4 py-3 text-[#4B5563]">{row.gstTreatment || '—'}</td>
                     <td className="px-4 py-3">{row.paymentTermsDays} days</td>
                   </tr>
                 ))}
@@ -141,7 +141,7 @@ export default function Parties({ kind }: { kind: PartyKind }) {
           )}
         >
           <div className="flex items-center gap-3">
-            <div className="w-14 h-14 rounded-2xl bg-[#F3F4F6] overflow-hidden flex items-center justify-center text-[#0B0F1F] font-bold">
+            <div className="w-14 h-14 rounded-2xl bg-[#F3F4F6] overflow-hidden flex items-center justify-center text-[#0B1F3A] font-bold">
               {logoUrl ? <img src={logoUrl} alt="" className="w-full h-full object-cover" /> : selected.name.slice(0, 1)}
             </div>
             <div>
@@ -150,11 +150,11 @@ export default function Parties({ kind }: { kind: PartyKind }) {
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3 text-sm">
-            <div><p className="text-xs text-slate-500">Email</p><p>{selected.email || 'â€”'}</p></div>
-            <div><p className="text-xs text-slate-500">Phone</p><p>{selected.phone || 'â€”'}</p></div>
-            <div><p className="text-xs text-slate-500">GSTIN</p><p>{selected.taxId || 'â€”'}</p></div>
-            <div><p className="text-xs text-slate-500">PAN</p><p>{selected.pan || 'â€”'}</p></div>
-            <div className="col-span-2"><p className="text-xs text-slate-500">Billing</p><p>{[selected.address, selected.city, selected.state, selected.pincode].filter(Boolean).join(', ') || 'â€”'}</p></div>
+            <div><p className="text-xs text-slate-500">Email</p><p>{selected.email || '—'}</p></div>
+            <div><p className="text-xs text-slate-500">Phone</p><p>{selected.phone || '—'}</p></div>
+            <div><p className="text-xs text-slate-500">GSTIN</p><p>{selected.taxId || '—'}</p></div>
+            <div><p className="text-xs text-slate-500">PAN</p><p>{selected.pan || '—'}</p></div>
+            <div className="col-span-2"><p className="text-xs text-slate-500">Billing</p><p>{[selected.address, selected.city, selected.state, selected.pincode].filter(Boolean).join(', ') || '—'}</p></div>
             {kind === 'customer' && <div className="col-span-2"><p className="text-xs text-slate-500">Credit limit</p><p>{selected.creditLimitMinor ? <Money minor={selected.creditLimitMinor} currency={currency} /> : 'No limit recorded'}</p></div>}
           </div>
           <div className="rounded-2xl bg-[#F0FDFA] px-4 py-3">

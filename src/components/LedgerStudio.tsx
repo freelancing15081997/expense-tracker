@@ -1,4 +1,4 @@
-﻿import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronRight, Loader2, SlidersHorizontal, X } from 'lucide-react';
 import { createExpense, softDeleteExpense, updateExpense } from '../lib/expenses';
@@ -96,7 +96,7 @@ function Row({
   return (
     <div className="ios-row !items-center">
       <div className="min-w-0 flex-1">
-        <p className="text-[15px] font-medium text-[#0B0F1F] tracking-tight">{label}</p>
+        <p className="text-[15px] font-medium text-[#0B1F3A] tracking-tight">{label}</p>
         {hint ? <p className="text-[12px] text-[#8e8e93] mt-0.5">{hint}</p> : null}
       </div>
       {children}
@@ -171,7 +171,7 @@ export default function LedgerStudio(props: Props) {
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="ios-caption">Ledger tools</p>
-            <h2 className="font-display text-[22px] font-semibold tracking-[-0.03em] text-[#0B0F1F] leading-none mt-1">Studio</h2>
+            <h2 className="font-display text-[22px] font-semibold tracking-[-0.03em] text-[#0B1F3A] leading-none mt-1">Studio</h2>
           </div>
           <button type="button" className="w-8 h-8 rounded-full bg-white text-[#3a3a3c] border border-slate-200" onClick={() => setOpen(false)} aria-label="Close">
             <X className="w-4 h-4 mx-auto" />
@@ -211,15 +211,15 @@ export default function LedgerStudio(props: Props) {
       {tab === 'glance' && insights.budget > 0 && (
         <p className="ios-caption px-1">
           Budget pace {money(Math.round(insights.pace))} of {money(insights.budget)}
-          {insights.pace > insights.budget ? ' â€” over pace' : ' â€” on track'}
-          {daysLeft > 0 ? ` Â· about ${daysLeft} day${daysLeft === 1 ? '' : 's'} left` : ' Â· used up at this pace'}
+          {insights.pace > insights.budget ? ' — over pace' : ' — on track'}
+          {daysLeft > 0 ? ` · about ${daysLeft} day${daysLeft === 1 ? '' : 's'} left` : ' · used up at this pace'}
         </p>
       )}
       {tab === 'glance' && insights.topMerchants.length > 0 && (
-        <p className="ios-caption px-1">Top merchants: {insights.topMerchants.map(([name, amt]) => `${name} ${money(amt)}`).join(' Â· ')}</p>
+        <p className="ios-caption px-1">Top merchants: {insights.topMerchants.map(([name, amt]) => `${name} ${money(amt)}`).join(' · ')}</p>
       )}
       {tab === 'glance' && mix.length > 0 && (
-        <p className="ios-caption px-1">Methods: {mix.map(([name, amt]) => `${name} ${money(amt)}`).join(' Â· ')}</p>
+        <p className="ios-caption px-1">Methods: {mix.map(([name, amt]) => `${name} ${money(amt)}`).join(' · ')}</p>
       )}
 
       {tab === 'show' && <Section title="View">
@@ -236,7 +236,7 @@ export default function LedgerStudio(props: Props) {
         </div>
         {views.length > 0 && views.map((view) => (
           <button key={view.id} type="button" className="ios-row w-full text-left" onClick={() => { props.onAmountMin(view.min || ''); props.onAmountMax(view.max || ''); }}>
-            <span className="text-[15px] font-medium text-[#0B0F1F]">{view.name}</span>
+            <span className="text-[15px] font-medium text-[#0B1F3A]">{view.name}</span>
             <ChevronRight className="ios-chevron w-4 h-4" />
           </button>
         ))}
@@ -294,7 +294,7 @@ export default function LedgerStudio(props: Props) {
                 try {
                   const next = await updateExpense(props.bookId, String(a.id), {
                     amount: Number(a.amount || 0) + Number(b.amount || 0),
-                    notes: [a.notes, b.notes, `Merged ${b.description || b.id}`].filter(Boolean).join(' Â· '),
+                    notes: [a.notes, b.notes, `Merged ${b.description || b.id}`].filter(Boolean).join(' · '),
                     mergedFrom: b.id,
                   });
                   await softDeleteExpense(props.bookId, String(b.id));
@@ -423,7 +423,7 @@ export default function LedgerStudio(props: Props) {
             </form>
             {rules.map((rule) => (
               <div key={rule.id} className="ios-row">
-                <span className="text-[15px] text-[#0B0F1F] truncate">{rule.match}</span>
+                <span className="text-[15px] text-[#0B1F3A] truncate">{rule.match}</span>
                 <span className="text-[13px] text-[#8e8e93]">{rule.category}</span>
               </div>
             ))}
@@ -459,7 +459,7 @@ export default function LedgerStudio(props: Props) {
             )}
             {templates.map((tpl) => (
               <div key={tpl.id} className="ios-row">
-                <span className="text-[15px] font-medium text-[#0B0F1F] truncate">{tpl.name}</span>
+                <span className="text-[15px] font-medium text-[#0B1F3A] truncate">{tpl.name}</span>
                 <span className="text-[13px] text-[#8e8e93]">{money(Number(tpl.amount || 0))}</span>
               </div>
             ))}
@@ -555,10 +555,10 @@ export default function LedgerStudio(props: Props) {
           {(anomalies.length > 0 || commitments.length > 0) && (
           <Section title="Insights">
             {anomalies.map((row) => (
-              <p key={`${row.id}-${row.kind}`} className="ios-row text-[13px] text-amber-800">Â· {row.message}</p>
+              <p key={`${row.id}-${row.kind}`} className="ios-row text-[13px] text-amber-800">· {row.message}</p>
             ))}
             {commitments.map((row) => (
-              <p key={row.id} className="ios-row text-[13px] text-slate-600">Â· {row.label} ~{props.currencySymbol}{row.amount.toLocaleString()} ({row.cadence})</p>
+              <p key={row.id} className="ios-row text-[13px] text-slate-600">· {row.label} ~{props.currencySymbol}{row.amount.toLocaleString()} ({row.cadence})</p>
             ))}
           </Section>
           )}
@@ -575,7 +575,7 @@ export default function LedgerStudio(props: Props) {
                   void persist({ userMoneyRules: map });
                 }}
               >
-                <span className="text-[14px]">{rule.match} â†’ {rule.category}</span>
+                <span className="text-[14px]">{rule.match} → {rule.category}</span>
                 <span className="text-[12px] text-[#8e8e93]">Remove</span>
               </button>
             ))}
@@ -604,7 +604,7 @@ export default function LedgerStudio(props: Props) {
           <Section title="Categories & subcategories">
             {categoryTree.filter((n) => !n.archived).slice(0, 12).map((node) => (
               <div key={node.id} className="ios-row text-[14px]">
-                <span>{node.parentId ? `â†³ ${node.name}` : node.name}</span>
+                <span>{node.parentId ? `↳ ${node.name}` : node.name}</span>
                 <button
                   type="button"
                   className="text-[12px] text-[#8e8e93]"
@@ -802,11 +802,11 @@ export default function LedgerStudio(props: Props) {
             <span className="text-[13px] text-[#8e8e93]">{bridges.tds}</span>
           </button>
           <div className="ios-row text-[13px] text-[#8e8e93]">
-            Cash this month {money(bridges.mix.cash)} Â· digital {money(bridges.mix.digital)}
-            {bridges.fest ? ` Â· ${bridges.fest.name}` : ''}
-            {bridges.dues.length ? ` Â· still missing ${bridges.dues.slice(0, 3).join(', ')}` : ''}
-            {bridges.gstGaps ? ` Â· ${bridges.gstGaps} GST rows need a receipt` : ''}
-            {bridges.dupUtr ? ` Â· ${bridges.dupUtr} duplicate UPI refs` : ''}
+            Cash this month {money(bridges.mix.cash)} · digital {money(bridges.mix.digital)}
+            {bridges.fest ? ` · ${bridges.fest.name}` : ''}
+            {bridges.dues.length ? ` · still missing ${bridges.dues.slice(0, 3).join(', ')}` : ''}
+            {bridges.gstGaps ? ` · ${bridges.gstGaps} GST rows need a receipt` : ''}
+            {bridges.dupUtr ? ` · ${bridges.dupUtr} duplicate UPI refs` : ''}
           </div>
         </Section>
       )}
@@ -852,7 +852,7 @@ export default function LedgerStudio(props: Props) {
               { label: 'JSON backup', run: () => { downloadText(`${String(props.bookName || 'ledger').replace(/\s+/g, '-')}.json`, JSON.stringify({ book: props.book, expenses: props.expenses }, null, 2), 'application/json'); props.onToast('JSON backup downloaded.', 'success'); } },
             ].map((item) => (
               <button key={item.label} type="button" className="ios-row w-full text-left" onClick={item.run}>
-                <span className="text-[15px] font-medium text-[#0B0F1F]">{item.label}</span>
+                <span className="text-[15px] font-medium text-[#0B1F3A]">{item.label}</span>
                 <ChevronRight className="ios-chevron w-4 h-4" />
               </button>
             ))}

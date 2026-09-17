@@ -128,11 +128,25 @@ async function handleLedgers(req: VercelRequest, res: VercelResponse) {
     }
 
     if (op === 'create') {
+      const categories = Array.isArray(body.categories)
+        ? body.categories.map((c: unknown) => String(c || '').trim()).filter(Boolean)
+        : undefined;
+      const quickActions = Array.isArray(body.quickActions)
+        ? body.quickActions.map((c: unknown) => String(c || '').trim()).filter(Boolean)
+        : undefined;
+      const purposeConfig = body.purposeConfig && typeof body.purposeConfig === 'object' && !Array.isArray(body.purposeConfig)
+        ? body.purposeConfig as Record<string, unknown>
+        : undefined;
       const book = await ledgerCreateBook({
         uid: user.uid,
         email: user.email,
         name: String(body.name || ''),
         currency: String(body.currency || 'INR'),
+        purposeId: body.purposeId ? String(body.purposeId) : undefined,
+        purposeLabel: body.purposeLabel ? String(body.purposeLabel) : undefined,
+        categories,
+        quickActions,
+        purposeConfig,
       });
       apiJson(res, 200, { book });
       return;

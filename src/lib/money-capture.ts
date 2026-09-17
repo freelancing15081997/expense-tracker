@@ -65,7 +65,7 @@ export function buildCapturePreview(
   reasons.push(...classified.reasons);
 
   let processingStatus: ProcessingStatus = 'READY';
-  let confidence: CapturePreview['confidence'] = 'high';
+  let confidence: CapturePreview['confidence'] = classified.confidence.level;
   if (!draft.amount || Number(draft.amount) <= 0) {
     processingStatus = 'REVIEW_REQUIRED';
     confidence = 'low';
@@ -75,8 +75,10 @@ export function buildCapturePreview(
     confidence = 'medium';
     reasons.push(String(draft.flagReason || 'Flagged for review'));
   } else if (!draft.category || String(draft.category).toLowerCase() === 'uncategorized') {
-    confidence = 'medium';
+    confidence = confidence === 'high' ? 'medium' : confidence;
     reasons.push('Category not confirmed');
+  } else if (classified.confidence.level === 'low') {
+    processingStatus = 'REVIEW_REQUIRED';
   }
 
   return {

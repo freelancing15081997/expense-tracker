@@ -3,6 +3,7 @@ import { guessedMerchant } from './bridge-automations';
 import { toPaise, type UserMoneyRule } from './money-core';
 import type { ExpenseRow } from './money-reports';
 import { detectRegularPayments } from './recurrence-engine';
+import { buildConfidence } from './confidence-engine';
 
 export type AnomalyHit = {
   id: string;
@@ -48,9 +49,10 @@ export function classifyCapture(
   bookRules: CategoryRule[],
   userRules: UserMoneyRule[],
   history: ExpenseRow[],
-): { draft: Record<string, unknown>; reasons: string[] } {
+): { draft: Record<string, unknown>; reasons: string[]; confidence: ReturnType<typeof buildConfidence> } {
   const reasons: string[] = [];
   let next = { ...draft };
+  const boosts: number[] = [];
 
   const guess = guessedMerchant(`${next.description || ''} ${next.merchant || ''}`);
   if (guess) {
@@ -58,6 +60,7 @@ export function classifyCapture(
     if (!next.category || String(next.category).toLowerCase() === 'uncategorized') {
       next.category = guess.category;
       reasons.push(`Merchant map: ${guess.merchant} → ${guess.category}`);
+      boosts.push(22);
     }
     if (!next.paymentMethod && guess.method) next.paymentMethod = guess.method;
   }
@@ -66,18 +69,41 @@ export function classifyCapture(
   if (bookCat) {
     next.category = bookCat;
     reasons.push(`Book rule → ${bookCat}`);
+    boosts.push(28);
   }
 
   next = applyUserRules(next, userRules);
-  if (next.ruleApplied) reasons.push('Your saved rule applied');
+  if (next.ruleApplied) {
+    reasons.push('Your saved rule applied');
+    boosts.push(35);
+  }
 
   const merchant = String(next.merchant || '').toLowerCase();
   if (merchant) {
-    const prior = history.filter((e) => String(e.merchant || '').toLowerCase() === merchant).length;
-    if (prior >= 3 && next.category) reasons.push(`${prior} prior confirmed at this merchant`);
+    const prior = history.filter((e) => String(e.merchant || '').toLowerCase() === merchant);
+    const priorCount = prior.length;
+    if (priorCount >= 3 && next.category) {
+      reasons.push(`${priorCount} prior confirmed at this merchant`);
+      boosts.push(18);
+    }
+    const preferred = prior.find((e) => String(e.category || '').trim());
+    if (preferred && (!next.category || String(next.category).toLowerCase() === 'uncategorized')) {
+      next.category = preferred.category;
+      reasons.push('Matched previous category for this merchant');
+      boosts.push(24);
+    }
   }
 
-  return { draft: next, reasons };
+  const amount = Number(next.amount || 0);
+  if (amount > 0) boosts.push(8);
+  if (next.date) boosts.push(6);
+
+  const confidence = buildConfidence(reasons, boosts);
+  next.confidenceScore = confidence.score;
+  next.confidenceLevel = confidence.level;
+  next.confidenceReasons = confidence.reasons;
+
+  return { draft: next, reasons, confidence };
 }
 
 export function detectAnomalies(expenses: ExpenseRow[]): AnomalyHit[] {

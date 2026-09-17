@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Capacitor } from '@capacitor/core';
 import { X, Download, FileText, CheckCircle2, ExternalLink } from 'lucide-react';
 import { openNativePdfPreview } from '../lib/receipt-preview';
@@ -41,6 +42,24 @@ export const ReceiptModal: React.FC<Props> = ({
     setOpeningNativePdf(false);
   }, [imageUrl]);
 
+  // Lock body scroll + Escape Escape while open (portal escapes transformed ancestors).
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const prevOverflow = document.body.style.overflow;
+    const prevTouch = document.body.style.touchAction;
+    document.body.style.overflow = 'hidden';
+    document.body.style.touchAction = 'none';
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      document.body.style.touchAction = prevTouch;
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [onClose]);
+
   if (!loading && !imageUrl) return null;
 
   const showLoader = loading || (kind === 'image' && Boolean(imageUrl) && !imageReady);
@@ -67,32 +86,43 @@ export const ReceiptModal: React.FC<Props> = ({
     }
   };
 
-  return (
+  const node = (
     <div
       id="receipt-modal-backdrop"
-      className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs"
+      role="dialog"
+      aria-modal="true"
+      aria-label={loading ? 'Opening attachment' : 'Attachment preview'}
+      className="receipt-modal-root"
       onClick={onClose}
     >
       <div
         id="receipt-modal-content"
-        className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]"
+        className="receipt-modal-sheet"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-5 py-3.5 bg-slate-900 text-white border-b border-slate-800">
+        <div className="receipt-modal-head">
           <div className="flex items-center gap-2.5 min-w-0">
-            <FileText className="w-5 h-5 text-emerald-400 shrink-0" />
+            <span className="receipt-modal-icon">
+              <FileText className="w-4.5 h-4.5" />
+            </span>
             <div className="min-w-0">
-              <h3 className="font-semibold text-sm">{loading ? 'Opening attachment' : 'Attachment'}</h3>
-              {expenseTitle && <p className="text-xs text-slate-400 truncate max-w-xs">{expenseTitle}</p>}
+              <h3 className="font-semibold text-sm tracking-tight">
+                {loading ? 'Opening attachment' : 'Attachment'}
+              </h3>
+              {expenseTitle && (
+                <p className="text-[11px] text-slate-400 truncate max-w-[14rem] sm:max-w-xs">
+                  {expenseTitle}
+                </p>
+              )}
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0">
             {imageUrl && (
               <button
                 id="btn-download-receipt"
                 type="button"
                 onClick={handleDownload}
-                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs flex items-center gap-1"
+                className="receipt-modal-action"
                 title="Download"
               >
                 <Download className="w-4 h-4" />
@@ -103,26 +133,27 @@ export const ReceiptModal: React.FC<Props> = ({
               id="btn-close-receipt-modal"
               type="button"
               onClick={onClose}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+              className="receipt-modal-action"
+              aria-label="Close"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
         </div>
 
-        <div className="p-4 overflow-auto flex items-center justify-center bg-slate-100 min-h-[300px] relative">
+        <div className="receipt-modal-body">
           {showLoader && (
-            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-slate-100">
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-[#F4F6FA]/95">
               <span className="app-loader-ring" />
               <p className="text-sm font-semibold text-slate-600">Opening attachment…</p>
             </div>
           )}
           {kind === 'image' && imageUrl && (
-            <div className="bg-white p-2 rounded-xl shadow-lg border border-slate-200 max-w-full">
+            <div className="receipt-modal-frame">
               <img
                 src={imageUrl}
                 alt={expenseTitle || 'Attachment'}
-                className="max-h-[60vh] max-w-full object-contain rounded-lg"
+                className="receipt-modal-img"
                 referrerPolicy="no-referrer"
                 onLoad={() => setImageReady(true)}
                 onError={() => setImageReady(true)}
@@ -132,7 +163,7 @@ export const ReceiptModal: React.FC<Props> = ({
           {kind === 'pdf' && imageUrl && !loading && (
             <div className="w-full space-y-3">
               {isNative ? (
-                <div className="text-center space-y-4 py-6">
+                <div className="text-center space-y-4 py-8">
                   <FileText className="w-12 h-12 text-slate-400 mx-auto" />
                   <p className="text-sm text-slate-600">PDF receipts open in your device viewer.</p>
                   <button type="button" onClick={() => void handleOpenPdf()} disabled={openingNativePdf} className="byjan-btn">
@@ -146,12 +177,12 @@ export const ReceiptModal: React.FC<Props> = ({
                     data={imageUrl}
                     type="application/pdf"
                     title={expenseTitle || 'PDF attachment'}
-                    className="w-full h-[62vh] rounded-lg bg-white border border-slate-200"
+                    className="w-full h-[min(62vh,520px)] rounded-xl bg-white border border-slate-200"
                   >
                     <iframe
                       src={imageUrl}
                       title={expenseTitle || 'PDF attachment'}
-                      className="w-full h-[62vh] rounded-lg bg-white border border-slate-200"
+                      className="w-full h-[min(62vh,520px)] rounded-xl bg-white border border-slate-200"
                     />
                   </object>
                   <div className="flex justify-center">
@@ -165,7 +196,7 @@ export const ReceiptModal: React.FC<Props> = ({
             </div>
           )}
           {kind === 'file' && imageUrl && !loading && (
-            <div className="text-center space-y-3">
+            <div className="text-center space-y-3 py-8">
               <p className="text-sm text-slate-600">This file cannot be previewed here.</p>
               <button type="button" onClick={handleDownload} className="byjan-btn">
                 <Download className="w-4 h-4" />
@@ -175,20 +206,19 @@ export const ReceiptModal: React.FC<Props> = ({
           )}
         </div>
 
-        <div className="px-5 py-3 bg-white border-t border-slate-200 flex items-center justify-between text-xs text-slate-600">
+        <div className="receipt-modal-foot">
           <div className={`flex items-center gap-1.5 font-medium ${verified ? 'text-emerald-600' : 'text-slate-500'}`}>
             {verified && <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
             <span>{loading ? 'Fetching file' : verified ? 'Verified proof' : 'Stored attachment'}</span>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-3.5 py-1.5 bg-slate-50 hover:bg-slate-100 font-semibold text-slate-700 rounded-lg border border-slate-200"
-          >
+          <button type="button" onClick={onClose} className="receipt-modal-close-btn">
             Close
           </button>
         </div>
       </div>
     </div>
   );
+
+  if (typeof document === 'undefined') return node;
+  return createPortal(node, document.body);
 };

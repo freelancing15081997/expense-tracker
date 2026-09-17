@@ -1,8 +1,9 @@
 ﻿import React, { useState, useEffect, useRef } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { logout } from '../lib/firebase';
-import { Bell, CheckCircle2, X, Mail, LayoutDashboard, Settings, BookText, Activity as ActivityIcon, Plus, ScanLine, PenLine, Mic } from 'lucide-react';
+import { Bell, CheckCircle2, X, Mail, LayoutDashboard, Settings, BookText, Plus, ScanLine, PenLine, Mic, Activity } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { listNotifications, markNotificationRead, notificationPath } from '../lib/notifications';
@@ -21,14 +22,25 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+const MotionLink = motion.create(Link);
+const tabSpring = { type: 'spring' as const, stiffness: 520, damping: 28, mass: 0.7 };
+const fabMenuSpring = { type: 'spring' as const, stiffness: 420, damping: 24 };
+
 export default function Layout() {
   const { currentUser, userProfile } = useAuth();
   const { on: hasFeature } = useFeatures();
   const location = useLocation();
   const navigate = useNavigate();
   const tenant = useBooksTenantMeta();
+  const reduceMotion = useReducedMotion();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [fabOpen, setFabOpen] = useState(false);
+  const [navPulse, setNavPulse] = useState(0);
+
+  const pulseNav = () => {
+    void CapacitorService.hapticTick();
+    setNavPulse((n) => n + 1);
+  };
 
   // Quick actions from the raised center button. Dashboard and BookView listen.
   const fireQuickAction = (kind: 'scan' | 'add' | 'voice') => {
@@ -137,10 +149,15 @@ export default function Layout() {
 
   const unreadCount = notifications.filter((n) => !n.read).length;
   const onHome = location.pathname === '/';
-  const onSettings = location.pathname === '/settings';
+  const onSettings = location.pathname === '/settings' || location.pathname.startsWith('/access');
   const onLedger = location.pathname.startsWith('/book/');
   const onLedgers = location.pathname === '/expenses' || onLedger;
-  const onActivity = location.pathname === '/activity';
+  const onActivity = location.pathname === '/activity' || location.pathname === '/regular-payments' || location.pathname === '/reports';
+  const canAdd = hasFeature('money_add');
+  const canScan = hasFeature('money_scan');
+  const canVoice = hasFeature('money_voice');
+  const canNotify = hasFeature('app_notifications');
+  const showFab = hasFeature('money') && (canAdd || canScan || canVoice);
 
   const handleMarkAsRead = async (id: string) => {
     try {
@@ -162,6 +179,7 @@ export default function Layout() {
         <div className="flex items-center gap-1">
           <WorkspaceSwitcher variant="header" />
           <SearchTrigger />
+          {canNotify && (
           <button
             type="button"
             onClick={openNotifications}
@@ -171,6 +189,7 @@ export default function Layout() {
             <Bell className="w-5 h-5" />
             {unreadCount > 0 && <span className="ios-notify-badge">{unreadCount > 9 ? '9+' : unreadCount}</span>}
           </button>
+          )}
           <AccountMenu />
         </div>
       </div>
@@ -206,6 +225,7 @@ export default function Layout() {
               <SearchTrigger variant="bar" />
             </div>
           </div>
+          {canNotify && (
           <button
             type="button"
             onClick={openNotifications}
@@ -215,15 +235,22 @@ export default function Layout() {
             <Bell className="w-5 h-5" />
             {unreadCount > 0 && <span className="ios-notify-badge">{unreadCount > 9 ? '9+' : unreadCount}</span>}
           </button>
+          )}
           <AccountMenu />
         </div>
         <main className={cn(
           'flex-1 min-h-0 ios-page',
           location.pathname.startsWith('/book')
-            ? 'overflow-hidden flex flex-col pb-[calc(4.75rem+env(safe-area-inset-bottom))] md:pb-0'
-            : 'overflow-y-auto p-3 md:p-6 lg:p-8 pb-[calc(5.25rem+env(safe-area-inset-bottom))] md:pb-8'
+            ? 'overflow-hidden flex flex-col pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-0'
+            : 'overflow-y-auto p-3 md:p-6 lg:p-8 pb-[calc(8.5rem+env(safe-area-inset-bottom))] md:pb-8'
         )}>
-          <Outlet />
+          <div
+            key={`${location.pathname}:${navPulse}`}
+            className={reduceMotion ? undefined : 'nav-page-enter'}
+            style={{ minHeight: '100%' }}
+          >
+            <Outlet />
+          </div>
         </main>
       </div>
 
@@ -287,57 +314,100 @@ export default function Layout() {
         </>
       )}
 
-      {fabOpen && (
-        <>
-          <div className="dash-fab-scrim md:hidden" onClick={() => setFabOpen(false)} />
-          <div className="dash-fab-menu md:hidden" role="menu" aria-label="Quick actions">
-            <button type="button" className="dash-fab-item" onClick={() => fireQuickAction('voice')}>
-              <span className="dash-fab-label">Voice</span>
-              <span className="dash-fab-btn tone-rose"><Mic className="w-5 h-5" /></span>
-            </button>
-            <button type="button" className="dash-fab-item" onClick={() => fireQuickAction('add')}>
-              <span className="dash-fab-label">Add entry</span>
-              <span className="dash-fab-btn tone-brand"><PenLine className="w-5 h-5" /></span>
-            </button>
-            <button type="button" className="dash-fab-item" onClick={() => fireQuickAction('scan')}>
-              <span className="dash-fab-label">Scan</span>
-              <span className="dash-fab-btn tone-gold"><ScanLine className="w-5 h-5" /></span>
-            </button>
-          </div>
-        </>
-      )}
+      <AnimatePresence>
+        {fabOpen && showFab && (
+          <motion.div
+            className="dash-fab-scrim md:hidden"
+            initial={reduceMotion ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setFabOpen(false)}
+          />
+        )}
+      </AnimatePresence>
 
-      <nav className="dash-tabbar md:hidden" aria-label="Primary">
-        <Link to="/" className="dash-tab" data-on={onHome} onClick={() => void CapacitorService.hapticTick()}>
+      <nav className={`dash-tabbar md:hidden${showFab ? ' has-fab' : ''}`} aria-label="Primary">
+        <MotionLink to="/" className="dash-tab dash-tab-home" data-on={onHome} onClick={pulseNav} whileTap={reduceMotion ? undefined : { scale: 0.9, rotateX: 16 }} transition={tabSpring} style={{ transformPerspective: 700 }}>
           <LayoutDashboard className="w-5 h-5" />
           Home
-        </Link>
+        </MotionLink>
         {hasFeature('money') && (
-          <Link to="/expenses" className="dash-tab" data-on={onLedgers} onClick={() => void CapacitorService.hapticTick()}>
+          <MotionLink to="/expenses" className="dash-tab dash-tab-books" data-on={onLedgers} onClick={pulseNav} whileTap={reduceMotion ? undefined : { scale: 0.9, rotateX: 16 }} transition={tabSpring} style={{ transformPerspective: 700 }}>
             <BookText className="w-5 h-5" />
             Books
-          </Link>
+          </MotionLink>
         )}
-        {hasFeature('money') && <span className="dash-tab-gap" aria-hidden />}
-        <Link to="/activity" className="dash-tab" data-on={onActivity} onClick={() => void CapacitorService.hapticTick()}>
-          <ActivityIcon className="w-5 h-5" />
-          Activity
-        </Link>
-        <Link to="/settings" className="dash-tab" data-on={onSettings} onClick={() => void CapacitorService.hapticTick()}>
+        {hasFeature('money') && (
+          <MotionLink to="/activity" className="dash-tab dash-tab-activity" data-on={onActivity} onClick={pulseNav} whileTap={reduceMotion ? undefined : { scale: 0.9, rotateX: 16 }} transition={tabSpring} style={{ transformPerspective: 700 }}>
+            <Activity className="w-5 h-5" />
+            Activity
+          </MotionLink>
+        )}
+        <MotionLink to="/settings" className="dash-tab dash-tab-more" data-on={onSettings} onClick={pulseNav} whileTap={reduceMotion ? undefined : { scale: 0.9, rotateX: 16 }} transition={tabSpring} style={{ transformPerspective: 700 }}>
           <Settings className="w-5 h-5" />
           More
-        </Link>
-        {hasFeature('money') && (
-          <button
-            type="button"
-            className="dash-fab-center"
-            data-open={fabOpen}
-            aria-label={fabOpen ? 'Close quick actions' : 'Quick actions'}
-            aria-expanded={fabOpen}
-            onClick={() => { void CapacitorService.hapticTick(); setFabOpen((v) => !v); }}
-          >
-            <Plus className="w-6 h-6" />
-          </button>
+        </MotionLink>
+        {showFab && (
+          <div className="dash-fab-anchor">
+            <button
+              type="button"
+              className="dash-fab-center"
+              data-open={fabOpen}
+              aria-label={fabOpen ? 'Close quick actions' : 'Quick actions'}
+              aria-expanded={fabOpen}
+              onClick={() => { pulseNav(); setFabOpen((v) => !v); }}
+            >
+              <Plus className="w-6 h-6" />
+            </button>
+            <AnimatePresence>
+              {fabOpen && (
+                <div className="dash-fab-orbit" role="menu" aria-label="Quick actions">
+                  {canVoice && (
+                    <motion.button
+                      type="button"
+                      className="dash-fab-item is-voice"
+                      initial={reduceMotion ? false : { opacity: 0, x: 0, y: 0, scale: 0.35 }}
+                      animate={{ opacity: 1, x: -78, y: -70, scale: 1 }}
+                      exit={{ opacity: 0, x: 0, y: 0, scale: 0.35 }}
+                      transition={{ ...fabMenuSpring, delay: 0.02 }}
+                      onClick={() => fireQuickAction('voice')}
+                    >
+                      <span className="dash-fab-btn tone-rose"><Mic className="w-5 h-5" strokeWidth={2.4} /></span>
+                      <span className="dash-fab-label">Voice</span>
+                    </motion.button>
+                  )}
+                  {canAdd && (
+                    <motion.button
+                      type="button"
+                      className="dash-fab-item is-add"
+                      initial={reduceMotion ? false : { opacity: 0, x: 0, y: 0, scale: 0.35 }}
+                      animate={{ opacity: 1, x: 0, y: -102, scale: 1 }}
+                      exit={{ opacity: 0, x: 0, y: 0, scale: 0.35 }}
+                      transition={{ ...fabMenuSpring, delay: 0.05 }}
+                      onClick={() => fireQuickAction('add')}
+                    >
+                      <span className="dash-fab-btn tone-brand"><PenLine className="w-5 h-5" strokeWidth={2.4} /></span>
+                      <span className="dash-fab-label">Add</span>
+                    </motion.button>
+                  )}
+                  {canScan && (
+                    <motion.button
+                      type="button"
+                      className="dash-fab-item is-scan"
+                      initial={reduceMotion ? false : { opacity: 0, x: 0, y: 0, scale: 0.35 }}
+                      animate={{ opacity: 1, x: 78, y: -70, scale: 1 }}
+                      exit={{ opacity: 0, x: 0, y: 0, scale: 0.35 }}
+                      transition={{ ...fabMenuSpring, delay: 0.08 }}
+                      onClick={() => fireQuickAction('scan')}
+                    >
+                      <span className="dash-fab-btn tone-gold"><ScanLine className="w-5 h-5" strokeWidth={2.4} /></span>
+                      <span className="dash-fab-label">Scan</span>
+                    </motion.button>
+                  )}
+                </div>
+              )}
+            </AnimatePresence>
+          </div>
         )}
       </nav>
     </div>

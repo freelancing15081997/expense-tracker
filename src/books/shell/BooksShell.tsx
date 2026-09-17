@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, Navigate, useLocation } from 'react-router-dom';
 import { ChevronRight, Search, X } from 'lucide-react';
@@ -43,14 +43,14 @@ function BooksNav({ pathname, onNavigate }: { pathname: string; onNavigate?: () 
                     <Link
                       key={item.href}
                       to={item.href}
-                      title={`${item.name} â€” ${branch.blurb}`}
+                      title={`${item.name} — ${branch.blurb}`}
                       onClick={onNavigate}
                       className={`ios-row !min-h-[44px] !py-2 ${active ? 'bg-[#EEF2F6]' : ''}`}
                     >
-                      <span className={`ios-glyph !w-7 !h-7 !rounded-lg ${active ? '' : '!bg-[#e8eaed] !text-[#0B0F1F]'}`}>
+                      <span className={`ios-glyph !w-7 !h-7 !rounded-lg ${active ? '' : '!bg-[#e8eaed] !text-[#0B1F3A]'}`}>
                         <FeatureIcon href={item.href} className="w-3.5 h-3.5" />
                       </span>
-                      <span className={`text-[15px] tracking-tight truncate ${active ? 'font-semibold text-[#0B0F1F]' : 'font-medium text-[#3a3a3c]'}`}>
+                      <span className={`text-[15px] tracking-tight truncate ${active ? 'font-semibold text-[#0B1F3A]' : 'font-medium text-[#3a3a3c]'}`}>
                         {item.name}
                       </span>
                       <ChevronRight className="ios-chevron w-4 h-4" />
@@ -83,7 +83,7 @@ export default function BooksShell({ children }: { children: React.ReactNode }) 
   }
 
   return (
-    <div className="books-root h-full min-h-0 flex overflow-hidden text-[#0B0F1F]">
+    <div className="books-root h-full min-h-0 flex overflow-hidden text-[#0B1F3A]">
       <aside className="books-aside hidden lg:flex">
         <div className="px-4 pt-4 pb-3">
           <p className="text-[11px] font-semibold tracking-[0.16em] uppercase text-[#8e8e93]">Business</p>
@@ -98,7 +98,7 @@ export default function BooksShell({ children }: { children: React.ReactNode }) 
         <header className="books-chrome shrink-0 z-30 px-4 md:px-5 min-h-14 py-2 flex items-center gap-3">
           <button
             type="button"
-            className="lg:hidden w-10 h-10 rounded-[12px] bg-white/70 border border-white/70 text-[#0B0F1F] flex items-center justify-center"
+            className="lg:hidden w-10 h-10 rounded-[12px] bg-white/70 border border-white/70 text-[#0B1F3A] flex items-center justify-center"
             onClick={() => setBrowse(true)}
             aria-label="Open business menu"
           >
@@ -106,7 +106,7 @@ export default function BooksShell({ children }: { children: React.ReactNode }) 
           </button>
           <div className="min-w-0 flex-1">
             <h1 className="font-display text-[20px] font-semibold tracking-[-0.03em] truncate">{module.name}</h1>
-            <p className="text-[12px] text-[#8e8e93] truncate">{tenant?.name || 'Business'} Â· {current.name}</p>
+            <p className="text-[12px] text-[#8e8e93] truncate">{tenant?.name || 'Business'} · {current.name}</p>
           </div>
           <button
             type="button"
@@ -124,7 +124,7 @@ export default function BooksShell({ children }: { children: React.ReactNode }) 
 
       {browse && typeof document !== 'undefined' && createPortal(
         <>
-          <div className="fixed inset-0 z-[72] bg-[#3654FF]/35 backdrop-blur-[6px] lg:hidden" onClick={() => setBrowse(false)} />
+          <div className="fixed inset-0 z-[72] bg-[#0B1F3A]/35 backdrop-blur-[6px] lg:hidden" onClick={() => setBrowse(false)} />
           <aside className="books-aside books-aside-sheet lg:hidden">
             <div className="flex items-center justify-between px-4 pt-4 pb-2">
               <div>

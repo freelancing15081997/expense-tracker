@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { createExpense, checkDuplicateExpense } from '../lib/expenses';
 import { buildCapturePreview, capturePreviewToExpense } from '../lib/money-capture';
 import { processReceiptJob } from '../lib/money-api';
@@ -34,6 +35,7 @@ type Props = {
   bookId?: string;
   bookName?: string;
   currency?: string;
+  booksSeed?: Array<{ id: string; name: string; currency?: string }>;
   onClose: () => void;
   onConfirmed: (expense: Record<string, unknown>, extras?: { count?: number; needsEdit?: boolean; duplicate?: boolean }) => void;
 };
@@ -523,6 +525,7 @@ export default function ReceiptCaptureFlow({
   open,
   launch,
   bookId: initialBookId,
+  booksSeed,
   onClose,
   onConfirmed,
 }: Props) {
@@ -933,14 +936,7 @@ export default function ReceiptCaptureFlow({
       const wantPick = launch.requireBookPick === true
         || (!launch.preferredBookId && !initialBookId);
 
-      if (wantPick) {
-        setPhase('pick');
-        setBusy(true);
-        setStatusLine('Choose where to save this share');
-        setPct(10);
-      }
-
-      const cached = readCachedMoneyBooks().map((b) => ({
+      const seedFromProps = (booksSeed || []).map((b) => ({
         id: b.id,
         name: b.name,
         currency: b.currency || 'INR',
@@ -948,7 +944,27 @@ export default function ReceiptCaptureFlow({
         reason: b.id === launch.preferredBookId ? 'Suggested' : 'Authorized Money book',
         memberCount: 1,
       }));
+      const cached = [
+        ...seedFromProps,
+        ...readCachedMoneyBooks()
+          .filter((b) => !seedFromProps.some((s) => s.id === b.id))
+          .map((b) => ({
+            id: b.id,
+            name: b.name,
+            currency: b.currency || 'INR',
+            score: b.id === launch.preferredBookId ? 20 : 10,
+            reason: b.id === launch.preferredBookId ? 'Suggested' : 'Authorized Money book',
+            memberCount: 1,
+          })),
+      ];
       if (cached.length) setContexts(cached);
+
+      if (wantPick) {
+        setPhase('pick');
+        setBusy(true);
+        setStatusLine('Choose where to save this share');
+        setPct(10);
+      }
 
       if (!wantPick) {
         const lockedBook = launch.preferredBookId || initialBookId || (cached.length === 1 ? cached[0].id : '');
@@ -977,20 +993,27 @@ export default function ReceiptCaptureFlow({
         setContexts(bookRows);
         cacheMoneyBooks(bookRows.map((b) => ({ id: b.id, name: b.name, currency: b.currency })));
 
-        if (bookRows.length === 1) {
+        if (!wantPick && bookRows.length === 1) {
           await saveNow(bookRows[0].id);
           return;
         }
-        if (!bookRows.length) {
+        if (!bookRows.length && !cached.length) {
           setError('Create a Money book first, then share again.');
           setPhase('failed');
           return;
         }
 
-        // 2+ books → always stay on picker.
-        setPhase('pick');
-        setPct(10);
-        setStatusLine('Choose where to save this share');
+        // 2+ books or explicit pick → stay on picker (keep cached if API empty).
+        if (wantPick || bookRows.length > 1 || cached.length > 1) {
+          if (bookRows.length) setContexts(bookRows);
+          setPhase('pick');
+          setPct(10);
+          setStatusLine('Choose where to save this share');
+        } else if (bookRows.length === 1) {
+          await saveNow(bookRows[0].id);
+        } else if (cached.length === 1) {
+          await saveNow(cached[0].id);
+        }
       } catch {
         if (!cancelled) {
           if (cached.length > 1 || wantPick) {
@@ -1021,6 +1044,13 @@ export default function ReceiptCaptureFlow({
     if (tickRef.current) window.clearInterval(tickRef.current);
   }, []);
 
+  useEffect(() => {
+    if (!open || typeof document === 'undefined') return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [open]);
+
   if (!open || !launch) return null;
 
   const existing = pendingDup?.existing;
@@ -1039,7 +1069,7 @@ export default function ReceiptCaptureFlow({
     && Number(existing.amount) !== Number(candidate.amount),
   );
 
-  return (
+  const sheet = (
     <div className="sr-root" role="dialog" aria-modal="true" aria-label="Reading shared receipt">
       <button type="button" className="sr-dim" aria-label="Close" onClick={() => { if (!busy) onClose(); }} />
       <div className="sr-sheet">
@@ -1181,4 +1211,7 @@ export default function ReceiptCaptureFlow({
       </div>
     </div>
   );
+
+  if (typeof document === 'undefined') return sheet;
+  return createPortal(sheet, document.body);
 }

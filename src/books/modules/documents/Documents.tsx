@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useBooks } from '../../context/BooksProvider';
 import { addDays, formatMoney, lineAmount, parseMoney, parseQty, todayISO } from '../../core/money';
@@ -184,9 +184,9 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
       resetForm();
       setBusy(false);
       if (queued.length) {
-        setSavingHint('Saving supporting filesâ€¦');
+        setSavingHint('Saving supporting files…');
         Promise.all(queued.map((file) => uploadFile({ domain: kind, resourceId: id, file })))
-          .catch((err) => setError(err?.message || 'Document saved. A supporting file failed â€” attach it from the preview.'))
+          .catch((err) => setError(err?.message || 'Document saved. A supporting file failed — attach it from the preview.'))
           .finally(() => setSavingHint(''));
       }
     } catch (err: any) {
@@ -270,7 +270,7 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
                 </Field>
               )}
               {profile.showInterstate && (
-                <label className="flex items-center gap-2 text-sm text-[#0B0F1F] mt-7">
+                <label className="flex items-center gap-2 text-sm text-[#0B1F3A] mt-7">
                   <input type="checkbox" checked={interstate} onChange={(e) => setInterstate(e.target.checked)} />
                   Interstate supply (IGST)
                 </label>
@@ -331,7 +331,7 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
                           </td>
                         )}
                         <td className="p-2 text-right tabular-nums text-sm">
-                          {linePreviewMinor(line) == null ? 'â€”' : formatMoney(linePreviewMinor(line)!, currency)}
+                          {linePreviewMinor(line) == null ? '—' : formatMoney(linePreviewMinor(line)!, currency)}
                         </td>
                         <td className="p-2">
                           <button
@@ -391,7 +391,7 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
       {quickOpen && partyKind && (
         <Card className="p-5 space-y-4">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.16em] text-[#3654FF] font-semibold">New {partyKind}</p>
+            <p className="text-[10px] uppercase tracking-[0.16em] text-[#12B8A8] font-semibold">New {partyKind}</p>
             <h2 className="font-display text-xl mt-1">{partyKind === 'customer' ? 'Add customer' : 'Add vendor'}</h2>
             <p className="text-sm text-slate-500 mt-1">Save the full {partyKind} record, then continue this {profile.singular.toLowerCase()}.</p>
           </div>
@@ -445,14 +445,14 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
                   <tr key={row.id} className="border-b border-slate-100 align-top cursor-pointer hover:bg-[#F8FAFC]" onClick={() => setSelectedId(row.id)}>
                     <td className="px-4 py-2.5 font-medium">{row.number}</td>
                     <td className="px-4 py-2.5">{row.date}</td>
-                    <td className="px-4 py-2.5">{party?.name || (kind === 'expense' ? (row.memo || 'â€”') : 'â€”')}</td>
-                    <td className="px-4 py-2.5 text-[#6B7280]">{row.poNumber || row.memo || 'â€”'}</td>
+                    <td className="px-4 py-2.5">{party?.name || (kind === 'expense' ? (row.memo || '—') : '—')}</td>
+                    <td className="px-4 py-2.5 text-[#6B7280]">{row.poNumber || row.memo || '—'}</td>
                     <td className="px-4 py-2.5 text-right"><Money minor={row.totalMinor} currency={currency} /></td>
                     {profile.listDue && (
                       <td className="px-4 py-2.5 text-right">
                         {profile.canPay || kind === 'credit_note' || kind === 'vendor_credit'
                           ? <Money minor={due} currency={currency} />
-                          : (row.dueDate || 'â€”')}
+                          : (row.dueDate || '—')}
                       </td>
                     )}
                     <td className="px-4 py-2.5"><Status value={row.status} /></td>
@@ -504,7 +504,7 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
         return (
           <RecordFlyout
             title={row.number}
-            subtitle={`${profile.singular} Â· ${party?.name || (kind === 'expense' ? (row.memo || 'Books expense') : 'No party')} Â· ${row.date}`}
+            subtitle={`${profile.singular} · ${party?.name || (kind === 'expense' ? (row.memo || 'Books expense') : 'No party')} · ${row.date}`}
             onClose={() => setSelectedId(null)}
             actions={canEdit && (
               <button type="button" className={btnGhost} onClick={() => { loadForm(row); setSelectedId(null); }}>
@@ -515,11 +515,11 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div><p className="text-xs text-slate-500">Status</p><Status value={row.status} /></div>
               <div><p className="text-xs text-slate-500">Total</p><p className="font-semibold"><Money minor={row.totalMinor} currency={currency} /></p></div>
-              <div><p className="text-xs text-slate-500">{profile.listRef}</p><p>{row.poNumber || row.memo || 'â€”'}</p></div>
-              {profile.placeOfSupplyLabel && <div><p className="text-xs text-slate-500">{profile.placeOfSupplyLabel}</p><p>{row.placeOfSupply || 'â€”'}</p></div>}
-              {profile.dueDateLabel && <div><p className="text-xs text-slate-500">{profile.dueDateLabel}</p><p>{row.dueDate || 'â€”'}</p></div>}
-              {profile.billToLabel && <div className="col-span-2 whitespace-pre-line"><p className="text-xs text-slate-500">{profile.billToLabel}</p><p>{row.billTo || (party ? partyBlock(party) : 'â€”')}</p></div>}
-              {profile.shipToLabel && <div className="col-span-2 whitespace-pre-line"><p className="text-xs text-slate-500">{profile.shipToLabel}</p><p>{row.shipTo || 'â€”'}</p></div>}
+              <div><p className="text-xs text-slate-500">{profile.listRef}</p><p>{row.poNumber || row.memo || '—'}</p></div>
+              {profile.placeOfSupplyLabel && <div><p className="text-xs text-slate-500">{profile.placeOfSupplyLabel}</p><p>{row.placeOfSupply || '—'}</p></div>}
+              {profile.dueDateLabel && <div><p className="text-xs text-slate-500">{profile.dueDateLabel}</p><p>{row.dueDate || '—'}</p></div>}
+              {profile.billToLabel && <div className="col-span-2 whitespace-pre-line"><p className="text-xs text-slate-500">{profile.billToLabel}</p><p>{row.billTo || (party ? partyBlock(party) : '—')}</p></div>}
+              {profile.shipToLabel && <div className="col-span-2 whitespace-pre-line"><p className="text-xs text-slate-500">{profile.shipToLabel}</p><p>{row.shipTo || '—'}</p></div>}
             </div>
             <div className="rounded-2xl border border-slate-200 overflow-hidden">
               <table className="w-full text-sm">
@@ -553,7 +553,7 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
                     onFiles={(picked) => {
                       const file = picked[0];
                       if (!file) return;
-                      setSavingHint('Uploading fileâ€¦');
+                      setSavingHint('Uploading file…');
                       uploadFile({ domain: kind, resourceId: row.id, file })
                         .catch((err) => setError(err.message || 'Upload failed'))
                         .finally(() => setSavingHint(''));
@@ -635,7 +635,7 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
                 }}>
                   <option value="">{targets.length ? 'Select' : 'No open documents for this party'}</option>
                   {targets.map((d) => (
-                    <option key={d.id} value={d.id}>{d.number} Â· {formatMinorPlain(d.totalMinor - d.paidMinor)} open</option>
+                    <option key={d.id} value={d.id}>{d.number} · {formatMinorPlain(d.totalMinor - d.paidMinor)} open</option>
                   ))}
                 </select>
               </Field>

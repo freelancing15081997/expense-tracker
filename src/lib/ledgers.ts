@@ -22,7 +22,15 @@ export async function getLedger(bookId: string) {
   return payload.book;
 }
 
-export async function createLedger(input: { name: string; currency: string }) {
+export async function createLedger(input: {
+  name: string;
+  currency: string;
+  purposeId?: string;
+  purposeLabel?: string;
+  categories?: string[];
+  quickActions?: string[];
+  purposeConfig?: Record<string, unknown>;
+}) {
   const payload = await apiPost<{ book: LedgerBook }>('/api/ledgers', { op: 'create', ...input });
   return payload.book;
 }

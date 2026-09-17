@@ -418,6 +418,118 @@ async function ensureLedgerSchema(sql: Sql) {
     PRIMARY KEY (workspace_id, collection, id)
   )`;
   await sql`CREATE INDEX IF NOT EXISTS erp_records_ws_col_idx ON erp_records (workspace_id, collection, deleted, updated_at DESC)`;
+
+  // Financial autopilot / purpose / memory (additive, non-destructive)
+  await sql`CREATE TABLE IF NOT EXISTS purpose_templates (
+    id TEXT PRIMARY KEY,
+    label TEXT NOT NULL DEFAULT '',
+    data JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`;
+  await sql`CREATE TABLE IF NOT EXISTS merchant_profiles (
+    id TEXT PRIMARY KEY,
+    owner_uid TEXT NOT NULL,
+    normalized_name TEXT NOT NULL DEFAULT '',
+    preferred_category TEXT,
+    data JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`;
+  await sql`CREATE INDEX IF NOT EXISTS merchant_profiles_owner_idx ON merchant_profiles (owner_uid, normalized_name)`;
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS merchant_profiles_owner_name_uidx
+    ON merchant_profiles (owner_uid, normalized_name) WHERE normalized_name <> ''`;
+  await sql`CREATE TABLE IF NOT EXISTS recurring_patterns (
+    id TEXT PRIMARY KEY,
+    owner_uid TEXT NOT NULL,
+    book_id TEXT,
+    merchant TEXT NOT NULL DEFAULT '',
+    amount_paise NUMERIC(18,0),
+    cadence TEXT,
+    confidence TEXT,
+    status TEXT NOT NULL DEFAULT 'suggested',
+    data JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`;
+  await sql`CREATE INDEX IF NOT EXISTS recurring_patterns_owner_idx ON recurring_patterns (owner_uid, status, updated_at DESC)`;
+  await sql`CREATE TABLE IF NOT EXISTS duplicate_candidates (
+    id TEXT PRIMARY KEY,
+    book_id TEXT NOT NULL,
+    expense_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+    status TEXT NOT NULL DEFAULT 'open',
+    data JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`;
+  await sql`CREATE INDEX IF NOT EXISTS duplicate_candidates_book_idx ON duplicate_candidates (book_id, status, created_at DESC)`;
+  await sql`CREATE TABLE IF NOT EXISTS financial_commitments (
+    id TEXT PRIMARY KEY,
+    owner_uid TEXT NOT NULL,
+    book_id TEXT,
+    label TEXT NOT NULL DEFAULT '',
+    amount_paise NUMERIC(18,0),
+    next_due DATE,
+    status TEXT NOT NULL DEFAULT 'predicted',
+    data JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`;
+  await sql`CREATE INDEX IF NOT EXISTS financial_commitments_owner_idx ON financial_commitments (owner_uid, next_due)`;
+  await sql`CREATE TABLE IF NOT EXISTS warranties (
+    id TEXT PRIMARY KEY,
+    owner_uid TEXT NOT NULL,
+    book_id TEXT,
+    expense_id TEXT,
+    product TEXT NOT NULL DEFAULT '',
+    merchant TEXT,
+    purchase_date DATE,
+    warranty_expiry DATE,
+    return_deadline DATE,
+    data JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`;
+  await sql`CREATE INDEX IF NOT EXISTS warranties_owner_idx ON warranties (owner_uid, warranty_expiry)`;
+  await sql`CREATE TABLE IF NOT EXISTS attention_items (
+    id TEXT PRIMARY KEY,
+    owner_uid TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    book_id TEXT,
+    status TEXT NOT NULL DEFAULT 'open',
+    priority INT NOT NULL DEFAULT 50,
+    data JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`;
+  await sql`CREATE INDEX IF NOT EXISTS attention_items_owner_idx ON attention_items (owner_uid, status, priority DESC, updated_at DESC)`;
+  await sql`CREATE TABLE IF NOT EXISTS automation_rules (
+    id TEXT PRIMARY KEY,
+    owner_uid TEXT NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    name TEXT NOT NULL DEFAULT '',
+    data JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`;
+  await sql`CREATE INDEX IF NOT EXISTS automation_rules_owner_idx ON automation_rules (owner_uid, enabled)`;
+  await sql`CREATE TABLE IF NOT EXISTS financial_events (
+    id TEXT PRIMARY KEY,
+    owner_uid TEXT,
+    book_id TEXT,
+    event_type TEXT NOT NULL,
+    source TEXT,
+    confidence TEXT,
+    previous_state JSONB,
+    new_state JSONB,
+    detail JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`;
+  await sql`CREATE INDEX IF NOT EXISTS financial_events_book_idx ON financial_events (book_id, created_at DESC)`;
+  await sql`CREATE INDEX IF NOT EXISTS financial_events_owner_idx ON financial_events (owner_uid, created_at DESC)`;
+  await sql`CREATE TABLE IF NOT EXISTS life_events (
+    id TEXT PRIMARY KEY,
+    owner_uid TEXT NOT NULL,
+    label TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'suggested',
+    data JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`;
+  await sql`CREATE INDEX IF NOT EXISTS life_events_owner_idx ON life_events (owner_uid, status, updated_at DESC)`;
+
   await copyLegacyDocuments(sql);
   await copyLegacyErp(sql);
 }
@@ -1401,6 +1513,11 @@ export async function ledgerCreateBook(input: {
   email: string;
   name: string;
   currency?: string;
+  purposeId?: string;
+  purposeLabel?: string;
+  categories?: string[];
+  quickActions?: string[];
+  purposeConfig?: Record<string, unknown>;
 }) {
   const name = text(input.name).trim();
   if (!name) {
@@ -1410,13 +1527,25 @@ export async function ledgerCreateBook(input: {
   }
   const id = newLedgerId();
   const now = new Date().toISOString();
-  const data = {
+  const categories = Array.isArray(input.categories)
+    ? input.categories.map((c) => text(c).trim()).filter(Boolean).slice(0, 40)
+    : [];
+  const quickActions = Array.isArray(input.quickActions)
+    ? input.quickActions.map((c) => text(c).trim()).filter(Boolean).slice(0, 12)
+    : [];
+  const purposeId = text(input.purposeId).trim() || 'default';
+  const data: Record<string, unknown> = {
     id,
     name,
     ownerId: input.uid,
     currency: text(input.currency) || 'INR',
     createdAt: now,
     roles: { [input.uid]: { role: 'owner', email: text(input.email).toLowerCase() } },
+    purposeId,
+    purposeLabel: text(input.purposeLabel).trim() || undefined,
+    categories: categories.length ? categories : undefined,
+    quickActions: quickActions.length ? quickActions : undefined,
+    purposeConfig: input.purposeConfig && typeof input.purposeConfig === 'object' ? input.purposeConfig : undefined,
   };
   await ledgerSet(`books/${id}`, data);
   await ledgerAudit({
@@ -1426,7 +1555,7 @@ export async function ledgerCreateBook(input: {
     action: 'ledger.create',
     entityType: 'book',
     entityId: id,
-    detail: { name },
+    detail: { name, purposeId },
   });
   const mailbox = await ledgerEnsureMailbox(id, data).catch(() => null);
   return {

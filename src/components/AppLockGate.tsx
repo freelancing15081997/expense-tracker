@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { App } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
-import { Fingerprint, LockKeyhole, ShieldCheck } from 'lucide-react';
+import { Fingerprint, ShieldCheck } from 'lucide-react';
+import BrandLogo from './BrandLogo';
 import { useAuth } from '../context/AuthContext';
+import { useFeatures } from '../lib/use-features';
 import { logout } from '../lib/firebase';
 import {
   biometricUnlock,
@@ -23,8 +25,10 @@ function shuffledDigits() {
 
 export default function AppLockGate({ children }: { children: React.ReactNode }) {
   const { currentUser } = useAuth();
+  const { on: hasFeature } = useFeatures();
   const uid = currentUser?.uid || '';
-  const [locked, setLocked] = useState(() => lockIsEnabledFor(uid));
+  const lockAllowed = hasFeature('app_lock');
+  const [locked, setLocked] = useState(() => lockAllowed && lockIsEnabledFor(uid));
   const [pin, setPin] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -40,13 +44,13 @@ export default function AppLockGate({ children }: { children: React.ReactNode })
   );
 
   useEffect(() => {
-    setLocked(lockIsEnabledFor(uid));
+    setLocked(lockAllowed && lockIsEnabledFor(uid));
     setPin('');
     setError('');
-  }, [uid]);
+  }, [uid, lockAllowed]);
 
   useEffect(() => {
-    if (!uid || !lockIsEnabledFor(uid)) return;
+    if (!lockAllowed || !uid || !lockIsEnabledFor(uid)) return;
     const autoMs = Math.max(0, Number(options.autoLockMs || 0));
     const onVis = () => {
       if (document.visibilityState === 'hidden') bgAt.current = Date.now();
@@ -66,11 +70,11 @@ export default function AppLockGate({ children }: { children: React.ReactNode })
       document.removeEventListener('visibilitychange', onVis);
       handle?.remove();
     };
-  }, [uid, options.autoLockMs]);
+  }, [uid, lockAllowed, options.autoLockMs]);
 
   useEffect(() => {
     const idleMs = Number(options.idleLockMs || 0);
-    if (!uid || !lockIsEnabledFor(uid) || idleMs <= 0) return;
+    if (!lockAllowed || !uid || !lockIsEnabledFor(uid) || idleMs <= 0) return;
     const bump = () => { idleAt.current = Date.now(); };
     const events: Array<keyof WindowEventMap> = ['pointerdown', 'keydown', 'touchstart'];
     events.forEach((ev) => window.addEventListener(ev, bump, { passive: true }));
@@ -81,7 +85,7 @@ export default function AppLockGate({ children }: { children: React.ReactNode })
       events.forEach((ev) => window.removeEventListener(ev, bump));
       window.clearInterval(tick);
     };
-  }, [uid, options.idleLockMs, locked]);
+  }, [uid, lockAllowed, options.idleLockMs, locked]);
 
   useEffect(() => {
     if (!locked || !options.bioFirst || !cfg.biometric) return;
@@ -150,8 +154,8 @@ export default function AppLockGate({ children }: { children: React.ReactNode })
       <div className="lock-3d-bg" aria-hidden />
       <div className="lock-3d-orb" aria-hidden />
       <div className="lock-3d-card">
-        <div className="lock-3d-seal">
-          <LockKeyhole className="w-7 h-7" />
+        <div className="lock-3d-seal" aria-hidden>
+          <BrandLogo size="sm" className="!w-12 !h-12" />
         </div>
         <p className="lock-3d-kicker">Byjan · Protected</p>
         <h1 className="lock-3d-title">Unlock</h1>

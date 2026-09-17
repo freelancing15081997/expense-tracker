@@ -1,4 +1,4 @@
-﻿import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useBooks } from '../../context/BooksProvider';
 import { signedBalance } from '../../engine/chartOfAccounts';
@@ -109,7 +109,7 @@ export default function Reports() {
           ['gst', 'GST'],
           ['aging', 'AR / AP Aging'],
         ] as const).map(([id, label]) => (
-          <button key={id} type="button" onClick={() => setReport(id)} className={`h-9 px-3 rounded-lg text-sm font-semibold ${report === id ? 'bg-[#3654FF] text-white' : 'bg-white border border-slate-200 text-slate-700'}`}>{label}</button>
+          <button key={id} type="button" onClick={() => setReport(id)} className={`h-9 px-3 rounded-lg text-sm font-semibold ${report === id ? 'bg-[#0B1F3A] text-white' : 'bg-white border border-slate-200 text-slate-700'}`}>{label}</button>
         ))}
       </div>
       {report === 'tb' && (
@@ -138,7 +138,7 @@ export default function Reports() {
           <Section title="Liabilities" rows={listTypes(groupedAsOf, ['liability'])} currency={currency} />
           <Section title="Equity (incl. result to end date)" rows={[...listTypes(groupedAsOf, ['equity']), { name: 'Current year result', amount: sumTypes(asOfAccounts, ['revenue', 'other_income']) - sumTypes(asOfAccounts, ['expense', 'cogs', 'other_expense']) }]} currency={currency} />
           <div className={`flex justify-between font-semibold border-t border-slate-200 pt-3 ${assets === liabilities + equity ? 'text-emerald-700' : 'text-rose-700'}`}>
-            <span>Assets {assets === liabilities + equity ? '=' : 'â‰ '} Liabilities + Equity</span>
+            <span>Assets {assets === liabilities + equity ? '=' : '≠'} Liabilities + Equity</span>
             <span><Money minor={assets} currency={currency} /> / <Money minor={liabilities + equity} currency={currency} /></span>
           </div>
         </Card>
@@ -220,7 +220,7 @@ export default function Reports() {
                   <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-500">No posted tax documents in this range.</td></tr>
                 ) : gst.rows.map((d) => (
                   <tr key={d.id} className="border-b border-slate-100">
-                    <td className="px-4 py-2.5"><Link to={documentHref(d.kind, d.id)} className="font-medium text-indigo-800 hover:underline">{d.number}</Link></td>
+                    <td className="px-4 py-2.5"><Link to={documentHref(d.kind, d.id)} className="font-medium text-teal-800 hover:underline">{d.number}</Link></td>
                     <td className="px-4 py-2.5 capitalize">{String(d.kind || 'document').replace(/_/g, ' ')}</td>
                     <td className="px-4 py-2.5 text-right"><Money minor={d.tax.exclusiveMinor} currency={currency} /></td>
                     <td className="px-4 py-2.5 text-right"><Money minor={d.tax.cgstMinor} currency={currency} /></td>
@@ -250,7 +250,7 @@ export default function Reports() {
                 <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-500">No open invoices, debit notes, or bills.</td></tr>
               ) : aging.map((row) => (
                 <tr key={row.id} className="border-b border-slate-100">
-                  <td className="px-4 py-2.5"><Link to={documentHref(row.kind, row.id)} className="font-medium text-indigo-800 hover:underline">{row.number}</Link></td>
+                  <td className="px-4 py-2.5"><Link to={documentHref(row.kind, row.id)} className="font-medium text-teal-800 hover:underline">{row.number}</Link></td>
                   <td className="px-4 py-2.5">{row.party}</td>
                   <td className="px-4 py-2.5 uppercase text-xs">{row.side}</td>
                   <td className="px-4 py-2.5">{row.bucket}</td>

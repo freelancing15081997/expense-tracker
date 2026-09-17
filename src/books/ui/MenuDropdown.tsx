@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 
 export type MenuItem = {
@@ -40,23 +40,23 @@ export function MenuDropdown({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="min-w-[220px] w-full flex items-center justify-between gap-3 rounded-2xl border border-[#E5E7EB] bg-white px-4 py-2.5 text-left shadow-sm hover:border-[#3654FF]/20 transition-colors"
+        className="min-w-[220px] w-full flex items-center justify-between gap-3 rounded-2xl border border-[#E5E7EB] bg-white px-4 py-2.5 text-left shadow-sm hover:border-[#0B1F3A]/20 transition-colors"
       >
         <span>
-          <span className="block text-sm font-semibold text-[#0B0F1F]">{triggerLabel}</span>
+          <span className="block text-sm font-semibold text-[#0B1F3A]">{triggerLabel}</span>
           {triggerHint && <span className="block text-xs text-[#6B7280] mt-0.5">{triggerHint}</span>}
         </span>
         <ChevronDown className={`w-4 h-4 text-[#6B7280] transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
       </button>
       <div className={`absolute z-40 left-0 right-0 mt-2 origin-top transition-all duration-200 ${open ? 'opacity-100 translate-y-0 visible' : 'opacity-0 -translate-y-1 invisible'}`}>
-        <div className="rounded-[22px] bg-white border border-[#E5E5E5] shadow-[0_18px_50px_rgba(30,45,120,0.12)] overflow-hidden">
+        <div className="rounded-[22px] bg-white border border-[#E5E5E5] shadow-[0_18px_50px_rgba(11,31,58,0.12)] overflow-hidden">
           {header && (
             <div className="flex items-center justify-between gap-3 px-5 pt-5 pb-4">
               <div className="min-w-0">
                 <p className="font-semibold text-[#111827] truncate">{header.title}</p>
                 <p className="text-sm text-[#6B7280] truncate">{header.subtitle}</p>
               </div>
-              <div className="w-12 h-12 rounded-full bg-[#F3F4F6] text-[#0B0F1F] flex items-center justify-center shrink-0 overflow-hidden">
+              <div className="w-12 h-12 rounded-full bg-[#F3F4F6] text-[#0B1F3A] flex items-center justify-center shrink-0 overflow-hidden">
                 {header.mark || <span className="text-sm font-bold">{header.title.slice(0, 1)}</span>}
               </div>
             </div>

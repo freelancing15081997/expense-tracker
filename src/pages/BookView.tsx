@@ -20,13 +20,16 @@ import { notifyLedgerMembers } from '../lib/notify-team';
 import { CapacitorService } from '../lib/capacitor';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send, Copy, CopyPlus, Paperclip, Mail, Megaphone, Shield, Pin, PinOff, SlidersHorizontal, ArrowUpDown, Star, Wallet, ArrowUpRight, TrendingUp, Receipt, Mic, PenLine, ScanLine } from 'lucide-react';
+import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send, Copy, CopyPlus, Paperclip, Mail, Megaphone, Shield, Pin, PinOff, SlidersHorizontal, ArrowUpDown, Star, Wallet, ArrowUpRight, TrendingUp, Receipt, Mic, PenLine, ScanLine, History, PieChart, Split } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Tabs from '@radix-ui/react-tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { format } from 'date-fns';
 import { getCurrencySymbol } from '../lib/currency';
+import { CategoryBadge, CategoryIconMark } from '../lib/category-icons';
+import { getPurposeTemplate, quickActionLabel, type QuickActionId } from '../lib/purpose-templates';
+import { suggestBookEvolution } from '../lib/book-evolution';
 import { bookInboundAddress, ledgerAppLink, openInviteButtonHtml, openLedgerButtonHtml, wrapByjanEmailHtml } from '../lib/inbound-mail';
 import { createLedgerInvite, memberEmails } from '../lib/invites';
 import { apiUrl } from '../lib/api';
@@ -153,12 +156,32 @@ function formatDayLabel(day: string) {
   }
 }
 
+function dayHeading(day: string) {
+  if (!day) return 'Other';
+  const today = format(new Date(), 'yyyy-MM-dd');
+  const yday = format(new Date(Date.now() - 86400000), 'yyyy-MM-dd');
+  if (day === today) return 'Today';
+  if (day === yday) return 'Yesterday';
+  return formatDayLabel(day);
+}
+
+function groupExpensesByDay<T extends { id?: string }>(rows: T[], keyFn: (row: T) => string) {
+  const out: Array<{ day: string; label: string; rows: T[] }> = [];
+  for (const row of rows) {
+    const day = keyFn(row) || 'other';
+    const last = out[out.length - 1];
+    if (last && last.day === day) last.rows.push(row);
+    else out.push({ day, label: dayHeading(day === 'other' ? '' : day), rows: [row] });
+  }
+  return out;
+}
+
 /** Primary list date = when the record was created. Paid date shown separately. */
 function expenseDateLabel(exp: any) {
   const created = expenseCreatedDay(exp);
   const paid = expensePaidDay(exp);
   if (created && paid && paid !== created) {
-    return `${formatDayLabel(created)} Â· Paid ${formatDayLabel(paid)}`;
+    return `${formatDayLabel(created)} · Paid ${formatDayLabel(paid)}`;
   }
   if (created) return formatDayLabel(created);
   if (paid) return `Paid ${formatDayLabel(paid)}`;
@@ -168,18 +191,18 @@ function expenseDateLabel(exp: any) {
 function moneyKindMeta(entryType?: string, txType?: string) {
   const tx = String(txType || '').toUpperCase();
   if (tx === 'REFUND') return { label: 'Refund', cls: 'money-kind-in', sign: '+' };
-  if (tx === 'REVERSAL') return { label: 'Reversal', cls: 'money-kind-out', sign: 'âˆ’' };
+  if (tx === 'REVERSAL') return { label: 'Reversal', cls: 'money-kind-out', sign: '−' };
   if (tx === 'CREDIT_CARD_PAYMENT') return { label: 'Card payment', cls: 'money-kind-xfer', sign: '' };
   if (tx === 'CASH_WITHDRAWAL') return { label: 'Cash out', cls: 'money-kind-xfer', sign: '' };
   if (tx === 'CASH_DEPOSIT') return { label: 'Cash in', cls: 'money-kind-in', sign: '+' };
   if (entryType === 'in') return { label: 'Money in', cls: 'money-kind-in', sign: '+' };
   if (entryType === 'transfer') return { label: 'Transfer', cls: 'money-kind-xfer', sign: '' };
-  return { label: 'Money out', cls: 'money-kind-out', sign: 'âˆ’' };
+  return { label: 'Money out', cls: 'money-kind-out', sign: '−' };
 }
 
 function entryEvidence(exp: any) {
   const trail = buildEvidenceTrail(exp || {});
-  if (trail.length > 1) return trail.slice(0, 2).map((s) => s.detail).join(' Â· ');
+  if (trail.length > 1) return trail.slice(0, 2).map((s) => s.detail).join(' · ');
   if (exp?.source === 'email') return 'Source: Email';
   if (exp?.receiptPath) return 'Receipt attached';
   if (exp?.status === 'draft') return 'Needs your confirm';
@@ -189,7 +212,7 @@ function entryEvidence(exp: any) {
 export default function BookView() {
   const { bookId } = useParams();
   const location = useLocation();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { currentUser, userProfile, refreshUserProfile } = useAuth();
   const { on: hasFeature } = useFeatures();
   const [book, setBook] = useState<any>(null);
@@ -197,6 +220,7 @@ export default function BookView() {
   const [loading, setLoading] = useState(true);
   const [upiSetupOpen, setUpiSetupOpen] = useState(false);
   const [voiceOpen, setVoiceOpen] = useState(false);
+  const [evolutionDismissed, setEvolutionDismissed] = useState(false);
   
   // Modals state
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(() => Boolean((location.state as { openEntry?: boolean } | null)?.openEntry));
@@ -215,6 +239,7 @@ export default function BookView() {
   const [customCatInput, setCustomCatInput] = useState('');
   const [entryDate, setEntryDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [merchant, setMerchant] = useState('');
+  const [merchantFocus, setMerchantFocus] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [accountId, setAccountId] = useState('cash');
   const [notes, setNotes] = useState('');
@@ -234,6 +259,7 @@ export default function BookView() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [methodFilter, setMethodFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
   const [reimbursableOnly, setReimbursableOnly] = useState(false);
   const [uncategorizedOnly, setUncategorizedOnly] = useState(false);
   const [auditEvents, setAuditEvents] = useState<Array<Record<string, unknown>>>([]);
@@ -277,6 +303,10 @@ export default function BookView() {
   const [outboundEvents, setOutboundEvents] = useState<any[]>([]);
   const [inboundEventsLoading, setInboundEventsLoading] = useState(false);
   const [ledgerTab, setLedgerTab] = useState('ledger');
+
+  useEffect(() => {
+    if (searchParams.get('pay')) setLedgerTab('splits');
+  }, [searchParams]);
   const [receiptPreview, setReceiptPreview] = useState<{ url: string; title: string; kind: 'image' | 'pdf' | 'file'; fileName?: string } | null>(null);
   const [openingReceiptId, setOpeningReceiptId] = useState<string | null>(null);
   const [exportingPdf, setExportingPdf] = useState(false);
@@ -474,10 +504,10 @@ export default function BookView() {
     const wantsCapture = location.search.includes('capture=1');
 
     if (pending && (pending.imageDataUrl || pending.text)) {
-      // Share with 2+ books must use Dashboard choose-book â€” never auto-save here
+      // Share with 2+ books must use Dashboard choose-book — never auto-save here
       // just because preferredBookId happens to match this book.
       if (pending.requireBookPick === true) {
-        navigate(`/expenses?capture=1&s=${Date.now().toString(36)}`, { replace: true });
+        navigate(`/?capture=1&s=${Date.now().toString(36)}`, { replace: true });
         return;
       }
 
@@ -697,16 +727,45 @@ export default function BookView() {
     };
   }, [filtersOpen, updateFilterPos]);
 
+  const merchantSuggestions = useMemo(() => {
+    const needle = merchant.trim().toLowerCase();
+    if (!needle) return [] as string[];
+    const names: string[] = [];
+    const seen = new Set<string>();
+    for (const exp of expenses) {
+      const name = String(exp.merchant || '').trim();
+      if (!name) continue;
+      const key = name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      names.push(name);
+    }
+    return names
+      .filter((name) => {
+        const lower = name.toLowerCase();
+        return lower.includes(needle) && lower !== needle;
+      })
+      .slice(0, 8);
+  }, [expenses, merchant]);
+
   if (loading) return <AppLoader title="Money book" message="Opening records and balances." />;
   if (!book) return <div className="p-8 text-center text-sm text-slate-500">Book not found or access denied.</div>;
 
   const myRole = book.roles?.[currentUser!.uid]?.role || (book.ownerId === currentUser!.uid ? 'owner' : 'viewer');
   const canWrite = ['owner', 'admin', 'contributor'].includes(myRole) && hasFeature('money_add');
+  const canDelete = ['owner', 'admin', 'contributor'].includes(myRole) && hasFeature('money_delete');
+  const canExport = hasFeature('money_export');
   const canManageUsers = ['owner', 'admin'].includes(myRole) && hasFeature('money_people');
   const isAuditor = myRole === 'auditor';
 
   const expenseCategories = expenses.map((exp) => String(exp.category || '')).filter(Boolean);
   const ledgerCategories = Array.isArray(book.categories) ? book.categories.map(String) : [];
+  const purposeId = String(book.purposeId || 'default');
+  const purposeTpl = getPurposeTemplate(purposeId);
+  const purposeQuickActions: QuickActionId[] = Array.isArray(book.quickActions) && book.quickActions.length
+    ? (book.quickActions as QuickActionId[])
+    : purposeTpl.quickActions;
+  const evolution = !evolutionDismissed ? suggestBookEvolution(expenses, purposeId) : null;
   const categoryOptions = uniqueCategories(
     BASE_CATEGORIES,
     userProfile?.customCategories,
@@ -1096,7 +1155,7 @@ export default function BookView() {
             setOfflineCount(listOfflineQueue(bookId).length);
             applyExpenseLocal({ ...payload, id: payload.idempotencyKey, offlineQueued: true });
             setIsExpenseModalOpen(false);
-            addToast('Saved offline â€” will sync when you are back online', 'success');
+            addToast('Saved offline — will sync when you are back online', 'success');
             setIsSaving(false);
             return;
           }
@@ -1169,7 +1228,7 @@ export default function BookView() {
   };
 
   const handleDeleteExpense = async (id: string, description: string) => {
-    if (!canWrite || !currentUser) return;
+    if (!canDelete || !currentUser) return;
     if (confirm('Delete this entry?')) {
       setIsDeleting(id);
       const gone = expenses.find((row) => row.id === id);
@@ -1231,8 +1290,11 @@ export default function BookView() {
   };
 
   const runBulk = async (kind: 'delete' | 'reimburse' | 'category', categoryName?: string) => {
-    if (!canWrite || !bookId || !selectedIds.length) return;
-    if (kind === 'delete' && !confirm(`Delete ${selectedIds.length} ${selectedIds.length === 1 ? 'entry' : 'entries'}?`)) return;
+    if (!bookId || !selectedIds.length) return;
+    if (kind === 'delete') {
+      if (!canDelete) return;
+      if (!confirm(`Delete ${selectedIds.length} ${selectedIds.length === 1 ? 'entry' : 'entries'}?`)) return;
+    } else if (!canWrite) return;
     setBulkBusy(kind);
     const ids = [...selectedIds];
     try {
@@ -1364,7 +1426,7 @@ export default function BookView() {
         note: `Send receipts to ${mailbox} and Byjan will record them for the team.`,
         extraHtml: `<div style="white-space:pre-wrap;font-size:15px;line-height:1.65;color:#334155;margin:8px 0 16px">${body.replace(/</g, '&lt;')}</div>${openLedgerButtonHtml(book.id, 'Open ledger')}`,
       });
-      await notifyTeamMembers(title, body, `Announcement Â· ${book.name}: ${title}`, html);
+      await notifyTeamMembers(title, body, `Announcement · ${book.name}: ${title}`, html);
       setAnnounceTitle('');
       setAnnounceBody('');
       addToast('Announcement sent to the ledger team.', 'success');
@@ -1378,7 +1440,7 @@ export default function BookView() {
 
   const handleDeleteLedger = async () => {
     if (!currentUser || !bookId || !book) return;
-    if (!confirm(`Delete ledger â€œ${book.name}â€?`)) return;
+    if (!confirm(`Delete ledger “${book.name}”?`)) return;
     setDeletingLedger(true);
     try {
       await softDeleteLedger(bookId);
@@ -1418,6 +1480,10 @@ export default function BookView() {
     if (q && !hay) return false;
     if (typeFilter !== 'all' && String(exp.entryType || 'out') !== typeFilter) return false;
     if (methodFilter !== 'all' && String(exp.paymentMethod || 'cash') !== methodFilter) return false;
+    if (categoryFilter !== 'all') {
+      const cat = String(exp.category || '').trim() || 'Uncategorized';
+      if (cat.toLowerCase() !== categoryFilter.toLowerCase()) return false;
+    }
     if (reimbursableOnly && !exp.reimbursable) return false;
     if (uncategorizedOnly) {
       const cat = String(exp.category || '').trim().toLowerCase();
@@ -1469,6 +1535,7 @@ export default function BookView() {
     searchQuery.trim(),
     typeFilter !== 'all',
     methodFilter !== 'all',
+    categoryFilter !== 'all',
     dateFrom,
     dateTo,
     reimbursableOnly,
@@ -1500,6 +1567,7 @@ export default function BookView() {
     setSearchQuery('');
     setTypeFilter('all');
     setMethodFilter('all');
+    setCategoryFilter('all');
     setDateFrom('');
     setDateTo('');
     setPeriod('');
@@ -1528,7 +1596,7 @@ export default function BookView() {
           </Link>
           <div className="min-w-0 flex-1">
             <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Money book</p>
-            <h1 className="text-[18px] sm:text-[20px] font-display font-semibold text-[#0B0F1F] truncate leading-tight">{book.name}</h1>
+            <h1 className="text-[18px] sm:text-[20px] font-display font-semibold text-[#0B1F3A] truncate leading-tight">{book.name}</h1>
             <div className="mt-1 flex items-center gap-1.5 flex-wrap">
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 uppercase">
                 {roleLabel(myRole)}
@@ -1538,9 +1606,9 @@ export default function BookView() {
                   {offlineCount} offline
                 </span>
               )}
-              <Link to="/reports" className="text-[10px] font-semibold text-[#3654FF]">Reports</Link>
+              <Link to="/reports" className="text-[10px] font-semibold text-[#12B8A8]">Reports</Link>
               <button type="button" onClick={() => void togglePinned()} className="text-[10px] font-semibold text-slate-500 inline-flex items-center gap-1" title={book.pinned ? 'Unpin book' : 'Pin book'}>
-                {book.pinned ? <Pin className="w-3 h-3 text-[#3654FF]" /> : <PinOff className="w-3 h-3" />}
+                {book.pinned ? <Pin className="w-3 h-3 text-[#12B8A8]" /> : <PinOff className="w-3 h-3" />}
                 {book.pinned ? 'Pinned' : 'Pin'}
               </button>
             </div>
@@ -1637,23 +1705,89 @@ export default function BookView() {
           </button>
         </div>
         )}
+        {canWrite && purposeQuickActions.length > 0 ? (
+          <div className="purpose-qa-row mt-2 pb-1" aria-label="Purpose actions">
+            {purposeQuickActions.map((qa) => (
+              <button
+                key={qa}
+                type="button"
+                className="purpose-qa-btn"
+                onClick={() => {
+                  void CapacitorService.hapticTick();
+                  if (qa === 'receipt') void scanReceiptEntry();
+                  else if (qa === 'split') setLedgerTab('splits');
+                  else if (qa === 'upcoming') navigate('/regular-payments');
+                  else if (qa === 'income') openNewExpense();
+                  else openNewExpense();
+                }}
+              >
+                {quickActionLabel(qa)}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        {evolution && canManageUsers ? (
+          <div className="purpose-detect mt-2">
+            <span className="flex-1 min-w-0">
+              <strong>{evolution.title}</strong> {evolution.detail}
+              <span className="block text-[11px] text-slate-500 mt-0.5">{evolution.features.join(' · ')}</span>
+            </span>
+            <button
+              type="button"
+              className="byjan-btn !h-8 text-xs"
+              onClick={() => {
+                void (async () => {
+                  if (!bookId) return;
+                  const tpl = getPurposeTemplate(evolution.suggestedPurposeId);
+                  const cats = uniqueCategories(ledgerCategories, tpl.categories);
+                  await updateLedger(bookId, {
+                    purposeId: evolution.suggestedPurposeId,
+                    purposeLabel: tpl.label,
+                    categories: cats,
+                    quickActions: tpl.quickActions,
+                    purposeConfig: { purposeId: evolution.suggestedPurposeId, confirmedAt: new Date().toISOString(), evolved: true },
+                  });
+                  setBook((prev: any) => prev ? {
+                    ...prev,
+                    purposeId: evolution.suggestedPurposeId,
+                    purposeLabel: tpl.label,
+                    categories: cats,
+                    quickActions: tpl.quickActions,
+                  } : prev);
+                  setEvolutionDismissed(true);
+                  addToast(`${tpl.label} setup enabled`, 'success');
+                })();
+              }}
+            >
+              Enable
+            </button>
+            <button type="button" className="byjan-btn-ghost !h-8 text-xs" onClick={() => setEvolutionDismissed(true)}>
+              Not now
+            </button>
+          </div>
+        ) : null}
       </div>
 
-        <Tabs.List className="flex gap-5 border-b border-slate-200/60 overflow-x-auto">
-          <Tabs.Trigger value="ledger" className="pb-1.5 text-[13px] font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B0F1F] data-[state=active]:border-b-2 data-[state=active]:border-[#3654FF] transition-colors whitespace-nowrap">
-            Expenses
+        <Tabs.List className="book-tabs" aria-label="Book sections">
+          <Tabs.Trigger value="ledger" className="book-tab">
+            <Wallet className="w-3.5 h-3.5" />
+            <span>Expenses</span>
           </Tabs.Trigger>
-          <Tabs.Trigger value="splits" className="pb-1.5 text-[13px] font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B0F1F] data-[state=active]:border-b-2 data-[state=active]:border-[#3654FF] transition-colors whitespace-nowrap">
-            Splits
+          <Tabs.Trigger value="splits" className="book-tab">
+            <Split className="w-3.5 h-3.5" />
+            <span>Splits</span>
           </Tabs.Trigger>
-          <Tabs.Trigger value="email" className="pb-1.5 text-[13px] font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B0F1F] data-[state=active]:border-b-2 data-[state=active]:border-[#3654FF] transition-colors whitespace-nowrap">
-            Email
+          <Tabs.Trigger value="email" className="book-tab">
+            <Mail className="w-3.5 h-3.5" />
+            <span>Email</span>
           </Tabs.Trigger>
-          <Tabs.Trigger value="analytics" className="pb-1.5 text-[13px] font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B0F1F] data-[state=active]:border-b-2 data-[state=active]:border-[#3654FF] transition-colors whitespace-nowrap">
-            Reports
+          <Tabs.Trigger value="analytics" className="book-tab">
+            <PieChart className="w-3.5 h-3.5" />
+            <span>Reports</span>
           </Tabs.Trigger>
-          <Tabs.Trigger value="audit" className="pb-1.5 text-[13px] font-medium text-slate-500 hover:text-slate-900 data-[state=active]:text-[#0B0F1F] data-[state=active]:border-b-2 data-[state=active]:border-[#3654FF] transition-colors whitespace-nowrap">
-            History
+          <Tabs.Trigger value="audit" className="book-tab">
+            <History className="w-3.5 h-3.5" />
+            <span>History</span>
           </Tabs.Trigger>
         </Tabs.List>
 
@@ -1664,7 +1798,7 @@ export default function BookView() {
                 <span className="md3-stat-icon" aria-hidden><Wallet className="w-4 h-4" /></span>
                 <span className="md3-stat-label">Net</span>
                 <strong className={cn('md3-stat-value byjan-money', balance >= 0 ? 'is-in' : '')}>
-                  {balance < 0 ? 'âˆ’' : ''}{getCurrencySymbol(book.currency)}{Math.abs(balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  {balance < 0 ? '−' : ''}{getCurrencySymbol(book.currency)}{Math.abs(balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </strong>
               </div>
               <div className="md3-stat tone-out">
@@ -1731,17 +1865,21 @@ export default function BookView() {
                 <SlidersHorizontal className="w-4 h-4" />
                 <span className="hidden sm:inline">Filters</span>
                 {activeFilterCount > 0 && (
-                  <span className="ml-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[#3654FF] text-white text-[10px] font-bold inline-flex items-center justify-center">
+                  <span className="ml-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[#12B8A8] text-white text-[10px] font-bold inline-flex items-center justify-center">
                     {activeFilterCount}
                   </span>
                 )}
               </button>
+              {canExport && (
               <button type="button" onClick={downloadPdf} disabled={exportingPdf} className="byjan-btn-ghost !h-9 !px-2.5" title="Download PDF">
                 {exportingPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
               </button>
+              )}
+              {canExport && (
               <button type="button" onClick={emailReport} disabled={sendingReport} className="byjan-btn-ghost !h-9 !px-2.5" title="Email report">
                 {sendingReport ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
               </button>
+              )}
               <DropdownMenu.Root>
                 <DropdownMenu.Trigger asChild>
                   <button type="button" className="byjan-btn-ghost !h-9 !px-2.5" title="Columns">
@@ -1782,7 +1920,7 @@ export default function BookView() {
               <div className="flex items-center justify-between">
                 <p className="text-sm font-semibold text-slate-900">Filters</p>
                 {activeFilterCount > 0 && (
-                  <button type="button" onClick={clearFilters} className="text-xs font-semibold text-slate-500 hover:text-[#0B0F1F]">Clear all</button>
+                  <button type="button" onClick={clearFilters} className="text-xs font-semibold text-slate-500 hover:text-[#0B1F3A]">Clear all</button>
                 )}
               </div>
               <div className="flex flex-wrap gap-2">
@@ -1805,9 +1943,31 @@ export default function BookView() {
                   <option value="bank">Bank</option>
                   <option value="wallet">Wallet</option>
                 </select>
+                <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="byjan-filter w-full col-span-2">
+                  <option value="all">All categories</option>
+                  {categoryOptions.map((cat) => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
                 <input type="date" value={dateFrom} onChange={(e) => { setPeriod(''); setDateFrom(e.target.value); }} className="byjan-filter w-full" title="From date" />
                 <input type="date" value={dateTo} onChange={(e) => { setPeriod(''); setDateTo(e.target.value); }} className="byjan-filter w-full" title="To date" />
               </div>
+              {categoryOptions.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                  {categoryOptions.slice(0, 12).map((cat) => (
+                    <button
+                      key={cat}
+                      type="button"
+                      className="byjan-chip !inline-flex !items-center !gap-1.5"
+                      data-on={categoryFilter === cat}
+                      onClick={() => setCategoryFilter((prev) => (prev === cat ? 'all' : cat))}
+                    >
+                      <CategoryIconMark name={cat} className="!w-5 !h-5 !rounded-md" />
+                      <span className="truncate max-w-[7rem]">{cat}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
               <div className="flex flex-wrap gap-2">
                 <button type="button" className="byjan-chip" data-on={reimbursableOnly} onClick={() => setReimbursableOnly((v) => !v)}>Reimbursable</button>
                 <button type="button" className="byjan-chip" data-on={uncategorizedOnly} onClick={() => setUncategorizedOnly((v) => !v)}>Uncategorized</button>
@@ -1850,6 +2010,11 @@ export default function BookView() {
               onToast={addToast}
               onProfileRefresh={() => void refreshUserProfile()}
               initialPayId={searchParams.get('pay') || ''}
+              onPayConsumed={() => {
+                const next = new URLSearchParams(searchParams);
+                next.delete('pay');
+                setSearchParams(next, { replace: true });
+              }}
             />
           ) : null}
           <div className="flex flex-wrap items-center gap-2">
@@ -1947,7 +2112,7 @@ export default function BookView() {
                 <option value="">Move category</option>
                 {categoryOptions.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
               </select>
-              <button type="button" className="byjan-chip" disabled={Boolean(bulkBusy)} onClick={() => void runBulk('delete')}>Delete</button>
+              {canDelete && <button type="button" className="byjan-chip" disabled={Boolean(bulkBusy)} onClick={() => void runBulk('delete')}>Delete</button>}
               <button type="button" className="text-xs font-semibold text-slate-500" onClick={() => setSelectedIds([])}>Clear</button>
             </div>,
             document.body,
@@ -1955,8 +2120,8 @@ export default function BookView() {
           {filteredExpenses.length > 0 && (
             <p className="text-[11px] font-semibold text-slate-500 mb-2">
               {filteredExpenses.length} {filteredExpenses.length === 1 ? 'entry' : 'entries'}
-              <span className="text-emerald-600"> Â· In {getCurrencySymbol(book.currency)}{filterIn.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-              <span> Â· Out {getCurrencySymbol(book.currency)}{filterOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+              <span className="text-emerald-600"> · In {getCurrencySymbol(book.currency)}{filterIn.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+              <span> · Out {getCurrencySymbol(book.currency)}{filterOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
             </p>
           )}
 
@@ -1982,21 +2147,21 @@ export default function BookView() {
                       </th>
                     )}
                     <th className="px-3.5 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                      <button type="button" onClick={() => toggleSort('description')} className="inline-flex items-center gap-1 hover:text-[#0B0F1F]">
-                        Description <ArrowUpDown className="w-3 h-3" />{sortKey === 'description' ? (sortDir === 'asc' ? 'â†‘' : 'â†“') : ''}
+                      <button type="button" onClick={() => toggleSort('description')} className="inline-flex items-center gap-1 hover:text-[#0B1F3A]">
+                        Description <ArrowUpDown className="w-3 h-3" />{sortKey === 'description' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
                       </button>
                     </th>
                     {visibleColumns.date && (
                       <th className="px-3.5 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                        <button type="button" onClick={() => toggleSort('date')} className="inline-flex items-center gap-1 hover:text-[#0B0F1F]">
-                          Created <ArrowUpDown className="w-3 h-3" />{sortKey === 'date' ? (sortDir === 'asc' ? 'â†‘' : 'â†“') : ''}
+                        <button type="button" onClick={() => toggleSort('date')} className="inline-flex items-center gap-1 hover:text-[#0B1F3A]">
+                          Created <ArrowUpDown className="w-3 h-3" />{sortKey === 'date' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
                         </button>
                       </th>
                     )}
                     {visibleColumns.category && (
                       <th className="px-3.5 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                        <button type="button" onClick={() => toggleSort('category')} className="inline-flex items-center gap-1 hover:text-[#0B0F1F]">
-                          Category <ArrowUpDown className="w-3 h-3" />{sortKey === 'category' ? (sortDir === 'asc' ? 'â†‘' : 'â†“') : ''}
+                        <button type="button" onClick={() => toggleSort('category')} className="inline-flex items-center gap-1 hover:text-[#0B1F3A]">
+                          Category <ArrowUpDown className="w-3 h-3" />{sortKey === 'category' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
                         </button>
                       </th>
                     )}
@@ -2005,8 +2170,8 @@ export default function BookView() {
                     {visibleColumns.author && <th className="px-3.5 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Author</th>}
                     {visibleColumns.amount && (
                       <th className="px-3.5 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wider text-right">
-                        <button type="button" onClick={() => toggleSort('amount')} className="inline-flex items-center gap-1 ml-auto hover:text-[#0B0F1F]">
-                          Amount <ArrowUpDown className="w-3 h-3" />{sortKey === 'amount' ? (sortDir === 'asc' ? 'â†‘' : 'â†“') : ''}
+                        <button type="button" onClick={() => toggleSort('amount')} className="inline-flex items-center gap-1 ml-auto hover:text-[#0B1F3A]">
+                          Amount <ArrowUpDown className="w-3 h-3" />{sortKey === 'amount' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
                         </button>
                       </th>
                     )}
@@ -2041,7 +2206,7 @@ export default function BookView() {
                                 type="button"
                                 onClick={() => void openReceipt(exp)}
                                 disabled={openingReceiptId === exp.id}
-                                className="text-[#2440DB] hover:text-indigo-900 disabled:opacity-70"
+                                className="text-[#0ea396] hover:text-indigo-900 disabled:opacity-70"
                                 title="Open attachment"
                               >
                                 {openingReceiptId === exp.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Paperclip className="w-3.5 h-3.5" />}
@@ -2059,12 +2224,10 @@ export default function BookView() {
                         {visibleColumns.date && <td className="px-3.5 py-2 text-slate-500 text-sm">{expenseDateLabel(exp)}</td>}
                         {visibleColumns.category && (
                           <td className="px-3.5 py-2">
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-700 border border-slate-200">
-                              {exp.category}
-                            </span>
+                            <CategoryBadge name={exp.category} size="sm" />
                           </td>
                         )}
-                        {visibleColumns.merchant && <td className="px-3.5 py-2 text-slate-600 text-sm truncate max-w-[140px]" title={exp.merchant || ''}>{exp.merchant || 'â€”'}</td>}
+                        {visibleColumns.merchant && <td className="px-3.5 py-2 text-slate-600 text-sm truncate max-w-[140px]" title={exp.merchant || ''}>{exp.merchant || '—'}</td>}
                         {visibleColumns.method && <td className="px-3.5 py-2 text-slate-500 text-sm capitalize">{exp.paymentMethod || 'cash'}</td>}
                         {visibleColumns.author && <td className="px-3.5 py-2 text-slate-600 text-sm truncate max-w-[120px]" title={`Entered by: ${exp.enteredBy || exp.paidByName}${exp.lastEditedBy ? '\nLast edited by: ' + exp.lastEditedBy : ''}`}>{exp.enteredBy || exp.paidByName}</td>}
                         {visibleColumns.amount && (
@@ -2118,9 +2281,11 @@ export default function BookView() {
                                   {Array.isArray(exp.personSplits) && exp.personSplits.length ? 'Edit split' : 'Split'}
                                 </button>
                               ) : null}
+                              {canDelete && (
                               <button onClick={() => handleDeleteExpense(exp.id, exp.description)} disabled={isDeleting === exp.id} className="p-1 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors disabled:opacity-50" title="Delete">
                                 {isDeleting === exp.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                               </button>
+                              )}
                             </div>
                           </td>
                         )}
@@ -2136,7 +2301,10 @@ export default function BookView() {
               {paginatedExpenses.length === 0 ? (
                 <div className="p-8 text-center text-sm text-slate-500 bg-white rounded-2xl border border-slate-200">No entries found.</div>
               ) : (
-                paginatedExpenses.map((exp) => {
+                groupExpensesByDay(paginatedExpenses, (exp) => expenseCreatedDay(exp) || expensePaidDay(exp)).map((group) => (
+                  <div key={group.day} className="day-group">
+                    <p className="day-group-label">{group.label}</p>
+                    {group.rows.map((exp) => {
                   const kind = moneyKindMeta(exp.entryType, exp.txType);
                   const why = entryEvidence(exp);
                   return (
@@ -2153,7 +2321,7 @@ export default function BookView() {
                         <input type="checkbox" className="mt-1.5" aria-label={`Select ${exp.description}`} checked={selectedIds.includes(exp.id)} onChange={() => toggleSelected(exp.id)} />
                       )}
                       <span className={`mb-entry-icon tone-${exp.entryType === 'in' ? 'in' : exp.entryType === 'transfer' ? 'xfer' : 'out'}`} aria-hidden>
-                        {exp.entryType === 'in' ? <TrendingUp className="w-4 h-4" /> : exp.entryType === 'transfer' ? <ArrowUpRight className="w-4 h-4" /> : <Receipt className="w-4 h-4" />}
+                        <CategoryIconMark name={exp.category || (exp.entryType === 'in' ? 'income' : 'Uncategorized')} />
                       </span>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 flex-wrap">
@@ -2171,11 +2339,13 @@ export default function BookView() {
                     </div>
                     <p className="entry-card-meta">
                       {expenseDateLabel(exp)}
-                      {exp.merchant ? ` Â· ${exp.merchant}` : ''}
-                      {` Â· ${exp.category || 'Uncategorized'}`}
-                      {exp.paymentMethod ? ` Â· ${exp.paymentMethod}` : ''}
+                      {exp.merchant ? ` · ${exp.merchant}` : ''}
+                      {exp.paymentMethod ? ` · ${exp.paymentMethod}` : ''}
                     </p>
-                    {why ? <p className="entry-card-why">{why}{exp.enteredBy || exp.paidByName ? ` Â· ${exp.enteredBy || exp.paidByName}` : ''}</p> : (
+                    <div className="mt-1.5">
+                      <CategoryBadge name={exp.category || 'Uncategorized'} size="sm" />
+                    </div>
+                    {why ? <p className="entry-card-why">{why}{exp.enteredBy || exp.paidByName ? ` · ${exp.enteredBy || exp.paidByName}` : ''}</p> : (
                       <p className="entry-card-why">{exp.enteredBy || exp.paidByName}</p>
                     )}
                     {canWrite && (
@@ -2220,14 +2390,18 @@ export default function BookView() {
                             {Array.isArray(exp.personSplits) && exp.personSplits.length ? 'Edit' : 'Split'}
                           </button>
                         ) : null}
+                        {canDelete && (
                         <button type="button" onClick={() => handleDeleteExpense(exp.id, exp.description)} disabled={isDeleting === exp.id} className="entry-card-action is-danger" title="Delete">
                           {isDeleting === exp.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
                         </button>
+                        )}
                       </div>
                     )}
                   </div>
                   );
-                })
+                })}
+                  </div>
+                ))
               )}
             </div>
           </div>
@@ -2297,7 +2471,7 @@ export default function BookView() {
             pageSize={emailList.pageSize}
             onPageSize={emailList.setPageSize}
             total={emailList.filtered.length}
-            placeholder="Search status, sender, subjectâ€¦"
+            placeholder="Search status, sender, subject…"
           />
 
           <div className="space-y-3">
@@ -2307,7 +2481,7 @@ export default function BookView() {
               <div className="byjan-card p-8 text-center text-sm text-slate-500">No email activity for this ledger yet. Forward a receipt to the inbound address or add an entry to notify the team.</div>
             ) : (
               emailList.pageRows.map((event) => {
-                const when = event.createdAt ? new Date(event.createdAt).toLocaleString() : 'â€”';
+                const when = event.createdAt ? new Date(event.createdAt).toLocaleString() : '—';
                 const isInbound = event.direction !== 'outbound';
                 const status = isInbound ? resolvedStatus(event) : String(event.status || '');
                 return (
@@ -2316,8 +2490,8 @@ export default function BookView() {
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-slate-900 truncate">{event.subject || event.action || (isInbound ? 'Inbound receipt' : 'Team email')}</p>
                         <p className="text-xs text-slate-500 mt-0.5">
-                          {isInbound ? (event.fromEmail || 'unknown') : (event.toEmail || 'â€”')}
-                          <span className="text-slate-300 px-1.5">Â·</span>
+                          {isInbound ? (event.fromEmail || 'unknown') : (event.toEmail || '—')}
+                          <span className="text-slate-300 px-1.5">·</span>
                           {when}
                         </p>
                       </div>
@@ -2330,7 +2504,7 @@ export default function BookView() {
                       <div className="text-xs text-slate-600 space-y-0.5">
                         {event.reason ? <p>{event.reason}</p> : null}
                         {event.detail ? <p>{event.detail}</p> : null}
-                        {event.amount != null && event.amount !== '' ? <p>{event.category || 'Uncategorized'} Â· {event.amount}</p> : null}
+                        {event.amount != null && event.amount !== '' ? <p>{event.category || 'Uncategorized'} · {event.amount}</p> : null}
                         {event.description ? <p className="text-slate-500">{event.description}</p> : null}
                       </div>
                     ) : null}
@@ -2371,6 +2545,7 @@ export default function BookView() {
               )}
             </div>
             
+            {canExport && (
             <div className="byjan-card p-5 flex flex-col">
               <h3 className="font-semibold text-sm text-slate-900 mb-4 flex items-center gap-2">
                 <FileText className="w-4 h-4 text-slate-400" /> Export & Reports
@@ -2383,6 +2558,7 @@ export default function BookView() {
                 Download CSV Ledger
               </button>
             </div>
+            )}
           </div>
           {canManageUsers && (
             <div className="byjan-card p-5">
@@ -2414,10 +2590,10 @@ export default function BookView() {
                   <p className="text-sm font-semibold text-slate-900">{String(event.action || 'Event')}</p>
                   <p className="text-xs text-slate-500 mt-1">
                     {String(event.actorEmail || event.actorUid || 'Someone')}
-                    <span className="text-slate-300 px-1.5">Â·</span>
-                    {event.createdAt ? new Date(String(event.createdAt)).toLocaleString() : 'â€”'}
+                    <span className="text-slate-300 px-1.5">·</span>
+                    {event.createdAt ? new Date(String(event.createdAt)).toLocaleString() : '—'}
                   </p>
-                  {event.entityType ? <p className="text-xs text-slate-500 mt-1">{String(event.entityType)} {event.entityId ? `Â· ${String(event.entityId)}` : ''}</p> : null}
+                  {event.entityType ? <p className="text-xs text-slate-500 mt-1">{String(event.entityType)} {event.entityId ? `· ${String(event.entityId)}` : ''}</p> : null}
                 </article>
               ))}
             </div>
@@ -2436,6 +2612,11 @@ export default function BookView() {
               onToast={addToast}
               onProfileRefresh={() => void refreshUserProfile()}
               initialPayId={searchParams.get('pay') || ''}
+              onPayConsumed={() => {
+                const next = new URLSearchParams(searchParams);
+                next.delete('pay');
+                setSearchParams(next, { replace: true });
+              }}
             />
           ) : (
             <div className="byjan-card p-8 text-center text-sm text-slate-500">Sign in to view split transactions.</div>
@@ -2478,7 +2659,7 @@ export default function BookView() {
                     onClick={() => { setTxType(opt.txType); setEntryType(opt.entryType); }}
                     className={cn(
                       'rounded-xl border px-2 py-2 text-left text-[12px] font-semibold transition-colors',
-                      txType === opt.txType ? 'border-[#3654FF] bg-[#3654FF] text-white' : 'border-slate-200 text-slate-600',
+                      txType === opt.txType ? 'border-[#12B8A8] bg-[#12B8A8] text-white' : 'border-slate-200 text-slate-600',
                     )}
                   >
                     <span className="block">{opt.label}</span>
@@ -2505,7 +2686,7 @@ export default function BookView() {
                   placeholder="e.g. Swiggy, rent, salary"
                 />
                 {editingExpense?.source === 'email' ? (
-                  <p className="mt-1 text-[11px] text-slate-500">From inbound email â€” you can update this description anytime.</p>
+                  <p className="mt-1 text-[11px] text-slate-500">From inbound email — you can update this description anytime.</p>
                 ) : null}
               </div>
               {editingExpense?.source === 'email' && (editingExpense.emailBody || editingExpense.emailSubject) ? (
@@ -2540,7 +2721,14 @@ export default function BookView() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {categoryOptions.map(cat => <SelectItem key={cat} value={cat}>{cat}</SelectItem>)}
+                    {categoryOptions.map((cat) => (
+                      <SelectItem key={cat} value={cat}>
+                        <span className="inline-flex items-center gap-2">
+                          <CategoryIconMark name={cat} />
+                          {cat}
+                        </span>
+                      </SelectItem>
+                    ))}
                     <div className="h-px bg-slate-200 my-1"></div>
                     <SelectItem value="__custom__" className="font-semibold text-blue-600">-- Add Custom Category --</SelectItem>
                   </SelectContent>
@@ -2591,14 +2779,33 @@ export default function BookView() {
                   </button>
                 </div>
               </div>
-              <div>
+              <div className="relative">
                 <label className="block text-xs font-semibold text-slate-700 mb-1">Merchant / payee</label>
-                <input list="entry-merchants" type="text" value={merchant} onChange={(e) => setMerchant(e.target.value)} className="byjan-input" placeholder="e.g. Amazon, landlord" />
-                <datalist id="entry-merchants">
-                  {Array.from(new Set(expenses.map((exp) => String(exp.merchant || '').trim()).filter(Boolean))).slice(0, 40).map((name) => (
-                    <option key={name} value={name} />
-                  ))}
-                </datalist>
+                <input
+                  type="text"
+                  value={merchant}
+                  onChange={(e) => setMerchant(e.target.value)}
+                  onFocus={() => setMerchantFocus(true)}
+                  onBlur={() => window.setTimeout(() => setMerchantFocus(false), 120)}
+                  className="byjan-input"
+                  placeholder="Type a name — suggestions appear if it already exists"
+                  autoComplete="off"
+                />
+                {merchantFocus && merchantSuggestions.length > 0 && (
+                  <div className="merchant-suggest" role="listbox">
+                    {merchantSuggestions.map((name) => (
+                      <button
+                        key={name}
+                        type="button"
+                        className="merchant-suggest-item"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => { setMerchant(name); setMerchantFocus(false); }}
+                      >
+                        {name}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">Tags</label>
@@ -2628,7 +2835,7 @@ export default function BookView() {
                 </Dialog.Close>
                 <button type="submit" disabled={isSaving} className="byjan-btn">
                   {isSaving && <span className="app-loader-ring app-loader-ring-sm" />}
-                  {isSaving ? (editingExpense ? 'Savingâ€¦' : 'Addingâ€¦') : (editingExpense ? 'Save changes' : 'Add expense')}
+                  {isSaving ? (editingExpense ? 'Saving…' : 'Adding…') : (editingExpense ? 'Save changes' : 'Add expense')}
                 </button>
               </div>
             </form>
@@ -2854,12 +3061,12 @@ export default function BookView() {
           clearPendingCapture();
           void refreshExpenses();
           if (extras?.duplicate) {
-            addToast('Same receipt â€” nothing new added', 'success');
+            addToast('Same receipt — nothing new added', 'success');
             setSuccessExpense(null);
             return;
           }
           if (extras?.needsEdit) {
-            addToast('Could not read amount â€” saved as draft for you to edit', 'error');
+            addToast('Could not read amount — saved as draft for you to edit', 'error');
             setSuccessExpense(null);
             return;
           }
@@ -2911,7 +3118,7 @@ export default function BookView() {
           onSaved={(personSplits) => {
             setExpenses((curr) => curr.map((e) => String(e.id) === String(splitTarget.id) ? { ...e, personSplits } : e));
             setSplitTarget(null);
-            addToast('Split saved â€” settlements ready to pay', 'success');
+            addToast('Split saved — settlements ready to pay', 'success');
           }}
           onToast={addToast}
         />

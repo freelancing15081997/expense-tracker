@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { BookOpen, Building2, Check, ChevronDown, LayoutDashboard, Plus, Receipt } from 'lucide-react';
@@ -123,7 +123,7 @@ export default function WorkspaceSwitcher({ variant = 'header' }: { variant?: 'h
     ? createPortal(
       <div
         ref={menuRef}
-        className="fixed z-[140] p-2 max-h-[min(28rem,70vh)] overflow-y-auto bg-white border border-slate-200 rounded-[22px] shadow-[0_28px_64px_-16px_rgba(30,45,120,0.38)]"
+        className="fixed z-[140] p-2 max-h-[min(28rem,70vh)] overflow-y-auto bg-white border border-slate-200 rounded-[22px] shadow-[0_28px_64px_-16px_rgba(11,31,58,0.38)]"
         style={{
           top: menuPos.place === 'below' ? menuPos.top : undefined,
           bottom: menuPos.place === 'above' ? window.innerHeight - menuPos.top : undefined,
@@ -135,7 +135,7 @@ export default function WorkspaceSwitcher({ variant = 'header' }: { variant?: 'h
         <Link to="/" className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-50 text-sm font-medium text-slate-700">
           <LayoutDashboard className="w-4 h-4" />
           Home
-          {location.pathname === '/' && <Check className="w-3.5 h-3.5 ml-auto text-[#3654FF]" />}
+          {location.pathname === '/' && <Check className="w-3.5 h-3.5 ml-auto text-teal-600" />}
         </Link>
         {hasFeature('business') && onBooks && (
         <>
@@ -150,12 +150,12 @@ export default function WorkspaceSwitcher({ variant = 'header' }: { variant?: 'h
           >
             <BookOpen className="w-4 h-4 shrink-0" />
             <span className="min-w-0 truncate">{row.name}</span>
-            {onBooks && tenant?.id === row.id && <Check className="w-3.5 h-3.5 ml-auto text-[#3654FF]" />}
+            {onBooks && tenant?.id === row.id && <Check className="w-3.5 h-3.5 ml-auto text-teal-600" />}
           </button>
         ))}
         <Link
           to="/books/companies"
-          className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-50 text-sm font-medium text-[#2440DB]"
+          className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-50 text-sm font-medium text-teal-700"
         >
           <Plus className="w-4 h-4" />
           New company
@@ -167,7 +167,7 @@ export default function WorkspaceSwitcher({ variant = 'header' }: { variant?: 'h
         <Link to="/expenses" className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-50 text-sm font-medium text-slate-700">
           <Receipt className="w-4 h-4" />
           All money books
-          {location.pathname === '/expenses' && <Check className="w-3.5 h-3.5 ml-auto text-[#3654FF]" />}
+          {location.pathname === '/expenses' && <Check className="w-3.5 h-3.5 ml-auto text-teal-600" />}
         </Link>
         {ledgers.length > 0 && (
           <>
@@ -180,7 +180,7 @@ export default function WorkspaceSwitcher({ variant = 'header' }: { variant?: 'h
               >
                 <span className="w-4 h-4 rounded bg-slate-200 shrink-0" />
                 <span className="truncate">{book.name}</span>
-                {location.pathname === `/book/${book.id}` && <Check className="w-3.5 h-3.5 ml-auto text-[#3654FF]" />}
+                {location.pathname === `/book/${book.id}` && <Check className="w-3.5 h-3.5 ml-auto text-teal-600" />}
               </Link>
             ))}
           </>
@@ -202,12 +202,12 @@ export default function WorkspaceSwitcher({ variant = 'header' }: { variant?: 'h
           ? 'inline-flex items-center gap-2 h-10 max-w-[14rem] pl-1.5 pr-2.5 rounded-xl border border-slate-200 bg-white text-left hover:bg-slate-50'
           : 'w-full flex items-center gap-2 px-2 py-2 rounded-xl bg-[#F4F7FB] border border-slate-200 text-left hover:bg-white'}
       >
-        <span className="w-8 h-8 rounded-lg bg-[#F4F7FB] border border-slate-200 text-[#0B0F1F] flex items-center justify-center shrink-0">
+        <span className="w-8 h-8 rounded-lg bg-[#F4F7FB] border border-slate-200 text-[#0B1F3A] flex items-center justify-center shrink-0">
           <Building2 className="w-4 h-4" />
         </span>
         <span className="min-w-0 flex-1">
           <span className="block text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">{activeBook ? 'Money book' : 'Workspace'}</span>
-          <span className="block text-[12px] font-semibold text-[#0B0F1F] truncate">{currentLabel}</span>
+          <span className="block text-[12px] font-semibold text-[#0B1F3A] truncate">{currentLabel}</span>
         </span>
         <ChevronDown className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>

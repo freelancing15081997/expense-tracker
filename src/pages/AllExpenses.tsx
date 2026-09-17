@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { listAllExpenses } from '../lib/expenses';
 import { Receipt, ArrowUpRight, ArrowDownRight, Loader2, ArrowLeftRight, BookOpen } from 'lucide-react';
@@ -51,8 +51,8 @@ export default function AllExpenses() {
   return (
     <div className="max-w-5xl mx-auto space-y-6 animate-in fade-in duration-500">
       <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-bold text-[#0B0F1F] tracking-tight flex items-center gap-2">
-          <BookOpen className="w-6 h-6 text-[#0B0F1F]" />
+        <h1 className="text-2xl font-bold text-[#0B1F3A] tracking-tight flex items-center gap-2">
+          <BookOpen className="w-6 h-6 text-[#0B1F3A]" />
           Books (Auditing)
         </h1>
         <p className="text-sm text-zinc-500">Global bookkeeping view across all ledgers for auditing purposes.</p>
@@ -77,7 +77,7 @@ export default function AllExpenses() {
               pageSize={list.pageSize}
               onPageSize={list.setPageSize}
               total={list.filtered.length}
-              placeholder="Search books, description, categoryâ€¦"
+              placeholder="Search books, description, category…"
             />
           </div>
           <div className="overflow-x-auto">

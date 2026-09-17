@@ -44,8 +44,9 @@ export default defineConfig(() => {
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
       proxy: {
         '/api': {
-          target: 'http://127.0.0.1:3000',
+          target: process.env.BYJAN_API_PROXY || 'http://127.0.0.1:3000',
           changeOrigin: true,
+          secure: true,
         },
         '/neondb/auth': {
           target: 'http://127.0.0.1:3000',

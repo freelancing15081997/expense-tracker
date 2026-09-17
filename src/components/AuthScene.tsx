@@ -27,7 +27,7 @@ export default function AuthScene({
         <div className="auth-orb auth-orb-a" />
         <div className="auth-orb auth-orb-b" />
         <div className="relative z-10 w-full max-w-[420px]">
-          <p className="text-[10px] font-semibold tracking-[0.28em] uppercase text-indigo-200/90 mb-4">
+          <p className="text-[10px] font-semibold tracking-[0.28em] uppercase text-teal-200/90 mb-4">
             Byjan workspace
           </p>
           <motion.div
@@ -50,7 +50,7 @@ export default function AuthScene({
               Trace Financials Easily
             </h1>
             <p className="mt-3 text-[14px] leading-relaxed text-slate-300 max-w-sm">
-              Ledgers, invoices, and expense books in one private workspace.
+              Money books, invoices, and expense tracking in one private workspace.
             </p>
           </motion.div>
         </div>
@@ -61,11 +61,11 @@ export default function AuthScene({
           <BrandLogo size="md" />
         </div>
         <div className="w-full max-w-[380px] mx-auto">
-          <h2 className="font-display text-[26px] font-semibold tracking-tight text-[#0B0F1F]">{title}</h2>
+          <h2 className="font-display text-[26px] font-semibold tracking-tight text-[#0B1F3A]">{title}</h2>
           <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
           <p className="mt-1 text-sm text-slate-600">
             {switchPrompt}{' '}
-            <Link to={switchHref} className="font-semibold text-[#2440DB] hover:text-[#3654FF]">
+            <Link to={switchHref} className="font-semibold text-teal-700 hover:text-teal-600">
               {switchLabel}
             </Link>
           </p>

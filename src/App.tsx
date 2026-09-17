@@ -12,11 +12,12 @@ import InviteAccept from './pages/InviteAccept';
 import Settings from './pages/Settings';
 import AccessControl from './pages/AccessControl';
 import MoneyReports from './pages/MoneyReports';
+import Activity from './pages/Activity';
+import RegularPayments from './pages/RegularPayments';
 import Layout from './components/Layout';
 import FeatureGate, { SuperUserGate } from './components/FeatureGate';
 import ShareIntentListener from './components/ShareIntentListener';
 import AppLockGate from './components/AppLockGate';
-import Activity from './pages/Activity';
 
 import { peekReturnTo } from './lib/return-to';
 
@@ -51,8 +52,9 @@ export default function App() {
                 <Route index element={<Dashboard />} />
                 <Route path="access" element={<SuperUserGate><AccessControl /></SuperUserGate>} />
                 <Route path="expenses" element={<FeatureGate feature="money"><Dashboard /></FeatureGate>} />
-                <Route path="activity" element={<Activity />} />
-                <Route path="notifications" element={<Navigate to="/" replace />} />
+                <Route path="activity" element={<FeatureGate feature="money"><Activity /></FeatureGate>} />
+                <Route path="notifications" element={<Navigate to="/activity" replace />} />
+                <Route path="regular-payments" element={<FeatureGate feature="money"><RegularPayments /></FeatureGate>} />
                 <Route path="book/:bookId" element={<FeatureGate feature="money"><BookView /></FeatureGate>} />
                 <Route path="reports" element={<FeatureGate feature="money"><MoneyReports /></FeatureGate>} />
                 <Route path="settings" element={<Settings />} />

@@ -1,4 +1,4 @@
-﻿import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { formatMoney } from '../core/money';
 import { formatDisplayDate } from '../../lib/app-prefs';
@@ -31,7 +31,7 @@ export function PageShell({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="ios-large-title flex items-center gap-3">
-              <span className="w-11 h-11 rounded-[14px] bg-[#3654FF] text-white flex items-center justify-center shadow-[0_10px_20px_-12px_rgba(30,45,120,0.7)]">
+              <span className="w-11 h-11 rounded-[14px] bg-[#0B1F3A] text-white flex items-center justify-center shadow-[0_10px_20px_-12px_rgba(11,31,58,0.7)]">
                 <FeatureIcon href={location.pathname} className="w-5 h-5" />
               </span>
               {title}
@@ -139,15 +139,15 @@ export function FileField({
 
   return (
     <Field label={label}>
-      <label className="relative flex items-center gap-3 min-h-[72px] rounded-xl border border-dashed border-slate-300 bg-[#F8FAFC] hover:border-[#3654FF] hover:bg-white px-3 py-2 cursor-pointer transition-colors">
-        <span className="w-11 h-11 rounded-xl bg-white border border-slate-200 text-[#0B0F1F] flex items-center justify-center shadow-[0_1px_2px_rgba(30,45,120,0.06)] shrink-0">
+      <label className="relative flex items-center gap-3 min-h-[72px] rounded-xl border border-dashed border-slate-300 bg-[#F8FAFC] hover:border-[#12B8A8] hover:bg-white px-3 py-2 cursor-pointer transition-colors">
+        <span className="w-11 h-11 rounded-xl bg-white border border-slate-200 text-[#0B1F3A] flex items-center justify-center shadow-[0_1px_2px_rgba(11,31,58,0.06)] shrink-0">
           <ActionIcon name="file" className="w-5 h-5" />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block text-sm font-semibold text-[#0B0F1F]">Choose a file or drop it here</span>
-          <span className="block text-xs text-slate-500 mt-0.5">{hint || 'PDF, PNG, JPG, WEBP, CSV, TXT, or XLSX Â· 8 MB max'}</span>
+          <span className="block text-sm font-semibold text-[#0B1F3A]">Choose a file or drop it here</span>
+          <span className="block text-xs text-slate-500 mt-0.5">{hint || 'PDF, PNG, JPG, WEBP, CSV, TXT, or XLSX · 8 MB max'}</span>
         </span>
-        <span className="inline-flex items-center justify-center h-9 px-3 rounded-xl bg-[#3654FF] text-white text-xs font-semibold shrink-0">
+        <span className="inline-flex items-center justify-center h-9 px-3 rounded-xl bg-[#0B1F3A] text-white text-xs font-semibold shrink-0">
           Browse
         </span>
         <input
@@ -168,7 +168,7 @@ export function FileField({
           {previews.map((item, index) => (
             <span
               key={`${item.file.name}-${index}`}
-              className="inline-flex items-center gap-2 pl-1 pr-2.5 h-10 rounded-xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(30,45,120,0.06)]"
+              className="inline-flex items-center gap-2 pl-1 pr-2.5 h-10 rounded-xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(11,31,58,0.06)]"
               title={item.file.name}
             >
               <span className="w-8 h-8 rounded-lg overflow-hidden bg-slate-50 flex items-center justify-center">
@@ -219,6 +219,6 @@ export function Empty({ text }: { text: string }) {
 export const Kpi: React.FC<{ label: string; children?: React.ReactNode }> = ({ label, children }) => (
   <Card className="p-4" lift>
     <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500 font-semibold">{label}</p>
-    <div className="mt-2 text-[22px] font-display text-[#0B0F1F]">{children}</div>
+    <div className="mt-2 text-[22px] font-display text-[#0B1F3A]">{children}</div>
   </Card>
 );

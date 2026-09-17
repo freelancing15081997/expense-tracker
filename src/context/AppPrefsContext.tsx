@@ -1,4 +1,4 @@
-﻿import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuth } from './AuthContext';
 import { getMe, upsertMe } from '../lib/me';
@@ -93,8 +93,8 @@ export const AppPrefsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       {children}
       {pending && createPortal(
         <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-slate-900/50">
-          <div className="w-full max-w-md bg-white rounded-2xl border border-slate-200 shadow-[0_24px_60px_-24px_rgba(30,45,120,0.45)] p-5">
-            <h2 className="font-display text-lg font-semibold text-[#0B0F1F]">Confirm</h2>
+          <div className="w-full max-w-md bg-white rounded-2xl border border-slate-200 shadow-[0_24px_60px_-24px_rgba(11,31,58,0.45)] p-5">
+            <h2 className="font-display text-lg font-semibold text-[#0B1F3A]">Confirm</h2>
             <p className="text-sm text-slate-600 mt-2 leading-relaxed">{pending.message}</p>
             <div className="mt-5 flex justify-end gap-2">
               <button

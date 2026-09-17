@@ -6,6 +6,19 @@ import { listNotifications, markNotificationRead, notificationPath, type AppNoti
 import { getCurrencySymbol } from '../lib/currency';
 import { formatIndianAmount } from '../lib/bridge-automations';
 
+function dayHeading(iso: string) {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return 'Earlier';
+  const d = new Date(t);
+  const today = new Date();
+  const yday = new Date();
+  yday.setDate(today.getDate() - 1);
+  const same = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  if (same(d, today)) return 'Today';
+  if (same(d, yday)) return 'Yesterday';
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: d.getFullYear() !== today.getFullYear() ? 'numeric' : undefined });
+}
+
 export default function Activity() {
   const { currentUser, userProfile } = useAuth();
   const [rows, setRows] = useState<Array<Record<string, unknown>>>([]);
@@ -31,8 +44,8 @@ export default function Activity() {
       id: `e-${r.id}`,
       at: String(r.createdAt || r.date || ''),
       kind: 'money' as const,
-      title: String(r.description || r.merchant || 'Entry'),
-      detail: `${r.entryType === 'in' ? '+' : 'âˆ’'}${getCurrencySymbol(String(r.currency || userProfile?.defaultCurrency || 'INR'))}${formatIndianAmount(Number(r.amount || 0))}`,
+      title: String(r.description || r.merchant || 'Entry').replace(/\s+/g, ' ').trim().slice(0, 72),
+      detail: `${r.entryType === 'in' ? '+' : '−'}${formatIndianAmount(Number(r.amount || 0), getCurrencySymbol(String(r.currency || userProfile?.defaultCurrency || 'INR')))}`,
       href: r.bookId ? `/book/${r.bookId}` : '/expenses',
     }));
     const notes = notifs.map((n) => ({
@@ -48,26 +61,63 @@ export default function Activity() {
     return [...money, ...notes].sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 50);
   }, [rows, notifs, userProfile?.defaultCurrency]);
 
+  const grouped = useMemo(() => {
+    const out: Array<{ label: string; rows: typeof items }> = [];
+    for (const row of items) {
+      const label = dayHeading(row.at);
+      const last = out[out.length - 1];
+      if (last && last.label === label) last.rows.push(row);
+      else out.push({ label, rows: [row] });
+    }
+    return out;
+  }, [items]);
+
   return (
-    <div className="max-w-xl mx-auto pb-8">
+    <div className="max-w-xl mx-auto pb-28 md:pb-8">
       <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Activity</p>
-      <h1 className="font-display text-[26px] font-semibold text-[#0B0F1F] tracking-tight">Whatâ€™s happening</h1>
-      {loading ? <p className="mt-6 text-sm text-slate-500">Loadingâ€¦</p> : null}
+      <h1 className="font-display text-[26px] font-semibold text-[#0B1F3A] tracking-tight">What’s happening</h1>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Link to="/regular-payments" className="byjan-chip text-xs">Regular payments</Link>
+        <Link to="/reports" className="byjan-chip text-xs">Reports</Link>
+      </div>
+      {loading ? (
+        <div className="mt-5 space-y-2" aria-busy="true">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="activity-card h-16">
+              <span className="dash-skel" style={{ width: '46%', height: 12 }} />
+            </div>
+          ))}
+        </div>
+      ) : null}
       {!loading && items.length === 0 ? <p className="mt-6 text-sm text-slate-500">No activity yet.</p> : null}
-      <ul className="mt-4 space-y-2">
-        {items.map((row) => (
-          <li key={row.id}>
-            <Link
-              to={row.href}
-              onClick={() => { if ('nid' in row && row.unread && row.nid) void markNotificationRead(row.nid); }}
-              className="block rounded-2xl border border-slate-200 bg-white px-4 py-3"
-            >
-              <p className="text-sm font-semibold text-[#0B0F1F]">{row.title}</p>
-              <p className="text-[13px] text-slate-500 mt-0.5">{row.detail}</p>
-            </Link>
-          </li>
+      <div className="mt-4 space-y-4">
+        {grouped.map((group) => (
+          <section key={group.label} className="day-group">
+            <p className="day-group-label">{group.label}</p>
+            {group.rows.map((row) => {
+              const isMoney = row.kind === 'money';
+              const isOut = isMoney && String(row.detail || '').startsWith('−');
+              const isIn = isMoney && String(row.detail || '').startsWith('+');
+              return (
+              <Link
+                key={row.id}
+                to={row.href}
+                onClick={() => { if ('nid' in row && row.unread && row.nid) void markNotificationRead(row.nid); }}
+                className={`activity-card ${'unread' in row && row.unread ? 'is-unread' : ''}`}
+              >
+                <span className="activity-main">
+                  <p className="text-sm font-semibold text-[#0B1F3A] line-clamp-2">{row.title}</p>
+                  {!isMoney ? <p className="text-[12px] text-slate-500 mt-0.5">{row.detail}</p> : null}
+                </span>
+                {isMoney ? (
+                  <span className={`activity-amt ${isOut ? 'is-out' : ''} ${isIn ? 'is-in' : ''}`}>{row.detail}</span>
+                ) : null}
+              </Link>
+              );
+            })}
+          </section>
         ))}
-      </ul>
+      </div>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import * as SelectPrimitive from '@radix-ui/react-select';
 import { Check, ChevronDown, ChevronUp } from 'lucide-react';
 
@@ -30,7 +30,7 @@ export const SelectContent = React.forwardRef<
   <SelectPrimitive.Portal>
     <SelectPrimitive.Content
       ref={ref}
-      className={`relative z-[220] min-w-[8rem] overflow-hidden rounded-xl border border-slate-200 bg-white text-slate-900 shadow-[0_18px_48px_-16px_rgba(30,45,120,0.35)] animate-in fade-in-80 ${
+      className={`relative z-[220] min-w-[8rem] overflow-hidden rounded-xl border border-slate-200 bg-white text-slate-900 shadow-[0_18px_48px_-16px_rgba(11,31,58,0.35)] animate-in fade-in-80 ${
         position === 'popper'
           ? 'data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1'
           : ''

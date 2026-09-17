@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useBooks } from '../context/BooksProvider';
 import { BOOKS_FLAT_LINKS, BOOKS_QUICK_CREATE } from '../nav';
@@ -68,12 +68,12 @@ export default function CommandPalette() {
 
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[180] bg-[#3654FF]/40 flex items-start justify-center pt-24 px-4" onClick={() => setOpen(false)}>
+    <div className="fixed inset-0 z-[180] bg-[#0B1F3A]/40 flex items-start justify-center pt-24 px-4" onClick={() => setOpen(false)}>
       <div className="w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-slate-200" onClick={(e) => e.stopPropagation()}>
         <input
           autoFocus
           className="w-full px-4 py-3.5 border-b border-slate-200 text-sm outline-none bg-transparent"
-          placeholder="Search features, invoices, parties, accountsâ€¦"
+          placeholder="Search features, invoices, parties, accounts…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
@@ -98,7 +98,7 @@ export default function CommandPalette() {
             </li>
           ))}
         </ul>
-        <p className="px-4 py-2 text-[11px] text-slate-400">Ctrl/âŒ˜ Shift+K Â· does not replace header search (Ctrl+K)</p>
+        <p className="px-4 py-2 text-[11px] text-slate-400">Ctrl/⌘ Shift+K · does not replace header search (Ctrl+K)</p>
       </div>
     </div>
   );

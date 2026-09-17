@@ -129,18 +129,10 @@ export default function ShareIntentListener() {
 
     const deepLinkBook = String(pending.preferredBookId || '').trim();
 
-    // Suggestion only — never used to skip the picker when multiple books exist.
-    let openBookId = '';
-    try {
-      const m = String(window.location.pathname || '').match(/^\/book\/([^/?#]+)/);
-      openBookId = m?.[1] ? decodeURIComponent(m[1]) : '';
-    } catch {
-      openBookId = '';
-    }
-
-    // Default: always pick. Only deep-link bookId skips (single-book confirmed after listLedgers).
-    let preferred = deepLinkBook || openBookId || cachedBookId() || '';
-    let requirePick = !deepLinkBook;
+    // Only a deep-linked bookId may skip the picker. Never use last/open book —
+    // that made share look like books were missing / already chosen.
+    const preferred = deepLinkBook;
+    const requirePick = !deepLinkBook;
 
     storePending({
       ...pending,
@@ -153,10 +145,8 @@ export default function ShareIntentListener() {
       rememberMoneyBook(preferred);
       navigate(`/book/${preferred}?capture=1&s=${tok}`, { replace: false });
     } else {
-      // Always land on Dashboard picker route first — notify AFTER navigate so pending is not
-      // cleared by a listener before the capture=1 effect can open the sheet.
-      navigate(`/expenses?capture=1&s=${tok}`, { replace: false });
-      window.setTimeout(() => notifyCaptureReady(), 0);
+      navigate(`/?capture=1&s=${tok}`, { replace: false });
+      window.setTimeout(() => notifyCaptureReady(), 40);
     }
 
     // Confirm book count from server — only skip picker when there is exactly one ledger.
@@ -177,17 +167,17 @@ export default function ShareIntentListener() {
           requireBookPick: false,
         });
         navigate(`/book/${only.id}?capture=1&s=${Date.now().toString(36)}`, { replace: false });
-        window.setTimeout(() => notifyCaptureReady(), 0);
+        window.setTimeout(() => notifyCaptureReady(), 40);
         return;
       }
 
-      // 2+ books: keep requireBookPick. Do not re-navigate (avoids remounting the picker).
+      // 2+ books: force picker with no preferred book, then wake Dashboard sheet.
       if (visible.length > 1) {
         const still = readPendingCapture();
         if (still && (still.imageDataUrl || still.text)) {
           storePending({
             ...still,
-            preferredBookId: preferred || still.preferredBookId,
+            preferredBookId: undefined,
             requireBookPick: true,
           });
           notifyCaptureReady();

@@ -2,9 +2,16 @@ import { BOOKS_TREE, type BooksBranch } from '../books/catalog/modules';
 
 export const FEATURE_CATALOG = [
   { key: 'money', group: 'Money', label: 'Money', hint: 'Money tab and money books' },
-  { key: 'money_add', group: 'Money', label: 'Add money entries', hint: 'Record money in and out' },
+  { key: 'money_add', group: 'Money', label: 'Add money entries', hint: 'Manual add entry from + and book screens' },
+  { key: 'money_scan', group: 'Money', label: 'Scan receipts', hint: 'Camera / receipt capture from + menu' },
+  { key: 'money_voice', group: 'Money', label: 'Voice entry', hint: 'Dictate an entry from + menu' },
   { key: 'money_people', group: 'Money', label: 'Invite people on money books', hint: 'People button inside a money book' },
-  { key: 'business', group: 'Business', label: 'Business', hint: 'Business tab and company accounts' },
+  { key: 'money_settle', group: 'Money', label: 'Settlements & UPI pay', hint: 'Pending pay strip and settlement pay' },
+  { key: 'money_export', group: 'Money', label: 'Export & share', hint: 'Download, share, and report exports' },
+  { key: 'money_delete', group: 'Money', label: 'Delete entries', hint: 'Remove expenses from a book' },
+  { key: 'app_notifications', group: 'App', label: 'Notifications', hint: 'Bell inbox and push alerts' },
+  { key: 'app_lock', group: 'App', label: 'App lock', hint: 'PIN / biometric lock in Settings' },
+  { key: 'business', group: 'Business', label: 'Business', hint: 'Business workspace (super users can grant this)' },
   { key: 'sales', group: 'Business', label: 'Sales & invoices', hint: 'Customers, invoices, quotes' },
   { key: 'buying', group: 'Business', label: 'Buying & bills', hint: 'Suppliers and bills you owe' },
   { key: 'bank', group: 'Business', label: 'Bank', hint: 'Bank moves and business spends' },
@@ -19,7 +26,14 @@ export type FeatureKey = (typeof FEATURE_CATALOG)[number]['key'];
 export type FeatureMap = Record<FeatureKey, boolean>;
 
 export const DEFAULT_FEATURES = Object.fromEntries(FEATURE_CATALOG.map((row) => [row.key, true])) as FeatureMap;
-export const MEMBER_FEATURES = Object.fromEntries(FEATURE_CATALOG.map((row) => [row.key, row.group === 'Money'])) as FeatureMap;
+
+/** Invited / external users: Money on by default; Business and extras off until a super user enables them. */
+export const MEMBER_FEATURES = Object.fromEntries(
+  FEATURE_CATALOG.map((row) => {
+    const moneyCore = row.key === 'money' || row.key === 'money_add' || row.key === 'money_scan' || row.key === 'money_voice' || row.key === 'app_notifications';
+    return [row.key, moneyCore];
+  }),
+) as FeatureMap;
 
 export function normalizeFeatures(raw: unknown, fallback: FeatureMap = DEFAULT_FEATURES): FeatureMap {
   const next = { ...fallback };
@@ -28,12 +42,32 @@ export function normalizeFeatures(raw: unknown, fallback: FeatureMap = DEFAULT_F
   for (const row of FEATURE_CATALOG) {
     if (Object.prototype.hasOwnProperty.call(rec, row.key)) next[row.key] = Boolean(rec[row.key]);
   }
+  // Parent off ⇒ children off for Money / Business trees
+  if (!next.money) {
+    next.money_add = false;
+    next.money_scan = false;
+    next.money_voice = false;
+    next.money_people = false;
+    next.money_settle = false;
+    next.money_export = false;
+    next.money_delete = false;
+  }
+  if (!next.business) {
+    next.sales = false;
+    next.buying = false;
+    next.bank = false;
+    next.accounts = false;
+    next.operations = false;
+    next.tax = false;
+    next.reports = false;
+    next.company_settings = false;
+  }
   return next;
 }
 
 export function featureOn(map: Partial<FeatureMap> | undefined, key: FeatureKey): boolean {
   if (!map || map[key] === undefined) {
-    return FEATURE_CATALOG.find((row) => row.key === key)?.group === 'Money';
+    return Boolean(MEMBER_FEATURES[key]);
   }
   return Boolean(map[key]);
 }

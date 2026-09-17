@@ -1,9 +1,8 @@
-﻿import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useAppPrefs } from '../context/AppPrefsContext';
 import { Link, useSearchParams } from 'react-router-dom';
 import { upsertMe } from '../lib/me';
-import { listLedgerAudit } from '../lib/ledgers';
 import { Save, AlertCircle, CheckCircle2, Shield, BellRing } from 'lucide-react';
 import { disableLock, lockConfig, lockIsEnabledFor, setLockPin, updateLockOptions } from '../lib/app-lock';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
@@ -12,6 +11,7 @@ import type { AppPrefs, DateFormat, ListPageSize, NumberLocale, UiDensity } from
 import { useToast } from '../context/ToastContext';
 import UpiSetupSheet from '../components/UpiSetupSheet';
 import { pingSelfNotification } from '../lib/notifications';
+import { useFeatures } from '../lib/use-features';
 
 function Switch({ on, onChange, label, hint }: { on: boolean; onChange: (v: boolean) => void; label: string; hint: string }) {
   return (
@@ -21,10 +21,10 @@ function Switch({ on, onChange, label, hint }: { on: boolean; onChange: (v: bool
       className="w-full flex items-start gap-3 text-left py-3 border-b border-slate-100 last:border-0"
     >
       <span className="min-w-0 flex-1">
-        <span className="block text-sm font-semibold text-[#0B0F1F]">{label}</span>
+        <span className="block text-sm font-semibold text-[#0B1F3A]">{label}</span>
         <span className="block text-xs text-slate-500 mt-0.5 leading-relaxed">{hint}</span>
       </span>
-      <span className={`mt-0.5 relative w-11 h-6 rounded-full shrink-0 transition-colors ${on ? 'bg-[#3654FF]' : 'bg-slate-200'}`}>
+      <span className={`mt-0.5 relative w-11 h-6 rounded-full shrink-0 transition-colors ${on ? 'bg-[#12B8A8]' : 'bg-slate-200'}`}>
         <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${on ? 'left-5' : 'left-0.5'}`} />
       </span>
     </button>
@@ -43,6 +43,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 
 export default function Settings() {
   const { userProfile, refreshUserProfile, isSuperUser } = useAuth();
+  const { on: hasFeature } = useFeatures();
   const tenant = useBooksTenantMeta();
   const { prefs, setPref, savePrefs } = useAppPrefs();
   const { addToast } = useToast();
@@ -53,8 +54,6 @@ export default function Settings() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const [auditEvents, setAuditEvents] = useState<Array<Record<string, unknown>>>([]);
-  const [auditLoading, setAuditLoading] = useState(true);
   const [upiOpen, setUpiOpen] = useState(false);
   const [appVersion, setAppVersion] = useState('');
   const [lockPin, setLockPinInput] = useState('');
@@ -81,14 +80,6 @@ export default function Settings() {
     void import('@capacitor/app').then(({ App }) => App.getInfo())
       .then((info) => setAppVersion(String(info?.version || '')))
       .catch(() => setAppVersion(''));
-  }, []);
-
-  useEffect(() => {
-    setAuditLoading(true);
-    listLedgerAudit(undefined, 80)
-      .then(setAuditEvents)
-      .catch(() => setAuditEvents([]))
-      .finally(() => setAuditLoading(false));
   }, []);
 
   const handleSave = async (e: React.FormEvent) => {
@@ -127,10 +118,10 @@ export default function Settings() {
   };
 
   return (
-    <form onSubmit={handleSave} className="max-w-5xl mx-auto space-y-6 pb-10">
+    <form onSubmit={handleSave} className="max-w-5xl mx-auto space-y-6 pb-28 md:pb-10">
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Preferences</p>
-        <h1 className="font-display text-[28px] font-semibold tracking-[-0.04em] text-[#0B0F1F]">Settings</h1>
+        <h1 className="font-display text-[28px] font-semibold tracking-[-0.04em] text-[#0B1F3A]">Settings</h1>
         <p className="text-sm text-slate-500 mt-1">These options apply everywhere. Sign out is on your photo in the top-right.{appVersion ? ` App ${appVersion}.` : ''}</p>
       </div>
 
@@ -143,7 +134,7 @@ export default function Settings() {
         <div className="byjan-card p-4">
           <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{tenant ? 'Business company' : 'Money books'}</p>
           <p className="text-sm font-semibold text-slate-900 mt-1">{tenant?.name || 'Shared daily money'}</p>
-          <p className="text-xs text-slate-500 mt-1">{tenant ? 'Company letterhead lives in Business â†’ Settings.' : 'Money books are for daily spend. Business is for invoices and GST.'}</p>
+          <p className="text-xs text-slate-500 mt-1">{tenant ? 'Company letterhead lives in Business → Settings.' : 'Money books are for daily spend. Business is for invoices and GST.'}</p>
         </div>
         {isSuperUser && (
         <Link to="/access" className="byjan-card p-4 sm:col-span-2 block">
@@ -151,7 +142,7 @@ export default function Settings() {
             <Shield className="w-3.5 h-3.5" /> Access & people
           </p>
           <p className="text-sm font-semibold text-slate-900 mt-1">Access & roles</p>
-          <p className="text-xs text-slate-500 mt-1">Search people and turn features on or off. Invite someone to a money book from that bookâ€™s People button.</p>
+          <p className="text-xs text-slate-500 mt-1">Search people and turn features on or off. Invite someone to a money book from that book’s People button.</p>
         </Link>
         )}
       </div>
@@ -181,6 +172,7 @@ export default function Settings() {
         </div>
       </section>
 
+      {hasFeature('money_settle') && (
       <section className="byjan-card overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-200 bg-[#F8FAFC]">
           <h2 className="text-base font-semibold text-slate-900">UPI for settlements</h2>
@@ -188,7 +180,7 @@ export default function Settings() {
         </div>
         <div className="p-5 flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-[#0B0F1F] truncate">{userProfile?.upiId || 'No UPI ID yet'}</p>
+            <p className="text-sm font-semibold text-[#0B1F3A] truncate">{userProfile?.upiId || 'No UPI ID yet'}</p>
             <p className="text-xs text-slate-500 mt-1">
               {userProfile?.upiStatus
                 ? `Status: ${userProfile.upiStatus === 'SELF_CONFIRMED' ? 'Confirmed by you' : userProfile.upiStatus}`
@@ -200,6 +192,7 @@ export default function Settings() {
           </button>
         </div>
       </section>
+      )}
 
       <section className="byjan-card overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-200 bg-[#F8FAFC]">
@@ -211,10 +204,10 @@ export default function Settings() {
             <Select value={prefs.defaultCurrency} onValueChange={(v) => setPref('defaultCurrency', v)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="INR">INR (â‚¹)</SelectItem>
+                <SelectItem value="INR">INR (₹)</SelectItem>
                 <SelectItem value="USD">USD ($)</SelectItem>
-                <SelectItem value="EUR">EUR (â‚¬)</SelectItem>
-                <SelectItem value="GBP">GBP (Â£)</SelectItem>
+                <SelectItem value="EUR">EUR (€)</SelectItem>
+                <SelectItem value="GBP">GBP (£)</SelectItem>
                 <SelectItem value="AUD">AUD (A$)</SelectItem>
                 <SelectItem value="SGD">SGD (S$)</SelectItem>
               </SelectContent>
@@ -249,6 +242,7 @@ export default function Settings() {
               </SelectContent>
             </Select>
           </Field>
+          {hasFeature('business') && (
           <Field label="Fiscal year start month" hint="Used when Books opens a new accounting period.">
             <Select value={String(prefs.fiscalYearStartMonth)} onValueChange={(v) => setPref('fiscalYearStartMonth', Number(v))}>
               <SelectTrigger><SelectValue /></SelectTrigger>
@@ -259,6 +253,8 @@ export default function Settings() {
               </SelectContent>
             </Select>
           </Field>
+          )}
+          {hasFeature('business') && (
           <Field label="Default payment terms (days)">
             <input
               className="byjan-input"
@@ -269,6 +265,7 @@ export default function Settings() {
               onChange={(e) => setPref('defaultPaymentTermsDays', Math.max(0, Number(e.target.value) || 0))}
             />
           </Field>
+          )}
         </div>
       </section>
 
@@ -297,6 +294,7 @@ export default function Settings() {
               </SelectContent>
             </Select>
           </Field>
+          {hasFeature('business') && (
           <Field label="Default cash / bank posting">
             <Select value={prefs.defaultCashAccount} onValueChange={(v) => setPref('defaultCashAccount', v as AppPrefs['defaultCashAccount'])}>
               <SelectTrigger><SelectValue /></SelectTrigger>
@@ -306,14 +304,18 @@ export default function Settings() {
               </SelectContent>
             </Select>
           </Field>
+          )}
         </div>
+        {hasFeature('business') && (
         <div className="px-5 pb-2">
           <Switch on={prefs.showAccountCodes} onChange={(v) => setPref('showAccountCodes', v)} label="Show account codes" hint="Chart, journals, and document account pickers include the code." />
           <Switch on={prefs.showZeroBalances} onChange={(v) => setPref('showZeroBalances', v)} label="Show zero-balance accounts" hint="Keep empty accounts visible on the chart and trial balance." />
           <Switch on={prefs.interstateDefault} onChange={(v) => setPref('interstateDefault', v)} label="Default new invoices to interstate GST" hint="IGST vs CGST/SGST. Still overridable per document." />
         </div>
+        )}
       </section>
 
+      {hasFeature('business') && (
       <section className="byjan-card overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-200 bg-[#F8FAFC]">
           <h2 className="text-base font-semibold text-slate-900">Posting and control</h2>
@@ -327,7 +329,9 @@ export default function Settings() {
           <Switch on={prefs.keyboardShortcuts} onChange={(v) => setPref('keyboardShortcuts', v)} label="Keyboard shortcuts" hint="Ctrl+K search and Ctrl+Shift+K command palette." />
         </div>
       </section>
+      )}
 
+      {hasFeature('business') && (
       <section className="byjan-card overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-200 bg-[#F8FAFC]">
           <h2 className="text-base font-semibold text-slate-900">Notifications and print</h2>
@@ -339,7 +343,9 @@ export default function Settings() {
           <Switch on={prefs.printShowGstin} onChange={(v) => setPref('printShowGstin', v)} label="Print GSTIN" hint="Show GSTIN on printable documents." />
         </div>
       </section>
+      )}
 
+      {hasFeature('money') && (
       <section className="byjan-card overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-200 bg-[#F8FAFC]">
           <h2 className="text-base font-semibold text-slate-900">Money book categories</h2>
@@ -355,12 +361,13 @@ export default function Settings() {
             {categories.map((cat) => (
               <span key={cat} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-white border border-slate-200">
                 {cat}
-                <button type="button" className="text-slate-400 hover:text-rose-500" onClick={() => setCategories(categories.filter((c) => c !== cat))}>Ã—</button>
+                <button type="button" className="text-slate-400 hover:text-rose-500" onClick={() => setCategories(categories.filter((c) => c !== cat))}>×</button>
               </span>
             ))}
           </div>
         </div>
       </section>
+      )}
 
       <section className="byjan-card overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-200 bg-[#F8FAFC]">
@@ -371,10 +378,11 @@ export default function Settings() {
           <p>Idle sign-out after 30 minutes without activity. Maximum session length is 12 hours.</p>
           <p>Deleted entries leave your lists. Similar entries are checked before they are saved again.</p>
           <p>Use Sign out on your photo in the top-right.</p>
+          {hasFeature('app_lock') && (
           <div className="pt-3 border-t border-slate-100 space-y-3">
-            <p className="text-sm font-semibold text-[#0B0F1F]">App lock</p>
+            <p className="text-sm font-semibold text-[#0B1F3A]">App lock</p>
             <p className="text-xs text-slate-500">PIN is hashed on this device. Biometrics use the system prompt. We never store the PIN itself.</p>
-            <input className="byjan-input" type="password" inputMode="numeric" maxLength={8} placeholder="New PIN (4â€“8 digits)" value={lockPin} onChange={(e) => setLockPinInput(e.target.value.replace(/\D/g, '').slice(0, 8))} />
+            <input className="byjan-input" type="password" inputMode="numeric" maxLength={8} placeholder="New PIN (4–8 digits)" value={lockPin} onChange={(e) => setLockPinInput(e.target.value.replace(/\D/g, '').slice(0, 8))} />
             <input className="byjan-input" type="password" inputMode="numeric" maxLength={8} placeholder="Confirm PIN" value={lockPin2} onChange={(e) => setLockPin2(e.target.value.replace(/\D/g, '').slice(0, 8))} />
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={lockBio} onChange={(e) => setLockBio(e.target.checked)} />
@@ -445,8 +453,10 @@ export default function Settings() {
             ) : null}
             {lockOn && lockIsEnabledFor(userProfile?.uid || '') ? <p className="text-xs text-emerald-700">Lock is on for this account.</p> : null}
           </div>
+          )}
+          {hasFeature('app_notifications') && (
           <div className="pt-3 border-t border-slate-100">
-            <p className="text-sm font-semibold text-[#0B0F1F]">Device alerts</p>
+            <p className="text-sm font-semibold text-[#0B1F3A]">Device alerts</p>
             <p className="text-xs text-slate-500 mt-1">Sends a real push to the Android token on this account. Nothing is faked.</p>
             <button
               type="button"
@@ -455,38 +465,15 @@ export default function Settings() {
               onClick={() => {
                 setPingBusy(true);
                 void pingSelfNotification()
-                  .then(() => addToast('Push sent â€” check this phone', 'success'))
+                  .then(() => addToast('Push sent — check this phone', 'success'))
                   .catch((err) => addToast(err instanceof Error ? err.message : 'Could not send push', 'error'))
                   .finally(() => setPingBusy(false));
               }}
             >
               <BellRing className="w-4 h-4" />
-              {pingBusy ? 'Sendingâ€¦' : 'Send test notification'}
+              {pingBusy ? 'Sending…' : 'Send test notification'}
             </button>
           </div>
-        </div>
-      </section>
-
-      <section className="byjan-card overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-200 bg-[#F8FAFC]">
-          <h2 className="text-base font-semibold text-slate-900 flex items-center gap-2"><Shield className="w-4 h-4" /> Activity audit</h2>
-          <p className="text-xs text-slate-500 mt-1">Money book and Business events you are allowed to see.</p>
-        </div>
-        <div className="p-5 space-y-2">
-          {auditLoading ? (
-            <p className="text-sm text-slate-500">Loading activityâ€¦</p>
-          ) : auditEvents.length === 0 ? (
-            <p className="text-sm text-slate-500">No audit events yet.</p>
-          ) : (
-            auditEvents.slice(0, 40).map((event, idx) => (
-              <div key={String(event.id || idx)} className="flex items-start justify-between gap-3 py-2 border-b border-slate-100 last:border-0">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-slate-900 truncate">{String(event.action || 'Event')}</p>
-                  <p className="text-xs text-slate-500 truncate">{String(event.actorEmail || event.actorUid || '')}{event.bookId ? ` Â· ${String(event.bookId)}` : ''}</p>
-                </div>
-                <p className="text-xs text-slate-400 shrink-0">{event.createdAt ? new Date(String(event.createdAt)).toLocaleString() : ''}</p>
-              </div>
-            ))
           )}
         </div>
       </section>

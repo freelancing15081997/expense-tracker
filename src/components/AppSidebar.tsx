@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useLocation } from 'react-router-dom';
 import { BookOpen, BookText, ChevronRight, LayoutDashboard, LogOut, Pin, PinOff, Settings, Shield } from 'lucide-react';
@@ -30,8 +30,8 @@ function iconWell(active: boolean) {
   return cn(
     'w-10 h-10 rounded-[14px] flex items-center justify-center shrink-0 border transition-colors duration-150',
     active
-      ? 'bg-[#3654FF] text-white border-[#3654FF] shadow-[0_10px_18px_-10px_rgba(30,45,120,0.75)]'
-      : 'bg-white text-slate-500 border-slate-200 group-hover:border-slate-300 group-hover:text-[#0B0F1F] group-hover:bg-[#F8FAFC]'
+      ? 'bg-[#0B1F3A] text-white border-[#0B1F3A] shadow-[0_10px_18px_-10px_rgba(11,31,58,0.75)]'
+      : 'bg-white text-slate-500 border-slate-200 group-hover:border-slate-300 group-hover:text-[#0B1F3A] group-hover:bg-[#F8FAFC]'
   );
 }
 
@@ -114,7 +114,7 @@ export default function AppSidebar({ expanded, pinned, tenant, userProfile, onLo
           <BrandLogo size="sm" />
           {showText && (
             <div className="min-w-0">
-              <p className="font-display font-semibold text-[17px] text-[#0B0F1F] tracking-[-0.03em] leading-none">Byjan</p>
+              <p className="font-display font-semibold text-[17px] text-[#0B1F3A] tracking-[-0.03em] leading-none">Byjan</p>
               <p className="text-[11px] font-medium text-slate-500 mt-1.5 truncate tracking-wide">Trace Financials Easily</p>
             </div>
           )}
@@ -123,8 +123,8 @@ export default function AppSidebar({ expanded, pinned, tenant, userProfile, onLo
           <button
             type="button"
             onClick={onTogglePin}
-            className={cn('hidden md:inline-flex w-8 h-8 items-center justify-center rounded-lg border', pinned ? 'border-indigo-200 bg-indigo-50 text-indigo-800' : 'border-slate-200 text-slate-400 hover:text-slate-700')}
-            title={pinned ? 'Unpin rail â€” page moves back' : 'Pin rail open'}
+            className={cn('hidden md:inline-flex w-8 h-8 items-center justify-center rounded-lg border', pinned ? 'border-teal-200 bg-teal-50 text-teal-800' : 'border-slate-200 text-slate-400 hover:text-slate-700')}
+            title={pinned ? 'Unpin rail — page moves back' : 'Pin rail open'}
           >
             {pinned ? <Pin className="w-3.5 h-3.5" /> : <PinOff className="w-3.5 h-3.5" />}
           </button>
@@ -144,7 +144,7 @@ export default function AppSidebar({ expanded, pinned, tenant, userProfile, onLo
           <span className={iconWell(onHome)}>
             <LayoutDashboard className="w-5 h-5" strokeWidth={2.2} />
           </span>
-          {showText && <span className={cn('text-[13.5px] font-semibold tracking-[-0.01em]', onHome ? 'text-[#0B0F1F]' : 'text-slate-600')}>Dashboard</span>}
+          {showText && <span className={cn('text-[13.5px] font-semibold tracking-[-0.01em]', onHome ? 'text-[#0B1F3A]' : 'text-slate-600')}>Dashboard</span>}
         </Link>
 
         {showAccess && (
@@ -156,7 +156,7 @@ export default function AppSidebar({ expanded, pinned, tenant, userProfile, onLo
           <span className={iconWell(onAccess)}>
             <Shield className="w-5 h-5" strokeWidth={2.2} />
           </span>
-          {showText && <span className={cn('text-[13.5px] font-semibold tracking-[-0.01em]', onAccess ? 'text-[#0B0F1F]' : 'text-slate-600')}>Access</span>}
+          {showText && <span className={cn('text-[13.5px] font-semibold tracking-[-0.01em]', onAccess ? 'text-[#0B1F3A]' : 'text-slate-600')}>Access</span>}
         </Link>
         )}
 
@@ -169,7 +169,7 @@ export default function AppSidebar({ expanded, pinned, tenant, userProfile, onLo
           <span className={iconWell(onExpenses)}>
             <BookText className="w-5 h-5" strokeWidth={2.2} />
           </span>
-          {showText && <span className={cn('text-[13.5px] font-semibold tracking-[-0.01em]', onExpenses ? 'text-[#0B0F1F]' : 'text-slate-600')}>Money</span>}
+          {showText && <span className={cn('text-[13.5px] font-semibold tracking-[-0.01em]', onExpenses ? 'text-[#0B1F3A]' : 'text-slate-600')}>Money</span>}
         </Link>
         )}
 
@@ -189,14 +189,14 @@ export default function AppSidebar({ expanded, pinned, tenant, userProfile, onLo
               <span className={iconWell(onBooks)}>
                 <BookOpen className="w-5 h-5" strokeWidth={2.2} />
               </span>
-              {showText && <span className={cn('text-[13.5px] font-semibold truncate tracking-[-0.01em]', onBooks ? 'text-[#0B0F1F]' : 'text-slate-600')}>Business</span>}
+              {showText && <span className={cn('text-[13.5px] font-semibold truncate tracking-[-0.01em]', onBooks ? 'text-[#0B1F3A]' : 'text-slate-600')}>Business</span>}
             </Link>
             {showText && (
               <button
                 type="button"
                 className={cn(
                   'w-9 h-9 rounded-xl border flex items-center justify-center shrink-0 transition-colors',
-                  booksFlyout || mobileBooks || onBooks ? 'border-slate-300 bg-white text-[#0B0F1F]' : 'border-transparent text-slate-400 hover:border-slate-200 hover:bg-white'
+                  booksFlyout || mobileBooks || onBooks ? 'border-slate-300 bg-white text-[#0B1F3A]' : 'border-transparent text-slate-400 hover:border-slate-200 hover:bg-white'
                 )}
                 aria-label="Open Books menu"
                 onClick={() => {
@@ -222,7 +222,7 @@ export default function AppSidebar({ expanded, pinned, tenant, userProfile, onLo
                           <span className={cn(iconWell(active), 'w-8 h-8 rounded-lg')}>
                             <FeatureIcon href={item.href} className="w-4 h-4" />
                           </span>
-                          <span className={cn('text-[13px] font-medium', active ? 'text-[#0B0F1F]' : 'text-slate-600')}>{item.name}</span>
+                          <span className={cn('text-[13px] font-medium', active ? 'text-[#0B1F3A]' : 'text-slate-600')}>{item.name}</span>
                         </Link>
                       );
                     })}
@@ -242,18 +242,18 @@ export default function AppSidebar({ expanded, pinned, tenant, userProfile, onLo
           <span className={iconWell(onSettings)}>
             <Settings className="w-5 h-5" strokeWidth={2.2} />
           </span>
-          {showText && <span className={cn('text-[13.5px] font-semibold tracking-[-0.01em]', onSettings ? 'text-[#0B0F1F]' : 'text-slate-600')}>Settings</span>}
+          {showText && <span className={cn('text-[13.5px] font-semibold tracking-[-0.01em]', onSettings ? 'text-[#0B1F3A]' : 'text-slate-600')}>Settings</span>}
         </Link>
       </nav>
 
       <div className="p-2 border-t border-slate-200/80 space-y-1.5">
         <div className={cn('flex items-center', showText ? 'gap-2 px-1.5' : 'justify-center')}>
-          <span className="w-10 h-10 rounded-xl bg-[#3654FF] text-white flex items-center justify-center font-semibold text-sm shrink-0 overflow-hidden">
+          <span className="w-10 h-10 rounded-xl bg-[#0B1F3A] text-white flex items-center justify-center font-semibold text-sm shrink-0 overflow-hidden">
             {userProfile?.photoURL ? <img src={userProfile.photoURL} alt="" className="w-full h-full object-cover" /> : initial}
           </span>
           {showText && (
             <span className="min-w-0 flex-1 text-left">
-              <span className="block text-sm font-semibold text-[#0B0F1F] truncate">{userProfile?.displayName || 'User'}</span>
+              <span className="block text-sm font-semibold text-[#0B1F3A] truncate">{userProfile?.displayName || 'User'}</span>
               <span className="block text-[11px] text-slate-500 truncate">{userProfile?.email || 'Account'}</span>
             </span>
           )}
@@ -275,17 +275,17 @@ export default function AppSidebar({ expanded, pinned, tenant, userProfile, onLo
       {booksFlyout && typeof document !== 'undefined' && createPortal(
         <div
           id="books-nav-flyout"
-          className="hidden lg:block fixed z-[120] w-[min(560px,calc(100vw-96px))] max-h-[min(640px,calc(100vh-24px))] overflow-y-auto bg-white border border-slate-200 rounded-[22px] shadow-[0_28px_64px_-16px_rgba(30,45,120,0.38)] p-4 pl-5 before:content-[''] before:absolute before:inset-y-0 before:-left-3 before:w-3"
+          className="hidden lg:block fixed z-[120] w-[min(560px,calc(100vw-96px))] max-h-[min(640px,calc(100vh-24px))] overflow-y-auto bg-white border border-slate-200 rounded-[22px] shadow-[0_28px_64px_-16px_rgba(11,31,58,0.38)] p-4 pl-5 before:content-[''] before:absolute before:inset-y-0 before:-left-3 before:w-3"
           style={{ top: flyoutPos.top, left: flyoutPos.left }}
           onMouseEnter={openBooksFlyout}
           onMouseLeave={scheduleCloseBooks}
         >
           <div className="flex items-start justify-between gap-3 mb-4 pb-3 border-b border-slate-100">
             <div>
-              <p className="font-display text-[17px] font-semibold tracking-[-0.02em] text-[#0B0F1F]">Business</p>
-              <p className="text-[12px] text-slate-500 mt-0.5">{tenant?.name || 'Company'} Â· invoices, bills, and accounts</p>
+              <p className="font-display text-[17px] font-semibold tracking-[-0.02em] text-[#0B1F3A]">Business</p>
+              <p className="text-[12px] text-slate-500 mt-0.5">{tenant?.name || 'Company'} · invoices, bills, and accounts</p>
             </div>
-            <Link to="/books" className="h-9 px-3 rounded-xl bg-[#3654FF] text-white text-xs font-semibold inline-flex items-center">
+            <Link to="/books" className="h-9 px-3 rounded-xl bg-[#0B1F3A] text-white text-xs font-semibold inline-flex items-center">
               Open home
             </Link>
           </div>
@@ -325,7 +325,7 @@ export default function AppSidebar({ expanded, pinned, tenant, userProfile, onLo
                         <span className={cn(iconWell(active), 'w-8 h-8 rounded-lg')}>
                           <FeatureIcon href={item.href} className="w-4 h-4" />
                         </span>
-                        <span className={cn('text-[13px] font-medium', active ? 'text-[#0B0F1F]' : 'text-slate-600')}>{item.name}</span>
+                        <span className={cn('text-[13px] font-medium', active ? 'text-[#0B1F3A]' : 'text-slate-600')}>{item.name}</span>
                       </Link>
                     );
                   })}

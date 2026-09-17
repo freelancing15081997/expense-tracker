@@ -7,7 +7,7 @@ import {
   CreditCard, 
   Tag, 
   Calendar, 
-  DollarSign, 
+  Wallet, 
   User, 
   FileText, 
   Check, 
@@ -171,7 +171,7 @@ export const MobileExpenseForm: React.FC<Props> = ({
         <div className="flex items-center justify-between px-6 py-4 bg-slate-900 text-white border-b border-slate-800">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
-              <DollarSign className="w-5 h-5" />
+              <Wallet className="w-5 h-5" />
             </div>
             <div>
               <h2 className="font-bold text-base sm:text-lg">

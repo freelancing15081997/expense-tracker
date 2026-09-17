@@ -1,4 +1,4 @@
-﻿import React, { useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useBooks } from '../../context/BooksProvider';
 import { signedBalance } from '../../engine/chartOfAccounts';
@@ -62,8 +62,8 @@ export default function CfoDashboard() {
                 <YAxis tick={{ fontSize: 11 }} width={48} />
                 <Tooltip formatter={(value: number) => formatMoney(Math.round(Number(value) * 100), currency)} />
                 <Bar dataKey="amount" radius={6}>
-                  <Cell fill="#3654FF" />
-                  <Cell fill="#0B0F1F" />
+                  <Cell fill="#12B8A8" />
+                  <Cell fill="#0B1F3A" />
                   <Cell fill="#64748B" />
                 </Bar>
               </BarChart>
@@ -84,8 +84,8 @@ export default function CfoDashboard() {
                 <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={48} />
                 <Tooltip formatter={(value: number) => formatMoney(Math.round(Number(value) * 100), currency)} />
                 <Bar dataKey="amount" radius={6}>
-                  <Cell fill="#0B0F1F" />
-                  <Cell fill="#3654FF" />
+                  <Cell fill="#0B1F3A" />
+                  <Cell fill="#12B8A8" />
                   <Cell fill="#94A3B8" />
                 </Bar>
               </BarChart>
@@ -95,7 +95,7 @@ export default function CfoDashboard() {
       </div>
       {budgetTotal > 0 && (
         <Card className="p-4 text-sm">
-          Budget lines total <Money minor={budgetTotal} currency={currency} /> Â· actual spend <Money minor={spend} currency={currency} /> Â· variance <Money minor={budgetTotal - spend} currency={currency} />
+          Budget lines total <Money minor={budgetTotal} currency={currency} /> · actual spend <Money minor={spend} currency={currency} /> · variance <Money minor={budgetTotal - spend} currency={currency} />
         </Card>
       )}
       <Card>
@@ -105,7 +105,7 @@ export default function CfoDashboard() {
             {alerts.map((a) => (
               <li key={a.text} className="px-4 py-2.5 flex justify-between gap-3 text-sm">
                 <span><span className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full ${a.severity === 'Critical' ? 'bg-rose-50 text-rose-800' : a.severity === 'High' ? 'bg-amber-50 text-amber-900' : a.severity === 'Medium' ? 'bg-sky-50 text-sky-800' : 'bg-slate-100 text-slate-600'}`}>{a.severity}</span> {a.text}</span>
-                <Link to={a.href} className="text-xs font-semibold text-[#2440DB]">Open</Link>
+                <Link to={a.href} className="text-xs font-semibold text-teal-700">Open</Link>
               </li>
             ))}
           </ul>

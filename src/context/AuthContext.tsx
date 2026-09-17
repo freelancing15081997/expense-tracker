@@ -131,6 +131,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           void import('../lib/search-catalog').then((m) => m.clearSearchCatalog()).catch(() => undefined);
           void import('../components/ShareIntentListener').then((m) => m.clearShareCaches()).catch(() => undefined);
           void import('../lib/user-cache').then((m) => m.clearStoredUserCaches()).catch(() => undefined);
+          void import('../lib/store').then((m) => m.clearStoreCache()).catch(() => undefined);
           return;
         }
         setStoreUser(user.uid);

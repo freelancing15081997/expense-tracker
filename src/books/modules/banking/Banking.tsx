@@ -1,4 +1,4 @@
-﻿import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useBooks } from '../../context/BooksProvider';
 import { parseMoney, todayISO } from '../../core/money';
 import { signedBalance } from '../../engine/chartOfAccounts';
@@ -59,7 +59,7 @@ export default function Banking() {
             key={id}
             type="button"
             onClick={() => setTab(id)}
-            className={`h-9 px-3 rounded-lg text-sm font-semibold ${tab === id ? 'bg-[#3654FF] text-white' : 'bg-white border border-slate-200 text-slate-700'}`}
+            className={`h-9 px-3 rounded-lg text-sm font-semibold ${tab === id ? 'bg-[#0B1F3A] text-white' : 'bg-white border border-slate-200 text-slate-700'}`}
           >
             {label}
           </button>
@@ -93,11 +93,11 @@ export default function Banking() {
             <div className="flex justify-between"><span>Outstanding deposits (in books, not on statement)</span><Money minor={sheet.deposits} currency={currency} /></div>
             <div className="flex justify-between"><span>Outstanding withdrawals</span><Money minor={sheet.withdrawals} currency={currency} /></div>
             <div className="flex justify-between font-semibold border-t border-slate-200 pt-2">
-              <span>Cleared book (book âˆ’ outstanding)</span>
+              <span>Cleared book (book − outstanding)</span>
               <Money minor={sheet.clearedBook} currency={currency} />
             </div>
             <p className="text-xs text-slate-500">
-              Difference = statement âˆ’ cleared book. Complete only when this is zero. Tick items that appear on the bank statement.
+              Difference = statement − cleared book. Complete only when this is zero. Tick items that appear on the bank statement.
             </p>
             <p className={`text-sm font-semibold ${balanced ? 'text-emerald-700' : 'text-slate-600'}`}>
               {statement.trim() === '' ? 'Enter the statement ending balance to start.' : balanced ? 'Reconciliation is balanced.' : 'Reconciliation is not complete while a difference remains.'}
@@ -274,7 +274,7 @@ export default function Banking() {
           <div className="mt-3">
             <FileField
               label="Statement CSV"
-              hint="Date + Amount, or Debit/Credit Â· 50 rows max"
+              hint="Date + Amount, or Debit/Credit · 50 rows max"
               accept=".csv,text/csv"
               onFiles={async (picked) => {
                 const file = picked[0];
@@ -296,7 +296,7 @@ export default function Banking() {
               }}
             />
           </div>
-          {csvBusy && <p className="text-sm text-slate-500 mt-2">Posting CSV rowsâ€¦</p>}
+          {csvBusy && <p className="text-sm text-slate-500 mt-2">Posting CSV rows…</p>}
         </Card>
       )}
 
