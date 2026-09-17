@@ -48,20 +48,20 @@ export default function Reports() {
   const cash = useMemo(() => directCashFlow(journals, accounts, start, end), [journals, accounts, start, end]);
   const cashNow = accounts.filter((a) => a.systemKey === 'cash' || a.systemKey === 'bank').reduce((s, a) => s + signedBalance(a), 0);
 
-  const exportCurrent = () => {
+  const exportCurrent = async () => {
     if (report === 'tb') {
-      downloadCsv('trial-balance.csv', [
+      await downloadCsv('trial-balance.csv', [
         ['Account', 'Debit', 'Credit'],
         ...asOfAccounts.filter((a) => a.allowPosting || a.debitTotalMinor || a.creditTotalMinor).map((a) => [`${a.code} ${a.name}`, a.debitTotalMinor / 100, a.creditTotalMinor / 100]),
       ]);
       return;
     }
     if (report === 'pl') {
-      downloadCsv('profit-loss.csv', [['Account', 'Amount'], ...listTypes(groupedPeriod, ['revenue', 'other_income', 'cogs', 'expense', 'other_expense']).map((r) => [r.name, r.amount / 100]), ['Net', (income - expense) / 100]]);
+      await downloadCsv('profit-loss.csv', [['Account', 'Amount'], ...listTypes(groupedPeriod, ['revenue', 'other_income', 'cogs', 'expense', 'other_expense']).map((r) => [r.name, r.amount / 100]), ['Net', (income - expense) / 100]]);
       return;
     }
     if (report === 'gst') {
-      downloadCsv('gst.csv', [
+      await downloadCsv('gst.csv', [
         ['Document', 'Kind', 'Taxable', 'CGST', 'SGST', 'IGST'],
         ...gst.rows.map((d) => [d.number, d.kind, d.tax.exclusiveMinor / 100, d.tax.cgstMinor / 100, d.tax.sgstMinor / 100, d.tax.igstMinor / 100]),
         ['Net payable', '', '', gst.net.cgstMinor / 100, gst.net.sgstMinor / 100, gst.net.igstMinor / 100],
@@ -69,11 +69,11 @@ export default function Reports() {
       return;
     }
     if (report === 'cf') {
-      downloadCsv('cash-flow.csv', [['Date', 'Journal', 'Bucket', 'Amount'], ...cash.rows.map((r) => [r.date, r.number, r.bucket, r.amount / 100])]);
+      await downloadCsv('cash-flow.csv', [['Date', 'Journal', 'Bucket', 'Amount'], ...cash.rows.map((r) => [r.date, r.number, r.bucket, r.amount / 100])]);
       return;
     }
     if (report === 'bs') {
-      downloadCsv('balance-sheet.csv', [
+      await downloadCsv('balance-sheet.csv', [
         ['Account', 'Amount'],
         ...listTypes(groupedAsOf, ['asset', 'liability', 'equity']).map((r) => [r.name, r.amount / 100]),
         ['Assets', assets / 100],
@@ -83,7 +83,7 @@ export default function Reports() {
       return;
     }
     if (report === 'aging') {
-      downloadCsv('aging.csv', [
+      await downloadCsv('aging.csv', [
         ['Document', 'Kind', 'Party', 'Side', 'Due', 'Bucket', 'Outstanding'],
         ...aging.map((r) => [r.number, r.kind, r.party, r.side, r.dueDate || r.date, r.bucket, r.outstanding / 100]),
       ]);
@@ -94,7 +94,7 @@ export default function Reports() {
     <PageShell
       title="Reports"
       subtitle="P&L and cash flow use the date range. Trial balance and balance sheet are as of the end date. Built from posted journals."
-      actions={<button type="button" className="byjan-btn-ghost" onClick={exportCurrent}>Download CSV</button>}
+      actions={<button type="button" className="byjan-btn-ghost" onClick={() => { void exportCurrent(); }}>Download CSV</button>}
     >
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <Field label="From"><DateField value={start} onChange={setStart} /></Field>

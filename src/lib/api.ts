@@ -132,8 +132,16 @@ export async function apiPost<T>(path: string, body: Record<string, unknown> = {
   const url = apiUrl(path);
 
   if (isNativeApp()) {
+    const timeout = path.includes('/email/') ? 60000 : 30000;
     try {
-      return await nativePost(url, headers, body) as T;
+      const res = await CapacitorHttp.post({
+        url,
+        headers,
+        data: body,
+        connectTimeout: timeout,
+        readTimeout: timeout,
+      });
+      return fromHttp(res.status, res.data) as T;
     } catch (err) {
       try {
         return await webPost(url, headers, body) as T;

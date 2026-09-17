@@ -78,7 +78,7 @@ export default function MoneyReports() {
         <button
           type="button"
           className="byjan-btn-ghost !h-9 ml-auto text-xs"
-          onClick={() => downloadText(`byjan-report-${period}.csv`, toLedgerCsv(filtered), 'text/csv')}
+          onClick={() => { void downloadText(`byjan-report-${period}.csv`, toLedgerCsv(filtered), 'text/csv'); }}
         >
           <Download className="w-3.5 h-3.5" /> Export CSV
         </button>

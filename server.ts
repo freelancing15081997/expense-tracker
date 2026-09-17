@@ -93,34 +93,36 @@ app.post("/api/email/send-report", async (req, res) => {
   const uid = await requireUser(req, res);
   if (!uid) return;
   const { to, subject, message, pdfBase64, filename } = req.body;
-  if (!to || !subject || !pdfBase64) {
-    return res.status(400).json({ error: "Missing required fields" });
+  const pdf = String(pdfBase64 || '').replace(/^data:application\/pdf[^,]*,/i, '').replace(/\s+/g, '');
+  if (!to || !subject || !pdf) {
+    return res.status(400).json({ error: "Missing report, address, or subject" });
   }
   try {
     const transporter = createTransporter();
     const textMessage = message ? message.replace(/<[^>]*>?/gm, '') : 'Please find the attached report.';
     
     const info = await transporter.sendMail({
-      from: `"Byjan Notifications" <${SYSTEM_EMAIL}>`,
+      from: `"Byjan" <${SYSTEM_EMAIL}>`,
       replyTo: SYSTEM_EMAIL,
       envelope: { from: SYSTEM_EMAIL, to },
       to,
       subject,
-      text: textMessage,
-      html: `<p>${textMessage}</p>`,
+      text: `${textMessage}\n\nThe PDF report is attached.`,
+      html: `<p>${textMessage}</p><p>The PDF is attached.</p>`,
       attachments: [
         {
-          filename: filename || 'report.pdf',
-          content: pdfBase64,
-          encoding: 'base64'
+          filename: String(filename || 'Byjan_Report.pdf').replace(/[^\w.-]+/g, '_'),
+          content: pdf,
+          encoding: 'base64',
+          contentType: 'application/pdf',
         }
       ]
     });
     console.log("Report sent: %s", info.messageId);
     res.json({ success: true, messageId: info.messageId });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error sending report:", error);
-    res.status(500).json({ error: "Failed to send report" });
+    res.status(500).json({ error: error?.message || "Failed to send report" });
   }
 });
 

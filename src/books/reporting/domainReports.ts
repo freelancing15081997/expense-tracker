@@ -109,12 +109,7 @@ export function toCsv(report: DomainReport) {
   return lines.join('\n');
 }
 
-export function downloadText(filename: string, text: string, type = 'text/csv') {
-  const blob = new Blob([text], { type });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+export async function downloadText(filename: string, text: string, type = 'text/csv') {
+  const { saveTextFile } = await import('../../lib/save-file');
+  return saveTextFile(filename, text, type, filename);
 }

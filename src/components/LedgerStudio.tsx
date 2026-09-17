@@ -843,15 +843,15 @@ export default function LedgerStudio(props: Props) {
               <button className="byjan-btn !h-10" disabled={busy === 'csv'}>{busy === 'csv' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Import CSV'}</button>
             </form>
             {[
-              { label: 'Copy filter link', run: props.onCopyFilterLink },
-              { label: 'Filtered CSV', run: () => { downloadText(`${String(props.bookName || 'ledger').replace(/\s+/g, '-')}-filtered.csv`, toLedgerCsv(props.filtered), 'text/csv'); props.onToast('Filtered CSV downloaded.', 'success'); } },
-              { label: 'India tax year CSV', run: () => { const range = taxYearRange('fy-in'); downloadText(`ledger-${range.label}.csv`, toLedgerCsv(props.expenses.filter((exp) => { const day = String(exp.date || ''); return day >= range.from && day <= range.to; })), 'text/csv'); props.onToast(`${range.label} downloaded.`, 'success'); } },
-              { label: 'Calendar year CSV', run: () => { const range = taxYearRange('calendar'); downloadText(`ledger-${range.label}.csv`, toLedgerCsv(props.expenses.filter((exp) => { const day = String(exp.date || ''); return day >= range.from && day <= range.to; })), 'text/csv'); props.onToast(`${range.label} downloaded.`, 'success'); } },
-              { label: 'QIF for bank import', run: () => { downloadText(`${String(props.bookName || 'ledger').replace(/\s+/g, '-')}.qif`, toQif(props.expenses, props.bookName), 'application/qif'); props.onToast('QIF downloaded.', 'success'); } },
-              { label: 'OFX', run: () => { downloadText(`${String(props.bookName || 'ledger').replace(/\s+/g, '-')}.ofx`, toOfx(props.filtered, props.bookName), 'application/x-ofx'); props.onToast('OFX downloaded.', 'success'); } },
-              { label: 'JSON backup', run: () => { downloadText(`${String(props.bookName || 'ledger').replace(/\s+/g, '-')}.json`, JSON.stringify({ book: props.book, expenses: props.expenses }, null, 2), 'application/json'); props.onToast('JSON backup downloaded.', 'success'); } },
+              { label: 'Copy filter link', run: async () => { props.onCopyFilterLink(); } },
+              { label: 'Filtered CSV', run: async () => { await downloadText(`${String(props.bookName || 'ledger').replace(/\s+/g, '-')}-filtered.csv`, toLedgerCsv(props.filtered), 'text/csv'); props.onToast('Filtered CSV ready. Save it from the share sheet.', 'success'); } },
+              { label: 'India tax year CSV', run: async () => { const range = taxYearRange('fy-in'); await downloadText(`ledger-${range.label}.csv`, toLedgerCsv(props.expenses.filter((exp) => { const day = String(exp.date || ''); return day >= range.from && day <= range.to; })), 'text/csv'); props.onToast(`${range.label} ready.`, 'success'); } },
+              { label: 'Calendar year CSV', run: async () => { const range = taxYearRange('calendar'); await downloadText(`ledger-${range.label}.csv`, toLedgerCsv(props.expenses.filter((exp) => { const day = String(exp.date || ''); return day >= range.from && day <= range.to; })), 'text/csv'); props.onToast(`${range.label} ready.`, 'success'); } },
+              { label: 'QIF for bank import', run: async () => { await downloadText(`${String(props.bookName || 'ledger').replace(/\s+/g, '-')}.qif`, toQif(props.expenses, props.bookName), 'application/qif'); props.onToast('QIF ready.', 'success'); } },
+              { label: 'OFX', run: async () => { await downloadText(`${String(props.bookName || 'ledger').replace(/\s+/g, '-')}.ofx`, toOfx(props.filtered, props.bookName), 'application/x-ofx'); props.onToast('OFX ready.', 'success'); } },
+              { label: 'JSON backup', run: async () => { await downloadText(`${String(props.bookName || 'ledger').replace(/\s+/g, '-')}.json`, JSON.stringify({ book: props.book, expenses: props.expenses }, null, 2), 'application/json'); props.onToast('JSON backup ready.', 'success'); } },
             ].map((item) => (
-              <button key={item.label} type="button" className="ios-row w-full text-left" onClick={item.run}>
+              <button key={item.label} type="button" className="ios-row w-full text-left" onClick={() => { void item.run().catch((err) => props.onToast(err instanceof Error ? err.message : 'Could not save the file.', 'error')); }}>
                 <span className="text-[15px] font-medium text-[#0B1F3A]">{item.label}</span>
                 <ChevronRight className="ios-chevron w-4 h-4" />
               </button>

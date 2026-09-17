@@ -187,15 +187,10 @@ export function ageOpenDocuments(
     });
 }
 
-export function downloadCsv(filename: string, rows: Array<Array<string | number>>) {
+export async function downloadCsv(filename: string, rows: Array<Array<string | number>>) {
   const body = rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
-  const blob = new Blob([body], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+  const { saveTextFile } = await import('../../lib/save-file');
+  return saveTextFile(filename, body, 'text/csv', filename);
 }
 
 export function signedFromTotals(account: { debitTotalMinor: number; creditTotalMinor: number; normalBalance: 'debit' | 'credit'; type?: AccountType }) {

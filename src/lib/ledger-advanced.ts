@@ -232,14 +232,9 @@ export function toQif(expenses: Array<Record<string, unknown>>, name: string) {
   return lines.join('\n');
 }
 
-export function downloadText(filename: string, text: string, type = 'text/plain') {
-  const blob = new Blob([text], { type });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
+export async function downloadText(filename: string, text: string, type = 'text/plain') {
+  const { saveTextFile } = await import('./save-file');
+  return saveTextFile(filename, text, type, filename);
 }
 
 export function todayOut(expenses: Array<Record<string, unknown>>, day = isoDay()) {

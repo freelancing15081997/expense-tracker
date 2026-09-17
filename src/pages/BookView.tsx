@@ -32,7 +32,8 @@ import { categoryForQuickAction, getPurposeTemplate, purposeFieldMeta, quickActi
 import { suggestBookEvolution } from '../lib/book-evolution';
 import { bookInboundAddress, ledgerAppLink, openInviteButtonHtml, openLedgerButtonHtml, wrapByjanEmailHtml } from '../lib/inbound-mail';
 import { createLedgerInvite, memberEmails } from '../lib/invites';
-import { apiUrl } from '../lib/api';
+import { apiUrl, apiPost } from '../lib/api';
+import { savePdfBase64, saveTextFile, safeFileName } from '../lib/save-file';
 import { authHeaders } from '../lib/auth-client';
 import { ReceiptModal, attachmentKind } from '../components/ReceiptModal';
 import { EventMailTrack, emailStatusClass, emailStatusLabel, resolvedStatus } from '../components/EmailActivityFlow';
@@ -271,6 +272,9 @@ export default function BookView() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const filterBtnRef = useRef<HTMLButtonElement>(null);
   const [filterPos, setFilterPos] = useState({ top: 56, left: 24, width: 400 });
+  const [exportOpen, setExportOpen] = useState(false);
+  const exportBtnRef = useRef<HTMLButtonElement>(null);
+  const [exportPos, setExportPos] = useState({ top: 56, left: 24, width: 240 });
   
   // Invite State
   const [inviteEmail, setInviteEmail] = useState('');
@@ -708,6 +712,7 @@ export default function BookView() {
   }, []);
 
   const toggleFilters = () => {
+    setExportOpen(false);
     setFiltersOpen((open) => {
       if (!open) requestAnimationFrame(updateFilterPos);
       return !open;
@@ -729,6 +734,44 @@ export default function BookView() {
       window.removeEventListener('keydown', onKey);
     };
   }, [filtersOpen, updateFilterPos]);
+
+  const updateExportPos = useCallback(() => {
+    const el = exportBtnRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const width = Math.min(260, window.innerWidth - 24);
+    const left = Math.max(12, Math.min(r.right - width, window.innerWidth - width - 12));
+    const panelH = 180;
+    const below = r.bottom + 8;
+    const top = below + panelH > window.innerHeight - 12
+      ? Math.max(12, r.top - panelH - 8)
+      : below;
+    setExportPos({ top, left, width });
+  }, []);
+
+  const toggleExport = () => {
+    setFiltersOpen(false);
+    setExportOpen((open) => {
+      if (!open) requestAnimationFrame(updateExportPos);
+      return !open;
+    });
+  };
+
+  useEffect(() => {
+    if (!exportOpen) return;
+    updateExportPos();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setExportOpen(false);
+    };
+    window.addEventListener('resize', updateExportPos);
+    window.addEventListener('scroll', updateExportPos, true);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('resize', updateExportPos);
+      window.removeEventListener('scroll', updateExportPos, true);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [exportOpen, updateExportPos]);
 
   const merchantSuggestions = useMemo(() => {
     const needle = merchant.trim().toLowerCase();
@@ -894,72 +937,87 @@ export default function BookView() {
     }
   };
 
-  const downloadPdf = () => {
-    if (exportingPdf) return;
-    setExportingPdf(true);
-    requestAnimationFrame(() => {
-      try {
-        generatePDF(false);
-      } catch {
-        addToast('Could not create the PDF', 'error');
-      } finally {
-        setExportingPdf(false);
-      }
-    });
-  };
+  const pdfSafe = (value: unknown) => String(value ?? '')
+    .replace(/₹/g, 'Rs ')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
+    .slice(0, 140);
 
-  const generatePDF = (returnBase64 = false) => {
-    const doc = new jsPDF();
-    doc.setFontSize(18);
-    doc.text(`Expense Report: ${book?.name}`, 14, 22);
-    doc.setFontSize(11);
-    doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 14, 30);
-    
-    const tableData = filteredExpenses.map(exp => [
-      expenseDateLabel(exp) || expensePaidDay(exp) || '',
-      exp.description,
-      exp.category,
-      exp.paidByName,
-      `${book?.currency} ${exp.amount.toFixed(2)}`
+  const reportFileBase = () => safeFileName(String(book?.name || 'ledger'), 'ledger');
+
+  const buildReportPdf = () => {
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    const title = pdfSafe(book?.name || 'Money book');
+    const currency = pdfSafe(getCurrencySymbol(book?.currency) || book?.currency || 'INR') || 'INR';
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.text(`Byjan report: ${title}`.slice(0, 80), 14, 20);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.text(`Created ${new Date().toLocaleString()} · ${filteredExpenses.length} ${filteredExpenses.length === 1 ? 'entry' : 'entries'}`, 14, 28);
+
+    const tableData = filteredExpenses.map((exp) => [
+      pdfSafe(expenseDateLabel(exp) || expensePaidDay(exp) || ''),
+      pdfSafe(exp.description || exp.merchant || ''),
+      pdfSafe(exp.category || ''),
+      pdfSafe(exp.paidByName || exp.enteredBy || ''),
+      `${currency} ${Number(exp.amount || 0).toFixed(2)}`,
     ]);
 
     autoTable(doc, {
-      startY: 36,
-      head: [['Created / Paid', 'Description', 'Category', 'Author', 'Amount']],
-      body: tableData,
+      startY: 34,
+      head: [['Date', 'Description', 'Category', 'Entered by', 'Amount']],
+      body: tableData.length ? tableData : [['—', 'No entries in this filter', '—', '—', '—']],
+      styles: { font: 'helvetica', fontSize: 8, cellPadding: 2 },
+      headStyles: { fillColor: [11, 31, 58], textColor: 255 },
     });
 
-    if (returnBase64) {
-      return doc.output('datauristring');
-    } else {
-      doc.save(`${book?.name}_Report.pdf`);
+    const dataUri = String(doc.output('datauristring') || '');
+    const base64 = dataUri.split(',')[1] || '';
+    if (!base64) throw new Error('Could not create the PDF');
+    return { base64, fileName: `${reportFileBase()}_report.pdf` };
+  };
+
+  const downloadPdf = async () => {
+    if (exportingPdf) return;
+    setExportOpen(false);
+    setExportingPdf(true);
+    try {
+      const { base64, fileName } = buildReportPdf();
+      const how = await savePdfBase64(fileName, base64, `${book?.name || 'Ledger'} report`);
+      addToast(how === 'shared' ? 'PDF ready. Save or share it from the sheet.' : 'PDF downloaded.', 'success');
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : 'Could not create the PDF', 'error');
+    } finally {
+      setExportingPdf(false);
     }
   };
 
   const emailReport = async () => {
-    if (!currentUser?.email) return;
+    if (!currentUser?.email) {
+      addToast('Sign in with an email address to send a report.', 'error');
+      return;
+    }
+    if (sendingReport) return;
     setSendingReport(true);
+    let built: { base64: string; fileName: string } | null = null;
     try {
-      const pdfBase64 = generatePDF(true).split(',')[1];
-      const { authHeaders } = await import('../lib/auth-client');
-      const res = await fetch(apiUrl('/api/email/send-report'), {
-        method: 'POST',
-        headers: await authHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({
-          to: currentUser.email,
-          subject: `${book?.name} - Expense Report`,
-          message: 'Please find the attached PDF report for your ledger.',
-          pdfBase64,
-          filename: 'Expense_Report.pdf'
-        })
+      built = buildReportPdf();
+      await apiPost('/api/email/send-report', {
+        to: currentUser.email,
+        subject: `${book?.name || 'Byjan'} money report`,
+        message: `Here is the PDF report for ${book?.name || 'your money book'}.`,
+        pdfBase64: built.base64,
+        filename: built.fileName,
       });
-      if (!res.ok) {
-        const payload = await res.json().catch(() => ({}));
-        throw new Error(payload.error || 'Failed to send email');
-      }
-      addToast(`PDF report sent to ${currentUser.email}`, 'success');
+      addToast(`Report emailed to ${currentUser.email}`, 'success');
     } catch (err) {
-      addToast(err instanceof Error ? err.message : 'Failed to send report email', 'error');
+      try {
+        if (!built) built = buildReportPdf();
+        await savePdfBase64(built.fileName, built.base64, 'Share this report');
+        addToast(err instanceof Error ? `${err.message}. Share the PDF from the sheet instead.` : 'Email failed. Share the PDF from the sheet instead.', 'error');
+      } catch {
+        addToast(err instanceof Error ? err.message : 'Could not send the report email', 'error');
+      }
     } finally {
       setSendingReport(false);
     }
@@ -992,7 +1050,8 @@ export default function BookView() {
     setIsExpenseModalOpen(true);
   };
 
-  const downloadCsv = () => {
+  const downloadCsv = async () => {
+    setExportOpen(false);
     const rows = filteredExpenses.map((exp) => [
       exp.date || '',
       exp.entryType || 'out',
@@ -1010,14 +1069,12 @@ export default function BookView() {
     const csv = [['Date', 'Type', 'Category', 'Description', 'Merchant', 'Method', 'Entered by', 'Amount', 'Reimbursable', 'Billable', 'Tags', 'Notes'], ...rows]
       .map((line) => line.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
       .join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${String(book?.name || 'ledger').replace(/\s+/g, '-')}-entries.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-    addToast('CSV downloaded.', 'success');
+    try {
+      const how = await saveTextFile(`${reportFileBase()}-entries.csv`, csv, 'text/csv', `${book?.name || 'Ledger'} CSV`);
+      addToast(how === 'shared' ? 'CSV ready. Save or share it from the sheet.' : 'CSV downloaded.', 'success');
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : 'Could not save the CSV', 'error');
+    }
   };
 
   const notifyTeamMembers = async (action: string, detail: string, customSubject?: string, htmlOverride?: string) => {
@@ -1934,32 +1991,19 @@ export default function BookView() {
                 )}
               </button>
               )}
-              <DropdownMenu.Root>
-                <DropdownMenu.Trigger asChild>
-                  <button type="button" className="byjan-btn-ghost byjan-tool-btn" title="Export" disabled={exportingPdf}>
-                    {exportingPdf ? <Loader2 className="animate-spin" /> : <Download />}
-                  </button>
-                </DropdownMenu.Trigger>
-                <DropdownMenu.Portal>
-                  <DropdownMenu.Content align="end" className="w-48 bg-white rounded-lg shadow-lg border border-slate-200 p-1.5 z-50">
-                    <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider px-2 py-1.5">Export</div>
-                    <DropdownMenu.Item
-                      className="px-2 py-2 text-sm outline-none cursor-pointer hover:bg-slate-50 rounded flex items-center gap-2"
-                      onSelect={() => downloadPdf()}
-                    >
-                      <FileText className="text-slate-500" /> PDF report
-                    </DropdownMenu.Item>
-                    <DropdownMenu.Item
-                      className="px-2 py-2 text-sm outline-none cursor-pointer hover:bg-slate-50 rounded flex items-center gap-2"
-                      onSelect={() => downloadCsv()}
-                    >
-                      <Download className="text-slate-500" /> CSV ledger
-                    </DropdownMenu.Item>
-                  </DropdownMenu.Content>
-                </DropdownMenu.Portal>
-              </DropdownMenu.Root>
+              <button
+                type="button"
+                ref={exportBtnRef}
+                className="byjan-btn-ghost byjan-tool-btn relative"
+                onClick={toggleExport}
+                aria-expanded={exportOpen}
+                title="Download report"
+                disabled={exportingPdf}
+              >
+                {exportingPdf ? <Loader2 className="animate-spin" /> : <Download />}
+              </button>
               {canEmailReport && (
-              <button type="button" onClick={emailReport} disabled={sendingReport} className="byjan-btn-ghost byjan-tool-btn" title="Email report">
+              <button type="button" onClick={() => void emailReport()} disabled={sendingReport} className="byjan-btn-ghost byjan-tool-btn" title="Email PDF report">
                 {sendingReport ? <Loader2 className="animate-spin" /> : <Send />}
               </button>
               )}
@@ -2057,6 +2101,44 @@ export default function BookView() {
                 <button type="button" className="byjan-chip" data-on={reimbursableOnly} onClick={() => setReimbursableOnly((v) => !v)}>Reimbursable</button>
                 <button type="button" className="byjan-chip" data-on={uncategorizedOnly} onClick={() => setUncategorizedOnly((v) => !v)}>Uncategorized</button>
               </div>
+            </div>
+          </>,
+          document.body
+        )}
+
+        {exportOpen && createPortal(
+          <>
+            <div className="fixed inset-0 z-[60]" onClick={() => setExportOpen(false)} />
+            <div
+              className="fixed z-[70] byjan-panel p-2 space-y-1"
+              style={{ top: exportPos.top, left: exportPos.left, width: exportPos.width }}
+              role="dialog"
+              aria-label="Download report"
+            >
+              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider px-2 py-1">Download report</p>
+              <button
+                type="button"
+                className="ios-row w-full text-left !rounded-lg"
+                onClick={() => void downloadPdf()}
+                disabled={exportingPdf}
+              >
+                <FileText className="w-4 h-4 text-slate-500 shrink-0" />
+                <span className="flex-1">
+                  <span className="block text-[15px] font-medium text-[#0B1F3A]">PDF report</span>
+                  <span className="block text-[11px] text-slate-500">Filtered entries as a printable PDF</span>
+                </span>
+              </button>
+              <button
+                type="button"
+                className="ios-row w-full text-left !rounded-lg"
+                onClick={() => void downloadCsv()}
+              >
+                <Download className="w-4 h-4 text-slate-500 shrink-0" />
+                <span className="flex-1">
+                  <span className="block text-[15px] font-medium text-[#0B1F3A]">CSV spreadsheet</span>
+                  <span className="block text-[11px] text-slate-500">Open in Excel or Sheets</span>
+                </span>
+              </button>
             </div>
           </>,
           document.body
@@ -2652,10 +2734,10 @@ export default function BookView() {
               </h3>
               <p className="text-xs text-slate-500 mb-6 flex-1">Download this book as PDF or CSV for tax filing, audits, or accounting software.</p>
               <div className="grid grid-cols-2 gap-2">
-                <button type="button" onClick={downloadPdf} disabled={exportingPdf} className="byjan-btn-ghost w-full">
+                <button type="button" onClick={() => void downloadPdf()} disabled={exportingPdf} className="byjan-btn-ghost w-full">
                   {exportingPdf ? <Loader2 className="animate-spin" /> : <Download />} PDF
                 </button>
-                <button type="button" onClick={downloadCsv} className="byjan-btn w-full">
+                <button type="button" onClick={() => void downloadCsv()} className="byjan-btn w-full">
                   <FileText /> CSV
                 </button>
               </div>
