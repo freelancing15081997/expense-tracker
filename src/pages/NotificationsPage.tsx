@@ -46,7 +46,7 @@ export default function NotificationsPage() {
     <div className="notify-page">
       <div className="notify-page-head">
         <div className="notify-page-brand">
-          <img src="/logo.svg" alt="" className="notify-byjan-mark" />
+          <img src="/logo.png" alt="" className="notify-byjan-mark" />
           <div>
             <p className="notify-kicker">Inbox</p>
             <h1 className="notify-title">Notifications</h1>
@@ -85,7 +85,7 @@ export default function NotificationsPage() {
                 className={`notify-card${n.read ? '' : ' is-unread'}`}
               >
                 <span className={`notify-glyph tone-${group.toLowerCase()}`} aria-hidden>
-                  <img src="/logo.svg" alt="" />
+                  <img src="/logo.png" alt="" />
                 </span>
                 <span className="notify-body">
                   <span className="notify-card-top">

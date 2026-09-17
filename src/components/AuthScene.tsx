@@ -26,12 +26,12 @@ export default function AuthScene({
         <div className="auth-stage-grid" />
         <div className="auth-orb auth-orb-a" />
         <div className="auth-orb auth-orb-b" />
-        <div className="relative z-10 w-full max-w-[420px]">
+        <div className="relative z-10 w-full max-w-[420px] text-center">
           <p className="text-[10px] font-semibold tracking-[0.28em] uppercase text-teal-200/90 mb-4">
             Byjan workspace
           </p>
           <motion.div
-            className="auth-card-3d"
+            className="auth-card-3d mx-auto inline-block"
             initial={{ opacity: 0, rotateY: -22, y: 16 }}
             animate={{ opacity: 1, rotateY: -12, y: 0 }}
             transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
@@ -49,7 +49,7 @@ export default function AuthScene({
             <h1 className="font-display text-[34px] leading-[1.08] font-semibold tracking-tight">
               Trace Financials Easily
             </h1>
-            <p className="mt-3 text-[14px] leading-relaxed text-slate-300 max-w-sm">
+            <p className="mt-3 text-[14px] leading-relaxed text-slate-300 mx-auto max-w-sm">
               Money books, invoices, and expense tracking in one private workspace.
             </p>
           </motion.div>
@@ -60,16 +60,16 @@ export default function AuthScene({
         <div className="lg:hidden mb-5 flex justify-center">
           <BrandLogo size="md" />
         </div>
-        <div className="w-full max-w-[380px] mx-auto">
-          <h2 className="font-display text-[26px] font-semibold tracking-tight text-[#0B1F3A]">{title}</h2>
-          <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
-          <p className="mt-1 text-sm text-slate-600">
+        <div className="w-full max-w-[380px] mx-auto text-center">
+          <h2 className="font-display text-[26px] font-semibold tracking-tight text-[#0B1F3A] text-center">{title}</h2>
+          <p className="mt-1 text-sm text-slate-500 text-center">{subtitle}</p>
+          <p className="mt-1 text-sm text-slate-600 text-center">
             {switchPrompt}{' '}
             <Link to={switchHref} className="font-semibold text-teal-700 hover:text-teal-600">
               {switchLabel}
             </Link>
           </p>
-          <div className="mt-5">{children}</div>
+          <div className="mt-5 text-left">{children}</div>
         </div>
       </section>
     </div>

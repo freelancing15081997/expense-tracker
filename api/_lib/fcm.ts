@@ -55,6 +55,70 @@ async function googleAccessToken() {
   return token;
 }
 
+export async function googleIdentityToken() {
+  const sa = serviceAccount();
+  const email = sa?.client_email || process.env.FIREBASE_CLIENT_EMAIL || '';
+  const key = String(sa?.private_key || process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
+  if (!email || !key) return '';
+  const { SignJWT, importPKCS8 } = await import('jose');
+  const pk = await importPKCS8(key, 'RS256');
+  const now = Math.floor(Date.now() / 1000);
+  const jwt = await new SignJWT({ scope: 'https://www.googleapis.com/auth/identitytoolkit' })
+    .setProtectedHeader({ alg: 'RS256', typ: 'JWT' })
+    .setIssuer(email)
+    .setAudience('https://oauth2.googleapis.com/token')
+    .setIssuedAt(now)
+    .setExpirationTime(now + 3600)
+    .sign(pk);
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${encodeURIComponent(jwt)}`,
+  });
+  const json = await res.json() as { access_token?: string };
+  return String(json.access_token || '');
+}
+
+export async function deleteFirebaseAuthUser(uid: string) {
+  const localId = String(uid || '').trim();
+  if (!localId) return { ok: false as const, error: 'missing-uid' };
+  const project = String(serviceAccount()?.project_id || process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || 'gen-lang-client-0616065043');
+  const access = await googleIdentityToken();
+  if (!access) {
+    console.error('Auth delete skipped: missing Google access token');
+    return { ok: false as const, error: 'missing-access' };
+  }
+  const urls = [
+    `https://identitytoolkit.googleapis.com/v1/projects/${project}/accounts:delete`,
+    'https://identitytoolkit.googleapis.com/v1/accounts:delete',
+  ];
+  let last = '';
+  for (const url of urls) {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${access}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ localId }),
+    }).catch((err) => {
+      console.error('Auth delete network error', err);
+      return null;
+    });
+    if (!res) {
+      last = 'network';
+      continue;
+    }
+    if (res.ok) return { ok: true as const };
+    last = await res.text().catch(() => `http-${res.status}`);
+    if (res.status === 404 || /USER_NOT_FOUND|user not found/i.test(last)) {
+      return { ok: true as const, missing: true };
+    }
+  }
+  console.error('Auth delete failed', last.slice(0, 500));
+  return { ok: false as const, error: last.slice(0, 180) || 'delete-failed' };
+}
+
 export async function sendFcm(token: string, message: PushMessage) {
   const dest = String(token || '').trim();
   if (!dest) return { ok: false, error: 'missing-token' as const };

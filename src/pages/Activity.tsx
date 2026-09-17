@@ -83,13 +83,7 @@ export default function Activity() {
         {hasFeature('money_reports') && <Link to="/reports" className="byjan-chip text-xs">Reports</Link>}
       </div>
       {loading ? (
-        <div className="mt-5 space-y-2" aria-busy="true">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="activity-card h-16">
-              <span className="dash-skel" style={{ width: '46%', height: 12 }} />
-            </div>
-          ))}
-        </div>
+        <p className="mt-6 text-sm text-slate-500">Loading activity…</p>
       ) : null}
       {!loading && items.length === 0 ? <p className="mt-6 text-sm text-slate-500">No activity yet.</p> : null}
       <div className="mt-4 space-y-4">

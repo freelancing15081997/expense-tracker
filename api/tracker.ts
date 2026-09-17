@@ -54,7 +54,7 @@ function emailIsSuperUser(email?: string | null) {
   return [...new Set([...builtin, ...extra])].includes(needle);
 }
 
-type Domain = 'ledgers' | 'expenses' | 'notifications' | 'me' | 'books' | 'money';
+type Domain = 'ledgers' | 'expenses' | 'notifications' | 'me' | 'books' | 'money' | 'support';
 
 async function moneyModule() {
   try {
@@ -112,11 +112,11 @@ function domainFrom(req: VercelRequest): Domain | '' {
   const raw = req.query?.domain;
   const query = Array.isArray(raw) ? raw[0] : raw;
   const hinted = String(query || '').trim();
-  if (hinted === 'ledgers' || hinted === 'expenses' || hinted === 'notifications' || hinted === 'me' || hinted === 'books' || hinted === 'money') return hinted;
+  if (hinted === 'ledgers' || hinted === 'expenses' || hinted === 'notifications' || hinted === 'me' || hinted === 'books' || hinted === 'money' || hinted === 'support') return hinted;
   try {
     const path = new URL(req.url || '/', 'https://local.invalid').pathname;
     const part = path.split('/').filter(Boolean)[1] || '';
-    if (part === 'ledgers' || part === 'expenses' || part === 'notifications' || part === 'me' || part === 'books' || part === 'money') return part;
+    if (part === 'ledgers' || part === 'expenses' || part === 'notifications' || part === 'me' || part === 'books' || part === 'money' || part === 'support') return part;
   } catch {
     // fall through
   }
@@ -766,6 +766,23 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
 
     if (op === 'get') {
       const profile = await ledgerGetUser(user.uid);
+      const accountStatus = String(profile?.status || 'active').trim().toLowerCase();
+      if (accountStatus === 'deleted') {
+        apiJson(res, 200, { user: { uid: user.uid, status: 'deleted' } });
+        return;
+      }
+      if (accountStatus === 'deactivated') {
+        apiJson(res, 200, {
+          user: {
+            uid: user.uid,
+            email: user.email,
+            displayName: String(profile?.displayName || ''),
+            status: 'deactivated',
+            deactivatedAt: profile?.deactivatedAt,
+          },
+        });
+        return;
+      }
       const base = profile || { uid: user.uid, email: user.email };
       const superUser = emailIsSuperUser(user.email);
       const stored = storedAccessFeatures(profile?.features);
@@ -835,11 +852,45 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
+    if (op === 'deactivate') {
+      const { deactivateUserAccount } = await import('./_lib/support-tickets.js');
+      const result = await deactivateUserAccount(user.uid);
+      await ledgerAudit({
+        actorUid: user.uid,
+        actorEmail: user.email,
+        action: 'user.deactivate',
+        entityType: 'user',
+        entityId: user.uid,
+      });
+      apiJson(res, 200, result);
+      return;
+    }
+
+    if (op === 'deleteAccount') {
+      const { deleteUserAccount } = await import('./_lib/support-tickets.js');
+      const result = await deleteUserAccount(user.uid);
+      await ledgerAudit({
+        actorUid: user.uid,
+        actorEmail: user.email,
+        action: 'user.delete',
+        entityType: 'user',
+        entityId: user.uid,
+      });
+      apiJson(res, 200, result);
+      return;
+    }
+
     if (op === 'upsert') {
+      const existing = await ledgerGetUser(user.uid);
+      const accountStatus = String(existing?.status || '').trim().toLowerCase();
+      if (accountStatus === 'deleted' || accountStatus === 'deactivated') {
+        throw new ApiError(403, accountStatus === 'deleted' ? 'This account was deleted.' : 'This account is deactivated.');
+      }
       const patch = body.patch && typeof body.patch === 'object' && !Array.isArray(body.patch)
         ? { ...(body.patch as Record<string, unknown>) }
         : {};
       delete patch.features;
+      delete patch.status;
       const saved = await ledgerUpsertUser(user.uid, {
         ...patch,
         uid: user.uid,
@@ -858,6 +909,44 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
     }
 
     throw new ApiError(400, 'Unknown profile operation');
+  });
+}
+
+async function handleSupport(req: VercelRequest, res: VercelResponse) {
+  await withDomainApi(req, res, async (user, body) => {
+    const op = String(body.op || 'list');
+    const { supportCreateTicket, supportListTickets, SUPPORT_TOPICS } = await import('./_lib/support-tickets.js');
+    if (op === 'topics') {
+      apiJson(res, 200, { topics: SUPPORT_TOPICS });
+      return;
+    }
+    if (op === 'list') {
+      const all = emailIsSuperUser(user.email) && body.all === true;
+      const tickets = await supportListTickets(user.uid, all);
+      apiJson(res, 200, { tickets });
+      return;
+    }
+    if (op === 'create') {
+      const profile = await ledgerGetUser(user.uid);
+      const result = await supportCreateTicket({
+        uid: user.uid,
+        email: String(profile?.email || user.email || ''),
+        displayName: String(profile?.displayName || ''),
+        category: body.category,
+        subject: body.subject,
+        message: body.message,
+      });
+      await ledgerAudit({
+        actorUid: user.uid,
+        actorEmail: user.email,
+        action: 'support.create',
+        entityType: 'ticket',
+        entityId: result.ticket.id,
+      });
+      apiJson(res, 200, result);
+      return;
+    }
+    throw new ApiError(400, 'Unknown help operation');
   });
 }
 
@@ -1093,6 +1182,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (domain === 'expenses') return handleExpenses(req, res);
   if (domain === 'notifications') return handleNotifications(req, res);
   if (domain === 'me') return handleMe(req, res);
+  if (domain === 'support') return handleSupport(req, res);
   if (domain === 'books') return handleBooks(req, res);
   if (domain === 'money') {
     try {

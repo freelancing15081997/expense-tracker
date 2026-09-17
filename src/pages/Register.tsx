@@ -73,7 +73,7 @@ export default function Register() {
 
       <form className="space-y-3" onSubmit={handleRegister}>
         <div>
-          <label className="block text-sm font-medium text-slate-700">Email address</label>
+          <label className="block text-sm font-medium text-slate-700 text-center">Email address</label>
           <label className="byjan-field mt-1.5">
             <Mail className="h-4 w-4 text-slate-400 shrink-0" />
             <input
@@ -87,7 +87,7 @@ export default function Register() {
           </label>
         </div>
         <div>
-          <label className="block text-sm font-medium text-slate-700">Password</label>
+          <label className="block text-sm font-medium text-slate-700 text-center">Password</label>
           <label className="byjan-field mt-1.5">
             <Lock className="h-4 w-4 text-slate-400 shrink-0" />
             <input

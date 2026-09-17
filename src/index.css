@@ -21,6 +21,9 @@
   --byjan-ink: #0F172A;
   --byjan-muted: #64748B;
   --byjan-radius: 14px;
+  --ui-icon: 18px;
+  --ui-type: 1;
+  --ui-radius: 14px;
   --byjan-shadow:
     0 1px 1px rgba(11, 31, 58, 0.04),
     0 10px 24px -12px rgba(11, 31, 58, 0.18),
@@ -42,6 +45,7 @@ body {
   font-family: var(--font-sans);
   background: #eef1f6;
   color: var(--byjan-ink);
+  font-size: calc(16px * var(--ui-type));
 }
 
 html,
@@ -58,6 +62,8 @@ svg.lucide {
   overflow: visible;
   stroke-width: 2.2;
   color: inherit;
+  width: var(--ui-icon);
+  height: var(--ui-icon);
 }
 
 svg.byjan-glyph {
@@ -554,8 +560,7 @@ html[data-privacy="on"] .byjan-money {
   gap: 0.35rem;
   height: 2.25rem;
   padding: 0 0.75rem;
-  border-radius: 10px;
-  background: var(--byjan-navy);
+  border-radius: var(--ui-btn-radius, 10px);
   color: #fff;
   font-size: 0.8125rem;
   font-weight: 600;
@@ -1276,6 +1281,69 @@ html[data-density="compact"] .byjan-filter {
 }
 html[data-density="compact"] h1 {
   letter-spacing: -0.02em;
+}
+
+html[data-icon="sm"] { --ui-icon: 16px; }
+html[data-icon="md"] { --ui-icon: 18px; }
+html[data-icon="lg"] { --ui-icon: 21px; }
+html[data-type="sm"] { --ui-type: 0.94; }
+html[data-type="md"] { --ui-type: 1; }
+html[data-type="lg"] { --ui-type: 1.08; }
+html[data-radius="sharp"] { --ui-radius: 8px; --ui-btn-radius: 6px; }
+html[data-radius="soft"] { --ui-radius: 14px; --ui-btn-radius: 10px; }
+html[data-radius="round"] { --ui-radius: 22px; --ui-btn-radius: 999px; }
+
+.byjan-btn,
+.byjan-btn-ghost,
+.byjan-btn-accent,
+.byjan-chip,
+.byjan-search,
+.byjan-filter,
+.md3-panel,
+.md3-book,
+.byjan-card,
+.home-pill,
+.home-qa-tile,
+.home-recent-card,
+.brand-logo {
+  border-radius: var(--ui-btn-radius, 10px);
+}
+.md3-panel,
+.md3-book,
+.byjan-card,
+.home-qa-tile,
+.home-recent-card {
+  border-radius: var(--ui-radius, 14px);
+}
+
+.byjan-tool-btn {
+  position: relative;
+  height: 2.5rem !important;
+  width: 2.5rem;
+  padding: 0 !important;
+}
+.byjan-tool-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #12B8A8;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 14px;
+  text-align: center;
+}
+
+.home-pill svg.lucide,
+.home-qa-icon svg.lucide,
+.byjan-tool-btn svg.lucide,
+.byjan-search svg.lucide {
+  width: var(--ui-icon);
+  height: var(--ui-icon);
 }
 
 .byjan-hero {
@@ -2195,51 +2263,54 @@ html[data-density="compact"] h1 {
 .md3-sub { margin: 2px 0 0; font-size: 12px; color: #64748b; }
 .md3-stats {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 9px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  border: 1px solid rgba(11, 31, 58, 0.08);
+  border-radius: var(--ui-radius, 14px);
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 10px 24px -22px rgba(11, 31, 58, 0.45);
+}
+.md3-stats.md3-stats-2 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 .md3-stat {
   position: relative;
-  padding: 13px 12px 12px;
-  border-radius: 18px;
-  border: 1px solid rgba(11, 31, 58, 0.07);
-  background:
-    radial-gradient(120% 80% at 100% 0%, rgba(18, 184, 168, 0.06), transparent 40%),
-    linear-gradient(165deg, #fff 0%, #f5f8fb 100%);
+  padding: 8px 8px 7px;
+  border-radius: 0;
+  border: none;
+  border-right: 1px solid rgba(11, 31, 58, 0.07);
+  background: transparent;
   overflow: hidden;
-  transform: translateZ(0);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.85) inset,
-    0 14px 28px -22px rgba(11, 31, 58, 0.5);
-  animation: md3-rise 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  box-shadow: none;
+  animation: none;
+  min-width: 0;
 }
-.md3-stat:nth-child(2) { animation-delay: 50ms; }
-.md3-stat:nth-child(3) { animation-delay: 100ms; }
-.md3-stat:nth-child(4) { animation-delay: 150ms; }
-.md3-stat::before {
-  content: '';
-  position: absolute; inset: 0 auto auto 0; width: 100%; height: 2px;
-  background: linear-gradient(90deg, transparent, rgba(18,184,168,0.45), transparent);
-  opacity: 0.65;
-}
-.md3-stat.tone-in .md3-stat-icon { background: linear-gradient(145deg, #5eead4, #0f766e); color: #fff; }
-.md3-stat.tone-out .md3-stat-icon { background: linear-gradient(145deg, #fda4af, #be123c); color: #fff; }
-.md3-stat.tone-warn .md3-stat-icon { background: linear-gradient(145deg, #fcd34d, #b45309); color: #fff; }
-.md3-stat.tone-idle .md3-stat-icon { background: linear-gradient(145deg, #93c5fd, #0B1F3A); color: #fff; }
+.md3-stat:last-child { border-right: none; }
+.md3-stat:nth-child(2) { animation-delay: 0ms; }
+.md3-stat:nth-child(3) { animation-delay: 0ms; }
+.md3-stat:nth-child(4) { animation-delay: 0ms; }
+.md3-stat::before { display: none; }
+.md3-stat.tone-in .md3-stat-icon { background: #0f766e; color: #fff; }
+.md3-stat.tone-out .md3-stat-icon { background: #be123c; color: #fff; }
+.md3-stat.tone-warn .md3-stat-icon { background: #b45309; color: #fff; }
+.md3-stat.tone-idle .md3-stat-icon { background: #0B1F3A; color: #fff; }
 .md3-stat-icon {
-  width: 32px; height: 32px; border-radius: 11px;
+  width: 20px; height: 20px; border-radius: calc(var(--ui-radius, 14px) * 0.45);
   display: inline-flex; align-items: center; justify-content: center;
-  box-shadow: 0 10px 16px -10px rgba(11, 31, 58, 0.55), 0 1px 0 rgba(255,255,255,0.35) inset;
-  transform: perspective(200px) rotateX(12deg) rotateY(-10deg);
+  box-shadow: none;
+  transform: none;
 }
 .md3-stat-label {
-  display: block; margin-top: 9px;
-  font-size: 10px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: #94a3b8;
+  display: block; margin-top: 5px;
+  font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #94a3b8;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .md3-stat-value {
-  display: block; margin-top: 3px;
-  font-size: 15px; font-weight: 700; letter-spacing: -0.025em; color: #0B1F3A;
+  display: block; margin-top: 1px;
+  font-size: 12px; font-weight: 700; letter-spacing: -0.03em; color: #0B1F3A;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .md3-stat-value.is-in { color: #0f766e; }
 .md3-book-list { display: flex; flex-direction: column; gap: 9px; }

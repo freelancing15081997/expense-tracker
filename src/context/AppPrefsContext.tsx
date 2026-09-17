@@ -36,6 +36,9 @@ export const AppPrefsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   useEffect(() => {
     setRuntimePrefs(prefs);
     document.documentElement.dataset.density = prefs.uiDensity;
+    document.documentElement.dataset.icon = prefs.iconSize;
+    document.documentElement.dataset.type = prefs.fontSize;
+    document.documentElement.dataset.radius = prefs.cornerRadius;
   }, [prefs]);
 
   useEffect(() => {

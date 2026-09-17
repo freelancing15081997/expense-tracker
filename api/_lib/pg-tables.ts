@@ -353,6 +353,18 @@ async function ensureLedgerSchema(sql: Sql) {
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`;
   await sql`CREATE INDEX IF NOT EXISTS notifications_user_idx ON notifications (user_id)`;
+  await sql`CREATE TABLE IF NOT EXISTS support_tickets (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    category TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    subject TEXT NOT NULL DEFAULT '',
+    data JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`;
+  await sql`CREATE INDEX IF NOT EXISTS support_tickets_user_idx ON support_tickets (user_id, created_at DESC)`;
+  await sql`CREATE INDEX IF NOT EXISTS support_tickets_status_idx ON support_tickets (status, created_at DESC)`;
   await sql`CREATE TABLE IF NOT EXISTS invites (
     id TEXT PRIMARY KEY,
     email TEXT,
@@ -1944,7 +1956,7 @@ export async function ledgerListAudit(uid: string, bookId?: string, limit = 80) 
   }));
 }
 
-type ApiReq = { method?: string; headers: Record<string, unknown>; body?: unknown };
+type ApiReq = { method?: string; url?: string; headers: Record<string, unknown>; body?: unknown };
 type ApiRes = { statusCode: number; setHeader: (name: string, value: string) => void; end: (body?: string) => void };
 
 const FIREBASE_PROJECT = 'gen-lang-client-0616065043';
@@ -2058,7 +2070,23 @@ export async function withDomainApi(
     }
     const user = await requireApiUser(req, res);
     if (!user) return;
-    await fn(user, readApiBody(req));
+    const body = readApiBody(req);
+    const profile = await ledgerGetUser(user.uid);
+    const status = String(profile?.status || '').trim().toLowerCase();
+    if (status === 'deleted' || status === 'deactivated') {
+      const op = String(body.op || 'get');
+      const url = String(req.url || '');
+      const isMe = /[?&]domain=me(?:&|$)/.test(url) || /\/api\/me(?:\?|$)/.test(url);
+      if (!(isMe && (op === 'get' || op === 'deleteAccount'))) {
+        throw new ApiError(
+          403,
+          status === 'deleted'
+            ? 'This account was deleted.'
+            : 'This account is deactivated. Email byjanbooks@gmail.com to turn it back on.',
+        );
+      }
+    }
+    await fn(user, body);
   } catch (err) {
     handleApiError(res, err);
   }

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
-import { BookOpen, BookText, LogOut, Settings, Shield, X } from 'lucide-react';
+import { BookOpen, BookText, CircleHelp, LogOut, Settings, Shield, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useFeatures } from '../lib/use-features';
 import { emailIsSuperUser } from '../lib/super-users';
@@ -106,6 +106,10 @@ export default function AccountMenu() {
               )}
             </div>
 
+            <Link to="/help" onClick={() => setOpen(false)} className="account-action">
+              <CircleHelp className="w-4 h-4" />
+              Help & tickets
+            </Link>
             <Link to="/settings" onClick={() => setOpen(false)} className="account-action">
               <Settings className="w-4 h-4" />
               Settings

@@ -1039,14 +1039,12 @@ export default function Dashboard() {
               <div className="home-amount-row">
                 <CurrencyMark code={currencyCode} size="lg" />
                 <p className="home-amount byjan-money">
-                  {loading || !statsReady
-                    ? <span className="dash-skel home-skel-balance" aria-hidden />
-                    : formatIndianAmount(net, currency)}
+                  {formatIndianAmount(statsReady ? net : 0, currency)}
                 </p>
               </div>
               <p className="home-amount-sub">
                 {loading || !statsReady
-                  ? 'Updating'
+                  ? 'Loading books'
                   : `${visibleBooks.length} books · ${globalStats.entries} entries`}
               </p>
             </>
@@ -1138,10 +1136,7 @@ export default function Dashboard() {
               {hasFeature('money_activity') ? <Link to="/activity">See all</Link> : <span />}
             </div>
             {loading && recentEntries.length === 0 ? (
-              <div className="home-recent-card" aria-busy="true">
-                <span className="dash-skel" style={{ width: '38%', height: 22 }} />
-                <span className="dash-skel" style={{ width: '52%', height: 12 }} />
-              </div>
+              <p className="text-sm text-slate-500 px-1 py-3">Loading recent entries…</p>
             ) : (
               recentEntries.map((row) => {
                 const isOut = row.entryType !== 'in' && row.entryType !== 'transfer';
@@ -1244,7 +1239,7 @@ export default function Dashboard() {
             <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/45">Money books</p>
             <p className="dash-hero-balance byjan-money !mt-1 inline-flex items-center gap-2">
               <CurrencyMark code={currencyCode} size="sm" />
-              {loading || !statsReady ? <span className="dash-skel dash-skel-money" /> : formatIndianAmount(net, currency)}
+              {formatIndianAmount(statsReady ? net : 0, currency)}
             </p>
           </div>
           <button type="button" onClick={() => setShowNewBook(true)} className="dash-hero-cta">
@@ -1284,7 +1279,7 @@ export default function Dashboard() {
                   <item.Icon className="w-3.5 h-3.5" />
                 </span>
                 <span className="md3-stat-label">{item.label}</span>
-                <strong className="md3-stat-value byjan-money">{!statsReady ? <span className="dash-skel dash-skel-line" /> : item.value}</strong>
+                <strong className="md3-stat-value byjan-money">{item.value}</strong>
               </div>
             ))}
           </div>
@@ -1336,18 +1331,7 @@ export default function Dashboard() {
             </div>
           </div>
           {loading ? (
-            <div className="md3-book-list" aria-busy="true" aria-label="Loading money books">
-              {[0, 1, 2, 3].map((row) => (
-                <div key={row} className="md3-skel-book">
-                  <span className="dash-skel md3-skel-icon" />
-                  <span className="md3-skel-lines">
-                    <span className="dash-skel" style={{ width: '46%', height: 12 }} />
-                    <span className="dash-skel" style={{ width: '30%', height: 10 }} />
-                  </span>
-                  <span className="dash-skel" style={{ width: 56, height: 14, borderRadius: 6 }} />
-                </div>
-              ))}
-            </div>
+            <p className="text-sm text-slate-500 px-1 py-4">Loading money books…</p>
           ) : loadError && books.length === 0 ? (
             <div className="dash-empty">
               <p className="font-semibold text-[#0B0F1F]">Could not load your money books</p>

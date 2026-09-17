@@ -10,6 +10,7 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut,
+  deleteUser,
 } from 'firebase/auth';
 
 // Firebase is now ONLY used for Authentication
@@ -124,6 +125,18 @@ export async function logout() {
     }
   }
   await signOut(auth);
+}
+
+export async function deleteCurrentAuthUser() {
+  const user = auth.currentUser;
+  if (user) {
+    try {
+      await deleteUser(user);
+    } catch (err) {
+      console.warn('Client auth delete skipped', err);
+    }
+  }
+  await logout();
 }
 
 export async function getAccessToken() {

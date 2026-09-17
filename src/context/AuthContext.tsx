@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { User, onAuthStateChanged } from 'firebase/auth';
-import { auth, googleRedirectReady } from '../lib/firebase';
+import { auth, googleRedirectReady, logout } from '../lib/firebase';
 import { getMe, upsertMe } from '../lib/me';
 import { MEMBER_FEATURES, type FeatureMap } from '../lib/features';
 import { emailIsSuperUser } from '../lib/super-users';
@@ -10,6 +10,7 @@ import { authHeaders } from '../lib/auth-client';
 import { startSessionGuard } from '../lib/session';
 import AppLoader from '../components/AppLoader';
 import { CapacitorService } from '../lib/capacitor';
+import { setAuthNotice } from '../lib/support';
 
 export interface UserProfile {
   uid: string;
@@ -26,6 +27,7 @@ export interface UserProfile {
   upiDisplayName?: string;
   upiStatus?: string;
   upiConfirmedAt?: string;
+  status?: string;
 }
 
 interface AuthContextType {
@@ -145,6 +147,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           void copyLegacyBooks();
           const profile = await getMe();
           if (cancelled) return;
+          const status = String(profile?.status || '').toLowerCase();
+          if (status === 'deactivated' || status === 'deleted') {
+            setAuthNotice(
+              status === 'deleted'
+                ? 'This Byjan account was deleted.'
+                : 'This Byjan account is deactivated. Email byjanbooks@gmail.com if you want it turned back on.',
+            );
+            await logout();
+            return;
+          }
           if (!profile || !profile.displayName) {
             const base = profileFromSnap(user, profile);
             await upsertMe({ ...base, customCategories: profile?.customCategories || [], createdAt: new Date().toISOString() });
@@ -152,7 +164,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           } else {
             setUserProfile(profileFromSnap(user, profile));
           }
-        } catch {
+        } catch (err) {
+          const message = err instanceof Error ? err.message : '';
+          if (/deactivated|was deleted/i.test(message)) {
+            setAuthNotice(message);
+            await logout();
+            return;
+          }
           if (!cancelled) setUserProfile(profileFromSnap(user, null));
         } finally {
           void CapacitorService.bindAccount(user.uid);

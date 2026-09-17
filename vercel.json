@@ -36,6 +36,7 @@
     { "source": "/api/expenses", "destination": "/api/tracker?domain=expenses" },
     { "source": "/api/notifications", "destination": "/api/tracker?domain=notifications" },
     { "source": "/api/me", "destination": "/api/tracker?domain=me" },
+    { "source": "/api/support", "destination": "/api/tracker?domain=support" },
     { "source": "/api/money", "destination": "/api/tracker?domain=money" },
     { "source": "/api/books", "destination": "/api/tracker?domain=books" },
     { "source": "/api/auth/:path*", "destination": "/api" },

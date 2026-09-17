@@ -759,7 +759,6 @@ export default function BookView() {
   const canScan = ['owner', 'admin', 'contributor'].includes(myRole) && hasFeature('money_scan');
   const canVoice = ['owner', 'admin', 'contributor'].includes(myRole) && hasFeature('money_voice');
   const canDelete = ['owner', 'admin', 'contributor'].includes(myRole) && hasFeature('money_delete');
-  const canExport = hasFeature('money_export');
   const canManageUsers = ['owner', 'admin'].includes(myRole) && hasFeature('money_people');
   const canSplitTab = hasFeature('money_split') && hasFeature('money_split_tab');
   const canSplitEntry = hasFeature('money_split_entry');
@@ -1922,34 +1921,53 @@ export default function BookView() {
               <button
                 type="button"
                 ref={filterBtnRef}
-                className="byjan-btn-ghost !h-9 !px-2.5 relative"
+                className="byjan-btn-ghost byjan-tool-btn relative"
                 onClick={toggleFilters}
                 aria-expanded={filtersOpen}
+                title="Filters"
               >
-                <SlidersHorizontal className="w-4 h-4" />
-                <span className="hidden sm:inline">Filters</span>
+                <SlidersHorizontal />
                 {activeFilterCount > 0 && (
-                  <span className="ml-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[#12B8A8] text-white text-[10px] font-bold inline-flex items-center justify-center">
+                  <span className="byjan-tool-badge">
                     {activeFilterCount}
                   </span>
                 )}
               </button>
               )}
-              {canExport && (
-              <button type="button" onClick={downloadPdf} disabled={exportingPdf} className="byjan-btn-ghost !h-9 !px-2.5" title="Download PDF">
-                {exportingPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-              </button>
-              )}
+              <DropdownMenu.Root>
+                <DropdownMenu.Trigger asChild>
+                  <button type="button" className="byjan-btn-ghost byjan-tool-btn" title="Export" disabled={exportingPdf}>
+                    {exportingPdf ? <Loader2 className="animate-spin" /> : <Download />}
+                  </button>
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content align="end" className="w-48 bg-white rounded-lg shadow-lg border border-slate-200 p-1.5 z-50">
+                    <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider px-2 py-1.5">Export</div>
+                    <DropdownMenu.Item
+                      className="px-2 py-2 text-sm outline-none cursor-pointer hover:bg-slate-50 rounded flex items-center gap-2"
+                      onSelect={() => downloadPdf()}
+                    >
+                      <FileText className="text-slate-500" /> PDF report
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Item
+                      className="px-2 py-2 text-sm outline-none cursor-pointer hover:bg-slate-50 rounded flex items-center gap-2"
+                      onSelect={() => downloadCsv()}
+                    >
+                      <Download className="text-slate-500" /> CSV ledger
+                    </DropdownMenu.Item>
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
               {canEmailReport && (
-              <button type="button" onClick={emailReport} disabled={sendingReport} className="byjan-btn-ghost !h-9 !px-2.5" title="Email report">
-                {sendingReport ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              <button type="button" onClick={emailReport} disabled={sendingReport} className="byjan-btn-ghost byjan-tool-btn" title="Email report">
+                {sendingReport ? <Loader2 className="animate-spin" /> : <Send />}
               </button>
               )}
               {canFilters && (
               <DropdownMenu.Root>
                 <DropdownMenu.Trigger asChild>
-                  <button type="button" className="byjan-btn-ghost !h-9 !px-2.5" title="Columns">
-                    <Settings2 className="w-4 h-4" />
+                  <button type="button" className="byjan-btn-ghost byjan-tool-btn" title="Columns">
+                    <Settings2 />
                   </button>
                 </DropdownMenu.Trigger>
                 <DropdownMenu.Portal>
@@ -2628,20 +2646,20 @@ export default function BookView() {
               )}
             </div>
             
-            {canExport && (
             <div className="byjan-card p-5 flex flex-col">
               <h3 className="font-semibold text-sm text-slate-900 mb-4 flex items-center gap-2">
-                <FileText className="w-4 h-4 text-slate-400" /> Export & Reports
+                <FileText className="text-slate-400" /> Export & Reports
               </h3>
-              <p className="text-xs text-slate-500 mb-6 flex-1">Generate comprehensive CSV exports of the ledger for tax filing, audits, or external accounting software integration.</p>
-              <button 
-                onClick={downloadCsv}
-                className="byjan-btn w-full"
-              >
-                Download CSV Ledger
-              </button>
+              <p className="text-xs text-slate-500 mb-6 flex-1">Download this book as PDF or CSV for tax filing, audits, or accounting software.</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={downloadPdf} disabled={exportingPdf} className="byjan-btn-ghost w-full">
+                  {exportingPdf ? <Loader2 className="animate-spin" /> : <Download />} PDF
+                </button>
+                <button type="button" onClick={downloadCsv} className="byjan-btn w-full">
+                  <FileText /> CSV
+                </button>
+              </div>
             </div>
-            )}
           </div>
           {canBudget && (
             <div className="byjan-card p-5">

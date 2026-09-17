@@ -3,6 +3,7 @@ import {
   appRoleFromBooks,
   grantsOnBook,
   hasExplicitFeatureOverride,
+  MEMBER_FEATURES,
   resolveFeatures,
   type FeatureMap,
 } from './features';
@@ -22,6 +23,7 @@ export type MeProfile = {
   hasFeatureOverride?: boolean;
   isSuperUser?: boolean;
   createdAt?: unknown;
+  status?: string;
   [key: string]: unknown;
 };
 
@@ -78,6 +80,10 @@ export async function getMe() {
   }>('/api/me', { op: 'get' });
   const user = payload.user || null;
   if (!user) return null;
+  const accountStatus = String(user.status || '').toLowerCase();
+  if (accountStatus === 'deleted' || accountStatus === 'deactivated') {
+    return { ...user, features: MEMBER_FEATURES, isSuperUser: false };
+  }
   const uid = String(user.uid || '');
   const isSuperUser = isAppSuperUser(user.email);
   let rolePermissions = payload.rolePermissions

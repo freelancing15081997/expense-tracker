@@ -429,7 +429,7 @@ export default function SettlementPaySheet({
                     <span className="sp-swipe-fill" style={{ width: `${Math.max(18, swipeX * 100)}%` }} />
                     <span className="sp-swipe-hint">{swipeX > 0.82 ? 'Release to pay' : 'Swipe to choose UPI app'}</span>
                     <span className="sp-swipe-knob" style={{ left: `calc(6px + ${swipeX} * (100% - 76px))` }}>
-                      <img src="/logo.svg" alt="" />
+                      <img src="/logo.png" alt="" />
                     </span>
                   </div>
                 </>

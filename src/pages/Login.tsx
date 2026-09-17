@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { signInWithEmailAndPassword, signInWithGoogle, auth } from '../lib/firebase';
 import { Mail, Lock, AlertCircle } from 'lucide-react';
 import AuthScene from '../components/AuthScene';
 import { consumeReturnTo } from '../lib/return-to';
+import { consumeAuthNotice } from '../lib/support';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -12,6 +13,11 @@ export default function Login() {
   const [busy, setBusy] = useState<'email' | 'google' | ''>('');
   const navigate = useNavigate();
   const loading = Boolean(busy);
+
+  useEffect(() => {
+    const notice = consumeAuthNotice();
+    if (notice) setError(notice);
+  }, []);
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,7 +79,7 @@ export default function Login() {
 
       <form className="space-y-3" onSubmit={handleEmailLogin}>
         <div>
-          <label className="block text-sm font-medium text-slate-700">Email address</label>
+          <label className="block text-sm font-medium text-slate-700 text-center">Email address</label>
           <label className="byjan-field mt-1.5">
             <Mail className="h-4 w-4 text-slate-400 shrink-0" />
             <input
@@ -87,7 +93,7 @@ export default function Login() {
           </label>
         </div>
         <div>
-          <label className="block text-sm font-medium text-slate-700">Password</label>
+          <label className="block text-sm font-medium text-slate-700 text-center">Password</label>
           <label className="byjan-field mt-1.5">
             <Lock className="h-4 w-4 text-slate-400 shrink-0" />
             <input

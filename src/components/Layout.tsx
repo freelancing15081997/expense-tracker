@@ -149,7 +149,7 @@ export default function Layout() {
 
   const unreadCount = notifications.filter((n) => !n.read).length;
   const onHome = location.pathname === '/';
-  const onSettings = location.pathname === '/settings' || location.pathname.startsWith('/access');
+  const onSettings = location.pathname === '/settings' || location.pathname === '/help' || location.pathname.startsWith('/access');
   const onLedger = location.pathname.startsWith('/book/');
   const onLedgers = location.pathname === '/expenses' || onLedger;
   const onActivity = location.pathname === '/activity' || location.pathname === '/regular-payments' || location.pathname === '/reports';
@@ -266,7 +266,7 @@ export default function Layout() {
             <div className="ios-notify-handle" aria-hidden />
             <div className="ios-notify-head">
               <div className="notify-page-brand is-sheet">
-                <img src="/logo.svg" alt="" className="notify-byjan-mark" />
+                <img src="/logo.png" alt="" className="notify-byjan-mark" />
                 <div>
                   <p className="ios-notify-kicker">Inbox</p>
                   <h2 className="ios-notify-title">Notifications</h2>
@@ -297,7 +297,7 @@ export default function Layout() {
                       className={cn('ios-notify-row', !notif.read && 'is-unread')}
                     >
                     <span className="ios-notify-glyph">
-                      <img src="/logo.svg" alt="" />
+                      <img src="/logo.png" alt="" />
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="ios-notify-book">{notif.bookName || 'Byjan'}</span>

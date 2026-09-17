@@ -1,6 +1,9 @@
 export type DateFormat = 'iso' | 'dmy' | 'mdy';
 export type NumberLocale = 'en-IN' | 'en-US' | 'en-GB';
 export type UiDensity = 'comfortable' | 'compact';
+export type UiIconSize = 'sm' | 'md' | 'lg';
+export type UiFontSize = 'sm' | 'md' | 'lg';
+export type UiRadius = 'sharp' | 'soft' | 'round';
 export type ListPageSize = 10 | 25 | 50 | 100;
 
 export type AppPrefs = {
@@ -10,6 +13,9 @@ export type AppPrefs = {
   fiscalYearStartMonth: number;
   weekStartsOn: 0 | 1;
   uiDensity: UiDensity;
+  iconSize: UiIconSize;
+  fontSize: UiFontSize;
+  cornerRadius: UiRadius;
   listPageSize: ListPageSize;
   confirmPosting: boolean;
   confirmDeletes: boolean;
@@ -35,6 +41,9 @@ export const DEFAULT_APP_PREFS: AppPrefs = {
   fiscalYearStartMonth: 4,
   weekStartsOn: 1,
   uiDensity: 'comfortable',
+  iconSize: 'md',
+  fontSize: 'md',
+  cornerRadius: 'soft',
   listPageSize: 10,
   confirmPosting: false,
   confirmDeletes: true,
@@ -71,6 +80,9 @@ export function normalizeAppPrefs(raw: unknown): AppPrefs {
   const dateFormat = src.dateFormat === 'dmy' || src.dateFormat === 'mdy' ? src.dateFormat : 'iso';
   const numberFormat = src.numberFormat === 'en-US' || src.numberFormat === 'en-GB' ? src.numberFormat : 'en-IN';
   const uiDensity = src.uiDensity === 'compact' ? 'compact' : 'comfortable';
+  const iconSize = src.iconSize === 'sm' || src.iconSize === 'lg' ? src.iconSize : 'md';
+  const fontSize = src.fontSize === 'sm' || src.fontSize === 'lg' ? src.fontSize : 'md';
+  const cornerRadius = src.cornerRadius === 'sharp' || src.cornerRadius === 'round' ? src.cornerRadius : 'soft';
   const listPageSize = src.listPageSize === 25 || src.listPageSize === 50 || src.listPageSize === 100 ? src.listPageSize : 10;
   const defaultCashAccount = src.defaultCashAccount === 'cash' ? 'cash' : 'bank';
   return {
@@ -80,6 +92,9 @@ export function normalizeAppPrefs(raw: unknown): AppPrefs {
     fiscalYearStartMonth: asNum(src.fiscalYearStartMonth, 4, 1, 12),
     weekStartsOn: src.weekStartsOn === 0 ? 0 : 1,
     uiDensity,
+    iconSize,
+    fontSize,
+    cornerRadius,
     listPageSize,
     confirmPosting: asBool(src.confirmPosting, true),
     confirmDeletes: asBool(src.confirmDeletes, true),
@@ -118,9 +133,16 @@ export function setRuntimePrefs(next: AppPrefs) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
   } catch { /* private mode */ }
-  if (typeof document !== 'undefined') {
-    document.documentElement.dataset.density = next.uiDensity;
-  }
+  applyUiChrome(next);
+}
+
+export function applyUiChrome(prefs: AppPrefs) {
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement;
+  root.dataset.density = prefs.uiDensity;
+  root.dataset.icon = prefs.iconSize;
+  root.dataset.type = prefs.fontSize;
+  root.dataset.radius = prefs.cornerRadius;
 }
 
 export function formatDisplayDate(iso: string | null | undefined) {
@@ -147,3 +169,5 @@ export function formatMajor(amount: number, fractionDigits = 2) {
 export function moneyLocale() {
   return runtime.numberFormat;
 }
+
+if (typeof document !== 'undefined') applyUiChrome(runtime);

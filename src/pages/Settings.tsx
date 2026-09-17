@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useAppPrefs } from '../context/AppPrefsContext';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { upsertMe } from '../lib/me';
-import { Save, AlertCircle, CheckCircle2, Shield, BellRing } from 'lucide-react';
+import { Save, AlertCircle, CheckCircle2, Shield, BellRing, CircleHelp, UserX, Trash2 } from 'lucide-react';
 import { disableLock, lockConfig, lockIsEnabledFor, setLockPin, updateLockOptions } from '../lib/app-lock';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 import { useBooksTenantMeta } from '../lib/tenant';
@@ -12,6 +12,8 @@ import { useToast } from '../context/ToastContext';
 import UpiSetupSheet from '../components/UpiSetupSheet';
 import { pingSelfNotification } from '../lib/notifications';
 import { useFeatures } from '../lib/use-features';
+import { deactivateAccount, deleteAccount, setAuthNotice } from '../lib/support';
+import { deleteCurrentAuthUser, logout } from '../lib/firebase';
 
 function Switch({ on, onChange, label, hint }: { on: boolean; onChange: (v: boolean) => void; label: string; hint: string }) {
   return (
@@ -48,6 +50,7 @@ export default function Settings() {
   const { prefs, setPref, savePrefs } = useAppPrefs();
   const { addToast } = useToast();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [displayName, setDisplayName] = useState(userProfile?.displayName || '');
   const [categories, setCategories] = useState<string[]>(userProfile?.customCategories || []);
   const [newCategory, setNewCategory] = useState('');
@@ -66,6 +69,8 @@ export default function Settings() {
   const [lockBioFirst, setLockBioFirst] = useState(() => lockConfig().options.bioFirst);
   const [lockHide, setLockHide] = useState(() => lockConfig().options.hideContent);
   const [pingBusy, setPingBusy] = useState(false);
+  const [accountBusy, setAccountBusy] = useState<'off' | 'deactivate' | 'delete'>('off');
+  const [confirmText, setConfirmText] = useState('');
 
   useEffect(() => {
     setDisplayName(userProfile?.displayName || '');
@@ -117,8 +122,45 @@ export default function Settings() {
     }
   };
 
+  const handleDeactivate = async () => {
+    if (confirmText.trim().toUpperCase() !== 'DEACTIVATE') {
+      addToast('Type DEACTIVATE to confirm', 'error');
+      return;
+    }
+    setAccountBusy('deactivate');
+    try {
+      await deactivateAccount();
+      setAuthNotice('This Byjan account is deactivated. Email byjanbooks@gmail.com if you want it turned back on.');
+      await logout();
+      navigate('/login', { replace: true });
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : 'Could not deactivate this account', 'error');
+    } finally {
+      setAccountBusy('off');
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (confirmText.trim().toUpperCase() !== 'DELETE') {
+      addToast('Type DELETE to confirm', 'error');
+      return;
+    }
+    setAccountBusy('delete');
+    try {
+      await deleteAccount();
+      setAuthNotice('Your Byjan account was deleted.');
+      await deleteCurrentAuthUser();
+      navigate('/login', { replace: true });
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : 'Could not delete this account', 'error');
+    } finally {
+      setAccountBusy('off');
+    }
+  };
+
   return (
-    <form onSubmit={handleSave} className="max-w-5xl mx-auto space-y-6 pb-28 md:pb-10">
+    <div className="max-w-5xl mx-auto space-y-6 pb-28 md:pb-10">
+    <form onSubmit={handleSave} className="space-y-6">
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Preferences</p>
         <h1 className="font-display text-[28px] font-semibold tracking-[-0.04em] text-[#0B1F3A]">Settings</h1>
@@ -145,6 +187,13 @@ export default function Settings() {
           <p className="text-xs text-slate-500 mt-1">Search people and turn features on or off. Invite someone to a money book from that book’s People button.</p>
         </Link>
         )}
+        <Link to="/help" className="byjan-card p-4 sm:col-span-2 block">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 flex items-center gap-1.5">
+            <CircleHelp className="w-3.5 h-3.5" /> Support
+          </p>
+          <p className="text-sm font-semibold text-slate-900 mt-1">Help & tickets</p>
+          <p className="text-xs text-slate-500 mt-1">Common answers, then send an issue to Byjan Books. You can see every ticket you opened.</p>
+        </Link>
       </div>
 
       {message && (
@@ -280,6 +329,36 @@ export default function Settings() {
               <SelectContent>
                 <SelectItem value="comfortable">Comfortable</SelectItem>
                 <SelectItem value="compact">Compact</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label="Icon size" hint="Toolbar, filters, export, and home action icons">
+            <Select value={prefs.iconSize} onValueChange={(v) => setPref('iconSize', v as AppPrefs['iconSize'])}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="sm">Small</SelectItem>
+                <SelectItem value="md">Medium</SelectItem>
+                <SelectItem value="lg">Large</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label="Text size">
+            <Select value={prefs.fontSize} onValueChange={(v) => setPref('fontSize', v as AppPrefs['fontSize'])}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="sm">Small</SelectItem>
+                <SelectItem value="md">Medium</SelectItem>
+                <SelectItem value="lg">Large</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label="Corner radius" hint="Buttons, cards, and icon tiles">
+            <Select value={prefs.cornerRadius} onValueChange={(v) => setPref('cornerRadius', v as AppPrefs['cornerRadius'])}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="sharp">Sharp</SelectItem>
+                <SelectItem value="soft">Soft</SelectItem>
+                <SelectItem value="round">Round</SelectItem>
               </SelectContent>
             </Select>
           </Field>
@@ -495,5 +574,47 @@ export default function Settings() {
         onToast={addToast}
       />
     </form>
+
+    <section className="byjan-card p-4 space-y-4 border-rose-100">
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-widest text-rose-400">Account</p>
+        <h2 className="text-base font-semibold text-[#0B1F3A] mt-1">Deactivate or delete</h2>
+        <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+          Deactivate keeps your books but blocks sign-in until you email byjanbooks@gmail.com.
+          Delete removes this login, owned money books, and the Firebase account. Shared books you do not own stay with their owners.
+        </p>
+      </div>
+      <label className="block">
+        <span className="block text-sm font-medium text-slate-700 mb-1.5">Type DEACTIVATE or DELETE to confirm</span>
+        <input
+          className="w-full h-10 rounded-xl border border-slate-200 px-3 text-sm"
+          value={confirmText}
+          onChange={(event) => setConfirmText(event.target.value)}
+          placeholder="DEACTIVATE or DELETE"
+          autoComplete="off"
+        />
+      </label>
+      <div className="flex flex-col sm:flex-row gap-2">
+        <button
+          type="button"
+          className="byjan-btn-ghost !h-10 text-amber-800 border-amber-200"
+          disabled={accountBusy !== 'off'}
+          onClick={() => void handleDeactivate()}
+        >
+          <UserX className="w-4 h-4" />
+          {accountBusy === 'deactivate' ? 'Deactivating…' : 'Deactivate account'}
+        </button>
+        <button
+          type="button"
+          className="byjan-btn-ghost !h-10 text-rose-700 border-rose-200"
+          disabled={accountBusy !== 'off'}
+          onClick={() => void handleDeleteAccount()}
+        >
+          <Trash2 className="w-4 h-4" />
+          {accountBusy === 'delete' ? 'Deleting…' : 'Delete account'}
+        </button>
+      </div>
+    </section>
+    </div>
   );
 }
