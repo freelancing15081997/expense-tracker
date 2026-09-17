@@ -60,6 +60,7 @@ export async function sendFcm(token: string, message: PushMessage) {
   if (!dest) return { ok: false, error: 'missing-token' as const };
   const project = String(serviceAccount()?.project_id || process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || 'gen-lang-client-0616065043');
   const access = await googleAccessToken();
+  // Production needs FIREBASE_SERVICE_ACCOUNT_JSON so this token can be minted.
   if (!access) {
     console.error('FCM skipped: missing Google access token');
     return { ok: false, error: 'missing-access' as const };
