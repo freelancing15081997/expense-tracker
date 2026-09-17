@@ -7,15 +7,20 @@ import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const SERIAL = process.env.BYJAN_SERIAL || 'ZD222LNHM5';
+const PKG = 'com.byjanbooks.app';
 const EMAIL = 'badrinathp316@gmail.com';
 const PASS = '123456';
 const OUT = join(process.cwd(), 'tmp-e2e-full');
 mkdirSync(OUT, { recursive: true });
 
-const report = { steps: [], fails: [], ok: true };
+const ADB = process.platform === 'win32'
+  ? join(process.env.LOCALAPPDATA || '', 'Android', 'Sdk', 'platform-tools', 'adb.exe')
+  : 'adb';
+
+const report = { steps: [], fails: [], ok: true, exceptions: [] };
 
 function adb(args, opts = {}) {
-  return execSync(`adb -s ${SERIAL} ${args}`, { encoding: 'utf8', ...opts }).trim();
+  return execSync(`"${ADB}" -s ${SERIAL} ${args}`, { encoding: 'utf8', ...opts }).trim();
 }
 
 function sleep(ms) {
@@ -85,17 +90,21 @@ async function ensureDevice() {
 }
 
 async function attachWebview() {
-  adb(`shell am force-stop com.byjanbooks.com`);
-  adb(`shell am start -n com.byjanbooks.com/.MainActivity`);
+  adb(`shell am force-stop ${PKG}`);
+  try {
+    adb(`shell am start -n ${PKG}/com.byjanbooks.com.MainActivity`);
+  } catch {
+    adb(`shell monkey -p ${PKG} -c android.intent.category.LAUNCHER 1`);
+  }
   await sleep(3500);
   let pid = '';
   for (let i = 0; i < 8; i += 1) {
-    pid = adb('shell pidof com.byjanbooks.com');
+    pid = adb(`shell pidof ${PKG}`);
     if (pid) break;
     await sleep(800);
   }
   if (!pid) throw new Error('app pid missing');
-  try { execSync(`adb -s ${SERIAL} forward --remove tcp:9222`, { stdio: 'ignore' }); } catch { /* */ }
+  try { execSync(`"${ADB}" -s ${SERIAL} forward --remove tcp:9222`, { stdio: 'ignore' }); } catch { /* */ }
   adb(`forward tcp:9222 localabstract:webview_devtools_remote_${pid}`);
   await sleep(600);
   const list = await fetch('http://127.0.0.1:9222/json').then((r) => r.json());
@@ -109,6 +118,15 @@ async function main() {
   const wsUrl = await attachWebview();
   const { send, ws } = await cdp(wsUrl);
   await send('Runtime.enable');
+  ws.addEventListener('message', (ev) => {
+    try {
+      const msg = JSON.parse(String(ev.data));
+      if (msg.method === 'Runtime.exceptionThrown') {
+        const text = String(msg.params?.exceptionDetails?.text || msg.params?.exceptionDetails?.exception?.description || '');
+        if (text) report.exceptions.push(text.slice(0, 240));
+      }
+    } catch { /* ignore */ }
+  });
 
   const dismiss = `(() => {
     const btns = [...document.querySelectorAll('button, a, [role="button"]')];
@@ -445,6 +463,37 @@ async function main() {
   shot('e2e-07-book-view');
   logStep('open-book', bookView, /book\//i.test(bookView.hash));
 
+  const bookTools = await evalJs(send, `(() => {
+    const text = document.body.innerText || '';
+    const crashed = /Minified React error|Maximum update depth|This screen could not open/i.test(text);
+    const filter = document.querySelector('button[title="Filters"], button[aria-label="Filters"]');
+    const download = document.querySelector('button[title="Download report"], button[title="Export"]');
+    const mail = document.querySelector('button[title="Email PDF report"], button[title="Email report"]');
+    return {
+      crashed,
+      hasFilter: Boolean(filter),
+      hasDownload: Boolean(download),
+      hasMail: Boolean(mail),
+      hash: location.hash,
+    };
+  })()`);
+  logStep('book-filter-download-mail', bookTools, !bookTools.crashed && bookTools.hasFilter && bookTools.hasDownload);
+
+  if (bookTools.hasDownload) {
+    await evalJs(send, `document.querySelector('button[title="Download report"], button[title="Export"]')?.click()`);
+    await sleep(700);
+    const exportMenu = await evalJs(send, `(() => {
+      const text = document.body.innerText || '';
+      return {
+        pdf: /PDF report/i.test(text),
+        csv: /CSV spreadsheet|CSV ledger/i.test(text),
+      };
+    })()`);
+    logStep('book-export-menu', exportMenu, exportMenu.pdf && exportMenu.csv);
+    await evalJs(send, `document.querySelector('.fixed.inset-0')?.click()`);
+    await sleep(300);
+  }
+
   const addForm = await evalJs(send, `(() => {
     const add = [...document.querySelectorAll('button')].find((b) => /Add entry/i.test(b.textContent || ''));
     add?.click();
@@ -550,11 +599,26 @@ async function main() {
     const text = document.body.innerText || '';
     return {
       hash: location.hash,
-      hasSettings: /Settings|Preferences/i.test(text),
+      hasSettings: /Settings/i.test(text) && /Preferences/i.test(text),
+      hasDisplay: /Display|Text size|Icon size/i.test(text),
+      hasHelp: /Help & tickets|Help/i.test(text),
+      crashed: /Minified React error|Maximum update depth|This screen could not open/i.test(text),
     };
   })()`);
   shot('e2e-10-settings');
-  logStep('settings-page', settings, settings.hasSettings);
+  logStep('settings-page', settings, settings.hasSettings && settings.hasDisplay && !settings.crashed);
+
+  await evalJs(send, `location.hash = '#/help'`);
+  await sleep(1400);
+  const help = await evalJs(send, `(() => {
+    const text = document.body.innerText || '';
+    return {
+      hash: location.hash,
+      ok: /Help|ticket|Account|Money/i.test(text),
+      crashed: /Minified React error|Maximum update depth|This screen could not open/i.test(text),
+    };
+  })()`);
+  logStep('help-page', help, /help/i.test(help.hash) && help.ok && !help.crashed);
 
   await evalJs(send, `location.hash = '#/access'`);
   await sleep(1800);
@@ -609,8 +673,14 @@ async function main() {
   shot('e2e-99-final');
 
   writeFileSync(join(OUT, 'report.json'), JSON.stringify(report, null, 2));
+  const crash = report.exceptions.some((e) => /Maximum update|Minified React|Settings is not/i.test(e));
+  if (crash) {
+    report.ok = false;
+    report.fails.push('js-crash');
+  }
   console.log('REPORT_OK', report.ok);
   console.log('FAILS', report.fails);
+  if (report.exceptions.length) console.log('JS_EXCEPTIONS', report.exceptions);
   ws.close();
   if (!report.ok) process.exit(2);
 }

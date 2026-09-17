@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { useAppPrefs } from '../context/AppPrefsContext';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { upsertMe } from '../lib/me';
-import { Save, AlertCircle, CheckCircle2, Shield, BellRing, CircleHelp, UserX, Trash2, Settings } from 'lucide-react';
+import { Save, AlertCircle, CheckCircle2, Shield, BellRing, CircleHelp, UserX, Trash2, Settings as SettingsIcon } from 'lucide-react';
 import { disableLock, lockConfig, lockIsEnabledFor, setLockPin, updateLockOptions } from '../lib/app-lock';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 import { useBooksTenantMeta } from '../lib/tenant';
@@ -386,7 +386,7 @@ export default function Settings() {
           </Field>
           )}
           <div className="display-preview md:col-span-2">
-            <Settings className="text-[#0B1F3A]" />
+            <SettingsIcon className="text-[#0B1F3A]" />
             <div>
               <strong>Live preview</strong>
               <span>Icons, type, and corners should change on this row and on every other screen.</span>

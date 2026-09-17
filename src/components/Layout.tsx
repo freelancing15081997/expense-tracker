@@ -23,6 +23,25 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+class PageErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
+  state: { error: Error | null } = { error: null };
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="p-6 max-w-md">
+          <p className="text-sm font-semibold text-[#0B1F3A]">This screen could not open.</p>
+          <p className="text-xs text-slate-500 mt-2 leading-relaxed">Go back to Home and try again. If it keeps happening, force-close Byjan.</p>
+          <Link to="/" className="byjan-btn mt-4 inline-flex">Home</Link>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 const MotionLink = motion.create(Link);
 const tabSpring = { type: 'spring' as const, stiffness: 520, damping: 28, mass: 0.7 };
 const fabMenuSpring = { type: 'spring' as const, stiffness: 420, damping: 24 };
@@ -250,7 +269,9 @@ export default function Layout() {
             className={reduceMotion ? undefined : 'nav-page-enter'}
             style={{ minHeight: '100%' }}
           >
-            <Outlet />
+            <PageErrorBoundary key={location.pathname}>
+              <Outlet />
+            </PageErrorBoundary>
           </div>
         </main>
       </div>
