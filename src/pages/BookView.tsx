@@ -1002,7 +1002,7 @@ export default function BookView() {
     let built: { base64: string; fileName: string } | null = null;
     try {
       built = buildReportPdf();
-      await apiPost('/api/email/send-report', {
+      await apiPost('/api/email/send', {
         to: currentUser.email,
         subject: `${book?.name || 'Byjan'} money report`,
         message: `Here is the PDF report for ${book?.name || 'your money book'}.`,

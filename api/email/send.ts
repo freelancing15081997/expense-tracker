@@ -106,7 +106,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   </table>
 </body>
 </html>`;
-    const mail = {
+    const mail: Record<string, unknown> = {
       from: `"Byjan" <${from}>`,
       replyTo: from,
       envelope: { from, to },
@@ -119,6 +119,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         'X-Auto-Response-Suppress': 'All',
       },
     };
+    const pdfBase64 = String(body.pdfBase64 || '').replace(/^data:application\/pdf[^,]*,/i, '').replace(/\s+/g, '');
+    if (pdfBase64) {
+      mail.attachments = [{
+        filename: String(body.filename || 'Byjan_Report.pdf').replace(/[^\w.-]+/g, '_'),
+        content: pdfBase64,
+        encoding: 'base64',
+        contentType: 'application/pdf',
+      }];
+    }
     try {
       const info = await transporter.sendMail(mail);
       json(res, 200, { success: true, messageId: info.messageId });

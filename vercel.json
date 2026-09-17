@@ -7,8 +7,7 @@
     "api/invites.ts": { "maxDuration": 15, "includeFiles": "api/_pg-tables.js" },
     "api/tracker.ts": { "maxDuration": 30, "includeFiles": "api/{_pg-tables.js,_lib/**}" },
     "api/migrate.ts": { "maxDuration": 60, "includeFiles": "api/_pg-tables.js" },
-    "api/email/send.ts": { "maxDuration": 30 },
-    "api/email/send-report.ts": { "maxDuration": 60 },
+    "api/email/send.ts": { "maxDuration": 60 },
     "api/email/inbound.ts": { "maxDuration": 60, "includeFiles": "api/_pg-tables.js" },
     "api/blob/upload.ts": { "maxDuration": 30, "includeFiles": "api/{_pg-tables.js,_lib/**}" },
     "api/blob/delete.ts": { "maxDuration": 15, "includeFiles": "api/{_pg-tables.js,_lib/**}" },
@@ -32,6 +31,7 @@
     }
   ],
   "rewrites": [
+    { "source": "/api/email/send-report", "destination": "/api/email/send" },
     { "source": "/api/ledgers", "destination": "/api/tracker?domain=ledgers" },
     { "source": "/api/expenses", "destination": "/api/tracker?domain=expenses" },
     { "source": "/api/notifications", "destination": "/api/tracker?domain=notifications" },
