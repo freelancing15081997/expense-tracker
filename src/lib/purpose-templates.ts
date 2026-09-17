@@ -296,3 +296,70 @@ export type BookPurposeConfig = {
   detectedFromName?: boolean;
   confirmedAt?: string;
 };
+
+export type PurposeFieldMeta = {
+  isPurpose: boolean;
+  categoryLabel: string;
+  merchantLabel: string;
+  merchantPlaceholder: string;
+  notesPlaceholder: string;
+  descriptionPlaceholder: string;
+  tagsLabel: string;
+  entityLabel: string;
+  entities: string[];
+};
+
+export function purposeFieldMeta(
+  tpl: PurposeTemplate,
+  book?: { purposeConfig?: unknown; purposeLabel?: string },
+): PurposeFieldMeta {
+  const cfg = book?.purposeConfig && typeof book.purposeConfig === 'object'
+    ? (book.purposeConfig as Record<string, unknown>)
+    : {};
+  const fromConfig = Array.isArray(cfg.entities) ? cfg.entities.map((v) => String(v || '').trim()).filter(Boolean) : [];
+  const entities = fromConfig.length ? fromConfig : [...(tpl.entities || [])];
+  const isPurpose = tpl.id !== 'default';
+  const label = String(book?.purposeLabel || cfg.customLabel || tpl.label);
+  return {
+    isPurpose,
+    categoryLabel: isPurpose ? `${label} category` : 'Category',
+    merchantLabel: entities[0] ? `${entities[0]} / payee` : isPurpose ? 'Payee' : 'Merchant / payee',
+    merchantPlaceholder: entities.length
+      ? `e.g. ${entities.slice(0, 2).join(', ')}`
+      : isPurpose
+        ? `Who this ${label.toLowerCase()} payment is for`
+        : 'Type a name — suggestions appear if it already exists',
+    notesPlaceholder: isPurpose ? `${label} notes` : 'Internal notes',
+    descriptionPlaceholder: isPurpose
+      ? `e.g. ${tpl.categories.filter((c) => c !== 'Miscellaneous')[0] || label}`
+      : 'e.g. Swiggy, rent, salary',
+    tagsLabel: entities.length > 1 ? 'Tags / extra' : 'Tags',
+    entityLabel: isPurpose && entities.length ? `${label} party` : 'Party',
+    entities,
+  };
+}
+
+export function categoryForQuickAction(qa: QuickActionId, categories: string[]): string {
+  const needles: Partial<Record<QuickActionId, string[]>> = {
+    fuel: ['fuel', 'petrol', 'diesel'],
+    material: ['material', 'cement', 'steel'],
+    labour: ['labour', 'labor'],
+    bills: ['utilities', 'bills', 'internet', 'rent'],
+    payment: ['payment', 'fees', 'tuition'],
+    vendor: ['vendor', 'venue', 'catering'],
+    booking: ['venue', 'hotel', 'booking'],
+    service: ['service', 'insurance'],
+    income: ['money in', 'income'],
+    expense: [],
+    receipt: [],
+    split: [],
+    upcoming: [],
+    reminder: [],
+  };
+  const want = (needles[qa] || []).map((s) => s.toLowerCase());
+  if (want.length) {
+    const hit = categories.find((cat) => want.some((n) => cat.toLowerCase().includes(n)));
+    if (hit) return hit;
+  }
+  return categories[0] || '';
+}

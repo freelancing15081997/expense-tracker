@@ -156,7 +156,7 @@ export default function Layout() {
   const canAdd = hasFeature('money_add');
   const canScan = hasFeature('money_scan');
   const canVoice = hasFeature('money_voice');
-  const canNotify = hasFeature('app_notifications');
+  const canNotify = hasFeature('app_notifications') && hasFeature('app_notifications_bell');
   const showFab = hasFeature('money') && (canAdd || canScan || canVoice);
 
   const handleMarkAsRead = async (id: string) => {
@@ -178,7 +178,7 @@ export default function Layout() {
         </Link>
         <div className="flex items-center gap-1">
           <WorkspaceSwitcher variant="header" />
-          <SearchTrigger />
+          {hasFeature('app_search') ? <SearchTrigger /> : null}
           {canNotify && (
           <button
             type="button"
@@ -222,7 +222,7 @@ export default function Layout() {
           <WorkspaceSwitcher variant="header" />
           <div className="flex-1 flex justify-center min-w-0">
             <div className="w-full max-w-2xl">
-              <SearchTrigger variant="bar" />
+              {hasFeature('app_search') ? <SearchTrigger variant="bar" /> : null}
             </div>
           </div>
           {canNotify && (
@@ -338,7 +338,7 @@ export default function Layout() {
           </MotionLink>
         )}
         {showFab ? <span className="dash-fab-slot" aria-hidden /> : null}
-        {hasFeature('money') && (
+        {hasFeature('money') && hasFeature('money_activity') && (
           <MotionLink to="/activity" className="dash-tab dash-tab-activity" data-on={onActivity} onClick={pulseNav} whileTap={reduceMotion ? undefined : { scale: 0.9, rotateX: 16 }} transition={tabSpring} style={{ transformPerspective: 700 }}>
             <Activity className="w-5 h-5" />
             Activity

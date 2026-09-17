@@ -1,6 +1,13 @@
 import { apiPost } from './api';
-import { MEMBER_FEATURES, grantsOnBook, resolveFeatures, type FeatureMap } from './features';
+import {
+  appRoleFromBooks,
+  grantsOnBook,
+  hasExplicitFeatureOverride,
+  resolveFeatures,
+  type FeatureMap,
+} from './features';
 import { listLedgers, updateLedger, type LedgerBook } from './ledgers';
+import { getRolePermissions } from './money-api';
 import { emailIsSuperUser } from './super-users';
 
 export type MeProfile = {
@@ -12,6 +19,7 @@ export type MeProfile = {
   photoURL?: string;
   appPrefs?: Record<string, unknown>;
   features?: FeatureMap;
+  hasFeatureOverride?: boolean;
   isSuperUser?: boolean;
   createdAt?: unknown;
   [key: string]: unknown;
@@ -22,7 +30,33 @@ export type AccessPerson = {
   email: string;
   displayName: string;
   features: FeatureMap;
+  hasFeatureOverride?: boolean;
 };
+
+let rolePermCache: { at: number; roles: Record<string, Partial<FeatureMap>> } | null = null;
+
+export function invalidateRolePermissionCache() {
+  rolePermCache = null;
+}
+
+async function loadRolePermissionMap(): Promise<Record<string, Partial<FeatureMap>>> {
+  if (rolePermCache && Date.now() - rolePermCache.at < 20_000) return rolePermCache.roles;
+  try {
+    const roles = await getRolePermissions();
+    rolePermCache = { at: Date.now(), roles: roles || {} };
+    return rolePermCache.roles;
+  } catch {
+    return rolePermCache?.roles || {};
+  }
+}
+
+function profileOverride(user: { features?: unknown; hasFeatureOverride?: boolean } | null | undefined, hasRoles = false) {
+  if (!user) return undefined;
+  if (user.hasFeatureOverride === true) return user.features;
+  if (user.hasFeatureOverride === false) return undefined;
+  if (hasRoles) return undefined;
+  return hasExplicitFeatureOverride(user.features) ? user.features : undefined;
+}
 
 function managesBook(book: LedgerBook, uid: string) {
   const role = String(book.roles?.[uid]?.role || '');
@@ -38,15 +72,30 @@ function personOnBook(book: LedgerBook, uid: string) {
 }
 
 export async function getMe() {
-  const payload = await apiPost<{ user?: MeProfile | null }>('/api/me', { op: 'get' });
+  const payload = await apiPost<{
+    user?: MeProfile | null;
+    rolePermissions?: Record<string, Partial<FeatureMap>>;
+  }>('/api/me', { op: 'get' });
   const user = payload.user || null;
   if (!user) return null;
   const uid = String(user.uid || '');
   const isSuperUser = isAppSuperUser(user.email);
-  let features = resolveFeatures(uid, isSuperUser, [], user.features);
+  let rolePermissions = payload.rolePermissions
+    || (user.rolePermissions && typeof user.rolePermissions === 'object'
+      ? user.rolePermissions as Record<string, Partial<FeatureMap>>
+      : undefined);
+  if (!rolePermissions || !Object.keys(rolePermissions).length) {
+    rolePermissions = await loadRolePermissionMap();
+  } else {
+    rolePermCache = { at: Date.now(), roles: rolePermissions };
+  }
+  const hasRoles = Boolean(rolePermissions && Object.keys(rolePermissions).length);
+  const override = profileOverride(user, hasRoles);
+  let features = resolveFeatures(uid, isSuperUser, [], override, 'DEFAULT_USER', rolePermissions);
   try {
     const books = await listLedgers();
-    features = resolveFeatures(uid, isSuperUser, books as Array<{ featureAccess?: unknown }>, user.features);
+    const roleKey = appRoleFromBooks(uid, books);
+    features = resolveFeatures(uid, isSuperUser, books, override, roleKey, rolePermissions);
   } catch {
     /* keep profile defaults */
   }
@@ -64,7 +113,8 @@ function personFromRole(uid: string, email: string): AccessPerson {
     uid,
     email,
     displayName: email.split('@')[0] || 'Person',
-    features: { ...MEMBER_FEATURES },
+    features: {},
+    hasFeatureOverride: false,
   };
 }
 
@@ -78,6 +128,7 @@ export async function listAccessPeople(actorEmail?: string): Promise<AccessPerso
       map.set(uid, personFromRole(uid, String(row.email || '')));
     }
   }
+  const rolePermissions = await loadRolePermissionMap();
   try {
     const payload = await apiPost<{ people?: AccessPerson[] }>('/api/me', { op: 'people' });
     if (Array.isArray(payload.people)) {
@@ -89,19 +140,24 @@ export async function listAccessPeople(actorEmail?: string): Promise<AccessPerso
           uid,
           email: String(row.email || current?.email || ''),
           displayName: String(row.displayName || current?.displayName || row.email || 'Person'),
-          features: row.features && typeof row.features === 'object'
+          hasFeatureOverride: row.hasFeatureOverride === true,
+          features: row.hasFeatureOverride === true && row.features && typeof row.features === 'object'
             ? row.features as FeatureMap
-            : current?.features || { ...MEMBER_FEATURES },
+            : {},
         });
       }
     }
   } catch {
     /* older API: people already gathered from books */
   }
-  return [...map.values()].map((person) => ({
-    ...person,
-    features: resolveFeatures(person.uid, emailIsSuperUser(person.email), books as Array<{ featureAccess?: unknown }>, person.features),
-  })).sort((a, b) => a.displayName.localeCompare(b.displayName) || a.email.localeCompare(b.email));
+  return [...map.values()].map((person) => {
+    const roleKey = appRoleFromBooks(person.uid, books);
+    const override = profileOverride(person, Boolean(rolePermissions && Object.keys(rolePermissions).length));
+    return {
+      ...person,
+      features: resolveFeatures(person.uid, emailIsSuperUser(person.email), books, override, roleKey, rolePermissions),
+    };
+  }).sort((a, b) => a.displayName.localeCompare(b.displayName) || a.email.localeCompare(b.email));
 }
 
 export async function setPersonFeatures(userId: string, features: FeatureMap, actorUid: string, actorEmail?: string) {

@@ -20,7 +20,7 @@ import { notifyLedgerMembers } from '../lib/notify-team';
 import { CapacitorService } from '../lib/capacitor';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send, Copy, CopyPlus, Paperclip, Mail, Megaphone, Shield, Pin, PinOff, SlidersHorizontal, ArrowUpDown, Star, Wallet, ArrowUpRight, TrendingUp, Receipt, Mic, PenLine, ScanLine, History, PieChart, Split } from 'lucide-react';
+import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send, Copy, CopyPlus, Paperclip, Mail, Megaphone, Shield, Pin, PinOff, SlidersHorizontal, ArrowUpDown, Star, Wallet, ArrowUpRight, TrendingUp, Receipt, Mic, PenLine, ScanLine, History, PieChart, Split, MoreHorizontal, CalendarClock } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Tabs from '@radix-ui/react-tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
@@ -28,7 +28,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 import { format } from 'date-fns';
 import { getCurrencySymbol } from '../lib/currency';
 import { CategoryBadge, CategoryIconMark } from '../lib/category-icons';
-import { getPurposeTemplate, quickActionLabel, type QuickActionId } from '../lib/purpose-templates';
+import { categoryForQuickAction, getPurposeTemplate, purposeFieldMeta, quickActionLabel, type QuickActionId } from '../lib/purpose-templates';
 import { suggestBookEvolution } from '../lib/book-evolution';
 import { bookInboundAddress, ledgerAppLink, openInviteButtonHtml, openLedgerButtonHtml, wrapByjanEmailHtml } from '../lib/inbound-mail';
 import { createLedgerInvite, memberEmails } from '../lib/invites';
@@ -240,6 +240,7 @@ export default function BookView() {
   const [entryDate, setEntryDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [merchant, setMerchant] = useState('');
   const [merchantFocus, setMerchantFocus] = useState(false);
+  const [purposeEntityType, setPurposeEntityType] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [accountId, setAccountId] = useState('cash');
   const [notes, setNotes] = useState('');
@@ -305,8 +306,8 @@ export default function BookView() {
   const [ledgerTab, setLedgerTab] = useState('ledger');
 
   useEffect(() => {
-    if (searchParams.get('pay')) setLedgerTab('splits');
-  }, [searchParams]);
+    if (searchParams.get('pay') && hasFeature('money_split_tab')) setLedgerTab('splits');
+  }, [searchParams, hasFeature]);
   const [receiptPreview, setReceiptPreview] = useState<{ url: string; title: string; kind: 'image' | 'pdf' | 'file'; fileName?: string } | null>(null);
   const [openingReceiptId, setOpeningReceiptId] = useState<string | null>(null);
   const [exportingPdf, setExportingPdf] = useState(false);
@@ -555,10 +556,11 @@ export default function BookView() {
   }, [bookId, location.search]);
 
   useEffect(() => {
-    const st = location.state as { openPeople?: boolean; openEntry?: boolean; openVoice?: boolean } | null;
+    const st = location.state as { openPeople?: boolean; openEntry?: boolean; openVoice?: boolean; openScan?: boolean } | null;
     if (st?.openPeople) setIsMembersModalOpen(true);
     if (st?.openEntry) setIsExpenseModalOpen(true);
     if (st?.openVoice) setVoiceOpen(true);
+    if (st?.openScan) void scanReceiptEntry();
   }, [location.state, bookId]);
 
   // Raised center + button on the tab bar fires these while a book is open.
@@ -753,24 +755,54 @@ export default function BookView() {
 
   const myRole = book.roles?.[currentUser!.uid]?.role || (book.ownerId === currentUser!.uid ? 'owner' : 'viewer');
   const canWrite = ['owner', 'admin', 'contributor'].includes(myRole) && hasFeature('money_add');
+  const canScan = ['owner', 'admin', 'contributor'].includes(myRole) && hasFeature('money_scan');
+  const canVoice = ['owner', 'admin', 'contributor'].includes(myRole) && hasFeature('money_voice');
   const canDelete = ['owner', 'admin', 'contributor'].includes(myRole) && hasFeature('money_delete');
   const canExport = hasFeature('money_export');
   const canManageUsers = ['owner', 'admin'].includes(myRole) && hasFeature('money_people');
+  const canSplitTab = hasFeature('money_split') && hasFeature('money_split_tab');
+  const canSplitEntry = hasFeature('money_split_entry');
+  const canSplitEqual = hasFeature('money_split_equal');
+  const canEmailTab = hasFeature('money_email') && hasFeature('money_email_tab');
+  const canAnnounce = hasFeature('money_announce');
+  const canBookReports = hasFeature('money_book_analytics');
+  const canHistory = hasFeature('money_history');
+  const canPin = hasFeature('money_pin');
+  const canEmailReport = hasFeature('money_email_report');
+  const canLedgerSearch = hasFeature('money_search');
+  const canFilters = hasFeature('money_filters');
+  const canDuplicate = canWrite && hasFeature('money_duplicate');
+  const canFlag = canWrite && hasFeature('money_flag');
+  const canDeleteBook = myRole === 'owner' && hasFeature('money_delete_book');
+  const canBudget = canManageUsers && hasFeature('money_budget');
   const isAuditor = myRole === 'auditor';
+  const shownTab = (
+    ledgerTab === 'splits' && !canSplitTab ? 'ledger'
+      : ledgerTab === 'email' && !canEmailTab ? 'ledger'
+        : ledgerTab === 'analytics' && !canBookReports ? 'ledger'
+          : ledgerTab === 'audit' && !canHistory ? 'ledger'
+            : ledgerTab
+  );
 
   const expenseCategories = expenses.map((exp) => String(exp.category || '')).filter(Boolean);
   const ledgerCategories = Array.isArray(book.categories) ? book.categories.map(String) : [];
   const purposeId = String(book.purposeId || 'default');
   const purposeTpl = getPurposeTemplate(purposeId);
+  const purposeFields = purposeFieldMeta(purposeTpl, book);
   const purposeQuickActions: QuickActionId[] = Array.isArray(book.quickActions) && book.quickActions.length
     ? (book.quickActions as QuickActionId[])
     : purposeTpl.quickActions;
   const evolution = !evolutionDismissed ? suggestBookEvolution(expenses, purposeId) : null;
+  const configCats = book.purposeConfig && typeof book.purposeConfig === 'object' && Array.isArray((book.purposeConfig as { categories?: unknown }).categories)
+    ? ((book.purposeConfig as { categories: unknown[] }).categories).map(String)
+    : [];
   const categoryOptions = uniqueCategories(
-    BASE_CATEGORIES,
-    userProfile?.customCategories,
+    purposeTpl.categories,
     ledgerCategories,
+    configCats,
     expenseCategories,
+    userProfile?.customCategories,
+    purposeId === 'default' ? BASE_CATEGORIES : [],
   );
 
   const persistLedgerCategory = async (name: string) => {
@@ -801,16 +833,17 @@ export default function BookView() {
     addToast('Monthly spend budget saved.', 'success');
   };
 
-  const openNewExpense = () => {
+  const openNewExpense = (preset?: { category?: string; entryType?: 'in' | 'out' | 'transfer'; txType?: TxType; merchant?: string; description?: string; entityType?: string }) => {
     setEditingExpense(null);
-    setEntryType('out');
-    setTxType('EXPENSE');
+    setEntryType(preset?.entryType || 'out');
+    setTxType(preset?.txType || (preset?.entryType === 'in' ? 'INCOME' : 'EXPENSE'));
     setAmount('');
-    setDescription('');
-    setCategory(categoryOptions[0] || '');
+    setDescription(preset?.description || '');
+    setCategory(preset?.category && categoryOptions.includes(preset.category) ? preset.category : (categoryOptions[0] || ''));
     setCustomCatInput('');
     setEntryDate(new Date().toISOString().split('T')[0]);
-    setMerchant('');
+    setMerchant(preset?.merchant || '');
+    setPurposeEntityType(preset?.entityType || purposeFields.entities[0] || '');
     setPaymentMethod('cash');
     setAccountId(readAccounts(book)[0]?.id || 'cash');
     setNotes('');
@@ -947,6 +980,7 @@ export default function BookView() {
     }
     setEntryDate(String(exp.paidAt || exp.date || new Date().toISOString().split('T')[0]));
     setMerchant(String(exp.merchant || ''));
+    setPurposeEntityType(String(exp.entityType || purposeFields.entities[0] || ''));
     setPaymentMethod(String(exp.paymentMethod || 'cash'));
     setAccountId(String(exp.accountId || 'cash'));
     setNotes(String(exp.notes || ''));
@@ -1082,6 +1116,7 @@ export default function BookView() {
           date: entryDate,
           paidAt: entryDate,
           merchant,
+          entityType: purposeEntityType || undefined,
           paymentMethod,
           accountId,
           notes,
@@ -1126,6 +1161,7 @@ export default function BookView() {
           date: entryDate,
           paidAt: entryDate,
           merchant,
+          entityType: purposeEntityType || undefined,
           paymentMethod,
           accountId,
           notes,
@@ -1585,8 +1621,8 @@ export default function BookView() {
 
   return (
     <>
-      <div className="h-full min-h-0 flex flex-col">
-      <Tabs.Root value={ledgerTab} onValueChange={setLedgerTab} className="h-full min-h-0 flex flex-col">
+      <div className="h-full min-h-0 flex flex-col" data-purpose-id={purposeId}>
+      <Tabs.Root value={shownTab} onValueChange={setLedgerTab} className="h-full min-h-0 flex flex-col">
         <div className="shrink-0 px-4 md:px-6 lg:px-8 pt-2 pb-2 bg-white border-b border-slate-200">
         <div className="max-w-6xl mx-auto">
       <div className="flex flex-col gap-2 mb-1">
@@ -1606,14 +1642,10 @@ export default function BookView() {
                   {offlineCount} offline
                 </span>
               )}
-              <Link to="/reports" className="text-[10px] font-semibold text-[#12B8A8]">Reports</Link>
-              <button type="button" onClick={() => void togglePinned()} className="text-[10px] font-semibold text-slate-500 inline-flex items-center gap-1" title={book.pinned ? 'Unpin book' : 'Pin book'}>
-                {book.pinned ? <Pin className="w-3 h-3 text-[#12B8A8]" /> : <PinOff className="w-3 h-3" />}
-                {book.pinned ? 'Pinned' : 'Pin'}
-              </button>
             </div>
           </div>
           <div className="hidden md:flex items-center gap-2 shrink-0">
+          {canAnnounce && (
           <button
             type="button"
             onClick={() => setIsAnnounceOpen(true)}
@@ -1623,6 +1655,8 @@ export default function BookView() {
             <Megaphone className="w-4 h-4 text-slate-400" />
             <span>Announce</span>
           </button>
+          )}
+          {hasFeature('money_people') && (
           <button 
             onClick={() => setIsMembersModalOpen(true)}
             className={canManageUsers ? 'byjan-btn !px-2 !py-1.5' : 'byjan-btn-ghost !px-2 !py-1.5'}
@@ -1631,20 +1665,10 @@ export default function BookView() {
             <span className="hidden sm:inline">People & access</span>
             <span className="sm:hidden">People</span>
           </button>
-          {myRole === 'owner' && (
-            <button
-              type="button"
-              onClick={() => void handleDeleteLedger()}
-              disabled={deletingLedger}
-              className="byjan-btn-ghost !px-3 !py-1.5 text-rose-700"
-              title="Delete this ledger"
-            >
-              {deletingLedger ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-              <span className="hidden sm:inline">Delete</span>
-            </button>
           )}
-          {canWrite && (
+          {(canWrite || canVoice) && (
             <>
+            {canWrite && (
             <button 
               type="button"
               data-add-entry
@@ -1655,6 +1679,8 @@ export default function BookView() {
               <span className="act-3d-orb" aria-hidden><PenLine className="w-4 h-4" /></span>
               <span>Add entry</span>
             </button>
+            )}
+            {canVoice && (
             <button
               type="button"
               className="act-3d"
@@ -1664,12 +1690,52 @@ export default function BookView() {
               <span className="act-3d-orb tone-mic" aria-hidden><Mic className="w-4 h-4" /></span>
               <span className="hidden sm:inline">Voice</span>
             </button>
+            )}
             </>
           )}
           </div>
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger asChild>
+              <button type="button" className="byjan-btn-ghost !h-10 !w-10 !px-0 shrink-0" aria-label="Book actions">
+                <MoreHorizontal className="w-5 h-5" />
+              </button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content className="book-overflow-menu" align="end" sideOffset={6}>
+                {canScan && (
+                  <DropdownMenu.Item className="book-overflow-item" onSelect={() => { void CapacitorService.hapticTick(); void scanReceiptEntry(); }}>
+                    <ScanLine className="w-4 h-4" /> Receipt
+                  </DropdownMenu.Item>
+                )}
+                {hasFeature('money_recurring') && (
+                  <DropdownMenu.Item className="book-overflow-item" onSelect={() => navigate('/regular-payments')}>
+                    <CalendarClock className="w-4 h-4" /> Upcoming
+                  </DropdownMenu.Item>
+                )}
+                {canPin && (
+                  <DropdownMenu.Item className="book-overflow-item" onSelect={() => { void togglePinned(); }}>
+                    {book.pinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
+                    {book.pinned ? 'Unpin' : 'Pin'}
+                  </DropdownMenu.Item>
+                )}
+                {canAnnounce && (
+                  <DropdownMenu.Item className="book-overflow-item" onSelect={() => setIsAnnounceOpen(true)}>
+                    <Megaphone className="w-4 h-4" /> Announce
+                  </DropdownMenu.Item>
+                )}
+                {canDeleteBook && (
+                  <DropdownMenu.Item className="book-overflow-item is-danger" onSelect={() => { void handleDeleteLedger(); }} disabled={deletingLedger}>
+                    {deletingLedger ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                    Delete book
+                  </DropdownMenu.Item>
+                )}
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
         </div>
-        {canWrite && (
+        {(canWrite || canScan || canVoice || hasFeature('money_people')) && (
         <div className="flex md:hidden items-center gap-2">
+          {canWrite && (
           <button
             type="button"
             data-add-entry
@@ -1679,6 +1745,8 @@ export default function BookView() {
             <span className="act-3d-orb" aria-hidden><PenLine className="w-4 h-4" /></span>
             Add entry
           </button>
+          )}
+          {canScan && (
           <button
             type="button"
             className="act-3d !h-12 !px-3 shrink-0"
@@ -1687,6 +1755,8 @@ export default function BookView() {
           >
             <span className="act-3d-orb tone-scan" aria-hidden><ScanLine className="w-4 h-4" /></span>
           </button>
+          )}
+          {canVoice && (
           <button
             type="button"
             className="act-3d !h-12 !px-3 shrink-0"
@@ -1695,6 +1765,8 @@ export default function BookView() {
           >
             <span className="act-3d-orb tone-mic" aria-hidden><Mic className="w-4 h-4" /></span>
           </button>
+          )}
+          {hasFeature('money_people') && (
           <button
             type="button"
             onClick={() => setIsMembersModalOpen(true)}
@@ -1703,29 +1775,9 @@ export default function BookView() {
           >
             <Users className="w-4 h-4" />
           </button>
+          )}
         </div>
         )}
-        {canWrite && purposeQuickActions.length > 0 ? (
-          <div className="purpose-qa-row mt-2 pb-1" aria-label="Purpose actions">
-            {purposeQuickActions.map((qa) => (
-              <button
-                key={qa}
-                type="button"
-                className="purpose-qa-btn"
-                onClick={() => {
-                  void CapacitorService.hapticTick();
-                  if (qa === 'receipt') void scanReceiptEntry();
-                  else if (qa === 'split') setLedgerTab('splits');
-                  else if (qa === 'upcoming') navigate('/regular-payments');
-                  else if (qa === 'income') openNewExpense();
-                  else openNewExpense();
-                }}
-              >
-                {quickActionLabel(qa)}
-              </button>
-            ))}
-          </div>
-        ) : null}
         {evolution && canManageUsers ? (
           <div className="purpose-detect mt-2">
             <span className="flex-1 min-w-0">
@@ -1773,22 +1825,30 @@ export default function BookView() {
             <Wallet className="w-3.5 h-3.5" />
             <span>Expenses</span>
           </Tabs.Trigger>
+          {canSplitTab && (
           <Tabs.Trigger value="splits" className="book-tab">
             <Split className="w-3.5 h-3.5" />
             <span>Splits</span>
           </Tabs.Trigger>
+          )}
+          {canEmailTab && (
           <Tabs.Trigger value="email" className="book-tab">
             <Mail className="w-3.5 h-3.5" />
             <span>Email</span>
           </Tabs.Trigger>
+          )}
+          {canBookReports && (
           <Tabs.Trigger value="analytics" className="book-tab">
             <PieChart className="w-3.5 h-3.5" />
             <span>Reports</span>
           </Tabs.Trigger>
+          )}
+          {canHistory && (
           <Tabs.Trigger value="audit" className="book-tab">
             <History className="w-3.5 h-3.5" />
             <span>History</span>
           </Tabs.Trigger>
+          )}
         </Tabs.List>
 
         {ledgerTab === 'ledger' && (
@@ -1840,6 +1900,7 @@ export default function BookView() {
             )}
 
             <div className="flex items-center gap-1.5">
+              {canLedgerSearch && (
               <label className="byjan-search flex-1">
                 <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                 <input
@@ -1855,6 +1916,8 @@ export default function BookView() {
                   </button>
                 )}
               </label>
+              )}
+              {canFilters && (
               <button
                 type="button"
                 ref={filterBtnRef}
@@ -1870,16 +1933,18 @@ export default function BookView() {
                   </span>
                 )}
               </button>
+              )}
               {canExport && (
               <button type="button" onClick={downloadPdf} disabled={exportingPdf} className="byjan-btn-ghost !h-9 !px-2.5" title="Download PDF">
                 {exportingPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
               </button>
               )}
-              {canExport && (
+              {canEmailReport && (
               <button type="button" onClick={emailReport} disabled={sendingReport} className="byjan-btn-ghost !h-9 !px-2.5" title="Email report">
                 {sendingReport ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
               </button>
               )}
+              {canFilters && (
               <DropdownMenu.Root>
                 <DropdownMenu.Trigger asChild>
                   <button type="button" className="byjan-btn-ghost !h-9 !px-2.5" title="Columns">
@@ -1902,6 +1967,7 @@ export default function BookView() {
                   </DropdownMenu.Content>
                 </DropdownMenu.Portal>
               </DropdownMenu.Root>
+              )}
             </div>
           </div>
         )}
@@ -2253,6 +2319,7 @@ export default function BookView() {
                         {canWrite && (
                           <td className="px-3.5 py-2 text-right">
                             <div className="flex items-center justify-end gap-2 text-slate-400">
+                              {canFlag && (
                               <button
                                 type="button"
                                 onClick={() => void updateExpense(bookId!, exp.id, { flagged: !exp.flagged }).then(() => refreshExpenses())}
@@ -2261,13 +2328,16 @@ export default function BookView() {
                               >
                                 <Star className="w-4 h-4" fill={exp.flagged ? 'currentColor' : 'none'} />
                               </button>
+                              )}
+                              {canDuplicate && (
                               <button onClick={() => void duplicateExpense(exp)} disabled={bulkBusy === exp.id} className="p-1 hover:text-zinc-600 hover:bg-white/70 rounded transition-colors" title="Duplicate">
                                 {bulkBusy === exp.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CopyPlus className="w-4 h-4" />}
                               </button>
+                              )}
                               <button onClick={() => openEditExpense(exp)} className="p-1 hover:text-zinc-600 hover:bg-white/70 rounded transition-colors" title="Edit">
                                 <PenSquare className="w-4 h-4" />
                               </button>
-                              {peopleFromBook(book).length > 1 && String(exp.entryType || 'out') === 'out' ? (
+                              {canSplitEntry && peopleFromBook(book).length > 1 && String(exp.entryType || 'out') === 'out' ? (
                                 <button
                                   type="button"
                                   onClick={() => setSplitTarget({
@@ -2365,6 +2435,7 @@ export default function BookView() {
                             {openingReceiptId === exp.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Paperclip className="w-3.5 h-3.5" />}
                           </button>
                         )}
+                        {canFlag && (
                         <button
                           type="button"
                           onClick={() => void updateExpense(bookId!, exp.id, { flagged: !exp.flagged }).then(() => refreshExpenses())}
@@ -2373,13 +2444,16 @@ export default function BookView() {
                         >
                           <Star className="w-3.5 h-3.5" fill={exp.flagged ? 'currentColor' : 'none'} />
                         </button>
+                        )}
+                        {canDuplicate && (
                         <button type="button" onClick={() => void duplicateExpense(exp)} disabled={bulkBusy === exp.id} className="entry-card-action" title="Duplicate">
                           {bulkBusy === exp.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CopyPlus className="w-3.5 h-3.5" />}
                         </button>
+                        )}
                         <button type="button" onClick={() => openEditExpense(exp)} className="entry-card-action" title="Edit">
                           <PenSquare className="w-3.5 h-3.5" />
                         </button>
-                        {peopleFromBook(book).length > 1 && String(exp.entryType || 'out') === 'out' ? (
+                        {canSplitEntry && peopleFromBook(book).length > 1 && String(exp.entryType || 'out') === 'out' ? (
                           <button
                             type="button"
                             className={`entry-split-cta ${Array.isArray(exp.personSplits) && exp.personSplits.length ? 'is-done' : ''}`}
@@ -2453,11 +2527,15 @@ export default function BookView() {
                 <p className="text-xs text-slate-500 mt-1">Each inbound receipt shows its own path. It updates while Byjan works, then settles when the entry is saved.</p>
               </div>
               <div className="flex items-center gap-2">
+                {hasFeature('money_email_mailbox') && (
                 <code className="text-[11px] bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 max-w-[220px] truncate">{inboundAddress || bookInboundAddress(book)}</code>
+                )}
+                {hasFeature('money_email_mailbox') && (
                 <button type="button" className="byjan-btn-ghost !px-2.5 !py-1.5" onClick={() => void copyInboundAddress()}>
                   <Copy className="w-3.5 h-3.5" />
                   {copiedInbound ? 'Copied' : 'Copy'}
                 </button>
+                )}
                 <button type="button" className="byjan-btn-ghost !px-2.5 !py-1.5" onClick={() => void loadEmailActivity()} disabled={inboundEventsLoading}>
                   {inboundEventsLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Refresh'}
                 </button>
@@ -2564,7 +2642,7 @@ export default function BookView() {
             </div>
             )}
           </div>
-          {canManageUsers && (
+          {canBudget && (
             <div className="byjan-card p-5">
               <h3 className="font-semibold text-sm text-slate-900 mb-2">Monthly spend budget</h3>
               <p className="text-xs text-slate-500 mb-3">Compares money-out this calendar month against a target you set for this ledger.</p>
@@ -2687,7 +2765,7 @@ export default function BookView() {
                   type="text" required 
                   value={description} onChange={e=>setDescription(e.target.value)} 
                   className="byjan-input" 
-                  placeholder="e.g. Swiggy, rent, salary"
+                  placeholder={purposeFields.descriptionPlaceholder}
                 />
                 {editingExpense?.source === 'email' ? (
                   <p className="mt-1 text-[11px] text-slate-500">From inbound email — you can update this description anytime.</p>
@@ -2719,7 +2797,22 @@ export default function BookView() {
                 </div>
               )}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Category</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">{purposeFields.categoryLabel}</label>
+                {categoryOptions.length > 0 ? (
+                  <div className="purpose-cat-row" role="listbox" aria-label={purposeFields.categoryLabel}>
+                    {categoryOptions.slice(0, 10).map((cat) => (
+                      <button
+                        key={cat}
+                        type="button"
+                        className="purpose-cat-chip"
+                        data-on={category === cat}
+                        onClick={() => setCategory(cat)}
+                      >
+                        {cat}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
                 <Select value={category} onValueChange={setCategory}>
                   <SelectTrigger className="w-full mb-2 h-9 border-slate-300">
                     <SelectValue />
@@ -2727,9 +2820,9 @@ export default function BookView() {
                   <SelectContent>
                     {categoryOptions.map((cat) => (
                       <SelectItem key={cat} value={cat}>
-                        <span className="inline-flex items-center gap-2">
-                          <CategoryIconMark name={cat} />
-                          {cat}
+                        <span className="inline-flex min-w-0 items-center gap-2">
+                          <CategoryIconMark name={cat} className="!h-7 !w-7 shrink-0 rounded-lg" />
+                          <span className="truncate">{cat}</span>
                         </span>
                       </SelectItem>
                     ))}
@@ -2783,8 +2876,26 @@ export default function BookView() {
                   </button>
                 </div>
               </div>
+              {purposeFields.entities.length > 0 ? (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">{purposeFields.entityLabel}</label>
+                  <div className="purpose-cat-row">
+                    {purposeFields.entities.map((ent) => (
+                      <button
+                        key={ent}
+                        type="button"
+                        className="purpose-cat-chip"
+                        data-on={purposeEntityType === ent}
+                        onClick={() => setPurposeEntityType(ent)}
+                      >
+                        {ent}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               <div className="relative">
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Merchant / payee</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">{purposeFields.merchantLabel}</label>
                 <input
                   type="text"
                   value={merchant}
@@ -2792,7 +2903,7 @@ export default function BookView() {
                   onFocus={() => setMerchantFocus(true)}
                   onBlur={() => window.setTimeout(() => setMerchantFocus(false), 120)}
                   className="byjan-input"
-                  placeholder="Type a name — suggestions appear if it already exists"
+                  placeholder={purposeFields.merchantPlaceholder}
                   autoComplete="off"
                 />
                 {merchantFocus && merchantSuggestions.length > 0 && (
@@ -2812,12 +2923,12 @@ export default function BookView() {
                 )}
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Tags</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">{purposeFields.tagsLabel}</label>
                 <input type="text" value={tags} onChange={(e) => setTags(e.target.value)} className="byjan-input" placeholder="Comma-separated, e.g. trip, gst" />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">Notes</label>
-                <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="byjan-input min-h-[72px]" placeholder="Internal notes" />
+                <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="byjan-input min-h-[72px]" placeholder={purposeFields.notesPlaceholder} />
               </div>
               <div className="flex flex-wrap gap-4 text-sm text-slate-700">
                 <label className="inline-flex items-center gap-2">
@@ -2828,10 +2939,12 @@ export default function BookView() {
                   <input type="checkbox" checked={billable} onChange={(e) => setBillable(e.target.checked)} />
                   Billable to client
                 </label>
+                {canSplitEqual && (
                 <label className="inline-flex items-center gap-2">
                   <input type="checkbox" checked={splitWithTeam} onChange={(e) => setSplitWithTeam(e.target.checked)} />
                   Split equally with team
                 </label>
+                )}
               </div>
               <div className="pt-2 flex justify-end gap-2">
                 <Dialog.Close asChild>
@@ -3091,7 +3204,7 @@ export default function BookView() {
             count={successCount}
             onView={() => setSuccessExpense(null)}
             onSplit={
-              peopleFromBook(book).length > 1 && String(successExpense.entryType || 'out') === 'out'
+              canSplitEntry && peopleFromBook(book).length > 1 && String(successExpense.entryType || 'out') === 'out'
                 ? () => {
                     setSplitTarget({
                       id: String(successExpense.id),

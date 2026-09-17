@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Loader2, Plus, Zap } from 'lucide-react';
 import { createExpense, softDeleteExpense } from '../lib/expenses';
 import { CapacitorService } from '../lib/capacitor';
@@ -65,6 +65,10 @@ export default function LedgerTools({
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState(lastQuick.category || categories[0] || 'Uncategorized');
   const [merchant, setMerchant] = useState(lastQuick.merchant || '');
+  useEffect(() => {
+    if (!categories.length) return;
+    if (!categories.includes(category)) setCategory(categories[0]);
+  }, [categories, category]);
   const [method, setMethod] = useState(lastQuick.method || 'cash');
   const [when, setWhen] = useState(isoDay());
   const [line, setLine] = useState('');
@@ -282,6 +286,13 @@ export default function LedgerTools({
           <datalist id="ledger-descriptions">
             {descriptions.map((name) => <option key={name} value={name} />)}
           </datalist>
+          {categories.length > 0 ? (
+          <select value={category} onChange={(e) => setCategory(e.target.value)} className="byjan-filter !w-auto !h-11" aria-label="Category">
+            {categories.map((cat) => (
+              <option key={cat} value={cat}>{cat}</option>
+            ))}
+          </select>
+          ) : null}
           <select value={when === isoDay() ? 'today' : 'yesterday'} onChange={(e) => setWhen(e.target.value === 'today' ? isoDay() : isoDay(new Date(Date.now() - 86400000)))} className="byjan-filter !w-auto !h-9 hidden sm:block" aria-label="When">
             <option value="today">Today</option>
             <option value="yesterday">Yesterday</option>

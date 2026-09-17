@@ -1,14 +1,18 @@
-﻿import React, { useCallback, useEffect, useState } from 'react';
+﻿import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { createLedger, listLedgers } from '../lib/ledgers';
-import { listAllExpenses } from '../lib/expenses';
+import { createLedger, listLedgers, updateLedger } from '../lib/ledgers';
+import { CurrencyMark } from '../lib/currency-mark';
+import PullToRefresh from '../components/money/PullToRefresh';
+import UpcomingHomeStrip from '../components/UpcomingHomeStrip';
+import { detectRegularPayments, type RegularPayment } from '../lib/recurrence-engine';
+import { clearExpensesListCache, listAllExpenses } from '../lib/expenses';
 import { useBooksTenantMeta } from '../lib/tenant';
 import { getCurrencySymbol } from '../lib/currency';
-import { initials, readRecentLedgers, sparkDays } from '../lib/ledger-advanced';
+import { initials, sparkDays } from '../lib/ledger-advanced';
 import { formatIndianAmount, workspaceBridges } from '../lib/bridge-automations';
-import { Plus, Check, X, Users, ArrowUpRight, RefreshCw, Wallet, TrendingUp, Receipt, Shield, ChevronRight, IndianRupee, ScanLine, PenLine } from 'lucide-react';
+import { Plus, Check, X, Users, ArrowUpRight, RefreshCw, Wallet, TrendingUp, Receipt, Shield, ScanLine, PenLine, BookText, BarChart3, Split, ArrowLeftRight, Mic, LayoutGrid, List, Rows3, Pin, PinOff, MoreHorizontal } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 import { ListControls, usePagedList } from '../components/ListControls';
@@ -23,7 +27,6 @@ import { readUserJson, writeUserJson } from '../lib/user-cache';
 import PendingPayStrip from '../components/PendingPayStrip';
 import { CapacitorService } from '../lib/capacitor';
 import { CameraSource } from '@capacitor/camera';
-import BrandLogo from '../components/BrandLogo';
 import BookPickSheet from '../components/BookPickSheet';
 import FinancialInbox from '../components/FinancialInbox';
 import {
@@ -35,7 +38,6 @@ import {
 } from '../lib/purpose-templates';
 import { buildAttentionInbox } from '../lib/financial-memory';
 import { detectAnomalies, detectCommitments } from '../lib/money-intelligence';
-import { detectRegularPayments } from '../lib/recurrence-engine';
 
 interface BookItem {
   id: string;
@@ -45,7 +47,25 @@ interface BookItem {
   pinned?: boolean;
   archived?: boolean;
   accentHue?: number;
+  createdAt?: string;
   roles: Record<string, { role: string; email: string }>;
+}
+
+const BOOKS_VIEW_KEY = 'byjan_books_view';
+type BooksView = 'list' | 'grid' | 'compact';
+
+function sortBooks(a: BookItem, b: BookItem) {
+  return Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))
+    || Date.parse(String(b.createdAt || 0)) - Date.parse(String(a.createdAt || 0))
+    || a.name.localeCompare(b.name);
+}
+
+function readBooksView(): BooksView {
+  try {
+    const raw = String(localStorage.getItem(BOOKS_VIEW_KEY) || '');
+    if (raw === 'grid' || raw === 'compact' || raw === 'list') return raw;
+  } catch { /* ignore */ }
+  return 'list';
 }
 
 type BookStat = { net: number; monthOut: number; lastMonthOut: number; entries: number; spark: number[] };
@@ -53,7 +73,7 @@ type BookStat = { net: number; monthOut: number; lastMonthOut: number; entries: 
 type InviteItem = LedgerInvite;
 
 export default function Dashboard() {
-  const { currentUser, userProfile, isSuperUser } = useAuth();
+  const { currentUser, userProfile, isSuperUser, refreshUserProfile } = useAuth();
   const { on: hasFeature, anyOn: hasAnyFeature, canSeeMoney, tree: businessTree } = useFeatures();
   const { addToast } = useToast();
   const location = useLocation();
@@ -80,13 +100,25 @@ export default function Dashboard() {
   const [newCurrency, setNewCurrency] = useState('');
   const [creating, setCreating] = useState(false);
   const [newPurposeId, setNewPurposeId] = useState<PurposeId | null>(null);
+  const purposePickRef = useRef<PurposeId | null>(null);
   const [customPurposeLabel, setCustomPurposeLabel] = useState('');
   const [nameDetectDismissed, setNameDetectDismissed] = useState(false);
   const [attentionItems, setAttentionItems] = useState<ReturnType<typeof buildAttentionInbox>>([]);
+  const [recentEntries, setRecentEntries] = useState<Array<{
+    id: string;
+    bookId: string;
+    description: string;
+    amount: number;
+    entryType: string;
+    date: string;
+    merchant: string;
+  }>>([]);
   const [bookStats, setBookStats] = useState<Record<string, BookStat>>({});
+  const pendingBooksRef = useRef<BookItem[]>([]);
   const [showArchived, setShowArchived] = useState(false);
   const [bridges, setBridges] = useState<ReturnType<typeof workspaceBridges> | null>(null);
-  const recentIds = readRecentLedgers();
+  const [upcoming, setUpcoming] = useState<RegularPayment[]>([]);
+  const [booksView, setBooksView] = useState<BooksView>(readBooksView);
 
   const emptyStats = {
     totalIn: 0,
@@ -128,6 +160,9 @@ export default function Dashboard() {
         setBridges(null);
         setGlobalStats(emptyStats);
         setInvites([]);
+        setAttentionItems([]);
+        setRecentEntries([]);
+        setUpcoming([]);
         setStatsReady(true);
         setLoading(false);
         return;
@@ -147,12 +182,16 @@ export default function Dashboard() {
         pinned: Boolean(book.pinned),
         archived: Boolean(book.archived),
         accentHue: Number(book.accentHue || 0) || undefined,
+        createdAt: String(book.createdAt || ''),
         roles: (book.roles || {}) as BookItem['roles'],
-      })).sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || a.name.localeCompare(b.name));
-      setBooks(fetchedBooks);
+      })).sort(sortBooks);
+      const pending = pendingBooksRef.current.filter((book) => !fetchedBooks.some((row) => row.id === book.id));
+      pendingBooksRef.current = pending;
+      const nextBooks = [...pending, ...fetchedBooks];
+      setBooks(nextBooks);
       setInvites(inviteRows);
       setLoading(false);
-      cacheMoneyBooks(fetchedBooks.map((b) => ({ id: b.id, name: b.name, currency: b.currency })));
+      cacheMoneyBooks(nextBooks.map((b) => ({ id: b.id, name: b.name, currency: b.currency })));
 
       try {
       let tIn = 0; let tOut = 0; let monthIn = 0; let monthOut = 0; let reimbursable = 0; let uncategorized = 0;
@@ -162,7 +201,7 @@ export default function Dashboard() {
       const lastKey = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1).toISOString().slice(0, 7);
       const byBook: Record<string, Array<Record<string, unknown>>> = {};
       const expenses = Array.isArray(allExp.expenses) ? allExp.expenses : [];
-      if (fetchedBooks.length) {
+      if (nextBooks.length) {
         expenses.forEach((data) => {
           const amount = Number(data.amount || 0);
           const isIn = data.entryType === 'in' || data.type === 'in';
@@ -212,7 +251,7 @@ export default function Dashboard() {
           at: Date.now(),
           globalStats: nextGlobal,
           bookStats: nextBookStats,
-          books: fetchedBooks,
+          books: nextBooks,
         });
 
         const drafts = expenses.filter((e) => String(e.status || '').toLowerCase() === 'draft' || String(e.financialStatus || '') === 'DRAFT');
@@ -231,7 +270,10 @@ export default function Dashboard() {
           category: String(e.category || ''),
           entryType: String(e.entryType || 'out'),
           paymentMethod: String(e.paymentMethod || ''),
-        }))).filter((p) => p.band !== 'NOT_RECURRING').slice(0, 4);
+          bookId: String(e.bookId || ''),
+          bookName: String(e.bookName || nextBooks.find((b) => b.id === String(e.bookId || ''))?.name || ''),
+        }))).filter((p) => p.band !== 'NOT_RECURRING' && p.status !== 'ignored');
+        setUpcoming([...recurring].sort((a, b) => Date.parse(a.nextExpected) - Date.parse(b.nextExpected)).slice(0, 8));
         setAttentionItems(buildAttentionInbox({
           drafts: drafts as any,
           uncategorized: uncategorizedRows as any,
@@ -248,11 +290,26 @@ export default function Dashboard() {
             amount: c.amount,
           })),
         }));
+        const recents = [...expenses]
+          .sort((a, b) => Date.parse(String(b.createdAt || b.date || '')) - Date.parse(String(a.createdAt || a.date || '')))
+          .slice(0, 3)
+          .map((e) => ({
+            id: String(e.id || ''),
+            bookId: String(e.bookId || ''),
+            description: String(e.description || e.merchant || 'Entry').replace(/\s+/g, ' ').trim().slice(0, 48),
+            amount: Number(e.amount || 0),
+            entryType: String(e.entryType || 'out'),
+            date: String(e.date || ''),
+            merchant: String(e.merchant || ''),
+          }));
+        setRecentEntries(recents);
       } else {
         setBookStats({});
         setBridges(null);
         setGlobalStats({ totalIn: 0, totalOut: 0, monthIn: 0, monthOut: 0, reimbursable: 0, entries: 0, uncategorized: 0, userActivity: {} });
         setAttentionItems([]);
+        setRecentEntries([]);
+        setUpcoming([]);
       }
       } catch (err) {
         console.error('Ledger extras error:', err);
@@ -283,12 +340,53 @@ export default function Dashboard() {
     }
   }, [userProfile?.defaultCurrency, newCurrency]);
 
+  const paintCreatedBook = (created: { id?: string; name?: string; ownerId?: string; currency?: string; createdAt?: string; roles?: Record<string, { role?: string; email?: string }> }, fallbackName: string) => {
+    if (!currentUser) return;
+    const item: BookItem = {
+      id: String(created.id || ''),
+      name: String(created.name || fallbackName || 'Money book'),
+      ownerId: String(created.ownerId || currentUser.uid),
+      currency: String(created.currency || newCurrency || userProfile?.defaultCurrency || 'INR'),
+      pinned: false,
+      archived: false,
+      createdAt: String(created.createdAt || new Date().toISOString()),
+      roles: (created.roles || {
+        [currentUser.uid]: { role: 'owner', email: String(currentUser.email || '') },
+      }) as BookItem['roles'],
+    };
+    if (!item.id) return;
+    pendingBooksRef.current = [item, ...pendingBooksRef.current.filter((book) => book.id !== item.id)];
+    setBooks((curr) => {
+      const next = [item, ...curr.filter((book) => book.id !== item.id)].sort(sortBooks);
+      cacheMoneyBooks(next.map((b) => ({ id: b.id, name: b.name, currency: b.currency })));
+      writeUserJson(currentUser.uid, 'dash_stats', {
+        at: Date.now(),
+        globalStats,
+        bookStats,
+        books: next,
+      });
+      return next;
+    });
+    rememberMoneyBook(item.id);
+    setLoading(false);
+    setStatsReady(true);
+    navigate(`/book/${item.id}`);
+  };
+
   const handleCreateBook = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentUser || !userProfile || !newBookName.trim()) return;
+    const form = e.currentTarget as HTMLFormElement;
+    const typedName = (newBookName.trim() || String((form.querySelector('input[type="text"]') as HTMLInputElement | null)?.value || '')).trim();
+    if (!currentUser || !userProfile || !typedName) {
+      if (!typedName) addToast('Enter a book name first', 'error');
+      return;
+    }
+    const selectedLabel = String(form.querySelector('.purpose-chip[data-on="true"] .purpose-chip-label')?.textContent || '').trim();
+    const fromChip = (RECOMMENDED_PURPOSES.find((row) => row.label === selectedLabel)?.id
+      || (selectedLabel === 'Other' ? 'other' : undefined)) as PurposeId | undefined;
     setCreating(true);
     try {
-      const purposeId = (newPurposeId || 'default') as PurposeId;
+      const purposeId = (newPurposeId || purposePickRef.current || fromChip || detectPurposeFromName(typedName)?.purposeId || 'default') as PurposeId;
       const tpl = getPurposeTemplate(purposeId);
       let categories = [...tpl.categories];
       let quickActions = [...tpl.quickActions];
@@ -308,12 +406,13 @@ export default function Dashboard() {
       } else if (purposeId !== 'default') {
         purposeConfig = {
           purposeId,
+          entities: tpl.entities || [],
           confirmedAt: new Date().toISOString(),
         };
       }
 
-      await createLedger({
-        name: newBookName.trim(),
+      const created = await createLedger({
+        name: typedName,
         currency: newCurrency || userProfile.defaultCurrency || 'INR',
         purposeId,
         purposeLabel,
@@ -321,12 +420,16 @@ export default function Dashboard() {
         quickActions,
         purposeConfig,
       });
+      paintCreatedBook(created, typedName);
       setNewBookName('');
       setNewPurposeId(null);
+      purposePickRef.current = null;
       setCustomPurposeLabel('');
       setNameDetectDismissed(false);
       setShowNewBook(false);
       addToast(purposeId === 'default' ? 'Money book created' : `${purposeLabel} book ready`, 'success');
+      clearStoreCache();
+      clearExpensesListCache();
       void fetchData({ silent: true });
     } catch (err) {
       console.error('Fetch API error:', err);
@@ -345,7 +448,7 @@ export default function Dashboard() {
     setCreating(true);
     try {
       const tpl = getPurposeTemplate('default');
-      await createLedger({
+      const created = await createLedger({
         name: newBookName.trim(),
         currency: newCurrency || userProfile.defaultCurrency || 'INR',
         purposeId: 'default',
@@ -353,12 +456,16 @@ export default function Dashboard() {
         categories: tpl.categories,
         quickActions: tpl.quickActions,
       });
+      paintCreatedBook(created, newBookName.trim());
       setNewBookName('');
       setNewPurposeId(null);
+      purposePickRef.current = null;
       setCustomPurposeLabel('');
       setNameDetectDismissed(false);
       setShowNewBook(false);
       addToast('Basic book created', 'success');
+      clearStoreCache();
+      clearExpensesListCache();
       void fetchData({ silent: true });
     } catch (err) {
       addToast(err instanceof Error ? err.message : 'Could not create money book', 'error');
@@ -515,9 +622,9 @@ export default function Dashboard() {
   ), []);
   const visibleBooks = books.filter((book) => showArchived || !book.archived);
   const bookList = usePagedList(visibleBooks, filterBook, 12);
-  const recentBooks = recentIds.map((id) => books.find((book) => book.id === id)).filter(Boolean) as BookItem[];
 
-  const currency = getCurrencySymbol(books[0]?.currency || userProfile?.defaultCurrency || 'INR');
+  const currencyCode = userProfile?.defaultCurrency || books[0]?.currency || 'INR';
+  const currency = getCurrencySymbol(currencyCode);
   const net = globalStats.totalIn - globalStats.totalOut;
   const hour = new Date().getHours();
   const hello = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
@@ -636,6 +743,23 @@ export default function Dashboard() {
     ? 'Pick a money book for this shared receipt'
     : 'Pick a money book to continue';
 
+  const changeBooksView = (next: BooksView) => {
+    setBooksView(next);
+    try { localStorage.setItem(BOOKS_VIEW_KEY, next); } catch { /* ignore */ }
+  };
+
+  const toggleBookPin = async (book: BookItem, event?: React.MouseEvent) => {
+    event?.preventDefault();
+    event?.stopPropagation();
+    const pinned = !book.pinned;
+    try {
+      await updateLedger(book.id, { pinned });
+      setBooks((curr) => curr.map((row) => (row.id === book.id ? { ...row, pinned } : row)).sort(sortBooks));
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : 'Could not update pin', 'error');
+    }
+  };
+
   const peopleCount = (book: BookItem) => Math.max(Object.keys(book.roles || {}).length, book.ownerId ? 1 : 0);
 
   const renderLedgerCard = (book: BookItem) => {
@@ -647,8 +771,10 @@ export default function Dashboard() {
     const canManage = role === 'owner' || role === 'admin';
     const netVal = stat ? Math.abs(stat.net) : 0;
     const netNeg = Boolean(stat && stat.net < 0);
+    const canAddHere = ['owner', 'admin', 'contributor'].includes(role) && hasFeature('money_add');
+    const canScanHere = ['owner', 'admin', 'contributor'].includes(role) && hasFeature('money_scan');
     return (
-      <article key={book.id} className="md3-book">
+      <article key={book.id} className={`md3-book is-${booksView}${book.pinned ? ' is-pinned' : ''}`}>
         <Link to={`/book/${book.id}`} className="md3-book-main">
           <span className="md3-book-icon" aria-hidden>
             <span className="md3-book-icon-face">{initials(book.name)}</span>
@@ -668,28 +794,46 @@ export default function Dashboard() {
           {canSeeMoney ? (
             <>
               <p className={`byjan-money md3-book-amt ${netNeg ? 'is-out' : 'is-in'}`}>
+                <CurrencyMark code={book.currency} size="sm" className="md3-book-ccy" />
                 {stat ? `${netNeg ? '−' : ''}${symbol}${netVal.toLocaleString()}` : '·'}
               </p>
-              {canManage ? (
-                <button type="button" className="dash-people-btn" onClick={(event) => openPeople(book.id, event)}>
-                  <Users className="w-3.5 h-3.5" /> People
-                </button>
-              ) : stat ? (
+              {stat && booksView === 'list' ? (
                 <svg className="byjan-spark" viewBox="0 0 64 18" aria-hidden>
                   <polyline
                     fill="rgba(30,45,120,0.06)"
-                    stroke="#12B8A8"
+                    stroke="#0f172a"
                     strokeWidth="1.5"
                     points={`0,18 ${stat.spark.map((v, i) => `${(i / Math.max(stat.spark.length - 1, 1)) * 64},${17 - (v / maxSpark) * 14}`).join(' ')} 64,18`}
                   />
                 </svg>
               ) : null}
             </>
-          ) : canManage ? (
-            <button type="button" className="dash-people-btn" onClick={(event) => openPeople(book.id, event)}>
-              <Users className="w-3.5 h-3.5" /> People
-            </button>
           ) : null}
+        </div>
+        <div className="md3-book-actions" role="group" aria-label={`${book.name} actions`}>
+          {canAddHere && (
+            <button type="button" title="Add entry" onClick={(event) => { event.preventDefault(); event.stopPropagation(); addHomeEntry(book.id); }}>
+              <PenLine className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {canScanHere && (
+            <button type="button" title="Scan receipt" onClick={(event) => { event.preventDefault(); event.stopPropagation(); void scanHomeReceipt(book.id); }}>
+              <ScanLine className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {canManage && hasFeature('money_people') && (
+            <button type="button" title="People" onClick={(event) => openPeople(book.id, event)}>
+              <Users className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {hasFeature('money_pin') && (
+            <button type="button" title={book.pinned ? 'Unpin' : 'Pin'} onClick={(event) => { void toggleBookPin(book, event); }}>
+              {book.pinned ? <Pin className="w-3.5 h-3.5" /> : <PinOff className="w-3.5 h-3.5" />}
+            </button>
+          )}
+          <Link to={`/book/${book.id}`} title="Open book" className="md3-book-open">
+            <MoreHorizontal className="w-3.5 h-3.5" />
+          </Link>
         </div>
       </article>
     );
@@ -701,6 +845,7 @@ export default function Dashboard() {
         setShowNewBook(next);
         if (!next) {
           setNewPurposeId(null);
+          purposePickRef.current = null;
           setCustomPurposeLabel('');
           setNameDetectDismissed(false);
         }
@@ -708,22 +853,28 @@ export default function Dashboard() {
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 z-[90]" />
           <Dialog.Content
-            className="fixed left-[50%] top-[50%] z-[100] grid w-[calc(100%-1.5rem)] max-w-md max-h-[min(92vh,720px)] overflow-y-auto translate-x-[-50%] translate-y-[-50%] gap-4 p-5 rounded-[22px] bg-white border border-slate-200 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)]"
+            className="record-sheet book-create-sheet fixed z-[100] grid gap-4 p-5 overflow-y-auto bg-white border border-slate-200 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)]"
             onCloseAutoFocus={(event) => event.preventDefault()}
           >
+            <div className="record-sheet-handle md:hidden" aria-hidden />
             <div className="flex items-center justify-between">
               <Dialog.Title className="text-lg font-bold text-slate-900">New money book</Dialog.Title>
               <Dialog.Close className="text-slate-400 hover:text-slate-700 rounded-md p-1"><X className="w-4 h-4"/></Dialog.Close>
             </div>
-            <form onSubmit={handleCreateBook} className="space-y-4">
+            <form onSubmit={handleCreateBook} className="book-create-form">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Name</label>
                 <input
-                  type="text" required autoFocus
+                  type="text" required autoFocus name="bookName" autoComplete="off"
                   value={newBookName}
                   onChange={(e) => {
-                    setNewBookName(e.target.value);
+                    const value = e.target.value;
+                    setNewBookName(value);
                     setNameDetectDismissed(false);
+                    const detected = detectPurposeFromName(value);
+                    if (detected && detected.confidence !== 'low') {
+                      purposePickRef.current = detected.purposeId;
+                    }
                   }}
                   className="byjan-input"
                   placeholder="e.g. Goa Trip 2026, Home, Wedding"
@@ -738,20 +889,24 @@ export default function Dashboard() {
                   <button
                     type="button"
                     className="byjan-btn !h-8 text-xs"
-                    onClick={() => setNewPurposeId(nameDetection.purposeId)}
+                    onClick={() => {
+                      purposePickRef.current = nameDetection.purposeId;
+                      setNewPurposeId(nameDetection.purposeId);
+                    }}
                   >
                     Use {getPurposeTemplate(nameDetection.purposeId).label}
                   </button>
                   <button
                     type="button"
                     className="byjan-btn-ghost !h-8 text-xs"
-                    onClick={() => { setNewPurposeId('default'); setNameDetectDismissed(true); }}
+                    onClick={() => { setNewPurposeId('default'); purposePickRef.current = 'default'; setNameDetectDismissed(true); }}
                   >
                     Keep basic
                   </button>
                 </div>
               ) : null}
 
+              {hasFeature('money_purpose') ? (
               <div>
                 <div className="flex items-baseline justify-between gap-2 mb-2">
                   <label className="block text-sm font-medium text-slate-700">What are you managing?</label>
@@ -764,12 +919,27 @@ export default function Dashboard() {
                       type="button"
                       className="purpose-chip"
                       data-on={newPurposeId === p.id}
-                      onClick={() => setNewPurposeId(p.id)}
+                    onClick={() => {
+                      purposePickRef.current = p.id;
+                      setNewPurposeId(p.id);
+                    }}
                     >
                       <span className="purpose-chip-label">{p.label}</span>
                       <span className="purpose-chip-blurb">{p.blurb}</span>
                     </button>
                   ))}
+                  <button
+                    type="button"
+                    className="purpose-chip"
+                    data-on={newPurposeId === 'other'}
+                    onClick={() => {
+                      purposePickRef.current = 'other';
+                      setNewPurposeId('other');
+                    }}
+                  >
+                    <span className="purpose-chip-label">Other</span>
+                    <span className="purpose-chip-blurb">Custom categories</span>
+                  </button>
                 </div>
                 {newPurposeId === 'other' ? (
                   <input
@@ -781,17 +951,22 @@ export default function Dashboard() {
                   />
                 ) : null}
                 {newPurposeId && newPurposeId !== 'default' ? (
-                  <p className="mt-2 text-[11px] text-slate-500">
-                    Starts with {getPurposeTemplate(newPurposeId).categories.slice(0, 4).join(', ')}
-                    {getPurposeTemplate(newPurposeId).categories.length > 4 ? '…' : ''}
-                  </p>
+                  <div className="purpose-preview">
+                    {(newPurposeId === 'other' && customPurposeLabel.trim()
+                      ? suggestCustomPurposeConfig(customPurposeLabel.trim()).categories
+                      : getPurposeTemplate(newPurposeId).categories
+                    ).slice(0, 8).map((cat) => (
+                      <span key={cat} className="purpose-preview-chip">{cat}</span>
+                    ))}
+                  </div>
                 ) : null}
               </div>
+              ) : null}
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Currency</label>
                 <Select value={newCurrency} onValueChange={setNewCurrency}>
-                  <SelectTrigger className="w-full border-slate-300">
+                  <SelectTrigger className="w-full border-slate-300 h-11">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -802,25 +977,23 @@ export default function Dashboard() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex flex-col gap-2 pt-1">
-                <div className="flex justify-end gap-2">
-                  <Dialog.Close asChild>
-                    <button type="button" className="byjan-btn-ghost">Cancel</button>
-                  </Dialog.Close>
-                  <button type="submit" disabled={creating || !newBookName.trim()} className="byjan-btn">
-                    {creating && <span className="app-loader-ring app-loader-ring-sm" />}
-                    {newPurposeId && newPurposeId !== 'default' ? 'Create book' : 'Create book'}
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  disabled={creating || !newBookName.trim()}
-                  className="text-center text-[12px] font-semibold text-slate-500 hover:text-[#12B8A8] py-1"
-                  onClick={() => void createBasicBook()}
-                >
-                  Skip → Create basic book
+              <div className="book-create-actions">
+                <Dialog.Close asChild>
+                  <button type="button" className="byjan-btn-ghost">Cancel</button>
+                </Dialog.Close>
+                <button type="submit" disabled={creating} className="byjan-btn" data-selected-purpose={newPurposeId || purposePickRef.current || 'default'}>
+                  {creating && <span className="app-loader-ring app-loader-ring-sm" />}
+                  Create book
                 </button>
               </div>
+              <button
+                type="button"
+                disabled={creating || !newBookName.trim()}
+                className="text-center text-[12px] font-semibold text-slate-500 hover:text-[#12B8A8] py-1"
+                onClick={() => void createBasicBook()}
+              >
+                Skip → Create basic book
+              </button>
             </form>
           </Dialog.Content>
         </Dialog.Portal>
@@ -854,159 +1027,140 @@ export default function Dashboard() {
 
   if (!expensesOnly) {
     return (
-      <div className="home-shell ios-page">
+      <PullToRefresh onRefresh={async () => { await refreshUserProfile(); await fetchData({ silent: true }); }} className="home-shell ios-page">
         {createDialog}
-        <section className="home-stage">
-          <div className="home-stage-glow" aria-hidden />
-          <div className="home-stage-grid" aria-hidden />
-          <div className="home-brand-row">
-            <div className="home-brand-mark">
-              <BrandLogo size="sm" />
-              <p className="home-brand">Byjan</p>
-            </div>
-            {isSuperUser && (
-              <Link to="/access" className="home-super">
-                <Shield className="w-3.5 h-3.5" /> Access
-              </Link>
-            )}
-          </div>
-          <p className="home-hello">{hello}, {firstName}</p>
+        <section className="home-hero">
+          <p className="home-greet">{hello}</p>
+          <h1 className="home-name">{firstName}</h1>
           {!hasAnyFeature ? (
-            <p className="home-lead">Your admin has not turned on Money or Business yet.</p>
+            <p className="home-lead-light">Your admin has not turned on Money or Business yet.</p>
           ) : canSeeMoney ? (
             <>
-              <div className="home-balance-block">
-                <p className="home-balance-label">Across your books</p>
-                <p className="home-balance byjan-money">
+              <div className="home-amount-row">
+                <CurrencyMark code={currencyCode} size="lg" />
+                <p className="home-amount byjan-money">
                   {loading || !statsReady
                     ? <span className="dash-skel home-skel-balance" aria-hidden />
                     : formatIndianAmount(net, currency)}
                 </p>
-                <div className="home-balance-meta">
-                  <span>{loading || !statsReady ? 'Updating' : `${visibleBooks.length} books`}</span>
-                  <span>{loading || !statsReady ? '…' : `${globalStats.entries} entries`}</span>
-                </div>
               </div>
-              <div className="home-flow" aria-label="Money in and out">
-                <span className="home-flow-chip is-in">
-                  Money in <b>{!statsReady ? '…' : formatIndianAmount(globalStats.totalIn, currency)}</b>
-                </span>
-                <span className="home-flow-chip is-out">
-                  Money out <b>{!statsReady ? '…' : formatIndianAmount(globalStats.totalOut, currency)}</b>
-                </span>
-              </div>
+              <p className="home-amount-sub">
+                {loading || !statsReady
+                  ? 'Updating'
+                  : `${visibleBooks.length} books · ${globalStats.entries} entries`}
+              </p>
             </>
           ) : (
-            <p className="home-lead">Open Business when you need invoices and GST.</p>
+            <p className="home-lead-light">Open Business when you need invoices and GST.</p>
+          )}
+          {isSuperUser && (
+            <Link to="/access" className="home-access-link">
+              <Shield className="w-3.5 h-3.5" /> Access
+            </Link>
           )}
         </section>
 
-        {hasFeature('money') && statsReady ? (
-          <section className="home-zone home-zone-enter" style={{ animationDelay: '20ms' }} aria-label="Attention">
-            <FinancialInbox items={attentionItems} />
-          </section>
-        ) : null}
+        {hasFeature('money') && hasFeature('money_recurring') ? <UpcomingHomeStrip items={upcoming} currencyCode={currencyCode} /> : null}
+
+        {hasFeature('money') && hasFeature('money_inbox') && statsReady ? <FinancialInbox items={attentionItems} /> : null}
 
         {hasFeature('money') && (
-          <section className="home-zone home-zone-enter" style={{ animationDelay: '40ms' }} aria-label="Quick actions">
-            <div className="home-zone-head">
-              <h2>Quick actions</h2>
-              <Link to="/expenses">All books</Link>
-            </div>
-            <div className="home-action-grid">
-              <Link to="/expenses" className="home-action-tile tone-money">
-                <span className="home-action-orb" aria-hidden><IndianRupee className="w-5 h-5" /></span>
-                <span className="home-action-copy">
-                  <strong>Money books</strong>
-                  <em>Open library</em>
-                </span>
+          <section className="home-pills" aria-label="Quick actions">
+            {hasFeature('money_add') && (
+              <button type="button" className="home-pill" onClick={() => { void CapacitorService.hapticTick(); requestQuick('add'); }}>
+                <Plus className="w-4 h-4" strokeWidth={2.4} />
+                Add
+              </button>
+            )}
+            {hasFeature('money_scan') && (
+              <button type="button" className="home-pill" onClick={() => { void CapacitorService.hapticTick(); requestQuick('scan'); }}>
+                <ScanLine className="w-4 h-4" strokeWidth={2.4} />
+                Scan
+              </button>
+            )}
+            {hasFeature('money_voice') && (
+              <button type="button" className="home-pill" onClick={() => { void CapacitorService.hapticTick(); requestQuick('voice'); }}>
+                <Mic className="w-4 h-4" strokeWidth={2.4} />
+                Voice
+              </button>
+            )}
+            {hasFeature('money_create_book') && (
+            <button type="button" className="home-pill" onClick={() => setShowNewBook(true)}>
+              <BookText className="w-4 h-4" strokeWidth={2.4} />
+              New book
+            </button>
+            )}
+          </section>
+        )}
+
+        {hasFeature('money') && (
+          <section className="home-qa" aria-label="Quick access">
+            <h2 className="home-section-label">Quick access</h2>
+            <div className="home-qa-row">
+              <Link to="/expenses" className="home-qa-tile">
+                <span className="home-qa-icon" aria-hidden><BookText className="w-5 h-5" /></span>
+                Books
               </Link>
-              {hasFeature('money_scan') && (
-              <button type="button" className="home-action-tile tone-scan" onClick={() => { void CapacitorService.hapticTick(); requestQuick('scan'); }}>
-                <span className="home-action-orb" aria-hidden><ScanLine className="w-5 h-5" /></span>
-                <span className="home-action-copy">
-                  <strong>Scan</strong>
-                  <em>Receipt capture</em>
-                </span>
-              </button>
+              {hasFeature('money_reports') && (
+              <Link to="/reports" className="home-qa-tile">
+                <span className="home-qa-icon" aria-hidden><BarChart3 className="w-5 h-5" /></span>
+                Reports
+              </Link>
               )}
-              {hasFeature('money_add') && (
-              <button type="button" className="home-action-tile tone-add" onClick={() => { void CapacitorService.hapticTick(); requestQuick('add'); }}>
-                <span className="home-action-orb" aria-hidden><PenLine className="w-5 h-5" /></span>
-                <span className="home-action-copy">
-                  <strong>Add entry</strong>
-                  <em>Choose a book</em>
-                </span>
-              </button>
+              {hasFeature('money_split') && (
+                <Link to="/expenses" className="home-qa-tile">
+                  <span className="home-qa-icon" aria-hidden><Split className="w-5 h-5" /></span>
+                  Split
+                </Link>
               )}
-              <button type="button" className="home-action-tile tone-new" onClick={() => setShowNewBook(true)}>
-                <span className="home-action-orb" aria-hidden><Plus className="w-5 h-5" /></span>
-                <span className="home-action-copy">
-                  <strong>New book</strong>
-                  <em>Start a ledger</em>
-                </span>
-              </button>
+              {hasFeature('money_recurring') && (
+                <Link to="/regular-payments" className="home-qa-tile">
+                  <span className="home-qa-icon" aria-hidden><ArrowLeftRight className="w-5 h-5" /></span>
+                  Recurring
+                </Link>
+              )}
+              {hasFeature('money_activity') && (
+              <Link to="/activity" className="home-qa-tile">
+                <span className="home-qa-icon" aria-hidden><Wallet className="w-5 h-5" /></span>
+                Activity
+              </Link>
+              )}
             </div>
           </section>
         )}
 
         {hasFeature('money') && hasFeature('money_settle') && uid ? <PendingPayStrip uid={uid} /> : null}
 
-        {hasFeature('money') && (loading || visibleBooks.length > 0) && (
-          <section className="home-zone home-continue home-zone-enter" style={{ animationDelay: '90ms' }} aria-label="Your books">
-            <div className="home-zone-head home-continue-head">
-              <h2>Your books</h2>
-              <Link to="/expenses">See all</Link>
+        {hasFeature('money') && (loading || recentEntries.length > 0) && (
+          <section className="home-recent" aria-label="Recent transactions">
+            <div className="home-zone-head">
+              <h2>Recent</h2>
+              {hasFeature('money_activity') ? <Link to="/activity">See all</Link> : <span />}
             </div>
-            {loading && visibleBooks.length === 0 ? (
-              <div className="home-continue-list" aria-busy="true" aria-label="Loading books">
-                {[0, 1, 2].map((row) => (
-                  <div key={row} className="home-skel-card">
-                    <span className="dash-skel home-skel-icon" />
-                    <span className="home-skel-lines">
-                      <span className="dash-skel" style={{ width: '42%', height: 12 }} />
-                      <span className="dash-skel" style={{ width: '28%', height: 10 }} />
-                    </span>
-                    <span className="dash-skel" style={{ width: 52, height: 14, borderRadius: 6 }} />
-                  </div>
-                ))}
+            {loading && recentEntries.length === 0 ? (
+              <div className="home-recent-card" aria-busy="true">
+                <span className="dash-skel" style={{ width: '38%', height: 22 }} />
+                <span className="dash-skel" style={{ width: '52%', height: 12 }} />
               </div>
             ) : (
-            <div className="home-continue-list">
-              {(recentBooks.length ? recentBooks : visibleBooks).slice(0, 4).map((book, i) => {
-                const stat = bookStats[book.id];
-                const symbol = getCurrencySymbol(book.currency);
-                const netNeg = Boolean(stat && stat.net < 0);
+              recentEntries.map((row) => {
+                const isOut = row.entryType !== 'in' && row.entryType !== 'transfer';
+                const book = books.find((b) => b.id === row.bookId);
                 return (
-                  <Link
-                    key={book.id}
-                    to={`/book/${book.id}`}
-                    className="home-continue-card"
-                    style={{ animationDelay: `${120 + i * 55}ms` }}
-                  >
-                    <span className="home-continue-icon" aria-hidden>
-                      <span>{initials(book.name)}</span>
-                    </span>
+                  <Link key={row.id} to={row.bookId ? `/book/${row.bookId}` : '/expenses'} className="home-recent-card">
                     <span className="min-w-0 flex-1">
-                      <span className="home-continue-name">{book.name}</span>
-                      <span className="home-continue-meta">
-                        {roleLabel(myRoleOn(book))}
-                        {stat ? ` · ${stat.entries} entries` : ''}
+                      <span className={`home-recent-amt byjan-money ${isOut ? 'is-out' : 'is-in'}`}>
+                        {isOut ? '−' : '+'}{formatIndianAmount(Math.abs(row.amount), currency).replace(/^−/, '')}
+                      </span>
+                      <span className="home-recent-meta">
+                        {row.description || 'Entry'}
+                        {book ? ` · ${book.name}` : ''}
                       </span>
                     </span>
-                    {canSeeMoney && (loading || !statsReady) && !stat ? (
-                      <span className="dash-skel" style={{ width: 52, height: 14, borderRadius: 6 }} aria-hidden />
-                    ) : canSeeMoney && stat ? (
-                      <span className={`byjan-money home-continue-amt ${netNeg ? 'is-out' : 'is-in'}`}>
-                        {netNeg ? '−' : ''}{symbol}{Math.abs(stat.net).toLocaleString()}
-                      </span>
-                    ) : (
-                      <ChevronRight className="w-4 h-4 text-slate-300" />
-                    )}
+                    <span className="home-recent-avatar" aria-hidden>{initials(book?.name || row.merchant || 'B')}</span>
                   </Link>
                 );
-              })}
-            </div>
+              })
             )}
           </section>
         )}
@@ -1014,16 +1168,16 @@ export default function Dashboard() {
         {inviteBlock}
 
         {hasFeature('business') && businessTree.length > 0 && (
-          <section className="home-zone home-continue home-zone-enter" style={{ animationDelay: '140ms' }} aria-label="Business">
-            <div className="home-zone-head home-continue-head">
-              <h2 title={tenant?.name ? `Business · ${tenant.name}` : 'Business'}>Business</h2>
+          <section className="home-qa" aria-label="Business">
+            <div className="home-zone-head">
+              <h2 className="home-section-label" title={tenant?.name ? `Business · ${tenant.name}` : 'Business'}>Business</h2>
               <Link to="/books">Open</Link>
             </div>
-            <div className="home-biz-row">
+            <div className="home-qa-row">
               {businessTree.filter((branch) => branch.id !== 'dashboard').slice(0, 4).map((branch) => (
-                <Link key={branch.id} to={branch.href} className="home-biz-chip" title={branch.blurb}>
-                  <FeatureIcon href={branch.href} className="w-4 h-4" />
-                  <span>{branch.name}</span>
+                <Link key={branch.id} to={branch.href} className="home-qa-tile" title={branch.blurb}>
+                  <span className="home-qa-icon" aria-hidden><FeatureIcon href={branch.href} className="w-5 h-5" /></span>
+                  {branch.name}
                 </Link>
               ))}
             </div>
@@ -1077,18 +1231,19 @@ export default function Dashboard() {
             }
           }}
         />
-      </div>
+      </PullToRefresh>
     );
   }
 
   return (
-    <div className="dash-shell ios-page">
+    <PullToRefresh onRefresh={async () => { await refreshUserProfile(); await fetchData({ silent: true }); }} className="dash-shell ios-page">
       {createDialog}
       <section className="dash-hero dash-hero-money dash-hero-compact">
         <div className="dash-hero-compact-row">
           <div className="min-w-0">
             <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/45">Money books</p>
-            <p className="dash-hero-balance byjan-money !mt-1">
+            <p className="dash-hero-balance byjan-money !mt-1 inline-flex items-center gap-2">
+              <CurrencyMark code={currencyCode} size="sm" />
               {loading || !statsReady ? <span className="dash-skel dash-skel-money" /> : formatIndianAmount(net, currency)}
             </p>
           </div>
@@ -1164,6 +1319,17 @@ export default function Dashboard() {
               <p className="md3-sub">{visibleBooks.length} open · tap to open expenses</p>
             </div>
             <div className="flex items-center gap-2">
+              <div className="books-view-toggle" role="group" aria-label="Book list view">
+                <button type="button" data-on={booksView === 'list'} onClick={() => changeBooksView('list')} title="List view">
+                  <List className="w-3.5 h-3.5" />
+                </button>
+                <button type="button" data-on={booksView === 'compact'} onClick={() => changeBooksView('compact')} title="Compact view">
+                  <Rows3 className="w-3.5 h-3.5" />
+                </button>
+                <button type="button" data-on={booksView === 'grid'} onClick={() => changeBooksView('grid')} title="Grid view">
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                </button>
+              </div>
               {books.some((book) => book.archived) && (
                 <button type="button" className="byjan-chip" data-on={showArchived} onClick={() => setShowArchived((v) => !v)}>Archived</button>
               )}
@@ -1192,7 +1358,7 @@ export default function Dashboard() {
             </div>
           ) : books.length === 0 ? (
             <div className="dash-empty">
-              <span className="md3-empty-icon"><IndianRupee className="w-6 h-6" /></span>
+              <span className="md3-empty-icon"><CurrencyMark code={currencyCode} size="lg" /></span>
               <h3 className="text-[15px] font-semibold text-[#0B0F1F]">No money books yet</h3>
               <p className="ios-caption mt-1">A money book is a shared list of money in and money out. Create one, then add your first record.</p>
               <button type="button" onClick={() => setShowNewBook(true)} className="byjan-btn mt-4">
@@ -1212,7 +1378,7 @@ export default function Dashboard() {
                 total={bookList.filtered.length}
                 placeholder="Search money books"
               />
-              <div className="md3-book-list">
+              <div className={`md3-book-list is-${booksView}`}>
                 {bookList.pageRows.map(renderLedgerCard)}
               </div>
             </div>
@@ -1268,6 +1434,6 @@ export default function Dashboard() {
           }
         }}
       />
-    </div>
+    </PullToRefresh>
   );
 }

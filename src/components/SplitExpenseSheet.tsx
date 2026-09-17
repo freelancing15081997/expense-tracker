@@ -1,7 +1,7 @@
 /** Premium Split sheet — payment-app depth, member select, live allocation. */
 
 import React, { useMemo, useState } from 'react';
-import { Check, Search, Users, X } from 'lucide-react';
+import { Check, Equal, Layers, PencilLine, Percent, Save, Search, Users, UserCheck, X } from 'lucide-react';
 import { allocateSplit, buildMoneySplit, moneySplitToPersonSplits, peopleFromBook } from '../lib/money-splits';
 import { saveMoneySplit } from '../lib/money-api';
 import { formatPaise, toPaise } from '../lib/money-core';
@@ -32,11 +32,11 @@ type Props = {
   onToast: (msg: string, kind?: 'success' | 'error') => void;
 };
 
-const METHODS: Array<{ id: SplitMethod; label: string }> = [
-  { id: 'equal', label: 'Equal' },
-  { id: 'exact', label: 'Custom' },
-  { id: 'percentage', label: '%' },
-  { id: 'shares', label: 'Shares' },
+const METHODS: Array<{ id: SplitMethod; label: string; Icon: typeof Equal }> = [
+  { id: 'equal', label: 'Equal', Icon: Equal },
+  { id: 'exact', label: 'Custom', Icon: PencilLine },
+  { id: 'percentage', label: '%', Icon: Percent },
+  { id: 'shares', label: 'Shares', Icon: Layers },
 ];
 
 export default function SplitExpenseSheet({
@@ -144,7 +144,7 @@ export default function SplitExpenseSheet({
         <div className="sp-handle" aria-hidden />
         <header className="sp-head">
           <div>
-            <p className="sp-kicker">Split expense</p>
+            <p className="sp-kicker"><Users className="w-3 h-3 inline -mt-0.5" /> Split expense</p>
             <h2 className="sp-title">{merchant || description || 'Expense'}</h2>
           </div>
           <button type="button" className="sp-close" onClick={onClose} aria-label="Close">
@@ -180,6 +180,7 @@ export default function SplitExpenseSheet({
               className={method === m.id ? 'is-on' : ''}
               onClick={() => setMethod(m.id)}
             >
+              <m.Icon className="w-4 h-4" strokeWidth={2.2} />
               {m.label}
             </button>
           ))}
@@ -196,6 +197,7 @@ export default function SplitExpenseSheet({
             />
           </label>
           <button type="button" className="sp-select-all" onClick={toggleAll}>
+            <UserCheck className="w-3.5 h-3.5" />
             {allSelected ? 'Clear all' : 'Select all'}
           </button>
         </div>
@@ -285,7 +287,7 @@ export default function SplitExpenseSheet({
             disabled={busy || !preview.ok || selected.length === 0}
             onClick={() => void save()}
           >
-            {busy ? 'Saving…' : 'Save split'}
+            {busy ? 'Saving…' : <><Save className="w-4 h-4" /> Save split</>}
           </button>
         </div>
       </div>

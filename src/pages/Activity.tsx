@@ -1,6 +1,7 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useFeatures } from '../lib/use-features';
 import { listAllExpenses } from '../lib/expenses';
 import { listNotifications, markNotificationRead, notificationPath, type AppNotification } from '../lib/notifications';
 import { getCurrencySymbol } from '../lib/currency';
@@ -21,6 +22,7 @@ function dayHeading(iso: string) {
 
 export default function Activity() {
   const { currentUser, userProfile } = useAuth();
+  const { on: hasFeature } = useFeatures();
   const [rows, setRows] = useState<Array<Record<string, unknown>>>([]);
   const [notifs, setNotifs] = useState<Array<Record<string, unknown>>>([]);
   const [loading, setLoading] = useState(true);
@@ -73,12 +75,12 @@ export default function Activity() {
   }, [items]);
 
   return (
-    <div className="max-w-xl mx-auto pb-28 md:pb-8">
+    <div className="premium-list-page max-w-xl mx-auto pb-28 md:pb-8">
       <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Activity</p>
       <h1 className="font-display text-[26px] font-semibold text-[#0B1F3A] tracking-tight">What’s happening</h1>
       <div className="mt-3 flex flex-wrap gap-2">
-        <Link to="/regular-payments" className="byjan-chip text-xs">Regular payments</Link>
-        <Link to="/reports" className="byjan-chip text-xs">Reports</Link>
+        {hasFeature('money_recurring') && <Link to="/regular-payments" className="byjan-chip text-xs">Regular payments</Link>}
+        {hasFeature('money_reports') && <Link to="/reports" className="byjan-chip text-xs">Reports</Link>}
       </div>
       {loading ? (
         <div className="mt-5 space-y-2" aria-busy="true">

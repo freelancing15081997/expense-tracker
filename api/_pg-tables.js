@@ -1296,13 +1296,25 @@ async function ledgerCreateBook(input) {
   }
   const id = newLedgerId();
   const now = (/* @__PURE__ */ new Date()).toISOString();
+  const categories = Array.isArray(input.categories)
+    ? input.categories.map((c) => text(c).trim()).filter(Boolean).slice(0, 40)
+    : [];
+  const quickActions = Array.isArray(input.quickActions)
+    ? input.quickActions.map((c) => text(c).trim()).filter(Boolean).slice(0, 12)
+    : [];
+  const purposeId = text(input.purposeId).trim() || "default";
   const data = {
     id,
     name,
     ownerId: input.uid,
     currency: text(input.currency) || "INR",
     createdAt: now,
-    roles: { [input.uid]: { role: "owner", email: text(input.email).toLowerCase() } }
+    roles: { [input.uid]: { role: "owner", email: text(input.email).toLowerCase() } },
+    purposeId,
+    purposeLabel: text(input.purposeLabel).trim() || undefined,
+    categories: categories.length ? categories : undefined,
+    quickActions: quickActions.length ? quickActions : undefined,
+    purposeConfig: input.purposeConfig && typeof input.purposeConfig === "object" ? input.purposeConfig : undefined,
   };
   await ledgerSet(`books/${id}`, data);
   await ledgerAudit({
@@ -1312,13 +1324,13 @@ async function ledgerCreateBook(input) {
     action: "ledger.create",
     entityType: "book",
     entityId: id,
-    detail: { name }
+    detail: { name, purposeId },
   });
   const mailbox = await ledgerEnsureMailbox(id, data).catch(() => null);
   return {
     ...data,
     inboundAddress: mailbox && typeof mailbox === "object" ? text(mailbox.address) : "",
-    inboundSlug: mailbox && typeof mailbox === "object" ? text(mailbox.slug) : ""
+    inboundSlug: mailbox && typeof mailbox === "object" ? text(mailbox.slug) : "",
   };
 }
 async function ledgerUpdateBook(bookId, uid, patch) {

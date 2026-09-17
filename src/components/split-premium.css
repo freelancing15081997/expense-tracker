@@ -1,4 +1,4 @@
-/* Split premium interaction layer — scoped; does not restyle the rest of the app */
+/* Split premium — white, icon-led, low colour */
 
 .sp-root {
   position: fixed;
@@ -13,9 +13,9 @@
   position: absolute;
   inset: 0;
   border: 0;
-  background: rgba(6, 10, 18, 0.62);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  background: rgba(15, 23, 42, 0.28);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
 .sp-sheet {
@@ -26,63 +26,22 @@
   flex-direction: column;
   overflow: hidden;
   border-radius: 28px 28px 0 0;
-  border: 1px solid rgba(255, 246, 235, 0.14);
-  background:
-    radial-gradient(120% 70% at 12% -18%, rgba(28, 224, 204, 0.22), transparent 52%),
-    radial-gradient(80% 50% at 100% 0%, rgba(255, 255, 255, 0.1), transparent 48%),
-    radial-gradient(60% 40% at 70% 110%, rgba(14, 140, 130, 0.18), transparent 55%),
-    linear-gradient(180deg, #1e2a3d 0%, #121925 42%, #0a0e15 100%);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: #ffffff;
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.12) inset,
-    0 -2px 0 rgba(0, 0, 0, 0.35) inset,
-    0 -40px 100px -24px rgba(0, 0, 0, 0.85),
-    0 0 0 1px rgba(0, 0, 0, 0.4);
-  color: #f4f1ea;
-  padding: 10px 18px calc(16px + env(safe-area-inset-bottom, 0px));
+    0 1px 0 rgba(255, 255, 255, 1) inset,
+    0 -28px 80px -24px rgba(15, 23, 42, 0.28);
+  color: #0f172a;
+  padding: 10px 16px 22px;
   animation: sp-up 280ms cubic-bezier(0.22, 1, 0.36, 1);
-  transform: translateZ(0);
-}
-
-.sp-body {
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
-  padding-bottom: 4px;
-  flex: 1;
-  min-height: 0;
-}
-
-.sp-confirm-pair {
-  display: grid;
-  gap: 10px;
-  margin: 4px 0 16px;
-  padding: 14px;
-  border-radius: 18px;
-  border: 1px solid rgba(42, 235, 216, 0.22);
-  background: rgba(18, 184, 168, 0.1);
-}
-
-.sp-confirm-lead {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 700;
-  color: #f4f1ea;
-  letter-spacing: -0.01em;
-}
-
-.sp-cta-ok {
-  display: inline-flex !important;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
 }
 
 .sp-cta-deny {
   min-height: 48px;
   border-radius: 14px;
-  border: 1px solid rgba(248, 113, 113, 0.35);
-  background: rgba(127, 29, 29, 0.35);
-  color: #fecaca;
+  border: 1px solid rgba(225, 29, 72, 0.18);
+  background: #fff;
+  color: #be123c;
   font-size: 14px;
   font-weight: 700;
   display: inline-flex;
@@ -98,27 +57,27 @@
   gap: 10px;
   padding: 28px 12px 18px;
   text-align: center;
-  color: #6fcbb4;
+  color: #0f766e;
 }
 
 .sp-done-title {
   margin: 0;
   font-size: 20px;
   font-weight: 750;
-  color: #f4f1ea;
+  color: #0f172a;
 }
 
 .sp-done-sub {
   margin: 0 0 8px;
   font-size: 13px;
-  color: rgba(244, 241, 234, 0.55);
+  color: #64748b;
 }
 
 .sp-handle {
   width: 40px;
   height: 4px;
   border-radius: 99px;
-  background: rgba(255, 246, 235, 0.22);
+  background: rgba(15, 23, 42, 0.12);
   margin: 4px auto 12px;
 }
 
@@ -135,26 +94,27 @@
   font-weight: 700;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: rgba(244, 241, 234, 0.45);
+  color: #94a3b8;
 }
 
 .sp-title {
   margin-top: 4px;
-  font-family: var(--font-display), Sora, ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-display), Fraunces, ui-serif, Georgia, serif;
   font-size: 22px;
   font-weight: 650;
   letter-spacing: -0.03em;
   line-height: 1.15;
   max-width: 18ch;
+  color: #0f172a;
 }
 
 .sp-close {
   width: 36px;
   height: 36px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 246, 235, 0.12);
-  background: rgba(255, 255, 255, 0.04);
-  color: rgba(244, 241, 234, 0.7);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: #f8fafc;
+  color: #475569;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -164,26 +124,14 @@
   position: relative;
   padding: 18px 16px;
   border-radius: 22px;
-  background:
-    linear-gradient(155deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.02) 42%, transparent 70%),
-    linear-gradient(180deg, rgba(18, 30, 48, 0.95), rgba(8, 12, 20, 0.92));
-  border: 1px solid rgba(255, 246, 235, 0.12);
-  box-shadow:
-    0 22px 48px -28px rgba(0, 0, 0, 0.9),
-    0 1px 0 rgba(255, 255, 255, 0.1) inset,
-    0 -1px 0 rgba(0, 0, 0, 0.35) inset;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  box-shadow: none;
   margin-bottom: 14px;
   overflow: hidden;
 }
 
-.sp-hero::before {
-  content: '';
-  position: absolute;
-  inset: auto -20% -40% 40%;
-  height: 70%;
-  background: radial-gradient(circle, rgba(28, 224, 204, 0.2), transparent 65%);
-  pointer-events: none;
-}
+.sp-hero::before { display: none; }
 
 .sp-hero-label {
   position: relative;
@@ -191,7 +139,7 @@
   font-weight: 650;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: rgba(244, 241, 234, 0.45);
+  color: #94a3b8;
 }
 
 .sp-hero-amount {
@@ -202,7 +150,8 @@
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.05em;
   line-height: 1;
-  text-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  color: #0f172a;
+  text-shadow: none;
 }
 
 .sp-meters {
@@ -220,23 +169,24 @@
 
 .sp-meters span {
   font-size: 11px;
-  color: rgba(244, 241, 234, 0.42);
+  color: #94a3b8;
 }
 
 .sp-meters strong {
   font-size: 15px;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
+  color: #0f172a;
 }
 
-.sp-meters .is-ok strong { color: #6fcbb4; }
-.sp-meters .is-warn strong { color: #e6c07b; }
+.sp-meters .is-ok strong { color: #0f766e; }
+.sp-meters .is-warn strong { color: #b45309; }
 
 .sp-bar {
   margin-top: 12px;
   height: 6px;
   border-radius: 99px;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(15, 23, 42, 0.06);
   overflow: hidden;
 }
 
@@ -244,7 +194,7 @@
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #12b8a8, #7dd3c0);
+  background: #0f172a;
   transition: width 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
@@ -254,26 +204,31 @@
   gap: 6px;
   padding: 4px;
   border-radius: 16px;
-  background: rgba(0, 0, 0, 0.28);
-  border: 1px solid rgba(255, 246, 235, 0.08);
+  background: #f1f5f9;
+  border: 1px solid rgba(15, 23, 42, 0.05);
   margin-bottom: 12px;
 }
 
 .sp-methods button {
-  min-height: 36px;
+  min-height: 44px;
   border: 0;
   border-radius: 12px;
   background: transparent;
-  color: rgba(244, 241, 234, 0.5);
-  font-size: 12px;
+  color: #64748b;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.02em;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
 }
 
 .sp-methods button.is-on {
-  background: linear-gradient(160deg, rgba(18, 184, 168, 0.95), rgba(14, 140, 130, 0.95));
-  color: #041816;
-  box-shadow: 0 8px 18px -10px rgba(18, 184, 168, 0.7);
+  background: #fff;
+  color: #0f172a;
+  box-shadow: 0 6px 16px -12px rgba(15, 23, 42, 0.45);
 }
 
 .sp-partners {
@@ -289,10 +244,10 @@
   gap: 10px;
   min-height: 52px;
   padding: 8px 12px;
-  border: 1px solid rgba(255, 246, 235, 0.1);
+  border: 1px solid rgba(15, 23, 42, 0.08);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.045);
-  color: #f4f1ea;
+  background: #fff;
+  color: #0f172a;
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.01em;
@@ -311,7 +266,7 @@
   border-radius: 8px;
   overflow: hidden;
   flex-shrink: 0;
-  box-shadow: 0 6px 12px -8px rgba(0, 0, 0, 0.7);
+  box-shadow: none;
 }
 
 .sp-partner-mark svg {
@@ -342,8 +297,8 @@
   position: relative;
   height: 56px;
   border-radius: 18px;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,246,235,0.12);
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.08);
   overflow: hidden;
   margin-bottom: 12px;
   touch-action: none;
@@ -357,7 +312,7 @@
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.04em;
-  color: rgba(244,241,234,0.45);
+  color: #94a3b8;
   pointer-events: none;
 }
 .sp-swipe-knob {
@@ -367,8 +322,8 @@
   width: 64px;
   height: 44px;
   border-radius: 14px;
-  background: linear-gradient(180deg, #1ce0cc, #12b8a8);
-  color: #06241f;
+  background: #0f172a;
+  color: #fff;
   font-size: 13px;
   font-weight: 800;
   display: flex;
@@ -392,24 +347,24 @@
   min-height: 42px;
   padding: 0 12px;
   border-radius: 14px;
-  border: 1px solid rgba(255, 246, 235, 0.1);
-  background: rgba(255, 255, 255, 0.04);
-  color: rgba(244, 241, 234, 0.45);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: #f8fafc;
+  color: #64748b;
 }
 
 .sp-search input {
   flex: 1;
   border: 0;
   background: transparent;
-  color: #f4f1ea;
+  color: #0f172a;
   font-size: 13px;
   outline: none;
 }
 
 .sp-select-all {
-  border: 1px solid rgba(255, 246, 235, 0.12);
-  background: rgba(255, 255, 255, 0.04);
-  color: #7dd3c0;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: #fff;
+  color: #0f172a;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -418,6 +373,9 @@
   min-height: 42px;
   padding: 0 12px;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .sp-list {
@@ -437,18 +395,16 @@
   align-items: center;
   padding: 10px 12px;
   border-radius: 16px;
-  border: 1px solid rgba(255, 246, 235, 0.08);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015));
-  box-shadow: 0 10px 24px -20px rgba(0, 0, 0, 0.7);
-  transition: border-color 120ms ease, background 120ms ease, transform 100ms ease, box-shadow 120ms ease;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: #fff;
+  box-shadow: none;
+  transition: border-color 120ms ease, background 120ms ease, transform 100ms ease;
 }
 
 .sp-row.is-on {
-  border-color: rgba(18, 184, 168, 0.4);
-  background:
-    linear-gradient(160deg, rgba(18, 184, 168, 0.16), rgba(18, 184, 168, 0.05));
-  box-shadow: 0 14px 28px -18px rgba(18, 184, 168, 0.45);
+  border-color: rgba(15, 23, 42, 0.18);
+  background: #f8fafc;
+  box-shadow: none;
 }
 
 .sp-row:active { transform: scale(0.99); }
@@ -457,16 +413,16 @@
   width: 28px;
   height: 28px;
   border-radius: 9px;
-  border: 1px solid rgba(255, 246, 235, 0.18);
+  border: 1px solid rgba(15, 23, 42, 0.16);
   background: transparent;
-  color: #041816;
+  color: #fff;
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
 
 .sp-row.is-on .sp-check {
-  background: linear-gradient(160deg, #12b8a8, #0e8c82);
+  background: #0f172a;
   border-color: transparent;
 }
 
@@ -479,22 +435,22 @@
   justify-content: center;
   font-size: 13px;
   font-weight: 700;
-  color: #d8efe9;
-  background: linear-gradient(145deg, rgba(18, 184, 168, 0.35), rgba(255, 255, 255, 0.06));
-  border: 1px solid rgba(255, 246, 235, 0.1);
+  color: #0f172a;
+  background: #f1f5f9;
+  border: 1px solid rgba(15, 23, 42, 0.06);
 }
 
 .sp-name {
   font-size: 13px;
   font-weight: 650;
   letter-spacing: -0.01em;
-  color: #f4f1ea;
+  color: #0f172a;
 }
 
 .sp-email {
   margin-top: 1px;
   font-size: 11px;
-  color: rgba(244, 241, 234, 0.4);
+  color: #94a3b8;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -506,18 +462,18 @@
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
-  color: #f4f1ea;
+  color: #0f172a;
 }
 
-.sp-share.is-mute { color: rgba(244, 241, 234, 0.28); }
+.sp-share.is-mute { color: #cbd5e1; }
 
 .sp-input {
   width: 84px;
   height: 34px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 246, 235, 0.14);
-  background: rgba(0, 0, 0, 0.28);
-  color: #f4f1ea;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: #fff;
+  color: #0f172a;
   text-align: right;
   padding: 0 8px;
   font-size: 13px;
@@ -536,13 +492,13 @@
   text-align: center;
   padding: 24px 8px;
   font-size: 13px;
-  color: rgba(244, 241, 234, 0.45);
+  color: #94a3b8;
 }
 
 .sp-error {
   margin-top: 8px;
   font-size: 12px;
-  color: #f0a0a8;
+  color: #be123c;
 }
 
 .sp-footer {
@@ -550,7 +506,7 @@
   display: grid;
   gap: 10px;
   padding-top: 10px;
-  border-top: 1px solid rgba(255, 246, 235, 0.08);
+  border-top: 1px solid rgba(15, 23, 42, 0.06);
 }
 
 .sp-footer-meta {
@@ -558,24 +514,23 @@
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: rgba(244, 241, 234, 0.45);
+  color: #64748b;
 }
 
 .sp-cta {
   min-height: 52px;
   border: 0;
   border-radius: 16px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.22), transparent 42%),
-    linear-gradient(160deg, #2af0db, #0f9f92);
-  color: #031614;
+  background: #0f172a;
+  color: #fff;
   font-size: 14px;
   font-weight: 750;
   letter-spacing: 0.02em;
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.45) inset,
-    0 -2px 0 rgba(0, 0, 0, 0.18) inset,
-    0 18px 36px -14px rgba(18, 184, 168, 0.7);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: 0 12px 24px -16px rgba(15, 23, 42, 0.7);
 }
 
 .sp-cta:disabled {
@@ -595,7 +550,6 @@
   .sp-bar i, .sp-row { transition: none; }
 }
 
-/* Entry-level Split CTA — uses existing card space, doesn't restyle list */
 .entry-split-cta {
   margin-top: 0;
   width: auto;
@@ -606,11 +560,9 @@
   justify-content: center;
   gap: 6px;
   border-radius: 10px;
-  border: 1px solid rgba(18, 184, 168, 0.28);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.55), transparent 55%),
-    linear-gradient(180deg, rgba(18, 184, 168, 0.12), rgba(18, 184, 168, 0.04));
-  color: #0a7f74;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  background: #fff;
+  color: #0f172a;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.03em;
@@ -621,9 +573,9 @@
 .entry-split-cta:active { transform: scale(0.98); }
 
 .entry-split-cta.is-done {
-  border-color: rgba(11, 31, 58, 0.12);
-  background: rgba(11, 31, 58, 0.04);
-  color: #0B1F3A;
+  border-color: rgba(15, 23, 42, 0.12);
+  background: #f8fafc;
+  color: #0f172a;
 }
 
 .entry-split-cta.is-inline {
@@ -639,10 +591,8 @@
   margin-bottom: 14px;
   padding: 18px 16px;
   border-radius: 18px;
-  border: 1px solid rgba(251, 113, 133, 0.35);
-  background:
-    radial-gradient(80% 80% at 50% 0%, rgba(251, 113, 133, 0.18), transparent 60%),
-    rgba(80, 20, 35, 0.45);
+  border: 1px solid rgba(251, 113, 133, 0.28);
+  background: #fff1f2;
   text-align: center;
 }
 
@@ -654,8 +604,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: rgba(251, 113, 133, 0.2);
-  color: #fda4af;
+  background: #ffe4e6;
+  color: #be123c;
 }
 
 .sp-fail-title {
@@ -663,13 +613,12 @@
   font-size: 18px;
   font-weight: 700;
   letter-spacing: -0.02em;
-  color: #fff;
+  color: #0f172a;
 }
 
 .sp-fail-detail {
   margin-top: 6px;
   font-size: 13px;
   line-height: 1.4;
-  color: rgba(244, 241, 234, 0.72);
+  color: #64748b;
 }
-

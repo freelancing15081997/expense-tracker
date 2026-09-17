@@ -35,6 +35,7 @@ import {
   erpLoadWorkspace,
   ledgerDel,
   ledgerList,
+  getLedgerSql,
   withDomainApi,
 } from './_pg-tables.js';
 
@@ -67,8 +68,44 @@ async function pushModule() {
   try {
     return await import('./_lib/fcm.js');
   } catch {
-    return { sendFcm: async () => undefined };
+    return { sendFcm: async () => ({ ok: false }) };
   }
+}
+
+async function notifyBookMembersPush(
+  bookId: string,
+  actorUid: string,
+  payload: { title: string; body: string; action?: string },
+) {
+  let book: Record<string, unknown>;
+  try {
+    book = await ledgerGetBookForUser(bookId, actorUid) as Record<string, unknown>;
+  } catch {
+    return;
+  }
+  const roles = book.roles && typeof book.roles === 'object' && !Array.isArray(book.roles)
+    ? book.roles as Record<string, unknown>
+    : {};
+  const uids = new Set(Object.keys(roles).filter(Boolean));
+  const ownerId = String(book.ownerId || '');
+  if (ownerId) uids.add(ownerId);
+  uids.delete(String(actorUid || ''));
+  if (!uids.size) return;
+  const { sendFcm } = await pushModule();
+  const bookName = String(book.name || payload.title || 'Byjan');
+  await Promise.all([...uids].map(async (uid) => {
+    const profile = await ledgerGetUser(uid);
+    const token = String(profile?.pushToken || '').trim();
+    if (!token) {
+      console.error('FCM skip: no push token', uid);
+      return;
+    }
+    await sendFcm(token, {
+      title: bookName,
+      body: payload.body,
+      data: { bookId, url: `/#/book/${bookId}`, kind: 'entry', action: payload.action || 'entry' },
+    });
+  }));
 }
 
 function domainFrom(req: VercelRequest): Domain | '' {
@@ -343,6 +380,12 @@ async function handleExpenses(req: VercelRequest, res: VercelResponse) {
           /* ignore */
         }
       }
+      const created = saved.expense as Record<string, unknown>;
+      await notifyBookMembersPush(bookId, user.uid, {
+        title: 'Byjan',
+        body: `${user.email || 'A teammate'} added ${String(created.description || created.merchant || 'an entry')}`,
+        action: 'entry.create',
+      });
       apiJson(res, 200, { expense: saved.expense });
       return;
     }
@@ -377,6 +420,12 @@ async function handleExpenses(req: VercelRequest, res: VercelResponse) {
         entityType: 'expense',
         entityId: expenseId,
       });
+      const updated = saved.expense as Record<string, unknown>;
+      await notifyBookMembersPush(bookId, user.uid, {
+        title: 'Byjan',
+        body: `${user.email || 'A teammate'} updated ${String(updated.description || updated.merchant || 'an entry')}`,
+        action: 'entry.update',
+      });
       apiJson(res, 200, { expense: saved.expense });
       return;
     }
@@ -395,6 +444,11 @@ async function handleExpenses(req: VercelRequest, res: VercelResponse) {
         action: 'expense.soft_delete',
         entityType: 'expense',
         entityId: expenseId,
+      });
+      await notifyBookMembersPush(bookId, user.uid, {
+        title: 'Byjan',
+        body: `${user.email || 'A teammate'} deleted an entry`,
+        action: 'entry.delete',
       });
       apiJson(res, 200, { ok: true });
       return;
@@ -455,12 +509,12 @@ async function handleNotifications(req: VercelRequest, res: VercelResponse) {
         read: false,
       });
       const { sendFcm } = await pushModule();
-      await sendFcm(pushToken, {
+      const fcm = await sendFcm(pushToken, {
         title: 'Byjan',
         body: 'Test alert — pending payments and books are on Home',
-        data: { url: '/#/', bookId: '' },
+        data: { url: '/#/' },
       });
-      apiJson(res, 200, { ok: true, sent: true });
+      apiJson(res, 200, { ok: Boolean(fcm?.ok), sent: Boolean(fcm?.ok), fcm: fcm?.ok ? 'sent' : (fcm?.error || 'failed') });
       return;
     }
 
@@ -486,13 +540,13 @@ async function handleNotifications(req: VercelRequest, res: VercelResponse) {
         read: false,
       });
       const profile = await ledgerGetUser(targetUid);
-      const pushToken = String(profile?.pushToken || '');
-      if (pushToken) {
+      const pushToken = String(profile?.pushToken || '').trim();
+      if (pushToken && body.skipPush !== true) {
         try {
           const { sendFcm } = await pushModule();
           const settlementId = String(body.settlementId || '');
           const path = String(body.link || (settlementId ? `/book/${bookId}?pay=${encodeURIComponent(settlementId)}` : `/book/${bookId}`));
-          void sendFcm(pushToken, {
+          await sendFcm(pushToken, {
             title: String(body.bookName || 'Byjan'),
             body: `${String(body.senderName || user.email)} ${String(body.action || 'updated the book').toLowerCase()}`,
             data: {
@@ -501,9 +555,11 @@ async function handleNotifications(req: VercelRequest, res: VercelResponse) {
               url: `/#${path.startsWith('/') ? path : `/${path}`}`,
             },
           });
-        } catch {
-          /* push is best-effort */
+        } catch (err) {
+          console.error('notification FCM failed', targetUid, err);
         }
+      } else if (!pushToken) {
+        console.error('FCM skip: no push token', targetUid);
       }
       apiJson(res, 200, { notification });
       return;
@@ -515,8 +571,49 @@ async function handleNotifications(req: VercelRequest, res: VercelResponse) {
 
 const ACCESS_FEATURE_KEYS = [
   'money',
+  'money_capture',
   'money_add',
+  'money_scan',
+  'money_voice',
+  'money_duplicate',
+  'money_flag',
+  'money_delete',
+  'money_team',
   'money_people',
+  'money_settle',
+  'money_split',
+  'money_split_tab',
+  'money_split_entry',
+  'money_split_equal',
+  'money_email',
+  'money_email_tab',
+  'money_email_mailbox',
+  'money_email_send',
+  'money_announce',
+  'money_email_report',
+  'money_insight',
+  'money_export',
+  'money_reports',
+  'money_book_analytics',
+  'money_history',
+  'money_live',
+  'money_activity',
+  'money_inbox',
+  'money_recurring',
+  'money_setup',
+  'money_create_book',
+  'money_delete_book',
+  'money_purpose',
+  'money_search',
+  'money_pin',
+  'money_budget',
+  'money_filters',
+  'app_notifications',
+  'app_notifications_bell',
+  'app_notifications_push',
+  'app_notifications_email',
+  'app_lock',
+  'app_search',
   'business',
   'sales',
   'buying',
@@ -530,8 +627,48 @@ const ACCESS_FEATURE_KEYS = [
 
 const MEMBER_FEATURE_DEFAULTS: Record<string, boolean> = {
   money: true,
+  money_capture: true,
   money_add: true,
-  money_people: true,
+  money_scan: true,
+  money_voice: true,
+  money_duplicate: true,
+  money_flag: true,
+  money_people: false,
+  money_settle: false,
+  money_split: true,
+  money_split_tab: true,
+  money_split_entry: true,
+  money_split_equal: true,
+  money_email: true,
+  money_email_tab: true,
+  money_email_mailbox: true,
+  money_email_send: false,
+  money_announce: false,
+  money_email_report: false,
+  money_export: false,
+  money_delete: false,
+  money_insight: true,
+  money_reports: true,
+  money_book_analytics: true,
+  money_history: true,
+  money_live: true,
+  money_activity: true,
+  money_inbox: true,
+  money_recurring: true,
+  money_setup: true,
+  money_create_book: true,
+  money_delete_book: false,
+  money_purpose: true,
+  money_search: true,
+  money_pin: false,
+  money_budget: false,
+  money_filters: true,
+  app_notifications: true,
+  app_notifications_bell: true,
+  app_notifications_push: true,
+  app_notifications_email: true,
+  app_lock: false,
+  app_search: true,
   business: false,
   sales: false,
   buying: false,
@@ -543,6 +680,12 @@ const MEMBER_FEATURE_DEFAULTS: Record<string, boolean> = {
   company_settings: false,
 };
 
+function isAllowedFeatureKey(key: string) {
+  return ACCESS_FEATURE_KEYS.includes(key as typeof ACCESS_FEATURE_KEYS[number])
+    || /^(money|app|sales|buying|bank|accounts|operations|tax|reports|company_settings)_[a-z0-9_]+$/.test(key)
+    || /^act_[a-z0-9_]+$/.test(key);
+}
+
 function sanitizeAccessFeatures(raw: unknown, superUser = false) {
   const next: Record<string, boolean> = {};
   for (const key of ACCESS_FEATURE_KEYS) {
@@ -550,11 +693,56 @@ function sanitizeAccessFeatures(raw: unknown, superUser = false) {
   }
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
     const rec = raw as Record<string, unknown>;
-    for (const key of ACCESS_FEATURE_KEYS) {
-      if (Object.prototype.hasOwnProperty.call(rec, key)) next[key] = Boolean(rec[key]);
+    for (const [key, value] of Object.entries(rec)) {
+      if (isAllowedFeatureKey(key)) next[key] = Boolean(value);
+    }
+  }
+  if (!next.money) {
+    for (const key of Object.keys(next)) {
+      if (key.startsWith('money_')) next[key] = false;
+    }
+  }
+  if (!next.business) {
+    for (const key of ['sales', 'buying', 'bank', 'accounts', 'operations', 'tax', 'reports', 'company_settings']) {
+      next[key] = false;
+    }
+    for (const key of Object.keys(next)) {
+      if (key.startsWith('act_')) next[key] = false;
     }
   }
   return next;
+}
+
+function storedAccessFeatures(raw: unknown): Record<string, boolean> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const rec = raw as Record<string, unknown>;
+  const next: Record<string, boolean> = {};
+  for (const [key, value] of Object.entries(rec)) {
+    if (isAllowedFeatureKey(key)) next[key] = Boolean(value);
+  }
+  return Object.keys(next).length ? next : undefined;
+}
+
+async function loadRolePermissionsMap() {
+  try {
+    const sql = await getLedgerSql();
+    await sql`CREATE TABLE IF NOT EXISTS role_permissions (
+      role_key TEXT PRIMARY KEY,
+      features JSONB NOT NULL DEFAULT '{}'::jsonb,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`;
+    const rows = await sql`SELECT role_key, features FROM role_permissions`;
+    const map: Record<string, Record<string, boolean>> = {};
+    for (const row of (Array.isArray(rows) ? rows : []) as Array<{ role_key?: string; features?: unknown }>) {
+      const key = String(row.role_key || '').trim();
+      if (!key) continue;
+      const stored = storedAccessFeatures(row.features);
+      if (stored) map[key] = stored;
+    }
+    return map;
+  } catch {
+    return {} as Record<string, Record<string, boolean>>;
+  }
 }
 
 function bookRoles(book: Record<string, unknown>) {
@@ -576,7 +764,17 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
       const profile = await ledgerGetUser(user.uid);
       const base = profile || { uid: user.uid, email: user.email };
       const superUser = emailIsSuperUser(user.email);
-      apiJson(res, 200, { user: { ...base, isSuperUser: superUser, features: sanitizeAccessFeatures(profile?.features, superUser) } });
+      const stored = storedAccessFeatures(profile?.features);
+      const rolePermissions = await loadRolePermissionsMap();
+      apiJson(res, 200, {
+        rolePermissions,
+        user: {
+          ...base,
+          isSuperUser: superUser,
+          hasFeatureOverride: Boolean(stored),
+          features: stored,
+        },
+      });
       return;
     }
 
@@ -596,11 +794,13 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
       const people = await Promise.all([...ids].map(async (uid) => {
         const profile = await ledgerGetUser(uid);
         const email = String(profile?.email || emails[uid] || '');
+        const stored = storedAccessFeatures(profile?.features);
         return {
           uid,
           email,
           displayName: String(profile?.displayName || email.split('@')[0] || 'Person'),
-          features: sanitizeAccessFeatures(profile?.features),
+          hasFeatureOverride: Boolean(stored),
+          features: stored,
         };
       }));
       people.sort((a, b) => a.displayName.localeCompare(b.displayName) || a.email.localeCompare(b.email));

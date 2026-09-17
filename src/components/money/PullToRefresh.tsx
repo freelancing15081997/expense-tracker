@@ -9,28 +9,35 @@ type Props = {
 };
 
 /**
- * Mobile-first pull-to-refresh. Desktop mouse drag ignored.
- * Only activates when scrollTop === 0.
+ * Pull-to-refresh. Uses the nearest scrolling `main` when present so Home
+ * and list pages refresh without a nested scroller.
  */
 export default function PullToRefresh({ onRefresh, children, className, disabled }: Props) {
-  const scrollerRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const startY = useRef(0);
   const pulling = useRef(false);
   const [offset, setOffset] = useState(0);
   const [busy, setBusy] = useState(false);
 
+  const scroller = () => {
+    const el = rootRef.current;
+    if (!el) return null;
+    const main = el.closest('main');
+    return main instanceof HTMLElement ? main : el;
+  };
+
   const onTouchStart = (e: React.TouchEvent) => {
     if (disabled || busy) return;
-    const el = scrollerRef.current;
-    if (!el || el.scrollTop > 0) return;
+    const el = scroller();
+    if (!el || el.scrollTop > 4) return;
     startY.current = e.touches[0].clientY;
     pulling.current = true;
   };
 
   const onTouchMove = (e: React.TouchEvent) => {
     if (!pulling.current || busy || disabled) return;
-    const el = scrollerRef.current;
-    if (!el || el.scrollTop > 0) {
+    const el = scroller();
+    if (!el || el.scrollTop > 4) {
       pulling.current = false;
       setOffset(0);
       return;
@@ -62,8 +69,8 @@ export default function PullToRefresh({ onRefresh, children, className, disabled
 
   return (
     <div
-      ref={scrollerRef}
-      className={className || 'h-full overflow-y-auto overscroll-contain'}
+      ref={rootRef}
+      className={className}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={() => { void onTouchEnd(); }}
@@ -73,7 +80,10 @@ export default function PullToRefresh({ onRefresh, children, className, disabled
         style={{ height: offset || (busy ? 48 : 0) }}
         aria-hidden={!busy && offset < 8}
       >
-        <Loader2 className={`w-5 h-5 ${busy || offset >= 56 ? 'animate-spin text-teal-600' : ''}`} />
+        <Loader2 className={`w-5 h-5 ${busy || offset >= 56 ? 'animate-spin text-slate-700' : ''}`} />
+        <span className="ml-2 text-[11px] font-semibold tracking-wide uppercase">
+          {busy ? 'Refreshing' : offset >= 56 ? 'Release' : 'Pull to refresh'}
+        </span>
       </div>
       {children}
     </div>

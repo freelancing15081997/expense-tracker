@@ -3,6 +3,8 @@ import { db } from '../../lib/firebase';
 import { isFirestoreQuota, FIRESTORE_QUOTA_MESSAGE } from '../../lib/quota';
 import { useAuth } from '../../context/AuthContext';
 import { can, type BooksAction } from '../core/permissions';
+import { allowsBooksAction } from '../../lib/features';
+import { useLocation } from 'react-router-dom';
 import type {
   Approval,
   BankRule,
@@ -120,6 +122,7 @@ type BooksContextValue = {
   approvals: Approval[];
   postingAccounts: FinanceAccount[];
   can: (action: BooksAction) => boolean;
+  canExtra: (verb: string) => boolean;
   refresh: () => Promise<void>;
   switchWorkspace: (id: string) => Promise<void>;
   createCompany: (name: string, parentId?: string) => Promise<string>;
@@ -254,6 +257,7 @@ function isWorkspaceMember(tenant: FinanceTenant, uid: string, tenantId: string)
 
 export default function BooksProvider({ children }: { children: React.ReactNode }) {
   const { currentUser, userProfile } = useAuth();
+  const location = useLocation();
   const { addToast } = useToast();
   const { prefs, confirmAction } = useAppPrefs();
   const [loading, setLoading] = useState(true);
@@ -551,7 +555,8 @@ export default function BooksProvider({ children }: { children: React.ReactNode 
       files,
       templates,
       postingAccounts: accounts.filter((a) => a.active && a.allowPosting),
-      can: (action) => can(role, action),
+      can: (action) => can(role, action) && allowsBooksAction(userProfile?.features, location.pathname, action),
+      canExtra: (verb) => allowsBooksAction(userProfile?.features, location.pathname, verb),
       refresh,
       switchWorkspace,
       createCompany,

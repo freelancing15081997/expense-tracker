@@ -5,9 +5,12 @@
 import {
   detectPurposeFromName,
   getPurposeTemplate,
+  purposeFieldMeta,
+  categoryForQuickAction,
   suggestCustomPurposeConfig,
   PURPOSE_TEMPLATES,
 } from '../src/lib/purpose-templates';
+import { FEATURE_CATALOG, applyFeatureToggle, appRoleFromBooks, buildFeatureTree, hrefFeature, normalizeFeatures, resolveFeatures, MEMBER_FEATURES } from '../src/lib/features';
 import { buildConfidence, mayAutoProcess, needsConfirmation, levelFromScore } from '../src/lib/confidence-engine';
 import { searchFinancialMemory, detectLifeEvents, buildAttentionInbox } from '../src/lib/financial-memory';
 import { classifyCapture } from '../src/lib/money-intelligence';
@@ -102,6 +105,53 @@ const w = extractWarrantyHints({
 });
 assert(!!w && w.warrantyDays === 365 && w.returnDays === 7, 'parses warranty and return');
 assert(extractWarrantyHints({ text: 'Thank you for shopping' }) === null, 'no invent when absent');
+
+console.log('\nPurpose entry fields');
+const tripFields = purposeFieldMeta(getPurposeTemplate('trip'));
+assert(tripFields.categoryLabel.toLowerCase().includes('trip'), 'trip category label');
+assert(/hotel/i.test(tripFields.merchantLabel), 'trip merchant label uses Hotel');
+assert(tripFields.entities.includes('Hotel'), 'trip entities include Hotel');
+assert(categoryForQuickAction('fuel', getPurposeTemplate('vehicle').categories) === 'Fuel', 'vehicle fuel action → Fuel');
+assert(categoryForQuickAction('material', getPurposeTemplate('construction').categories) === 'Material', 'construction material → Material');
+
+console.log('\nAccess feature tree');
+assert(FEATURE_CATALOG.some((row) => row.key === 'money_email_tab'), 'email tab is a controllable feature');
+assert(FEATURE_CATALOG.some((row) => row.key === 'money_split_tab'), 'splits tab is a controllable feature');
+assert(FEATURE_CATALOG.some((row) => row.key === 'money_book_analytics'), 'book reports tab is a controllable feature');
+assert(FEATURE_CATALOG.some((row) => row.key === 'money_announce'), 'announce is a controllable action');
+assert(FEATURE_CATALOG.some((row) => row.key === 'act_books_invoices_create'), 'invoice create is a controllable action');
+assert(buildFeatureTree('Money').some((n) => n.key === 'money' && n.children.some((c) => c.key === 'money_email' && c.children.some((a) => a.key === 'money_email_tab'))), 'money → email → email tab');
+assert(FEATURE_CATALOG.some((row) => row.href === '/books/customers'), 'customers is a business action');
+assert(buildFeatureTree('Business').some((n) => n.key === 'business' && n.children.some((c) => c.key === 'sales' && c.children.length > 0)), 'business → sales → actions');
+assert(hrefFeature('/books/invoices')?.startsWith('act_'), 'invoice href maps to action key');
+const inherited = normalizeFeatures({ sales: true }, MEMBER_FEATURES);
+assert(inherited.sales === true && inherited.business === true, 'sales on inherits business parent');
+assert(inherited[hrefFeature('/books/customers') || ''] === true, 'sales on inherits customer action');
+const offMoney = applyFeatureToggle({ ...MEMBER_FEATURES, money: true, money_add: true }, 'money');
+assert(offMoney.money === false && offMoney.money_add === false, 'turning money off hides add');
+
+console.log('\nRole defaults apply to default users');
+const roleOffScan = resolveFeatures('u1', false, [], undefined, 'DEFAULT_USER', {
+  DEFAULT_USER: { ...MEMBER_FEATURES, money_scan: false, money_reports: false },
+});
+assert(roleOffScan.money_scan === false, 'DEFAULT_USER can disable scan');
+assert(roleOffScan.money_reports === false, 'DEFAULT_USER can disable reports');
+assert(roleOffScan.money_add === true, 'untoggled DEFAULT_USER keys stay on');
+const personOverride = resolveFeatures('u1', false, [], { money_scan: true }, 'DEFAULT_USER', {
+  DEFAULT_USER: { ...MEMBER_FEATURES, money_scan: false },
+});
+assert(personOverride.money_scan === true, 'person override wins over DEFAULT_USER');
+const noOverride = resolveFeatures('u1', false, [], undefined, 'DEFAULT_USER', {
+  DEFAULT_USER: { ...MEMBER_FEATURES, money_scan: false },
+});
+assert(noOverride.money_scan === false, 'missing profile features uses role');
+assert(appRoleFromBooks('u1', [{ ownerId: 'u1', roles: { u1: { role: 'owner' } } }]) === 'DEFAULT_USER', 'book owner uses DEFAULT_USER features');
+assert(appRoleFromBooks('u2', [{ ownerId: 'u1', roles: { u2: { role: 'viewer' } } }]) === 'viewer', 'book viewer maps to viewer role');
+assert(appRoleFromBooks('u1', [
+  { ownerId: 'u1', roles: { u1: { role: 'owner' } } },
+  { ownerId: 'u9', roles: { u1: { role: 'viewer' } } },
+]) === 'DEFAULT_USER', 'owning any book keeps DEFAULT_USER');
+assert(appRoleFromBooks('u3', [{ ownerId: 'u1', roles: { u3: { role: 'contributor' } } }]) === 'contributor', 'can-add member maps to contributor');
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

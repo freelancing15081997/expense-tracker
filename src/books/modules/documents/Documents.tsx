@@ -43,7 +43,7 @@ function linePreviewMinor(line: LineForm): number | null {
 export default function Documents({ kind }: { kind: DocumentKind }) {
   const books = useBooks();
   const { prefs } = useAppPrefs();
-  const { documents, parties, postingAccounts, taxCodes, currency, can, projects, files, uploadFile } = books;
+  const { documents, parties, postingAccounts, taxCodes, currency, can, canExtra, projects, files, uploadFile } = books;
   const profile = documentProfile(kind);
   const allRows = documents.filter((d) => d.kind === kind && d.status !== 'voided');
   const partyKind = profile.partyRole;
@@ -470,7 +470,7 @@ export default function Documents({ kind }: { kind: DocumentKind }) {
                         {row.status === 'draft' && can('void') && (
                           <button className={btnGhost} onClick={() => books.voidDoc(row.id)}>Void</button>
                         )}
-                        {profile.canPrint && (
+                        {profile.canPrint && canExtra('print') && (
                           <button className={btnGhost} onClick={async () => {
                             const party = parties.find((p) => p.id === row.partyId) || null;
                             const companyLogo = books.tenant?.logoPath ? await booksFileUrl(books.tenant.logoPath) : undefined;

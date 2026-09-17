@@ -1622,6 +1622,23 @@ async function notifyMembers(
       createdAt: new Date().toISOString(),
       read: false,
     }).catch(() => undefined);
+    const profile = await docGet(`users/${uid}`).catch(() => null);
+    const pushToken = String(profile?.pushToken || '').trim();
+    if (!pushToken) continue;
+    try {
+      const { sendFcm } = await import('../_lib/fcm.js');
+      await sendFcm(pushToken, {
+        title: mailbox.name || 'Byjan',
+        body: copy.title,
+        data: {
+          bookId,
+          url: `/#/book/${bookId}`,
+          kind: 'inbound',
+        },
+      });
+    } catch (err) {
+      console.error('inbound FCM failed', uid, err);
+    }
   }
   if (opts.inboundEventId) {
     const current = await docGet(`books/${bookId}/inbound_events/${opts.inboundEventId}`);

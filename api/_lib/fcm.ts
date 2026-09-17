@@ -1,7 +1,7 @@
 type PushMessage = {
   title: string;
   body: string;
-  data?: Record<string, string>;
+  data?: Record<string, string | number | boolean | null | undefined>;
 };
 
 let cachedToken: { value: string; exp: number } | null = null;
@@ -14,6 +14,18 @@ function serviceAccount() {
   } catch {
     return null;
   }
+}
+
+function stringifyData(data?: PushMessage['data']): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!data) return out;
+  for (const [key, value] of Object.entries(data)) {
+    if (value == null) continue;
+    const text = String(value);
+    if (!text) continue;
+    out[key] = text;
+  }
+  return out;
 }
 
 async function googleAccessToken() {
@@ -45,11 +57,19 @@ async function googleAccessToken() {
 
 export async function sendFcm(token: string, message: PushMessage) {
   const dest = String(token || '').trim();
-  if (!dest) return;
+  if (!dest) return { ok: false, error: 'missing-token' as const };
   const project = String(serviceAccount()?.project_id || process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || 'gen-lang-client-0616065043');
   const access = await googleAccessToken();
-  if (!access) return;
-  await fetch(`https://fcm.googleapis.com/v1/projects/${project}/messages:send`, {
+  if (!access) {
+    console.error('FCM skipped: missing Google access token');
+    return { ok: false, error: 'missing-access' as const };
+  }
+  const data = stringifyData({
+    title: message.title,
+    body: message.body,
+    ...(message.data || {}),
+  });
+  const res = await fetch(`https://fcm.googleapis.com/v1/projects/${project}/messages:send`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${access}`,
@@ -59,19 +79,39 @@ export async function sendFcm(token: string, message: PushMessage) {
       message: {
         token: dest,
         notification: { title: message.title, body: message.body },
-        data: message.data || {},
+        data,
         android: {
           priority: 'HIGH',
+          ttl: '86400s',
+          collapse_key: String(message.data?.bookId || 'byjan'),
           notification: {
+            title: message.title,
+            body: message.body,
             channelId: 'byjan_alerts',
+            icon: 'ic_stat_byjan',
+            color: '#0B1F3A',
             sound: 'default',
+            defaultSound: true,
+            defaultVibrateTimings: true,
             notificationCount: 1,
+            visibility: 'PUBLIC',
+            notificationPriority: 'PRIORITY_MAX',
           },
         },
         apns: {
-          payload: { aps: { sound: 'default', badge: 1 } },
+          payload: { aps: { sound: 'default', badge: 1, 'content-available': 1 } },
         },
       },
     }),
-  }).catch(() => undefined);
+  }).catch((err) => {
+    console.error('FCM network error', err);
+    return null;
+  });
+  if (!res) return { ok: false, error: 'network' as const };
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    console.error('FCM send failed', res.status, detail.slice(0, 500));
+    return { ok: false, error: `http-${res.status}` as const };
+  }
+  return { ok: true as const };
 }

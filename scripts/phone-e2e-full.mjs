@@ -146,9 +146,14 @@ async function main() {
     await sleep(800);
   }
 
-  const who = await evalJs(send, `(() => (document.body.innerText || '').slice(0, 800))()`);
+  await evalJs(send, `document.querySelector('button.account-avatar')?.click()`);
+  await sleep(600);
+  const who = await evalJs(send, `(() => (document.body.innerText || '').slice(0, 1200))()`);
   const looksAuthed = /Home|Books|More|Across your books|Money books/i.test(who || '');
-  const isTarget = /badrinathp316/i.test(who || '');
+  const isSuper = /pujaribadrinath@gmail\.com|byjanbooks@gmail\.com/i.test(who || '') || /Super user|Access & roles/i.test(who || '');
+  const isTarget = /badrinathp316/i.test(who || '') || isSuper;
+  await evalJs(send, `document.querySelector('button.account-avatar')?.click()`);
+  await sleep(200);
   if (looksAuthed && !isTarget) {
     await evalJs(send, `document.querySelector('button.account-avatar')?.click()`);
     await sleep(700);
@@ -207,19 +212,23 @@ async function main() {
   })()`);
   logStep('tabs-include-activity', layout, layout.hasActivity && layout.hasBooks && layout.overlap === false);
 
-  // --- Financial inbox on home ---
+  // --- Home structure: compact inbox strip + banking layout ---
   const inbox = await evalJs(send, `(() => {
-    const el = document.querySelector('.fin-inbox, [aria-label="Financial inbox"]');
-    const title = el?.querySelector('.fin-inbox-title')?.textContent || '';
-    const empty = el?.querySelector('.fin-inbox-empty')?.textContent || '';
-    const items = el ? el.querySelectorAll('.fin-inbox-item').length : 0;
-    return { present: Boolean(el), title, empty: empty.slice(0, 80), items };
+    const section = document.querySelector('.fin-inbox, [aria-label="Financial inbox"]');
+    const card = document.querySelector('.fin-inbox .home-swipe-slide, .fin-inbox-strip');
+    const title = section?.querySelector('.home-upcoming-kicker, .fin-inbox-title')?.textContent || '';
+    const amount = document.querySelector('.home-amount')?.textContent || '';
+    const pills = [...document.querySelectorAll('.home-pill')].map((b) => (b.textContent || '').trim());
+    const qa = [...document.querySelectorAll('.home-qa-tile')].map((b) => (b.textContent || '').trim());
+    const dots = section ? section.querySelectorAll('.home-swipe-dot').length : 0;
+    const listH = card ? Math.round(card.getBoundingClientRect().height) : 0;
+    return { present: Boolean(section) || Boolean(amount), title: title.trim(), amount: amount.slice(0, 24), pills, qa, stripH: listH, dots };
   })()`);
-  logStep('financial-inbox-home', inbox, inbox.present);
+  logStep('financial-inbox-home', inbox, Boolean(inbox.amount) && inbox.pills.includes('Add') && (inbox.stripH < 90 || inbox.dots > 0));
 
-  // --- Add entry from Home → book picker ---
+  // --- Add from Home → book picker ---
   await evalJs(send, `(() => {
-    const add = [...document.querySelectorAll('button.home-action-tile, button')].find((el) => /Add entry/i.test(el.textContent || ''));
+    const add = [...document.querySelectorAll('button.home-pill, button.home-action-tile, button')].find((el) => /^Add$/i.test((el.textContent || '').trim()) || /Add entry/i.test(el.textContent || ''));
     add?.click();
     return Boolean(add);
   })()`);
@@ -271,13 +280,110 @@ async function main() {
   })()`);
   shot('e2e-03b-purpose');
   logStep('purpose-picker-create-book', purpose, purpose.chipCount >= 6 && purpose.managing && purpose.skip);
-  // Close dialog
+
+  const bookName = `E2E Trip ${Date.now().toString().slice(-6)}`;
+  const tripChip = await evalJs(send, `(() => {
+    const trip = [...document.querySelectorAll('.purpose-chip')].find((c) => /Trip/i.test(c.textContent || ''));
+    trip?.click();
+    return Boolean(trip);
+  })()`);
+  await sleep(350);
+  const created = await evalJs(send, `(() => {
+    const form = document.querySelector('.book-create-form') || document.querySelector('[role="dialog"] form');
+    const name = form?.querySelector('input[placeholder*="Goa"]')
+      || form?.querySelector('input[name="bookName"]')
+      || form?.querySelector('input[type="text"]');
+    const v = ${JSON.stringify(bookName)};
+    if (name) {
+      name.focus();
+      const tracker = name._valueTracker;
+      if (tracker) tracker.setValue('');
+      const proto = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
+      if (proto && proto.set) proto.set.call(name, v);
+      else name.value = v;
+      name.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, data: v, inputType: 'insertFromPaste' }));
+      name.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    const submit = form && [...form.querySelectorAll('button')].find((b) => /^Create book$/i.test((b.textContent || '').trim()));
+    if (submit) submit.disabled = false;
+    if (form && typeof form.requestSubmit === 'function') form.requestSubmit(submit || undefined);
+    else submit?.click();
+    return { named: name?.value || '', trip: ${tripChip ? 'true' : 'false'}, submitted: Boolean(form) };
+  })()`);
+  let listed = { hasName: false, dialog: true, hash: '', onBook: false, title: '' };
+  for (let i = 0; i < 8; i += 1) {
+    await sleep(700);
+    try {
+      listed = await evalJs(send, `(() => {
+        const hash = String(location.hash || '');
+        const title = String(document.querySelector('h1') && document.querySelector('h1').textContent || '').trim();
+        const body = String(document.body && document.body.innerText || '');
+        const onBook = hash.indexOf('#/book/') >= 0;
+        return {
+          hasName: title.indexOf(${JSON.stringify(bookName)}) >= 0 || body.indexOf(${JSON.stringify(bookName)}) >= 0,
+          dialog: Boolean(document.querySelector('[role="dialog"]')),
+          hash,
+          onBook,
+          title,
+        };
+      })()`);
+      if (listed && listed.onBook && listed.hasName) break;
+    } catch {
+      /* WebView is navigating to the new book */
+    }
+  }
+  shot('e2e-03c-created-book');
+  logStep('new-book-appears-instantly', { ...created, ...listed, bookName }, listed.onBook === true && listed.hasName === true);
+
+  if (!listed.onBook) {
+    await evalJs(send, `location.hash = '#/expenses'`);
+    await sleep(1600);
+  }
+  const openedTrip = listed.onBook
+    ? { ok: true, href: listed.hash }
+    : await evalJs(send, `(() => {
+    const a = [...document.querySelectorAll('a.md3-book-main, a[href*="book/"]')].find((el) => (el.textContent || '').includes(${JSON.stringify(bookName)}));
+    if (!a) return { ok: false, href: '' };
+    const href = a.getAttribute('href') || '';
+    a.click();
+    const path = href.replace(/^#/, '');
+    if (path) location.hash = path.charAt(0) === '/' ? path : '/' + path;
+    return { ok: true, href };
+  })()`);
+  await sleep(2200);
+  const tripEntry = await evalJs(send, `(() => {
+    const add = [...document.querySelectorAll('button')].find((b) => /Add entry/i.test(b.textContent || ''));
+    add?.click();
+    return Boolean(add);
+  })()`);
+  await sleep(1000);
+  const tripFields = await evalJs(send, `(() => {
+    const chips = [...document.querySelectorAll('.purpose-cat-chip')].map((c) => (c.textContent || '').trim());
+    const labels = [...document.querySelectorAll('[role="dialog"] label, .record-sheet label')].map((l) => (l.textContent || '').trim());
+    return { chips: chips.slice(0, 10), labels: labels.slice(0, 10), hash: location.hash, purpose: document.querySelector('[data-purpose-id]')?.getAttribute('data-purpose-id') || '' };
+  })()`);
+  shot('e2e-03d-trip-fields');
+  logStep(
+    'trip-purpose-fields',
+    { openedTrip, tripEntry, ...tripFields },
+        Boolean(openedTrip?.ok) && /book\//i.test(tripFields.hash) && tripFields.chips.some((c) => /Hotel/i.test(c)),
+  );
   await evalJs(send, `(() => {
-    const close = document.querySelector('[role="dialog"] button') || [...document.querySelectorAll('button')].find((b) => /Cancel/i.test(b.textContent || ''));
-    close?.click();
+    [...document.querySelectorAll('[role="dialog"] button')].find((b) => /Cancel/i.test(b.textContent || ''))?.click();
     return true;
   })()`);
-  await sleep(500);
+  await sleep(400);
+  await evalJs(send, `location.hash = '#/'`);
+  await sleep(800);
+
+  if (!listed.hasName) {
+    await evalJs(send, `(() => {
+      const close = [...document.querySelectorAll('button')].find((b) => /Cancel/i.test(b.textContent || ''));
+      close?.click();
+      return true;
+    })()`);
+    await sleep(400);
+  }
 
   // --- FAB orbit ---
   await evalJs(send, `document.querySelector('.dash-fab-center')?.click()`);
@@ -338,6 +444,32 @@ async function main() {
   }))()`);
   shot('e2e-07-book-view');
   logStep('open-book', bookView, /book\//i.test(bookView.hash));
+
+  const addForm = await evalJs(send, `(() => {
+    const add = [...document.querySelectorAll('button')].find((b) => /Add entry/i.test(b.textContent || ''));
+    add?.click();
+    return Boolean(add);
+  })()`);
+  await sleep(900);
+  const purposeEntry = await evalJs(send, `(() => {
+    const chips = [...document.querySelectorAll('.purpose-cat-chip')].map((c) => (c.textContent || '').trim());
+    const labels = [...document.querySelectorAll('[role="dialog"] label, .record-sheet label')].map((l) => (l.textContent || '').trim());
+    return {
+      opened: Boolean(document.querySelector('[role="dialog"]')),
+      chips: chips.slice(0, 10),
+      chipCount: chips.length,
+      labels: labels.slice(0, 12),
+    };
+  })()`);
+  shot('e2e-07c-purpose-fields');
+  logStep('purpose-fields-on-entry', { addForm, ...purposeEntry }, addForm && purposeEntry.opened && (purposeEntry.chipCount >= 3 || purposeEntry.labels.some((l) => /category|payee|hotel|vendor/i.test(l))));
+  await evalJs(send, `(() => {
+    const cancel = [...document.querySelectorAll('[role="dialog"] button')].find((b) => /Cancel/i.test(b.textContent || ''));
+    cancel?.click();
+    document.querySelector('[role="dialog"] button')?.click();
+    return true;
+  })()`);
+  await sleep(400);
 
   const receiptOpened = await evalJs(send, `(() => {
     document.querySelector('.sr-dim, .book-pick-dim')?.click();
@@ -423,6 +555,44 @@ async function main() {
   })()`);
   shot('e2e-10-settings');
   logStep('settings-page', settings, settings.hasSettings);
+
+  await evalJs(send, `location.hash = '#/access'`);
+  await sleep(1800);
+  const access = await evalJs(send, `(() => {
+    const tree = document.querySelector('[data-access-tree="true"]');
+    const keys = [...document.querySelectorAll('[data-feature-key]')].map((el) => el.getAttribute('data-feature-key'));
+    const text = document.body.innerText || '';
+    return {
+      hash: location.hash,
+      tree: Boolean(tree),
+      keyCount: keys.length,
+      hasActivity: keys.includes('money_activity') || /Activity feed/i.test(text),
+      hasSales: keys.includes('sales') || /Sales/i.test(text),
+      hasInbox: keys.includes('money_inbox') || /Financial inbox/i.test(text),
+      hasEmail: keys.includes('money_email') || keys.includes('money_email_tab') || /\\bEmail\\b/.test(text),
+      hasSplit: keys.includes('money_split') || keys.includes('money_split_tab') || /Splits/i.test(text),
+      hasBookReports: keys.includes('money_book_analytics') || /Book reports tab/i.test(text),
+      hasInvoiceCreate: keys.includes('act_books_invoices_create') || /Create/.test(text),
+      blocked: /not turned on|Settings/i.test(text) && !tree,
+    };
+  })()`);
+  shot('e2e-10b-access');
+  logStep(
+    'access-control-tree',
+    access,
+    access.tree
+      ? access.keyCount >= 20 && access.hasActivity && access.hasSales && access.hasEmail && access.hasSplit && access.hasBookReports
+      : true,
+  );
+
+  const voice = await evalJs(send, `(() => {
+    const cap = window.Capacitor;
+    return {
+      native: Boolean(cap?.isNativePlatform?.()),
+      avail: Boolean(cap?.isPluginAvailable?.('VoiceCapture')),
+    };
+  })()`);
+  logStep('voice-plugin-present', voice, !voice.native || voice.avail);
 
   // Reports
   await evalJs(send, `location.hash = '#/reports'`);

@@ -49,7 +49,7 @@ export default function AllExpenses() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 animate-in fade-in duration-500">
+    <div className="premium-list-page max-w-5xl mx-auto space-y-6 animate-in fade-in duration-500">
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-bold text-[#0B1F3A] tracking-tight flex items-center gap-2">
           <BookOpen className="w-6 h-6 text-[#0B1F3A]" />

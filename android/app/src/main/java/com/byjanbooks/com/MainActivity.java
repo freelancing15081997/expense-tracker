@@ -1,5 +1,6 @@
 package com.byjanbooks.com;
 
+import android.app.NotificationManager;
 import android.content.Intent;
 import android.os.Bundle;
 
@@ -12,7 +13,10 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(UpiPayPlugin.class);
         registerPlugin(DocumentOcrPlugin.class);
         registerPlugin(AppLockPlugin.class);
+        registerPlugin(VoiceCapturePlugin.class);
         super.onCreate(savedInstanceState);
+        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        FirebaseMessagingService.ensureChannel(nm);
         ShareReceiverPlugin.ingestIntent(this, getIntent());
     }
 
@@ -21,5 +25,11 @@ public class MainActivity extends BridgeActivity {
         super.onNewIntent(intent);
         setIntent(intent);
         ShareReceiverPlugin.ingestIntent(this, intent);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        VoiceCapturePlugin.onOsPermissionResult(requestCode, grantResults);
     }
 }

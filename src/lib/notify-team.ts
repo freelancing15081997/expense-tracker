@@ -35,6 +35,7 @@ export async function notifyLedgerMembers(input: {
       senderName: input.senderName,
       ledgerMail: input.ledgerMail,
       link,
+      skipPush: (input.kind || 'entry') === 'entry',
     }).catch((err) => console.error('Could not notify teammate', err))
   ));
 }

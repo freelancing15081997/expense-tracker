@@ -1,4 +1,5 @@
 import { apiPost } from './api';
+import { clearExpensesListCache } from './expenses';
 
 export type LedgerBook = {
   id: string;
@@ -32,7 +33,26 @@ export async function createLedger(input: {
   purposeConfig?: Record<string, unknown>;
 }) {
   const payload = await apiPost<{ book: LedgerBook }>('/api/ledgers', { op: 'create', ...input });
-  return payload.book;
+  let book = payload.book;
+  const needsPurpose = Boolean(input.purposeId && input.purposeId !== 'default')
+    || Boolean(input.categories?.length)
+    || Boolean(input.quickActions?.length)
+    || Boolean(input.purposeConfig);
+  if (book?.id && needsPurpose && (String(book.purposeId || 'default') === 'default' || !Array.isArray(book.categories) || !book.categories.length)) {
+    try {
+      book = await updateLedger(book.id, {
+        purposeId: input.purposeId || 'default',
+        purposeLabel: input.purposeLabel,
+        categories: input.categories || [],
+        quickActions: input.quickActions || [],
+        purposeConfig: input.purposeConfig,
+      });
+    } catch {
+      /* older APIs still keep the book; purpose patch is best-effort */
+    }
+  }
+  clearExpensesListCache();
+  return book;
 }
 
 export async function updateLedger(bookId: string, patch: Record<string, unknown>) {
@@ -46,6 +66,7 @@ export async function removeLedgerMember(bookId: string, uidToRemove: string) {
 }
 
 export async function softDeleteLedger(bookId: string) {
+  clearExpensesListCache();
   await apiPost('/api/ledgers', { op: 'softDelete', bookId });
 }
 

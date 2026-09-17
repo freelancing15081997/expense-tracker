@@ -275,6 +275,32 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
 
       const response = { expense: saved.expense };
       await putIdempotent(idempotencyKey, bookId, user.uid, response);
+      try {
+        const book = await ledgerGetBookForUser(bookId, user.uid);
+        const roles = book.roles && typeof book.roles === 'object' && !Array.isArray(book.roles)
+          ? book.roles as Record<string, unknown>
+          : {};
+        const uids = new Set(Object.keys(roles).filter(Boolean));
+        if (book.ownerId) uids.add(String(book.ownerId));
+        uids.delete(user.uid);
+        if (uids.size) {
+          const { sendFcm } = await import('./fcm.js');
+          const bookName = String(book.name || 'Byjan');
+          const desc = String(saved.expense.description || saved.expense.merchant || 'an entry');
+          await Promise.all([...uids].map(async (uid) => {
+            const profile = await ledgerGetUser(uid);
+            const token = String(profile?.pushToken || '').trim();
+            if (!token) return;
+            await sendFcm(token, {
+              title: bookName,
+              body: `${user.email || 'A teammate'} added ${desc}`,
+              data: { bookId, url: `/#/book/${bookId}`, kind: 'entry' },
+            });
+          }));
+        }
+      } catch (err) {
+        console.error('capture FCM failed', err);
+      }
       apiJson(res, 200, response);
       return;
     }
@@ -850,13 +876,6 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
     if (op === 'getRolePermissions' || op === 'setRolePermissions') {
       await ensureMoneySchema();
       const sql = await getLedgerSql();
-      const profile = await ledgerGetUser(user.uid);
-      const email = String(user.email || profile?.email || '').toLowerCase();
-      const superEmails = String(process.env.SUPER_USER_EMAILS || process.env.VITE_SUPER_USER_EMAILS || 'pujaribadrinath@gmail.com,byjanbooks@gmail.com')
-        .split(',')
-        .map((s) => s.trim().toLowerCase())
-        .filter(Boolean);
-      if (!superEmails.includes(email)) throw new ApiError(403, 'Super user required');
 
       if (op === 'getRolePermissions') {
         const rows = await sql`SELECT role_key, features FROM role_permissions`;
@@ -867,6 +886,14 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
         apiJson(res, 200, { roles: map });
         return;
       }
+
+      const profile = await ledgerGetUser(user.uid);
+      const email = String(user.email || profile?.email || '').toLowerCase();
+      const superEmails = String(process.env.SUPER_USER_EMAILS || process.env.VITE_SUPER_USER_EMAILS || 'pujaribadrinath@gmail.com,byjanbooks@gmail.com')
+        .split(',')
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean);
+      if (!superEmails.includes(email)) throw new ApiError(403, 'Super user required');
 
       const roleKey = String(body.roleKey || '').trim();
       const features = body.features && typeof body.features === 'object' ? body.features : {};

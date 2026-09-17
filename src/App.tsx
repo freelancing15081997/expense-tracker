@@ -52,11 +52,11 @@ export default function App() {
                 <Route index element={<Dashboard />} />
                 <Route path="access" element={<SuperUserGate><AccessControl /></SuperUserGate>} />
                 <Route path="expenses" element={<FeatureGate feature="money"><Dashboard /></FeatureGate>} />
-                <Route path="activity" element={<FeatureGate feature="money"><Activity /></FeatureGate>} />
+                <Route path="activity" element={<FeatureGate feature="money_activity"><Activity /></FeatureGate>} />
                 <Route path="notifications" element={<Navigate to="/activity" replace />} />
-                <Route path="regular-payments" element={<FeatureGate feature="money"><RegularPayments /></FeatureGate>} />
+                <Route path="regular-payments" element={<FeatureGate feature="money_recurring"><RegularPayments /></FeatureGate>} />
                 <Route path="book/:bookId" element={<FeatureGate feature="money"><BookView /></FeatureGate>} />
-                <Route path="reports" element={<FeatureGate feature="money"><MoneyReports /></FeatureGate>} />
+                <Route path="reports" element={<FeatureGate feature="money_reports"><MoneyReports /></FeatureGate>} />
                 <Route path="settings" element={<Settings />} />
                 <Route path="books/*" element={<FeatureGate feature="business"><Suspense fallback={<AppLoader title="Business" message="Opening your company accounts." />}><BooksApp /></Suspense></FeatureGate>} />
               </Route>

@@ -25,6 +25,7 @@ export const isWeb = platform === 'web';
 export class CapacitorService {
   private static pushToken: string | null = null;
   private static initialized = false;
+  private static pushListenersBound = false;
   private static boundUid = '';
   private static lastAlertAt = 0;
 
@@ -55,38 +56,41 @@ export class CapacitorService {
     if (!isMobile) return;
 
     try {
-      const permission = await PushNotifications.checkPermissions();
-      
-      if (permission.receive === 'prompt') {
-        const result = await PushNotifications.requestPermissions();
-        if (result.receive !== 'granted') {
-          console.log('Push notification permission denied');
-          return;
-        }
+      let receive = (await PushNotifications.checkPermissions()).receive;
+      if (receive !== 'granted') {
+        receive = (await PushNotifications.requestPermissions()).receive;
+      }
+      if (receive !== 'granted') {
+        console.log('Push notification permission denied');
+        return;
+      }
+
+      if (!this.pushListenersBound) {
+        this.pushListenersBound = true;
+        PushNotifications.addListener('registration', (token) => {
+          console.log('Push registration success, token:', token.value);
+          this.pushToken = token.value;
+          try { (window as unknown as { __BYJAN_PUSH_TOKEN?: string }).__BYJAN_PUSH_TOKEN = token.value; } catch { /* ignore */ }
+          void this.savePushToken(token.value);
+        });
+
+        PushNotifications.addListener('registrationError', (error) => {
+          console.error('Error on registration:', error);
+        });
+
+        PushNotifications.addListener('pushNotificationReceived', (notification) => {
+          console.log('Push notification received:', notification);
+          this.handleIncomingNotification(notification);
+        });
+
+        PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
+          console.log('Push notification action performed:', action);
+          this.handleNotificationAction(action);
+        });
       }
 
       await PushNotifications.register();
       await this.ensureAlertChannel();
-
-      PushNotifications.addListener('registration', (token) => {
-        console.log('Push registration success, token:', token.value);
-        this.pushToken = token.value;
-        this.savePushToken(token.value);
-      });
-
-      PushNotifications.addListener('registrationError', (error) => {
-        console.error('Error on registration:', error);
-      });
-
-      PushNotifications.addListener('pushNotificationReceived', (notification) => {
-        console.log('Push notification received:', notification);
-        this.handleIncomingNotification(notification);
-      });
-
-      PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
-        console.log('Push notification action performed:', action);
-        this.handleNotificationAction(action);
-      });
     } catch (error) {
       console.error('Error setting up push notifications:', error);
     }
@@ -94,10 +98,15 @@ export class CapacitorService {
 
   static async bindAccount(uid?: string) {
     this.boundUid = String(uid || '');
-    if (this.pushToken) await this.savePushToken(this.pushToken);
-    else if (isMobile) {
-      try { await PushNotifications.register(); } catch { /* ignore */ }
+    if (!isMobile) return;
+    if (this.pushToken) {
+      await this.savePushToken(this.pushToken);
+      return;
     }
+    try {
+      if (!this.initialized) await this.initializePushNotifications();
+      else await PushNotifications.register();
+    } catch { /* ignore */ }
   }
 
   private static async ensureAlertChannel() {
@@ -108,9 +117,9 @@ export class CapacitorService {
         description: 'When a teammate adds or changes an entry',
         importance: 5,
         visibility: 1,
-        sound: 'beep.wav',
         vibration: true,
         lights: true,
+        sound: 'beep.wav',
       });
     } catch {
       /* web or already created */

@@ -41,6 +41,7 @@ export async function createNotification(input: {
   senderName?: string;
   ledgerMail?: string;
   link?: string;
+  skipPush?: boolean;
 }) {
   await apiPost('/api/notifications', { op: 'create', ...input });
 }
