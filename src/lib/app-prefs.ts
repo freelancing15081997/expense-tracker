@@ -49,6 +49,8 @@ export type AppPrefs = {
   printShowGstin: boolean;
   keyboardShortcuts: boolean;
   roundHalfUp: boolean;
+  /** Soft cue when voice mic starts listening. Default on; user can switch off. */
+  voiceStartSound: boolean;
 };
 
 export const DEFAULT_APP_PREFS: AppPrefs = {
@@ -81,6 +83,7 @@ export const DEFAULT_APP_PREFS: AppPrefs = {
   printShowGstin: true,
   keyboardShortcuts: true,
   roundHalfUp: true,
+  voiceStartSound: true,
 };
 
 const STORAGE_KEY = 'byjan.appPrefs';
@@ -213,6 +216,7 @@ export function normalizeAppPrefs(raw: unknown): AppPrefs {
     printShowGstin: asBool(src.printShowGstin, true),
     keyboardShortcuts: asBool(src.keyboardShortcuts, true),
     roundHalfUp: asBool(src.roundHalfUp, true),
+    voiceStartSound: asBool(src.voiceStartSound, true),
   };
 }
 

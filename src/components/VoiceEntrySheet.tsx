@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Loader2, Mic, X } from 'lucide-react';
 import { listenVoice, parseVoiceLine, voiceSupported, type VoiceParse } from '../lib/voice-capture';
+import { CapacitorService } from '../lib/capacitor';
 
 type Props = {
   open: boolean;
@@ -27,6 +28,7 @@ export default function VoiceEntrySheet({ open, onClose, onReady, onToast }: Pro
     setBusy(true);
     setError('');
     setParsed(null);
+    CapacitorService.playMicStartCue();
     try {
       if (!voiceSupported()) {
         setError('Voice entry needs a device that supports speech recognition.');

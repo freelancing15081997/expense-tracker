@@ -230,19 +230,43 @@ if (fab.exists) {
 
 const home = await evalJs(send, `(() => {
   const text = document.body.innerText || '';
+  const pills = [...document.querySelectorAll('.home-pill')].map((b) => (b.textContent || '').trim());
+  const payEl = document.querySelector('[aria-label="Pending payments"]');
+  const payR = payEl?.getBoundingClientRect();
+  const amount = document.querySelector('.home-amount');
+  const amountR = amount?.getBoundingClientRect();
+  const amountWrap = document.querySelector('.home-amount-fit');
+  const amountOverflow = amount && amountWrap
+    ? amount.scrollWidth <= amountWrap.clientWidth + 2
+    : true;
+  const bar = document.querySelector('.dash-tabbar.has-fab');
+  const mask = bar ? getComputedStyle(bar).webkitMaskImage || getComputedStyle(bar).maskImage || '' : '';
+  const slot = Boolean(document.querySelector('.dash-fab-slot'));
   return {
     crashed: /This screen could not open|Minified React error/i.test(text),
-    hasAmount: /₹|Rs|INR|\\d/.test(text),
-    pills: [...document.querySelectorAll('.home-pill')].map((b) => (b.textContent || '').trim()),
+    hasAmount: Boolean(amount) || /₹|Rs|INR/.test(text),
+    amountFits: amountOverflow,
+    amountFont: amount ? getComputedStyle(amount).fontSize : null,
+    amountW: amountR ? Math.round(amountR.width) : null,
+    pills,
+    addSplitAdjacent: pills[0]?.toLowerCase().includes('add') && pills[1]?.toLowerCase().includes('split'),
     invite: Boolean(document.querySelector('.home-invite-rail')),
     attention: Boolean(document.querySelector('.home-attention')),
     inbox: Boolean(document.querySelector('[aria-label="Financial inbox"]')),
     upcoming: Boolean(document.querySelector('[aria-label="Upcoming payments"]')),
-    pay: Boolean(document.querySelector('[aria-label="Pending payments"]')),
+    pay: Boolean(payEl),
+    payInView: payEl ? (payR.top < innerHeight * 0.72 && payR.bottom > 80) : null,
+    payTop: payR ? Math.round(payR.top) : null,
+    notchMask: /radial-gradient/i.test(mask),
+    fabSlot: slot,
     qa: [...document.querySelectorAll('.home-qa-tile')].map((a) => (a.textContent || '').trim()),
   };
 })()`);
-check('home-screen', !home.crashed && home.pills.length >= 1, home);
+check('home-screen', !home.crashed && home.pills.length >= 1 && home.hasAmount, home);
+check('home-amount-fits', home.amountFits !== false, { amountFits: home.amountFits, font: home.amountFont, w: home.amountW });
+check('home-add-split-adjacent', home.addSplitAdjacent === true || !home.pills.some((p) => /split/i.test(p)), { pills: home.pills });
+check('home-to-pay-visible', home.pay !== true || home.payInView === true, { pay: home.pay, payInView: home.payInView, payTop: home.payTop });
+check('fab-notch-down', home.notchMask === true && home.fabSlot === true, { notchMask: home.notchMask, fabSlot: home.fabSlot });
 
 await evalJs(send, `document.querySelector('.dash-tab-books')?.click()`);
 await sleep(1400);
@@ -265,12 +289,20 @@ const book = await evalJs(send, `(() => {
   const text = document.body.innerText || '';
   const entries = document.querySelectorAll('.entry-card-mobile, .mb-entry').length;
   const tabs = [...document.querySelectorAll('.book-tab')].map((t) => (t.textContent || '').trim());
+  const sticky = document.querySelector('.book-tabs-sticky');
+  const stickyPos = sticky ? getComputedStyle(sticky).position : null;
+  const icon = document.querySelector('.mb-entry-icon');
+  const iconR = icon?.getBoundingClientRect();
+  const teamBtn = [...document.querySelectorAll('button')].find((b) => /\\bTeam\\b/i.test(b.textContent || '') || /team — people/i.test(b.getAttribute('title') || ''));
   const fab = document.querySelector('.dash-fab-center');
   const fr = fab?.getBoundingClientRect();
   return {
     hash: location.hash,
     entries,
     tabs,
+    stickyTabs: stickyPos === 'sticky',
+    entryIconW: iconR ? Math.round(iconR.width) : null,
+    teamLabeled: Boolean(teamBtn),
     filter: Boolean(document.querySelector('[title="Filters"], .byjan-tool-btn')),
     download: Boolean(document.querySelector('[title="Download report"]')),
     crashed: /Minified React error|This screen could not open/i.test(text),
@@ -280,16 +312,31 @@ const book = await evalJs(send, `(() => {
 })()`);
 check('book-open', Boolean(bookLink) && !book.crashed, { bookLink, ...book });
 check('fab-on-book', book.fabVisible === true, { fabVisible: book.fabVisible, fabY: book.fabY });
+check('book-sticky-tabs', book.stickyTabs === true, { stickyTabs: book.stickyTabs, tabs: book.tabs });
+check('book-team-label', book.teamLabeled === true, { teamLabeled: book.teamLabeled });
+check('entry-icon-size', book.entryIconW == null || book.entryIconW >= 48, { entryIconW: book.entryIconW });
 
+await evalJs(send, `document.querySelector('[title="Download report"]')?.scrollIntoView({block:'center'})`);
+await sleep(250);
+const exportBtn = await evalJs(send, `Boolean(document.querySelector('[title="Download report"]'))`);
 await evalJs(send, `document.querySelector('[title="Download report"]')?.click()`);
-await sleep(700);
+await sleep(800);
 const exportMenu = await evalJs(send, `(() => {
-  const text = document.body.innerText || '';
-  return { pdf: /PDF/i.test(text), csv: /CSV/i.test(text) };
+  const panel = document.querySelector('[aria-label="Download report"]');
+  const text = (panel?.innerText || document.body.innerText || '');
+  return { hasBtn: Boolean(document.querySelector('[title="Download report"]')), pdf: /PDF report|PDF/i.test(text), csv: /CSV spreadsheet|CSV/i.test(text), panel: Boolean(panel) };
 })()`);
-check('export-menu', exportMenu.pdf && exportMenu.csv, exportMenu);
+check('export-menu', exportBtn && exportMenu.pdf && exportMenu.csv, { ...exportMenu, exportBtn });
 await evalJs(send, `document.querySelector('.fixed.inset-0')?.click()`);
 await sleep(400);
+
+await evalJs(send, `location.hash = location.hash.split('?')[0] + '?tab=splits'`);
+await sleep(900);
+const splitsTab = await evalJs(send, `(() => {
+  const active = document.querySelector('.book-tab[data-state="active"]');
+  return { active: (active?.textContent || '').trim(), hash: location.hash };
+})()`);
+check('book-tab-splits-query', /split/i.test(splitsTab.active) || /tab=splits/i.test(splitsTab.hash), splitsTab);
 
 await evalJs(send, `document.querySelector('.dash-tab-activity')?.click()`);
 await sleep(1200);
@@ -306,11 +353,28 @@ const settings = await evalJs(send, `(() => {
     hash: location.hash,
     display: /display|icon|type|font/i.test(text),
     upi: /upi/i.test(text),
+    voiceSound: /recording start sound|voice start sound|voice entry/i.test(text),
     help: Boolean([...document.querySelectorAll('a,button')].find((el) => /help/i.test(el.textContent||''))),
     crashed: /Minified React error/i.test(text),
   };
 })()`);
 check('settings', /settings/i.test(settings.hash) && settings.display && !settings.crashed, settings);
+check('settings-voice-sound', settings.voiceSound === true, { voiceSound: settings.voiceSound });
+
+await evalJs(send, `location.hash = '#/trace'`);
+await sleep(1400);
+shot('06b-trace');
+const trace = await evalJs(send, `(() => {
+  const text = document.body.innerText || '';
+  const hash = location.hash || '';
+  return {
+    hash,
+    ok: /email pipeline|smtp|failed sends|brevo|Trace/i.test(text) && /trace/i.test(hash),
+    gated: !/trace/i.test(hash),
+    crashed: /Minified React error/i.test(text),
+  };
+})()`);
+check('trace-screen', !trace.crashed && (trace.ok || trace.gated), trace);
 
 await evalJs(send, `location.hash = '#/reports'`);
 await sleep(1200);

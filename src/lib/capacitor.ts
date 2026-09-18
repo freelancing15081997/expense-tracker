@@ -15,6 +15,7 @@ import { LocalNotifications } from '@capacitor/local-notifications';
 import { Device } from '@capacitor/device';
 import { Browser } from '@capacitor/browser';
 import { Toast } from '@capacitor/toast';
+import { getRuntimePrefs } from './app-prefs';
 
 export const isMobile = Capacitor.isNativePlatform();
 export const platform = Capacitor.getPlatform();
@@ -289,6 +290,34 @@ export class CapacitorService {
       gain.connect(ctx.destination);
       osc.start();
       osc.stop(ctx.currentTime + 0.3);
+      osc.onended = () => { void ctx.close(); };
+    } catch {
+      /* audio not available */
+    }
+  }
+
+  /** Short “recording started” cue. Honors Settings → Voice start sound. */
+  static playMicStartCue() {
+    try {
+      if (!getRuntimePrefs().voiceStartSound) return;
+    } catch {
+      /* prefs unavailable — still play */
+    }
+    try {
+      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(720, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(480, ctx.currentTime + 0.12);
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.14, ctx.currentTime + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.22);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.24);
       osc.onended = () => { void ctx.close(); };
     } catch {
       /* audio not available */

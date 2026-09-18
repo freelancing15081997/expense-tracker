@@ -317,7 +317,23 @@ export default function BookView() {
 
   useEffect(() => {
     if (searchParams.get('pay') && hasFeature('money_split_tab')) setLedgerTab('splits');
+    const tab = String(searchParams.get('tab') || '').trim().toLowerCase();
+    if (!tab) return;
+    if (tab === 'splits' && hasFeature('money_split_tab')) setLedgerTab('splits');
+    else if (tab === 'email' && hasFeature('money_email_tab')) setLedgerTab('email');
+    else if (tab === 'reports' || tab === 'analytics') setLedgerTab('analytics');
+    else if (tab === 'history' || tab === 'audit') setLedgerTab('audit');
+    else if (tab === 'expenses' || tab === 'ledger') setLedgerTab('ledger');
   }, [searchParams, hasFeature]);
+
+  const onLedgerTabChange = (next: string) => {
+    setLedgerTab(next);
+    if (!searchParams.get('tab') && !searchParams.get('pay')) return;
+    const params = new URLSearchParams(searchParams);
+    params.delete('tab');
+    if (next !== 'splits') params.delete('pay');
+    setSearchParams(params, { replace: true });
+  };
 
   useEffect(() => {
     const entryId = String(searchParams.get('entry') || '').trim();
@@ -1746,8 +1762,9 @@ export default function BookView() {
   return (
     <>
       <div className="h-full min-h-0 flex flex-col" data-purpose-id={purposeId}>
-      <Tabs.Root value={shownTab} onValueChange={setLedgerTab} className="h-full min-h-0 flex flex-col">
-        <div className="shrink-0 px-4 md:px-6 lg:px-8 pt-2 pb-2 bg-white border-b border-slate-200">
+      <Tabs.Root value={shownTab} onValueChange={onLedgerTabChange} className="h-full min-h-0 flex flex-col">
+        <div className="flex-1 min-h-0 overflow-y-auto book-scroll">
+        <div className="px-4 md:px-6 lg:px-8 pt-2 pb-0 bg-white">
         <div className="max-w-6xl mx-auto">
       <div className="flex flex-col gap-2 mb-1">
         <div className="flex items-start gap-2 min-w-0">
@@ -1894,10 +1911,11 @@ export default function BookView() {
           <button
             type="button"
             onClick={() => setIsMembersModalOpen(true)}
-            className="byjan-btn-ghost !h-11 !px-3 shrink-0"
-            title="Share this money book"
+            className="byjan-btn-ghost !h-11 !px-3 shrink-0 inline-flex items-center gap-1.5"
+            title="Team — people with access to this book"
           >
             <Users className="w-4 h-4" />
+            <span className="text-[12px] font-semibold">Team</span>
           </button>
           )}
         </div>
@@ -1944,6 +1962,7 @@ export default function BookView() {
         ) : null}
       </div>
 
+        <div className="book-tabs-sticky sticky top-0 z-30 -mx-1 px-1 pt-1 pb-2 bg-white/95 backdrop-blur-md border-b border-slate-100">
         <Tabs.List className="book-tabs" aria-label="Book sections">
           <Tabs.Trigger value="ledger" className="book-tab">
             <Wallet className="w-3.5 h-3.5" />
@@ -1974,6 +1993,7 @@ export default function BookView() {
           </Tabs.Trigger>
           )}
         </Tabs.List>
+        </div>
 
         {ledgerTab === 'ledger' && (
           <div className="book-dash book-dash-compact mt-1.5 space-y-1.5">
@@ -2105,8 +2125,6 @@ export default function BookView() {
             </div>
           </div>
         )}
-        </div>
-        </div>
 
         {filtersOpen && createPortal(
           <>
@@ -2215,8 +2233,7 @@ export default function BookView() {
           document.body
         )}
 
-        <div className="flex-1 min-h-0 overflow-y-auto px-4 md:px-6 lg:px-8 py-1.5 book-scroll">
-        <div className="max-w-6xl mx-auto">
+        <div className="py-1.5">
         <Tabs.Content value="ledger" className="outline-none">
           <div className="tool-collapse-row tool-collapse-row-soft mb-1.5">
           <LedgerTools
@@ -2863,6 +2880,8 @@ export default function BookView() {
             <div className="byjan-card p-8 text-center text-sm text-slate-500">Sign in to view split transactions.</div>
           )}
         </Tabs.Content>
+        </div>
+        </div>
         </div>
         </div>
       </Tabs.Root>

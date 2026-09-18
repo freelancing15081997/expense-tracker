@@ -265,6 +265,18 @@ export default function Settings() {
       </section>
       )}
 
+      {hasFeature('money_voice') && (
+      <section className="byjan-card overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-200 bg-[#F8FAFC]">
+          <h2 className="text-base font-semibold text-slate-900">Voice entry</h2>
+          <p className="text-xs text-slate-500 mt-1">Sounds when you start the microphone from Home, FAB, or a book.</p>
+        </div>
+        <div className="px-5">
+          <Switch on={prefs.voiceStartSound} onChange={(v) => setPref('voiceStartSound', v)} label="Recording start sound" hint="Soft cue when listening begins. On by default — turn off if you prefer silence." />
+        </div>
+      </section>
+      )}
+
       <section className="byjan-card overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-200 bg-[#F8FAFC]">
           <h2 className="text-base font-semibold text-slate-900">Regional</h2>

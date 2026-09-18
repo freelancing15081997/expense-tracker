@@ -5002,7 +5002,7 @@ html[data-radius="round"] { --ui-radius: 24px; --ui-btn-radius: 999px; }
 .dash-fab-anchor {
   position: fixed;
   left: 50%;
-  bottom: calc(68px + env(safe-area-inset-bottom));
+  bottom: calc(58px + env(safe-area-inset-bottom));
   width: 62px;
   height: 62px;
   transform: translateX(-50%);
@@ -5675,13 +5675,28 @@ html[data-radius="round"] { --ui-radius: 24px; --ui-btn-radius: 999px; }
 .home-amount-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   margin-top: 10px;
+  min-width: 0;
+  max-width: 100%;
+}
+.home-amount-fit {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.home-amount-fit .home-amount {
+  margin: 0;
+  max-width: 100%;
 }
 .home-pills {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
+}
+.home-pill.tone-split {
+  border-color: rgba(14, 165, 233, 0.28);
+  background: linear-gradient(165deg, rgba(224, 242, 254, 0.9), #fff);
 }
 .home-pill {
   display: inline-flex;
@@ -6788,13 +6803,13 @@ body:has(.onboard-shell) {
   -webkit-backdrop-filter: blur(10px) saturate(130%);
 }
 .mb-entry-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 15px;
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
 }
 .mb-entry-icon .cat-mark svg {
-  width: 22px !important;
-  height: 22px !important;
+  width: 26px !important;
+  height: 26px !important;
 }
 .entry-card-title {
   margin-top: 3px;
@@ -6950,25 +6965,26 @@ section[aria-label="To pay"] {
   margin-bottom: 4px;
 }
 
-/* FAB notch — white nav curves under + */
+/* FAB notch — concave scoop into the bar (curves down around +) */
 .dash-tabbar.has-fab {
   overflow: visible;
+  -webkit-mask-image: radial-gradient(circle 34px at 50% 0, transparent 33px, #000 34.5px);
+  mask-image: radial-gradient(circle 34px at 50% 0, transparent 33px, #000 34.5px);
 }
 .dash-tabbar.has-fab::before {
   content: '';
   position: absolute;
   left: 50%;
-  top: -22px;
-  width: 92px;
-  height: 44px;
-  transform: translateX(-50%);
-  background: rgba(255,255,255,0.96);
-  border-radius: 0 0 46px 46px;
+  top: 0;
+  width: 78px;
+  height: 39px;
+  transform: translate(-50%, -42%);
+  border-radius: 50%;
+  background: transparent;
   box-shadow:
-    0 1px 0 rgba(255,255,255,0.9) inset,
-    0 10px 18px -16px rgba(11,31,58,0.35);
+    0 1px 0 rgba(255,255,255,0.85),
+    0 10px 18px -14px rgba(11,31,58,0.28);
   border: 1px solid rgba(11,31,58,0.08);
-  border-top: 0;
   pointer-events: none;
   z-index: 0;
 }
@@ -6981,7 +6997,7 @@ section[aria-label="To pay"] {
   left: 50% !important;
   right: auto !important;
   top: auto !important;
-  bottom: calc(68px + env(safe-area-inset-bottom)) !important;
+  bottom: calc(58px + env(safe-area-inset-bottom)) !important;
   transform: translateX(-50%) !important;
   z-index: 90 !important;
   pointer-events: none;
@@ -6990,6 +7006,13 @@ section[aria-label="To pay"] {
 .dash-fab-center {
   border: 5px solid #fff;
   z-index: 6;
+}
+.dash-tabbar[data-tabs="3"].has-fab {
+  padding-left: 4px;
+  padding-right: 4px;
+}
+.dash-tabbar[data-tabs="3"] .dash-fab-slot {
+  min-width: 64px;
 }
 
 .book-dash-compact .md3-stats {
@@ -7016,7 +7039,7 @@ section[aria-label="To pay"] {
     gap: 4px;
     padding: 9px 10px;
   }
-  .mb-entry-icon { width: 44px; height: 44px; }
+  .mb-entry-icon { width: 52px; height: 52px; }
   .entry-card-why { display: none; }
 }
 
@@ -7138,16 +7161,26 @@ section[aria-label="To pay"] {
 
 .md3-book-icon { width: 56px !important; height: 56px !important; }
 .md3-book-icon-face { font-size: 15px !important; }
-.home-amount { font-size: clamp(32px, 7.6vw, 40px) !important; }
+.home-amount { font-size: clamp(22px, 7.6vw, 40px) !important; }
 .home-name { font-size: calc(25px * var(--ui-type, 1)) !important; }
 .home-pay-dock {
-  margin-bottom: calc(28px + env(safe-area-inset-bottom));
-  padding-bottom: 14px;
+  margin-top: 4px;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
   position: relative;
   z-index: 40;
 }
+.home-pay-dock .home-upcoming-kicker {
+  animation: pulse-attn 1.6s ease-in-out infinite;
+}
 .home-pay-dock .home-quad-pay {
   z-index: 1;
+}
+.book-tabs-sticky {
+  margin: 0 0 6px;
+}
+.book-tabs-sticky .book-tabs {
+  margin: 0;
 }
 @media (max-width: 768px) {
   .home-shell {

@@ -103,7 +103,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .slice(0, 120);
 
     const tiers = freeTier();
-    const emailFails = events.filter((e: any) => e.kind === 'email.send' && e.ok === false).slice(0, 40);
+    const emailFails = events.filter((e: any) => (e.kind === 'email.send' || e.kind === 'email.config') && e.ok === false).slice(0, 40);
     const emailOk = events.filter((e: any) => e.kind === 'email.send' && e.ok === true).slice(0, 20);
 
     json(res, 200, {

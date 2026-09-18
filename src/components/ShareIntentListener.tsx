@@ -64,6 +64,10 @@ export function rememberMoneyBook(bookId: string) {
   writeUserLocalJson(uid, 'last_money_book', { id: bookId });
 }
 
+export function lastMoneyBookId() {
+  return cachedBookId();
+}
+
 export function cacheMoneyBooks(books: Array<{ id: string; name: string; currency?: string }>) {
   const uid = currentUid();
   booksCacheUid = uid;

@@ -378,8 +378,8 @@ export default function Layout() {
             Books
           </MotionLink>
         )}
-        {/* Center gap only when 4+ tabs so Books stays middle with 3 tabs (Home · Books · More). */}
-        {showFab && tabCount >= 4 ? <span className="dash-fab-slot" aria-hidden /> : null}
+        {/* Always reserve center gap when FAB is shown so + never covers a tab (3 or 4 tabs). */}
+        {showFab ? <span className="dash-fab-slot" aria-hidden /> : null}
         {showActivityTab && (
           <MotionLink to="/activity" className="dash-tab dash-tab-activity" data-on={onActivity} onClick={pulseNav} whileTap={reduceMotion ? undefined : { scale: 0.9, rotateX: 16 }} transition={tabSpring} style={{ transformPerspective: 700 }}>
             <Activity className="w-5 h-5" />

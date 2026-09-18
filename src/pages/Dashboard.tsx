@@ -22,7 +22,7 @@ import { clearStoreCache } from '../lib/store';
 import { roleLabel } from '../lib/plain-language';
 import { useFeatures } from '../lib/use-features';
 import ReceiptCaptureFlow, { type ReceiptLaunch } from '../components/ReceiptCaptureFlow';
-import { cacheMoneyBooks, readPendingCapture, clearPendingCapture, rememberMoneyBook, readCachedMoneyBooks, type PendingCapture } from '../components/ShareIntentListener';
+import { cacheMoneyBooks, readPendingCapture, clearPendingCapture, rememberMoneyBook, readCachedMoneyBooks, lastMoneyBookId, type PendingCapture } from '../components/ShareIntentListener';
 import { readUserJson, writeUserJson } from '../lib/user-cache';
 import PendingPayStrip from '../components/PendingPayStrip';
 import { CapacitorService } from '../lib/capacitor';
@@ -38,6 +38,38 @@ import {
 } from '../lib/purpose-templates';
 import { buildAttentionInbox } from '../lib/financial-memory';
 import { detectAnomalies, detectCommitments } from '../lib/money-intelligence';
+
+function AutoFitAmount({ children, className }: { children: React.ReactNode; className?: string }) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const textRef = useRef<HTMLParagraphElement>(null);
+
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    const text = textRef.current;
+    if (!wrap || !text) return;
+    const fit = () => {
+      const max = 40;
+      const min = 18;
+      let size = max;
+      text.style.fontSize = `${size}px`;
+      text.style.whiteSpace = 'nowrap';
+      while (size > min && text.scrollWidth > wrap.clientWidth) {
+        size -= 1;
+        text.style.fontSize = `${size}px`;
+      }
+    };
+    fit();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(fit) : null;
+    ro?.observe(wrap);
+    return () => ro?.disconnect();
+  }, [children]);
+
+  return (
+    <div ref={wrapRef} className="home-amount-fit">
+      <p ref={textRef} className={className}>{children}</p>
+    </div>
+  );
+}
 
 interface BookItem {
   id: string;
@@ -1091,9 +1123,9 @@ export default function Dashboard() {
             <>
               <div className="home-amount-row">
                 <CurrencyMark code={currencyCode} size="lg" />
-                <p className="home-amount byjan-money">
+                <AutoFitAmount className="home-amount byjan-money">
                   {loading || !statsReady ? <span className="home-skel-balance byjan-skel" /> : formatIndianAmount(net, currency)}
-                </p>
+                </AutoFitAmount>
               </div>
               <div className="home-hero-chips" aria-label="Snapshot">
                 <span className="home-hero-chip is-in">In {loading || !statsReady ? '…' : formatIndianAmount(globalStats.totalIn, currency)}</span>
@@ -1113,6 +1145,8 @@ export default function Dashboard() {
           )}
         </section>
 
+        {hasFeature('money') && hasFeature('money_settle') && uid ? <PendingPayStrip uid={uid} /> : null}
+
         {inviteBlock}
 
         {hasFeature('money') && (
@@ -1121,6 +1155,23 @@ export default function Dashboard() {
               <button type="button" className="home-pill tone-add" onClick={() => { void CapacitorService.hapticTick(); requestQuick('add'); }}>
                 <Plus className="w-4 h-4" strokeWidth={2.4} />
                 Add
+              </button>
+            )}
+            {hasFeature('money_split') && (
+              <button
+                type="button"
+                className="home-pill tone-split"
+                onClick={() => {
+                  void CapacitorService.hapticTick();
+                  const last = lastMoneyBookId();
+                  const target = (last && visibleBooks.some((b) => b.id === last) ? last : visibleBooks[0]?.id) || '';
+                  if (target) navigate(`/book/${target}?tab=splits`);
+                  else if (hasFeature('money_create_book')) setShowNewBook(true);
+                  else navigate('/expenses');
+                }}
+              >
+                <Split className="w-4 h-4" strokeWidth={2.4} />
+                Split
               </button>
             )}
             {hasFeature('money_scan') && (
@@ -1134,12 +1185,6 @@ export default function Dashboard() {
                 <Mic className="w-4 h-4" strokeWidth={2.4} />
                 Voice
               </button>
-            )}
-            {hasFeature('money_create_book') && (
-            <button type="button" className="home-pill tone-book" onClick={() => setShowNewBook(true)}>
-              <BookText className="w-4 h-4" strokeWidth={2.4} />
-              New book
-            </button>
             )}
           </section>
         )}
@@ -1168,17 +1213,17 @@ export default function Dashboard() {
                 <span className="home-qa-icon" aria-hidden><BookText className="w-5 h-5" /></span>
                 Books
               </Link>
+              {hasFeature('money_create_book') && (
+                <button type="button" className="home-qa-tile" onClick={() => setShowNewBook(true)}>
+                  <span className="home-qa-icon" aria-hidden><BookText className="w-5 h-5" /></span>
+                  New book
+                </button>
+              )}
               {hasFeature('money_reports') && (
               <Link to="/reports" className="home-qa-tile">
                 <span className="home-qa-icon" aria-hidden><BarChart3 className="w-5 h-5" /></span>
                 Reports
               </Link>
-              )}
-              {hasFeature('money_split') && (
-                <Link to="/expenses" className="home-qa-tile">
-                  <span className="home-qa-icon" aria-hidden><Split className="w-5 h-5" /></span>
-                  Split
-                </Link>
               )}
               {hasFeature('money_recurring') && (
                 <Link to="/regular-payments" className="home-qa-tile">
@@ -1195,8 +1240,6 @@ export default function Dashboard() {
             </div>
           </section>
         )}
-
-        {hasFeature('money') && hasFeature('money_settle') && uid ? <PendingPayStrip uid={uid} /> : null}
 
         {hasFeature('money') && (loading || recentEntries.length > 0) && (
           <section className="home-recent" aria-label="Recent transactions">
