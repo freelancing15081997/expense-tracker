@@ -16,7 +16,12 @@ export default function Login() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState<'email' | 'google' | ''>('');
   const [showOnboard, setShowOnboard] = useState(() => {
-    try { return localStorage.getItem(ONBOARD_KEY) !== '1'; } catch { return true; }
+    try {
+      const hash = String(window.location.hash || '');
+      const q = hash.includes('?') ? hash.slice(hash.indexOf('?') + 1) : window.location.search.replace(/^\?/, '');
+      if (new URLSearchParams(q).get('nativeApp') === '1') return false;
+      return localStorage.getItem(ONBOARD_KEY) !== '1';
+    } catch { return true; }
   });
   const navigate = useNavigate();
   const loading = Boolean(busy);
@@ -25,6 +30,33 @@ export default function Login() {
     const notice = consumeAuthNotice();
     if (notice) setError(notice);
   }, []);
+
+  useEffect(() => {
+    // Deep-link handoff from the Android app: open login and immediately start Google.
+    try {
+      const hash = String(window.location.hash || '');
+      const q = hash.includes('?') ? hash.slice(hash.indexOf('?') + 1) : window.location.search.replace(/^\?/, '');
+      const params = new URLSearchParams(q);
+      if (params.get('nativeApp') !== '1' || params.get('google') !== '1') return;
+      if (sessionStorage.getItem('byjan.nativeGoogleAuto') === '1') return;
+      sessionStorage.setItem('byjan.nativeGoogleAuto', '1');
+      void (async () => {
+        try {
+          setBusy('google');
+          const result = await signInWithGoogle();
+          if (await handoffGoogleToNativeApp(result)) {
+            setError('Signed in — returning to the Byjan app…');
+            return;
+          }
+          if (result) navigate(consumeReturnTo());
+        } catch (err: any) {
+          setError(err?.message || 'Failed to sign in with Google');
+        } finally {
+          setBusy('');
+        }
+      })();
+    } catch { /* ignore */ }
+  }, [navigate]);
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();

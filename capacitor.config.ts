@@ -26,7 +26,8 @@ const config: CapacitorConfig = {
       enabled: true,
     },
     FirebaseAuthentication: {
-      skipNativeAuth: false,
+      // JS Firebase Auth is the app source of truth; native layer only obtains the Google credential.
+      skipNativeAuth: true,
       providers: ['google.com'],
     },
     SplashScreen: {
@@ -57,7 +58,7 @@ const config: CapacitorConfig = {
   android: {
     allowMixedContent: false,
     captureInput: true,
-    webContentsDebuggingEnabled: false,
+    webContentsDebuggingEnabled: true,
   }
 };
 

@@ -103,8 +103,9 @@ export function bindNativeGoogleAuthBridge() {
 
 export async function handoffGoogleToNativeApp(result: UserCredential | null | undefined) {
   if (!result || !nativeAppFlag()) return false;
-  const cred = GoogleAuthProvider.credentialFromResult(result);
-  const token = cred?.idToken;
+  const oauth = GoogleAuthProvider.credentialFromResult(result);
+  const tokenResponse = (result as { _tokenResponse?: { oauthIdToken?: string } })._tokenResponse;
+  const token = String(oauth?.idToken || tokenResponse?.oauthIdToken || '').trim();
   if (!token) return false;
   // Bounce back into the installed Android app — never leave the user on the website.
   window.location.href = `${NATIVE_AUTH_SCHEME}?idToken=${encodeURIComponent(token)}`;
@@ -116,13 +117,15 @@ async function signInWithGoogleViaBrowser(): Promise<UserCredential> {
   const { Browser } = await import('@capacitor/browser');
   const { App } = await import('@capacitor/app');
   const origin = WEB_HANDOFF_ORIGIN.includes('localhost') ? 'https://www.easypado.com' : WEB_HANDOFF_ORIGIN;
-  const url = `${origin}/#/login?nativeApp=1`;
+  // Auto-start Google on the web page so the user does not tap Sign in twice.
+  const url = `${origin}/#/login?nativeApp=1&google=1`;
   return new Promise((resolve, reject) => {
     let settled = false;
     const finish = async (err?: unknown, cred?: UserCredential) => {
       if (settled) return;
       settled = true;
       window.clearTimeout(timer);
+      window.removeEventListener('byjan-google-auth', onCustom);
       try { await handle.then((h) => h.remove()); } catch { /* ignore */ }
       try { await Browser.close(); } catch { /* ignore */ }
       if (err) reject(err instanceof Error ? err : new Error('Google sign-in failed'));
@@ -151,7 +154,6 @@ async function signInWithGoogleViaBrowser(): Promise<UserCredential> {
     };
     window.addEventListener('byjan-google-auth', onCustom);
     const timer = window.setTimeout(() => {
-      window.removeEventListener('byjan-google-auth', onCustom);
       void finish(new Error('Google sign-in timed out. Try again.'));
     }, 180_000);
     Browser.open({ url, presentationStyle: 'popover' }).catch((err) => { void finish(err); });
@@ -167,14 +169,23 @@ export async function signInWithGoogle() {
     bindNativeGoogleAuthBridge();
     try {
       const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
-      const result = await FirebaseAuthentication.signInWithGoogle();
+      // Native Google account sheet → Google idToken → JS Firebase Auth (this app’s source of truth).
+      const result = await FirebaseAuthentication.signInWithGoogle({
+        skipNativeAuth: true,
+        useCredentialManager: false,
+      });
       const idToken = result.credential?.idToken;
-      if (idToken) return await signInWithCredential(auth, GoogleAuthProvider.credential(idToken));
+      const accessToken = result.credential?.accessToken;
+      if (idToken) {
+        return await signInWithCredential(auth, GoogleAuthProvider.credential(idToken, accessToken));
+      }
+      throw new Error('Google sign-in returned no id token');
     } catch (err) {
       const mapped = googleSignInError(err);
       if (/cancelled/i.test(mapped.message)) throw mapped;
+      console.warn('Native Google sign-in failed; trying browser handoff', mapped);
     }
-    // Fallback: Custom Tab on easypado → deep-link idToken back into the app.
+    // Last resort: Custom Tab → deep-link idToken back into the app.
     return signInWithGoogleViaBrowser();
   }
 
