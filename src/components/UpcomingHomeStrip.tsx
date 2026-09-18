@@ -50,24 +50,30 @@ export default function UpcomingHomeStrip({
           onIndex={setIndex}
           label="Upcoming reminders"
         >
-          {rows.map((row) => (
-            <Link
-              key={row.id}
-              to={row.bookId ? `/book/${row.bookId}` : '/regular-payments'}
-              className={`home-swipe-slide home-upcoming-card${row.missed || row.lateDays > 0 ? ' is-late' : ''}`}
-            >
-              <span className="min-w-0">
-                <span className="home-upcoming-name">{row.merchant}</span>
-                <span className="home-upcoming-meta">
-                  {dueLabel(row.nextExpected)}
-                  {row.bookName ? ` · ${row.bookName}` : ''}
+          {rows.map((row) => {
+            const entryId = row.expenseIds?.[0];
+            const href = row.bookId
+              ? `/book/${row.bookId}${entryId ? `?entry=${encodeURIComponent(entryId)}` : ''}`
+              : '/regular-payments';
+            return (
+              <div
+                key={row.id}
+                className={`home-swipe-slide home-quad-card${row.missed || row.lateDays > 0 ? ' is-late' : ''}`}
+              >
+                <span className="home-quad-kind">{dueLabel(row.nextExpected)}</span>
+                <span className="home-quad-copy min-w-0">
+                  <span className="home-upcoming-name">{row.merchant}</span>
+                  <span className="home-upcoming-meta">{row.bookName || 'Repeating'}</span>
                 </span>
-              </span>
-              <strong className="home-upcoming-amt">
-                {formatIndianAmount(row.avgAmount, symbol)}
-              </strong>
-            </Link>
-          ))}
+                <strong className="home-upcoming-amt">
+                  {formatIndianAmount(row.avgAmount, symbol)}
+                </strong>
+                <Link to={href} className="home-quad-pay">
+                  Pay
+                </Link>
+              </div>
+            );
+          })}
         </HomeSwipeDeck>
       )}
     </section>

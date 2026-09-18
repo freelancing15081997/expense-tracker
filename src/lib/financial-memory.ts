@@ -155,6 +155,8 @@ export type AttentionItem = {
   detail: string;
   href: string;
   priority: number;
+  amount?: number;
+  action?: string;
 };
 
 export function buildAttentionInbox(input: {
@@ -172,7 +174,9 @@ export function buildAttentionInbox(input: {
       kind: 'receipt_review',
       title: 'Receipt needs review',
       detail: String(d.description || d.merchant || 'Draft entry'),
-      href: d.bookId ? `/book/${d.bookId}` : '/expenses',
+      href: d.bookId ? `/book/${d.bookId}?entry=${encodeURIComponent(String(d.id))}` : '/expenses',
+      amount: Number(d.amount || 0) || undefined,
+      action: 'Open',
       priority: 90,
     });
   }
@@ -182,7 +186,9 @@ export function buildAttentionInbox(input: {
       kind: 'categorize',
       title: 'Needs a category',
       detail: String(u.description || u.merchant || 'Entry'),
-      href: u.bookId ? `/book/${u.bookId}` : '/reports',
+      href: u.bookId ? `/book/${u.bookId}?entry=${encodeURIComponent(String(u.id))}` : '/reports',
+      amount: Number(u.amount || 0) || undefined,
+      action: 'Edit',
       priority: 70,
     });
   }
@@ -192,7 +198,8 @@ export function buildAttentionInbox(input: {
       kind: 'duplicate',
       title: 'Possible duplicate',
       detail: dup.message,
-      href: dup.bookId ? `/book/${dup.bookId}` : '/reports',
+      href: dup.bookId ? `/book/${dup.bookId}?entry=${encodeURIComponent(String(dup.id))}` : '/reports',
+      action: 'Review',
       priority: 80,
     });
   }
@@ -203,6 +210,8 @@ export function buildAttentionInbox(input: {
       title: 'Recurring pattern',
       detail: `${r.label} · ~₹${Math.round(r.amount)}`,
       href: '/regular-payments',
+      amount: Number(r.amount || 0) || undefined,
+      action: 'Open',
       priority: 55,
     });
   }
@@ -213,6 +222,8 @@ export function buildAttentionInbox(input: {
       title: 'Upcoming commitment',
       detail: `${c.label} · ${c.nextEstimate || 'soon'}`,
       href: '/regular-payments',
+      amount: Number(c.amount || 0) || undefined,
+      action: 'Pay',
       priority: 60,
     });
   }
@@ -223,6 +234,7 @@ export function buildAttentionInbox(input: {
       title: `${input.pendingSplits} split request${input.pendingSplits === 1 ? '' : 's'}`,
       detail: 'Settle shared expenses',
       href: '/expenses',
+      action: 'Settle',
       priority: 75,
     });
   }

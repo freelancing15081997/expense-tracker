@@ -30,6 +30,8 @@ import {
   ledgerUpdateBook,
   ledgerUpsertUser,
   ledgerFindDuplicateExpense,
+  ledgerForgetBook,
+  ledgerHasBookListRow,
   ledgerListAudit,
   assertErpWorkspace,
   erpLoadWorkspace,
@@ -159,8 +161,27 @@ async function handleLedgers(req: VercelRequest, res: VercelResponse) {
     if (op === 'get') {
       const bookId = String(body.bookId || '').trim();
       if (!bookId) throw new ApiError(400, 'Missing ledger');
-      const book = await ledgerGetBookForUser(bookId, user.uid);
-      apiJson(res, 200, { book });
+      const data = await ledgerGet(`books/${bookId}`);
+      if (!data) throw new ApiError(404, 'Ledger not found');
+      const member = await ledgerMember(bookId, user.uid);
+      if (member) {
+        apiJson(res, 200, { book: await ledgerGetBookForUser(bookId, user.uid), isMember: true });
+        return;
+      }
+      if (!(await ledgerHasBookListRow(bookId, user.uid))) {
+        throw new ApiError(403, 'You do not have access to this ledger');
+      }
+      apiJson(res, 200, {
+        book: {
+          id: bookId,
+          name: String(data.name || 'Money book'),
+          currency: String(data.currency || 'INR'),
+          ownerId: String(data.ownerId || ''),
+          roles: data.roles && typeof data.roles === 'object' ? data.roles : {},
+          createdAt: data.createdAt,
+        },
+        isMember: false,
+      });
       return;
     }
 
@@ -208,6 +229,13 @@ async function handleLedgers(req: VercelRequest, res: VercelResponse) {
       if (!bookId || !uidToRemove) throw new ApiError(400, 'Missing member');
       const book = await ledgerRemoveMember(bookId, user.uid, uidToRemove);
       apiJson(res, 200, { book });
+      return;
+    }
+
+    if (op === 'forgetBook') {
+      const bookId = String(body.bookId || '').trim();
+      if (!bookId) throw new ApiError(400, 'Missing ledger');
+      apiJson(res, 200, await ledgerForgetBook(bookId, user.uid));
       return;
     }
 
@@ -787,15 +815,43 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
       const superUser = emailIsSuperUser(user.email);
       const stored = storedAccessFeatures(profile?.features);
       const rolePermissions = await loadRolePermissionsMap();
+      const orgUiDefaults = await ledgerGet('org/ui-defaults');
       apiJson(res, 200, {
         rolePermissions,
+        orgUiDefaults,
         user: {
           ...base,
+          orgUiDefaults,
           isSuperUser: superUser,
           hasFeatureOverride: Boolean(stored),
           features: stored,
         },
       });
+      return;
+    }
+
+    if (op === 'setOrgUi') {
+      if (!emailIsSuperUser(user.email)) throw new ApiError(403, 'Only a super user can set organization display defaults.');
+      const chrome = body.chrome && typeof body.chrome === 'object' && !Array.isArray(body.chrome)
+        ? (body.chrome as Record<string, unknown>)
+        : {};
+      const saved = {
+        iconPx: Number(chrome.iconPx),
+        typeScale: Number(chrome.typeScale),
+        radiusPx: Number(chrome.radiusPx),
+        uiDensity: chrome.uiDensity === 'compact' ? 'compact' : 'comfortable',
+        updatedAt: new Date().toISOString(),
+        updatedBy: user.uid,
+      };
+      await ledgerSet('org/ui-defaults', saved);
+      await ledgerAudit({
+        actorUid: user.uid,
+        actorEmail: user.email,
+        action: 'org.ui-defaults',
+        entityType: 'org',
+        entityId: 'ui-defaults',
+      });
+      apiJson(res, 200, { orgUiDefaults: saved });
       return;
     }
 

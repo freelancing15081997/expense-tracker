@@ -10,6 +10,7 @@ export type LedgerBook = {
   inboundAddress?: string;
   inboundSlug?: string;
   categories?: string[];
+  isMember?: boolean;
   [key: string]: unknown;
 };
 
@@ -19,8 +20,13 @@ export async function listLedgers() {
 }
 
 export async function getLedger(bookId: string) {
-  const payload = await apiPost<{ book: LedgerBook }>('/api/ledgers', { op: 'get', bookId });
-  return payload.book;
+  const payload = await apiPost<{ book: LedgerBook; isMember?: boolean }>('/api/ledgers', { op: 'get', bookId });
+  return { ...payload.book, isMember: payload.isMember !== false };
+}
+
+export async function forgetLedger(bookId: string) {
+  clearExpensesListCache();
+  await apiPost('/api/ledgers', { op: 'forgetBook', bookId });
 }
 
 export async function createLedger(input: {
@@ -61,6 +67,7 @@ export async function updateLedger(bookId: string, patch: Record<string, unknown
 }
 
 export async function removeLedgerMember(bookId: string, uidToRemove: string) {
+  clearExpensesListCache();
   const payload = await apiPost<{ book: LedgerBook }>('/api/ledgers', { op: 'removeMember', bookId, uidToRemove });
   return payload.book;
 }

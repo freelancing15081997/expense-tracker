@@ -1,16 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { signInWithEmailAndPassword, signInWithGoogle, auth } from '../lib/firebase';
+import { signInWithEmailAndPassword, signInWithGoogle, auth, handoffGoogleToNativeApp } from '../lib/firebase';
 import { Mail, Lock, AlertCircle } from 'lucide-react';
 import AuthScene from '../components/AuthScene';
+import OnboardingSlides from '../components/OnboardingSlides';
 import { consumeReturnTo } from '../lib/return-to';
 import { consumeAuthNotice } from '../lib/support';
+import { EMAIL_NOTIFY_HINT, isValidNotifyEmail, normalizeEmail } from '../lib/email';
+
+const ONBOARD_KEY = 'byjan.onboard.v1';
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState<'email' | 'google' | ''>('');
+  const [showOnboard, setShowOnboard] = useState(() => {
+    try { return localStorage.getItem(ONBOARD_KEY) !== '1'; } catch { return true; }
+  });
   const navigate = useNavigate();
   const loading = Boolean(busy);
 
@@ -21,10 +28,15 @@ export default function Login() {
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    const cleaned = normalizeEmail(email);
+    if (!isValidNotifyEmail(cleaned)) {
+      setError(EMAIL_NOTIFY_HINT);
+      return;
+    }
     try {
       setError('');
       setBusy('email');
-      await signInWithEmailAndPassword(auth, email, password);
+      await signInWithEmailAndPassword(auth, cleaned, password);
       navigate(consumeReturnTo());
     } catch (err: any) {
       setError(err.message || 'Failed to sign in');
@@ -38,6 +50,7 @@ export default function Login() {
       setError('');
       setBusy('google');
       const result = await signInWithGoogle();
+      if (await handoffGoogleToNativeApp(result)) return;
       if (result) navigate(consumeReturnTo());
     } catch (err: any) {
       setError(err.message || 'Failed to sign in with Google');
@@ -45,6 +58,15 @@ export default function Login() {
       setBusy('');
     }
   };
+
+  const finishOnboard = () => {
+    try { localStorage.setItem(ONBOARD_KEY, '1'); } catch { /* ignore */ }
+    setShowOnboard(false);
+  };
+
+  if (showOnboard) {
+    return <OnboardingSlides onDone={finishOnboard} />;
+  }
 
   return (
     <AuthScene
@@ -89,8 +111,10 @@ export default function Login() {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
               autoComplete="email"
+              inputMode="email"
             />
           </label>
+          <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500 text-center">{EMAIL_NOTIFY_HINT}</p>
         </div>
         <div>
           <label className="block text-sm font-medium text-slate-700 text-center">Password</label>

@@ -9,6 +9,7 @@ import {
   addLedgerMailEvent,
   ensureLedgerMailbox,
   getLedger,
+  forgetLedger,
   listLedgerAudit,
   listLedgerMail,
   removeLedgerMember,
@@ -32,12 +33,13 @@ import { categoryForQuickAction, getPurposeTemplate, purposeFieldMeta, quickActi
 import { suggestBookEvolution } from '../lib/book-evolution';
 import { bookInboundAddress, ledgerAppLink, openInviteButtonHtml, openLedgerButtonHtml, wrapByjanEmailHtml } from '../lib/inbound-mail';
 import { createLedgerInvite, memberEmails } from '../lib/invites';
+import { EMAIL_NOTIFY_HINT, isValidNotifyEmail, normalizeEmail } from '../lib/email';
 import { apiUrl, apiPost } from '../lib/api';
 import { savePdfBase64, saveTextFile, safeFileName } from '../lib/save-file';
 import { authHeaders } from '../lib/auth-client';
 import { ReceiptModal, attachmentKind } from '../components/ReceiptModal';
 import { EventMailTrack, emailStatusClass, emailStatusLabel, resolvedStatus } from '../components/EmailActivityFlow';
-import { ListControls, usePagedList } from '../components/ListControls';
+import { ListControls, ListPager, usePagedList } from '../components/ListControls';
 import AppLoader from '../components/AppLoader';
 import LedgerTools from '../components/LedgerTools';
 import LedgerStudio from '../components/LedgerStudio';
@@ -271,6 +273,7 @@ export default function BookView() {
   const [period, setPeriod] = useState('');
   const [filtersOpen, setFiltersOpen] = useState(false);
   const filterBtnRef = useRef<HTMLButtonElement>(null);
+  const openedEntryRef = useRef('');
   const [filterPos, setFilterPos] = useState({ top: 56, left: 24, width: 400 });
   const [exportOpen, setExportOpen] = useState(false);
   const exportBtnRef = useRef<HTMLButtonElement>(null);
@@ -278,6 +281,7 @@ export default function BookView() {
   
   // Invite State
   const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteSentTo, setInviteSentTo] = useState('');
   const [inviteRole, setInviteRole] = useState('contributor');
   const [inviting, setInviting] = useState(false);
 
@@ -313,6 +317,35 @@ export default function BookView() {
   useEffect(() => {
     if (searchParams.get('pay') && hasFeature('money_split_tab')) setLedgerTab('splits');
   }, [searchParams, hasFeature]);
+
+  useEffect(() => {
+    const entryId = String(searchParams.get('entry') || '').trim();
+    if (!entryId || !expenses.length || openedEntryRef.current === entryId) return;
+    const exp = expenses.find((row) => String(row.id) === entryId);
+    if (!exp) return;
+    openedEntryRef.current = entryId;
+    setEditingExpense(exp);
+    setEntryType(exp.entryType || 'out');
+    setTxType((exp.txType as TxType) || (exp.entryType === 'in' ? 'INCOME' : exp.entryType === 'transfer' ? 'TRANSFER' : 'EXPENSE'));
+    setAmount(exp.amount == null ? '' : String(exp.amount));
+    setDescription(String(exp.description || ''));
+    setCategory(String(exp.category || ''));
+    setCustomCatInput('');
+    setEntryDate(String(exp.paidAt || exp.date || new Date().toISOString().split('T')[0]));
+    setMerchant(String(exp.merchant || ''));
+    setPaymentMethod(String(exp.paymentMethod || 'cash'));
+    setAccountId(String(exp.accountId || 'cash'));
+    setNotes(String(exp.notes || ''));
+    setReimbursable(Boolean(exp.reimbursable));
+    setBillable(Boolean(exp.billable));
+    setSplitWithTeam(Array.isArray(exp.personSplits) && exp.personSplits.length > 0);
+    setTags(String(exp.tags || ''));
+    setReceiptMeta(exp.receiptPath ? { receiptPath: String(exp.receiptPath), receiptName: String(exp.receiptName || '') } : null);
+    setIsExpenseModalOpen(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete('entry');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, expenses, setSearchParams]);
   const [receiptPreview, setReceiptPreview] = useState<{ url: string; title: string; kind: 'image' | 'pdf' | 'file'; fileName?: string } | null>(null);
   const [openingReceiptId, setOpeningReceiptId] = useState<string | null>(null);
   const [exportingPdf, setExportingPdf] = useState(false);
@@ -378,6 +411,12 @@ export default function BookView() {
         setBook(next);
         setMonthlyBudget(next.monthlyBudget != null ? String(next.monthlyBudget) : '');
         setInboundAddress(bookInboundAddress(next));
+        const isMember = next.isMember !== false && Boolean(next.roles?.[currentUser.uid]?.role || next.ownerId === currentUser.uid);
+        if (!isMember) {
+          setExpenses([]);
+          setLoading(false);
+          return;
+        }
         if (!String(next.inboundAddress || next.inboundSlug || '').trim()) {
           void ensureLedgerMailbox(bookId).then((payload) => {
             if (payload.mailbox?.address) setInboundAddress(payload.mailbox.address);
@@ -797,6 +836,36 @@ export default function BookView() {
   if (loading) return <AppLoader title="Money book" message="Opening records and balances." />;
   if (!book) return <div className="p-8 text-center text-sm text-slate-500">Book not found or access denied.</div>;
 
+  const isActiveMember = Boolean(book.roles?.[currentUser!.uid]?.role) || book.ownerId === currentUser!.uid;
+  if (!isActiveMember) {
+    return (
+      <div className="ios-page px-4 py-8 max-w-lg mx-auto">
+        <Link to="/expenses" className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-500 mb-6">
+          <ArrowLeft className="w-4 h-4" /> Books
+        </Link>
+        <div className="byjan-card p-5 space-y-3">
+          <span className="inline-flex text-[10px] font-bold uppercase tracking-[0.14em] text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">Not a member</span>
+          <h1 className="text-xl font-semibold text-[#0B1F3A]">{String(book.name || 'Money book')}</h1>
+          <p className="text-sm text-slate-600 leading-relaxed">You are not a member of this book anymore. It can stay in your list until you remove it.</p>
+          <button
+            type="button"
+            className="byjan-btn w-full"
+            onClick={async () => {
+              try {
+                await forgetLedger(book.id);
+                navigate('/expenses');
+              } catch (err) {
+                addToast(err instanceof Error ? err.message : 'Could not remove this book', 'error');
+              }
+            }}
+          >
+            Remove this book from my list
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const myRole = book.roles?.[currentUser!.uid]?.role || (book.ownerId === currentUser!.uid ? 'owner' : 'viewer');
   const canWrite = ['owner', 'admin', 'contributor'].includes(myRole) && hasFeature('money_add');
   const canScan = ['owner', 'admin', 'contributor'].includes(myRole) && hasFeature('money_scan');
@@ -1027,7 +1096,7 @@ export default function BookView() {
     setEditingExpense(exp);
     setEntryType(exp.entryType || exp.entryType || 'out');
     setTxType((exp.txType as TxType) || (exp.entryType === 'in' ? 'INCOME' : exp.entryType === 'transfer' ? 'TRANSFER' : 'EXPENSE'));
-    setAmount(exp.amount.toString());
+    setAmount(exp.amount == null ? '' : String(exp.amount));
     setDescription(exp.description);
     if (categoryOptions.includes(exp.category)) {
       setCategory(exp.category);
@@ -1464,20 +1533,26 @@ export default function BookView() {
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canManageUsers || !inviteEmail) return;
+    const email = normalizeEmail(inviteEmail);
+    if (!isValidNotifyEmail(email)) {
+      addToast('Enter a valid email. Invitations only reach a real inbox.', 'error');
+      return;
+    }
     setInviting(true);
     try {
       const inviteId = await createLedgerInvite({
         bookId: book.id,
         bookName: book.name,
-        email: inviteEmail,
+        email,
         role: inviteRole,
         invitedBy: currentUser!.uid,
       });
       setInviteEmail('');
-      addToast('Invitation added to their dashboard successfully!', 'success');
+      setInviteSentTo(email);
+      addToast('Invitation sent. Keep this screen open or close it when you are done.', 'success');
       
       const sent = await sendEmailNotification(
-        inviteEmail.toLowerCase(),
+        email,
         `Invitation to ledger: ${book.name}`,
         wrapByjanEmailHtml({
           kicker: 'Invitation',
@@ -1486,18 +1561,18 @@ export default function BookView() {
           rows: [
             { label: 'Ledger', value: String(book.name || '') },
             { label: 'Role', value: inviteRole },
-            { label: 'Sign in as', value: inviteEmail.toLowerCase() },
+            { label: 'Sign in as', value: email },
           ],
           note: 'Open the invitation while signed in as the invited email. Sign out first if another account is already open on this device.',
           extraHtml: openInviteButtonHtml(inviteId),
         })
       );
       if (sent) {
-        addToast('Invitation added and email notification sent!', 'success');
+        addToast(`Email sent to ${email}. They will also see it on Home after signing in with that address.`, 'success');
       }
     } catch (err) {
       console.error(err);
-      addToast('Failed to send invite. Check permissions.', 'error');
+      addToast(err instanceof Error ? err.message : 'Failed to send invite. Check permissions.', 'error');
     } finally {
       setInviting(false);
     }
@@ -1909,8 +1984,9 @@ export default function BookView() {
         </Tabs.List>
 
         {ledgerTab === 'ledger' && (
-          <div className="mt-2 space-y-2">
-            <div className="md3-stats mb-2">
+          <div className="book-dash mt-2 space-y-3">
+            <div className="book-dash-kpis">
+            <div className="md3-stats">
               <div className="md3-stat tone-idle">
                 <span className="md3-stat-icon" aria-hidden><Wallet className="w-4 h-4" /></span>
                 <span className="md3-stat-label">Net</span>
@@ -1940,6 +2016,7 @@ export default function BookView() {
                 </strong>
               </div>
             </div>
+            </div>
             {(budget > 0 || reimbursableOpen > 0 || isAuditor) && (
               <div className="flex flex-wrap items-center gap-1.5">
                 {budget > 0 && (
@@ -1956,6 +2033,7 @@ export default function BookView() {
               </div>
             )}
 
+            <div className="book-dash-tools">
             <div className="flex items-center gap-1.5">
               {canLedgerSearch && (
               <label className="byjan-search flex-1">
@@ -2031,6 +2109,7 @@ export default function BookView() {
                 </DropdownMenu.Portal>
               </DropdownMenu.Root>
               )}
+            </div>
             </div>
           </div>
         )}
@@ -2586,35 +2665,14 @@ export default function BookView() {
           </div>
           {/* Pagination Controls */}
           {filteredExpenses.length > 0 && (
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-3 py-2 byjan-card mt-3">
-              <span className="text-xs font-medium text-slate-500">
-                <span className="text-slate-900">{((currentPage - 1) * itemsPerPage) + 1}-{Math.min(currentPage * itemsPerPage, filteredExpenses.length)}</span> of <span className="text-slate-900">{filteredExpenses.length}</span>
-              </span>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-500">Rows</span>
-                <select
-                  value={itemsPerPage}
-                  onChange={(e) => setItemsPerPage(Number(e.target.value))}
-                  className="byjan-input !w-auto !py-1 !h-auto text-xs"
-                >
-                  {[10, 25, 50, 100].map((n) => <option key={n} value={n}>{n}</option>)}
-                </select>
-                <button 
-                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                  disabled={currentPage === 1}
-                  className="p-1 rounded border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <button 
-                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                  disabled={currentPage === totalPages}
-                  className="p-1 rounded border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
+            <ListPager
+              page={currentPage}
+              totalPages={totalPages}
+              onPage={setCurrentPage}
+              pageSize={itemsPerPage}
+              onPageSize={setItemsPerPage}
+              total={filteredExpenses.length}
+            />
           )}
         </Tabs.Content>
 
@@ -2696,6 +2754,14 @@ export default function BookView() {
               })
             )}
           </div>
+          <ListPager
+            page={emailList.page}
+            totalPages={emailList.totalPages}
+            onPage={emailList.setPage}
+            pageSize={emailList.pageSize}
+            onPageSize={emailList.setPageSize}
+            total={emailList.filtered.length}
+          />
         </Tabs.Content>
 
         <Tabs.Content value="analytics" className="outline-none space-y-4">
@@ -3130,7 +3196,10 @@ export default function BookView() {
       </Dialog.Root>
 
       {/* Members Modal */}
-      <Dialog.Root open={isMembersModalOpen} onOpenChange={setIsMembersModalOpen}>
+      <Dialog.Root open={isMembersModalOpen} onOpenChange={(open) => {
+        setIsMembersModalOpen(open);
+        if (!open) setInviteSentTo('');
+      }}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 z-[90]" />
           <Dialog.Content className="fixed left-[50%] top-[50%] z-[100] flex flex-col w-full max-w-lg max-h-[85vh] translate-x-[-50%] translate-y-[-50%] overflow-hidden rounded-[22px] bg-white border border-slate-200 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)]">
@@ -3226,12 +3295,21 @@ export default function BookView() {
                 <h3 className="font-semibold text-slate-900 text-sm mb-2 flex items-center gap-1.5">
                   <UserPlus className="w-3.5 h-3.5 text-slate-500"/> Invite someone
                 </h3>
-                <form onSubmit={handleInvite} className="flex flex-col sm:flex-row gap-2">
+                <form onSubmit={handleInvite} className="flex flex-col gap-2">
                   <input 
                     type="email" required placeholder="email@company.com" 
                     value={inviteEmail} onChange={e => setInviteEmail(e.target.value)}
                     className="byjan-input"
+                    autoComplete="email"
+                    inputMode="email"
                   />
+                  <p className="text-[11px] leading-relaxed text-slate-500">{EMAIL_NOTIFY_HINT}</p>
+                  {inviteSentTo ? (
+                    <div className="rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-sm text-teal-900">
+                      Invitation sent to <strong>{inviteSentTo}</strong>. They must sign in with that email to accept. This screen stays open until you close it.
+                    </div>
+                  ) : null}
+                  <div className="flex flex-col sm:flex-row gap-2">
                   <Select value={inviteRole} onValueChange={setInviteRole}>
                     <SelectTrigger className="w-full sm:w-32 h-[34px] py-1.5 border-slate-300">
                       <SelectValue />
@@ -3247,6 +3325,7 @@ export default function BookView() {
                     {inviting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                     Invite
                   </button>
+                  </div>
                 </form>
               </div>
             )}

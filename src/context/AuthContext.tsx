@@ -63,6 +63,7 @@ function profileFromSnap(user: User, data: Record<string, unknown> | null | unde
     isSuperUser: emailIsSuperUser(user.email),
   };
   if (!data) return base;
+  const upiId = String(data.upiId || '').trim();
   return {
     ...base,
     displayName: String(data.displayName || base.displayName),
@@ -73,6 +74,11 @@ function profileFromSnap(user: User, data: Record<string, unknown> | null | unde
     appPrefs: data.appPrefs && typeof data.appPrefs === 'object' ? data.appPrefs as Record<string, unknown> : undefined,
     features: data.features && typeof data.features === 'object' ? data.features as FeatureMap : MEMBER_FEATURES,
     isSuperUser: emailIsSuperUser(String(data.email || user.email || '')),
+    upiId: upiId || undefined,
+    upiDisplayName: String(data.upiDisplayName || '').trim() || undefined,
+    upiStatus: String(data.upiStatus || '').trim() || undefined,
+    upiConfirmedAt: String(data.upiConfirmedAt || '').trim() || undefined,
+    status: String(data.status || '').trim() || undefined,
   };
 }
 

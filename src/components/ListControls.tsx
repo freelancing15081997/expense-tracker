@@ -32,6 +32,65 @@ export function usePagedList<T>(rows: T[], filter: (row: T, query: string) => bo
   };
 }
 
+export function ListSearch(props: {
+  query: string;
+  onQuery: (value: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <label className="byjan-search w-full">
+      <Search className="w-4 h-4 text-slate-400 shrink-0" />
+      <input
+        type="search"
+        value={props.query}
+        onChange={(e) => props.onQuery(e.target.value)}
+        placeholder={props.placeholder || 'Search'}
+      />
+    </label>
+  );
+}
+
+export function ListPager(props: {
+  page: number;
+  totalPages: number;
+  onPage: (page: number) => void;
+  pageSize: number;
+  onPageSize: (size: number) => void;
+  total: number;
+}) {
+  const start = props.total === 0 ? 0 : (props.page - 1) * props.pageSize + 1;
+  const end = Math.min(props.page * props.pageSize, props.total);
+  return (
+    <nav className="list-pager" aria-label="List pages">
+      <div className="list-pager-meta">
+        <span className="list-pager-kicker">Pages</span>
+        <strong>{start}–{end}</strong>
+        <span>of {props.total}</span>
+      </div>
+      <div className="list-pager-actions">
+        <label className="list-pager-size">
+          <span>Rows</span>
+          <select
+            value={props.pageSize}
+            onChange={(e) => props.onPageSize(Number(e.target.value))}
+          >
+            {[10, 25, 50, 100].map((n) => (
+              <option key={n} value={n}>{n}</option>
+            ))}
+          </select>
+        </label>
+        <button type="button" disabled={props.page <= 1} onClick={() => props.onPage(props.page - 1)} aria-label="Previous page">
+          <ChevronLeft className="w-4 h-4" />
+        </button>
+        <span className="list-pager-now">{props.page}/{props.totalPages}</span>
+        <button type="button" disabled={props.page >= props.totalPages} onClick={() => props.onPage(props.page + 1)} aria-label="Next page">
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      </div>
+    </nav>
+  );
+}
+
 export function ListControls(props: {
   query: string;
   onQuery: (value: string) => void;
@@ -43,40 +102,9 @@ export function ListControls(props: {
   total: number;
   placeholder?: string;
 }) {
-  const start = props.total === 0 ? 0 : (props.page - 1) * props.pageSize + 1;
-  const end = Math.min(props.page * props.pageSize, props.total);
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-      <label className="byjan-search w-full sm:max-w-xs !h-9">
-        <Search className="w-4 h-4 text-slate-400 shrink-0" />
-        <input
-          type="search"
-          value={props.query}
-          onChange={(e) => props.onQuery(e.target.value)}
-          placeholder={props.placeholder || 'Search'}
-        />
-      </label>
-      <div className="flex items-center gap-2 text-xs text-slate-500">
-        <span>Rows</span>
-        <select
-          value={props.pageSize}
-          onChange={(e) => props.onPageSize(Number(e.target.value))}
-          className="byjan-input !w-auto !py-1.5 !h-auto text-xs"
-        >
-          {[10, 25, 50, 100].map((n) => (
-            <option key={n} value={n}>{n}</option>
-          ))}
-        </select>
-        <span className="whitespace-nowrap">
-          <span className="text-slate-900 font-medium">{start}-{end}</span> of {props.total}
-        </span>
-        <button type="button" className="p-1 rounded border border-slate-200 disabled:opacity-40" disabled={props.page <= 1} onClick={() => props.onPage(props.page - 1)}>
-          <ChevronLeft className="w-4 h-4" />
-        </button>
-        <button type="button" className="p-1 rounded border border-slate-200 disabled:opacity-40" disabled={props.page >= props.totalPages} onClick={() => props.onPage(props.page + 1)}>
-          <ChevronRight className="w-4 h-4" />
-        </button>
-      </div>
+    <div className="space-y-2">
+      <ListSearch query={props.query} onQuery={props.onQuery} placeholder={props.placeholder} />
     </div>
   );
 }

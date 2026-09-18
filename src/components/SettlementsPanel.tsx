@@ -59,7 +59,12 @@ export default function SettlementsPanel({
   const [askUid, setAskUid] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [q, setQ] = useState('');
+  const [savedUpi, setSavedUpi] = useState(myUpiId);
   const consumedPay = React.useRef('');
+
+  useEffect(() => {
+    setSavedUpi(myUpiId);
+  }, [myUpiId]);
 
   const refresh = useCallback(async () => {
     if (!bookId) return;
@@ -126,7 +131,7 @@ export default function SettlementsPanel({
 
   const unpaid = mine.filter((r) => r.status !== 'PAID');
   const missingUpi = members.filter((m) => m.uid !== currentUid && !m.hasUpi);
-  const iNeedUpi = !myUpiId;
+  const iNeedUpi = !savedUpi;
   const badge = unpaid.filter((r) => r.status !== 'CANCELLED').length || (iNeedUpi ? 1 : 0) || missingUpi.length;
 
   const filtered = useMemo(() => {
@@ -211,7 +216,17 @@ export default function SettlementsPanel({
             Add UPI ID
           </button>
         </div>
-      ) : null}
+      ) : (
+        <div className="mb-2 rounded-xl border border-slate-200 bg-white px-3 py-2 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Your UPI ID</p>
+            <p className="text-sm font-semibold text-[#0B1F3A] truncate">{savedUpi}</p>
+          </div>
+          <button type="button" className="byjan-btn-ghost !h-8 shrink-0" onClick={() => setUpiOpen(true)}>
+            Update
+          </button>
+        </div>
+      )}
 
       {missingUpi.length > 0 ? (
         <div className="mb-2 space-y-1.5">
@@ -366,10 +381,11 @@ export default function SettlementsPanel({
 
       <UpiSetupSheet
         open={upiOpen}
-        initialUpiId={myUpiId}
+        initialUpiId={savedUpi || myUpiId}
         initialName={myUpiName}
         onClose={() => setUpiOpen(false)}
-        onSaved={() => {
+        onSaved={(profile) => {
+          setSavedUpi(profile.upiId);
           onProfileRefresh?.();
           void refresh();
         }}

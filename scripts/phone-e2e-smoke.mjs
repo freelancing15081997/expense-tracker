@@ -86,6 +86,11 @@ const loginIfNeeded = async () => {
   const state = await evalJs(send, `({ hash: location.hash, tabs: document.querySelectorAll('.dash-tab').length, text: (document.body.innerText||'').slice(0,200) })`);
   if (state.tabs && !/sign in|welcome back/i.test(state.text)) return;
   await evalJs(send, `(() => {
+    [...document.querySelectorAll('button')].find((b) => /skip|continue to sign in/i.test(b.textContent || ''))?.click();
+    return true;
+  })()`);
+  await sleep(600);
+  await evalJs(send, `(() => {
     const set = (el, v) => {
       if (!el) return;
       Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(el, v);
@@ -121,6 +126,19 @@ const settings = await evalJs(send, `(() => {
   };
 })()`);
 check('settings', settings.heading && settings.display && !settings.crashed, settings);
+
+await evalJs(send, `location.hash = '#/settings'`);
+await sleep(1400);
+const upi = await evalJs(send, `(() => {
+  const text = document.body.innerText || '';
+  return {
+    hash: location.hash,
+    upi: /UPI for settlements|Your UPI|Add UPI ID|Update UPI ID|No UPI ID yet/i.test(text),
+    emailHint: /real inbox|notifications/i.test(text),
+    crashed: /This screen could not open|Minified React error|Maximum update depth/i.test(text),
+  };
+})()`);
+check('settings-upi-email', /settings/i.test(upi.hash) && upi.upi && upi.emailHint && !upi.crashed, upi);
 
 await evalJs(send, `location.hash = '#/help'`);
 await sleep(1200);

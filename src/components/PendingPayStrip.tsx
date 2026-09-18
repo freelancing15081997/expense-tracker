@@ -1,15 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowDownLeft, ArrowUpRight, Banknote, ChevronRight } from 'lucide-react';
+import { Banknote, ChevronRight } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { listMySettlements, type MoneySettlementRow } from '../lib/money-api';
 import { paiseToUpiAmount } from '../lib/upi';
 import { getCurrencySymbol } from '../lib/currency';
+import HomeSwipeDeck from './HomeSwipeDeck';
 
 export default function PendingPayStrip({ uid }: { uid: string }) {
   const { currentUser } = useAuth();
   const me = uid || currentUser?.uid || '';
   const [rows, setRows] = useState<MoneySettlementRow[]>([]);
+  const [index, setIndex] = useState(0);
 
   useEffect(() => {
     if (!me) return;
@@ -32,56 +34,48 @@ export default function PendingPayStrip({ uid }: { uid: string }) {
 
   const mineToPay = rows.filter((r) => r.fromUid === me && String(r.status || '').toUpperCase() !== 'PAID');
   const waiting = rows.filter((r) => r.toUid === me && r.fromUid !== me && String(r.status || '').toUpperCase() !== 'PAID');
-  if (!mineToPay.length && !waiting.length) return null;
+  const cards = [...mineToPay, ...waiting];
+  if (!cards.length) return null;
 
   const duePaise = mineToPay.reduce((s, r) => s + Number(r.amountPaise || 0), 0);
   const symbol = getCurrencySymbol(mineToPay[0]?.currency || waiting[0]?.currency || 'INR');
-  const top = mineToPay[0] || waiting[0];
-  const preview = [...mineToPay, ...waiting].slice(0, 3);
+  const safeIndex = Math.min(index, cards.length - 1);
 
   return (
-    <section className="pay-strip is-alert" aria-label="Pending payments">
-      <div className="pay-strip-orb" aria-hidden>
-        <Banknote className="w-5 h-5" />
-        <span className="pay-strip-pulse" />
+    <section className="home-upcoming" aria-label="Pending payments">
+      <div className="home-upcoming-head">
+        <span className="home-upcoming-kicker">
+          <Banknote className="w-4 h-4" strokeWidth={2.2} />
+          {mineToPay.length ? `To pay · ${symbol}${paiseToUpiAmount(duePaise)}` : 'Awaiting you'}
+        </span>
+        <Link to={cards[0] ? `/book/${cards[0].bookId}?pay=${encodeURIComponent(cards[0].id)}` : '/expenses'}>
+          See all <ChevronRight className="w-3.5 h-3.5" />
+        </Link>
       </div>
-      <div className="min-w-0 flex-1">
-        <p className="pay-strip-kicker">Payment alerts</p>
-        {mineToPay.length ? (
-          <p className="pay-strip-title">
-            {mineToPay.length} to pay · {symbol}{paiseToUpiAmount(duePaise)}
-          </p>
-        ) : (
-          <p className="pay-strip-title">{waiting.length} awaiting your confirmation</p>
-        )}
-        <ul className="pay-strip-list">
-          {preview.map((row) => {
-            const iOwe = row.fromUid === me;
-            return (
-              <li key={row.id}>
-                <Link to={`/book/${row.bookId}?pay=${encodeURIComponent(row.id)}`} className="pay-strip-row">
-                  <span className={`pay-strip-dir ${iOwe ? 'out' : 'in'}`}>
-                    {iOwe ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownLeft className="w-3 h-3" />}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate">
-                    {row.expenseDescription || row.merchant || 'Split'}
-                  </span>
-                  <span className="pay-strip-amt">
-                    {symbol}{paiseToUpiAmount(row.amountPaise)}
-                  </span>
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-      </div>
-      <Link
-        to={top ? `/book/${top.bookId}?pay=${encodeURIComponent(top.id)}` : '/expenses'}
-        className="pay-strip-cta"
+      <HomeSwipeDeck
+        count={cards.length}
+        index={safeIndex}
+        onIndex={setIndex}
+        label="Payment reminders"
       >
-        {mineToPay.length ? 'Pay now' : 'Review'}
-        <ChevronRight className="w-4 h-4" />
-      </Link>
+        {cards.map((row) => {
+          const iOwe = row.fromUid === me;
+          const href = `/book/${row.bookId}?pay=${encodeURIComponent(row.id)}`;
+          return (
+            <div key={row.id} className="home-swipe-slide home-quad-card">
+              <span className="home-quad-kind">{iOwe ? 'You owe' : 'Incoming'}</span>
+              <span className="home-quad-copy min-w-0">
+                <span className="home-upcoming-name">{row.expenseDescription || row.merchant || 'Split'}</span>
+                <span className="home-upcoming-meta">{row.merchant || 'Money book'}</span>
+              </span>
+              <strong className="home-upcoming-amt">
+                {symbol}{paiseToUpiAmount(row.amountPaise)}
+              </strong>
+              <Link to={href} className="home-quad-pay">{iOwe ? 'Pay' : 'Review'}</Link>
+            </div>
+          );
+        })}
+      </HomeSwipeDeck>
     </section>
   );
 }

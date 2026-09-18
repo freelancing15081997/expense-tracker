@@ -6,6 +6,7 @@ import { listAllExpenses } from '../lib/expenses';
 import { listNotifications, markNotificationRead, notificationPath, type AppNotification } from '../lib/notifications';
 import { getCurrencySymbol } from '../lib/currency';
 import { formatIndianAmount } from '../lib/bridge-automations';
+import { ListPager, usePagedList } from '../components/ListControls';
 
 function dayHeading(iso: string) {
   const t = Date.parse(iso);
@@ -48,7 +49,7 @@ export default function Activity() {
       kind: 'money' as const,
       title: String(r.description || r.merchant || 'Entry').replace(/\s+/g, ' ').trim().slice(0, 72),
       detail: `${r.entryType === 'in' ? '+' : '−'}${formatIndianAmount(Number(r.amount || 0), getCurrencySymbol(String(r.currency || userProfile?.defaultCurrency || 'INR')))}`,
-      href: r.bookId ? `/book/${r.bookId}` : '/expenses',
+      href: r.bookId ? `/book/${r.bookId}?entry=${encodeURIComponent(String(r.id))}` : '/expenses',
     }));
     const notes = notifs.map((n) => ({
       id: `n-${n.id}`,
@@ -60,19 +61,20 @@ export default function Activity() {
       unread: !n.read,
       nid: String(n.id || ''),
     }));
-    return [...money, ...notes].sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 50);
+    return [...money, ...notes].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
   }, [rows, notifs, userProfile?.defaultCurrency]);
 
+  const list = usePagedList(items, (row: { title: string; detail: string }, q: string) => `${row.title} ${row.detail}`.toLowerCase().includes(q), 10);
   const grouped = useMemo(() => {
     const out: Array<{ label: string; rows: typeof items }> = [];
-    for (const row of items) {
+    for (const row of list.pageRows) {
       const label = dayHeading(row.at);
       const last = out[out.length - 1];
       if (last && last.label === label) last.rows.push(row);
       else out.push({ label, rows: [row] });
     }
     return out;
-  }, [items]);
+  }, [list.pageRows]);
 
   return (
     <div className="premium-list-page max-w-xl mx-auto pb-28 md:pb-8">
@@ -114,6 +116,16 @@ export default function Activity() {
           </section>
         ))}
       </div>
+      {items.length > 0 ? (
+        <ListPager
+          page={list.page}
+          totalPages={list.totalPages}
+          onPage={list.setPage}
+          pageSize={list.pageSize}
+          onPageSize={list.setPageSize}
+          total={list.filtered.length}
+        />
+      ) : null}
     </div>
   );
 }

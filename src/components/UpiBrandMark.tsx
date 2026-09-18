@@ -13,20 +13,51 @@ const BRAND_SRC: Record<string, string> = {
   generic: '/brands/upi.svg',
 };
 
+const BRAND_BG: Record<string, string> = {
+  phonepe: '#FFFFFF',
+  paytm: '#FFFFFF',
+  gpay: '#FFFFFF',
+  cred: '#111111',
+  whatsapp: '#FFFFFF',
+  bhim: '#FFFFFF',
+  amazonpay: '#FFFFFF',
+  amazon: '#FFFFFF',
+  mobikwik: '#FFFFFF',
+  generic: '#FFFFFF',
+};
+
 /** Official India payment app marks (PhonePe, Paytm, GPay, CRED, BHIM, Amazon Pay, MobiKwik). */
-export function UpiBrandMark({ app, size = 28 }: { app: string; size?: number }) {
-  const src = BRAND_SRC[String(app || '').toLowerCase()] || BRAND_SRC.generic;
-  const radius = Math.max(6, Math.round(size * 0.25));
+export function UpiBrandMark({ app, size = 40 }: { app: string; size?: number }) {
+  const key = String(app || '').toLowerCase();
+  const src = BRAND_SRC[key] || BRAND_SRC.generic;
+  const bg = BRAND_BG[key] || '#ffffff';
+  const radius = Math.max(8, Math.round(size * 0.22));
+  const inset = Math.max(5, Math.round(size * 0.14));
   return (
-    <img
-      src={src}
-      alt=""
-      width={size}
-      height={size}
-      draggable={false}
-      className="upi-brand-img"
-      style={{ width: size, height: size, borderRadius: radius, display: 'block', objectFit: 'cover', background: '#fff' }}
-    />
+    <span
+      className="upi-brand-wrap"
+      style={{
+        width: size,
+        height: size,
+        borderRadius: radius,
+        background: bg,
+        display: 'inline-grid',
+        placeItems: 'center',
+        overflow: 'hidden',
+        boxShadow: '0 0 0 1px rgba(15,23,42,0.08)',
+        flexShrink: 0,
+      }}
+    >
+      <img
+        src={src}
+        alt=""
+        width={size - inset * 2}
+        height={size - inset * 2}
+        draggable={false}
+        className="upi-brand-img"
+        style={{ width: size - inset * 2, height: size - inset * 2, display: 'block', objectFit: 'contain' }}
+      />
+    </span>
   );
 }
 

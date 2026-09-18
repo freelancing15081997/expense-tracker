@@ -19,7 +19,6 @@ import {
   paymentStatusLabel,
 } from '../lib/upi';
 import { UpiBrandMark } from './UpiBrandMark';
-import { BRAND_LOGO_SRC } from '../lib/brand';
 import './split-premium.css';
 
 type Props = {
@@ -410,7 +409,7 @@ export default function SettlementPaySheet({
                     }}
                     onPointerMove={(e) => {
                       if (swipeStart.current == null) return;
-                      const w = Math.max(1, (e.currentTarget as HTMLDivElement).clientWidth - 76);
+                      const w = Math.max(1, (e.currentTarget as HTMLDivElement).clientWidth - 64);
                       const next = Math.max(0, Math.min(1, (e.clientX - swipeStart.current) / w));
                       swipeXRef.current = next;
                       setSwipeX(next);
@@ -429,8 +428,10 @@ export default function SettlementPaySheet({
                     <span className="sp-swipe-track" aria-hidden />
                     <span className="sp-swipe-fill" style={{ width: `${Math.max(18, swipeX * 100)}%` }} />
                     <span className="sp-swipe-hint">{swipeX > 0.82 ? 'Release to pay' : 'Swipe to choose UPI app'}</span>
-                    <span className="sp-swipe-knob" style={{ left: `calc(6px + ${swipeX} * (100% - 76px))` }}>
-                      <img src={BRAND_LOGO_SRC} alt="" />
+                    <span className="sp-swipe-knob" style={{ left: `calc(6px + ${swipeX} * (100% - 64px))` }}>
+                      <span className="sp-swipe-chevrons" aria-hidden>
+                        <i /><i /><i />
+                      </span>
                     </span>
                   </div>
                 </>
@@ -448,7 +449,7 @@ export default function SettlementPaySheet({
                         onClick={() => void startPay(app.id)}
                       >
                         <span className="sp-partner-mark">
-                          <UpiBrandMark app={app.id} size={32} />
+                          <UpiBrandMark app={app.id} size={40} />
                         </span>
                         {app.label}
                       </button>

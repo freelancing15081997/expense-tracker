@@ -19,6 +19,7 @@ export type MeProfile = {
   customCategories?: string[];
   photoURL?: string;
   appPrefs?: Record<string, unknown>;
+  orgUiDefaults?: Record<string, unknown> | null;
   features?: FeatureMap;
   hasFeatureOverride?: boolean;
   isSuperUser?: boolean;
@@ -76,10 +77,12 @@ function personOnBook(book: LedgerBook, uid: string) {
 export async function getMe() {
   const payload = await apiPost<{
     user?: MeProfile | null;
+    orgUiDefaults?: Record<string, unknown> | null;
     rolePermissions?: Record<string, Partial<FeatureMap>>;
   }>('/api/me', { op: 'get' });
   const user = payload.user || null;
   if (!user) return null;
+  if (payload.orgUiDefaults && !user.orgUiDefaults) user.orgUiDefaults = payload.orgUiDefaults;
   const accountStatus = String(user.status || '').toLowerCase();
   if (accountStatus === 'deleted' || accountStatus === 'deactivated') {
     return { ...user, features: MEMBER_FEATURES, isSuperUser: false };
@@ -112,6 +115,14 @@ export async function upsertMe(patch: Record<string, unknown>) {
   const { isSuperUser: _super, features: _features, ...safe } = patch;
   const payload = await apiPost<{ user: MeProfile }>('/api/me', { op: 'upsert', patch: safe });
   return payload.user;
+}
+
+export async function saveOrgUiDefaults(chrome: Record<string, unknown>) {
+  const payload = await apiPost<{ orgUiDefaults?: Record<string, unknown> }>('/api/me', {
+    op: 'setOrgUi',
+    chrome,
+  });
+  return payload.orgUiDefaults || chrome;
 }
 
 function personFromRole(uid: string, email: string): AccessPerson {

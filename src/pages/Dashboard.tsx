@@ -2,7 +2,7 @@
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { createLedger, listLedgers, updateLedger } from '../lib/ledgers';
+import { createLedger, forgetLedger, listLedgers, updateLedger } from '../lib/ledgers';
 import { CurrencyMark } from '../lib/currency-mark';
 import PullToRefresh from '../components/money/PullToRefresh';
 import UpcomingHomeStrip from '../components/UpcomingHomeStrip';
@@ -15,7 +15,7 @@ import { formatIndianAmount, workspaceBridges } from '../lib/bridge-automations'
 import { Plus, Check, X, Users, ArrowUpRight, RefreshCw, Wallet, TrendingUp, Receipt, Shield, ScanLine, PenLine, BookText, BarChart3, Split, ArrowLeftRight, Mic, LayoutGrid, List, Rows3, Pin, PinOff, MoreHorizontal } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
-import { ListControls, usePagedList } from '../components/ListControls';
+import { ListControls, ListPager, usePagedList } from '../components/ListControls';
 import { FeatureIcon } from '../books/ui/icons';
 import { acceptLedgerInvite, declineLedgerInvite, listLedgerInvites, type LedgerInvite } from '../lib/invites';
 import { clearStoreCache } from '../lib/store';
@@ -49,6 +49,7 @@ interface BookItem {
   accentHue?: number;
   createdAt?: string;
   roles: Record<string, { role: string; email: string }>;
+  isMember?: boolean;
 }
 
 const BOOKS_VIEW_KEY = 'byjan_books_view';
@@ -184,6 +185,7 @@ export default function Dashboard() {
         accentHue: Number(book.accentHue || 0) || undefined,
         createdAt: String(book.createdAt || ''),
         roles: (book.roles || {}) as BookItem['roles'],
+        isMember: book.isMember !== false && Boolean((book.roles || {})[uid] || book.ownerId === uid),
       })).sort(sortBooks);
       const pending = pendingBooksRef.current.filter((book) => !fetchedBooks.some((row) => row.id === book.id));
       pendingBooksRef.current = pending;
@@ -630,7 +632,12 @@ export default function Dashboard() {
   const hello = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   const firstName = String(userProfile?.displayName || currentUser?.email || 'there').split(' ')[0];
   const uid = currentUser?.uid || '';
-  const myRoleOn = (book: BookItem) => book.roles[uid]?.role || (book.ownerId === uid ? 'owner' : 'viewer');
+  const myRoleOn = (book: BookItem) => {
+    if (book.roles[uid]?.role) return book.roles[uid].role;
+    if (book.ownerId === uid) return 'owner';
+    return '';
+  };
+  const isBookMember = (book: BookItem) => book.isMember !== false && Boolean(myRoleOn(book));
   const managedBooks = visibleBooks.filter((book) => ['owner'].includes(myRoleOn(book)) || book.ownerId === uid);
   const isBusinessOwner = Boolean(tenant && uid && tenant.ownerId === uid);
   const openPeople = (bookId: string, event?: React.MouseEvent) => {
@@ -724,7 +731,7 @@ export default function Dashboard() {
 
   const pickSheetBooks = (() => {
     if (visibleBooks.length) {
-      return visibleBooks.map((b) => ({ id: b.id, name: b.name, role: myRoleOn(b) }));
+      return visibleBooks.filter(isBookMember).map((b) => ({ id: b.id, name: b.name, role: myRoleOn(b) }));
     }
     if (bookPickKind === 'share' && sharePickBooks.length) {
       return sharePickBooks;
@@ -764,17 +771,18 @@ export default function Dashboard() {
 
   const renderLedgerCard = (book: BookItem) => {
     const role = myRoleOn(book);
+    const member = isBookMember(book);
     const stat = bookStats[book.id];
     const symbol = getCurrencySymbol(book.currency);
     const maxSpark = Math.max(...(stat?.spark || [1]), 1);
     const people = peopleCount(book);
-    const canManage = role === 'owner' || role === 'admin';
+    const canManage = member && (role === 'owner' || role === 'admin');
     const netVal = stat ? Math.abs(stat.net) : 0;
     const netNeg = Boolean(stat && stat.net < 0);
-    const canAddHere = ['owner', 'admin', 'contributor'].includes(role) && hasFeature('money_add');
-    const canScanHere = ['owner', 'admin', 'contributor'].includes(role) && hasFeature('money_scan');
+    const canAddHere = member && ['owner', 'admin', 'contributor'].includes(role) && hasFeature('money_add');
+    const canScanHere = member && ['owner', 'admin', 'contributor'].includes(role) && hasFeature('money_scan');
     return (
-      <article key={book.id} className={`md3-book is-${booksView}${book.pinned ? ' is-pinned' : ''}`}>
+      <article key={book.id} className={`md3-book is-${booksView}${book.pinned ? ' is-pinned' : ''}${member ? '' : ' is-former'}`}>
         <Link to={`/book/${book.id}`} className="md3-book-main">
           <span className="md3-book-icon" aria-hidden>
             <span className="md3-book-icon-face">{initials(book.name)}</span>
@@ -782,16 +790,17 @@ export default function Dashboard() {
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-2">
               <h3 className="text-[15px] font-semibold text-[#0B0F1F] leading-tight tracking-tight truncate">{book.name}</h3>
-              <span className="md3-badge">{roleLabel(role)}</span>
+              <span className={`md3-badge${member ? '' : ' is-former'}`}>{member ? roleLabel(role) : 'Not a member'}</span>
             </div>
             <p className="text-[12px] text-slate-500 mt-0.5 truncate">
-              {book.archived ? 'Archived · ' : ''}{people} {people === 1 ? 'person' : 'people'}
-              {stat ? ` · ${stat.entries} records` : ''}
+              {member
+                ? `${book.archived ? 'Archived · ' : ''}${people} ${people === 1 ? 'person' : 'people'}${stat ? ` · ${stat.entries} records` : ''}`
+                : 'You left this book. Remove it from your list if you do not need it.'}
             </p>
           </div>
         </Link>
         <div className="md3-book-side">
-          {canSeeMoney ? (
+          {canSeeMoney && member ? (
             <>
               <p className={`byjan-money md3-book-amt ${netNeg ? 'is-out' : 'is-in'}`}>
                 <CurrencyMark code={book.currency} size="sm" className="md3-book-ccy" />
@@ -826,9 +835,30 @@ export default function Dashboard() {
               <Users className="w-3.5 h-3.5" />
             </button>
           )}
-          {hasFeature('money_pin') && (
+          {hasFeature('money_pin') && member && (
             <button type="button" title={book.pinned ? 'Unpin' : 'Pin'} onClick={(event) => { void toggleBookPin(book, event); }}>
               {book.pinned ? <Pin className="w-3.5 h-3.5" /> : <PinOff className="w-3.5 h-3.5" />}
+            </button>
+          )}
+          {!member && (
+            <button
+              type="button"
+              title="Remove from my books"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                void (async () => {
+                  try {
+                    await forgetLedger(book.id);
+                    setBooks((curr) => curr.filter((row) => row.id !== book.id));
+                    addToast('Removed from your books list', 'success');
+                  } catch (err) {
+                    addToast(err instanceof Error ? err.message : 'Could not remove this book', 'error');
+                  }
+                })();
+              }}
+            >
+              <X className="w-3.5 h-3.5" />
             </button>
           )}
           <Link to={`/book/${book.id}`} title="Open book" className="md3-book-open">
@@ -1002,13 +1032,13 @@ export default function Dashboard() {
 
   const inviteBlock = canSeeMoney && invites.length > 0 && (
         <div className="space-y-2">
-          <h2 className="dash-section-label"><Users className="w-3.5 h-3.5" /> Invitations</h2>
+          <h2 className="dash-section-label"><Users className="w-3.5 h-3.5" /> Invitations for you</h2>
           <div className="space-y-2">
             {invites.map((invite) => (
               <div key={invite.id} className="dash-invite">
                 <div className="min-w-0">
                   <p className="font-semibold text-[#0B0F1F] truncate">{invite.bookName}</p>
-                  <p className="text-xs text-slate-500">Invited as {roleLabel(invite.role)}</p>
+                  <p className="text-xs text-slate-500">Invited as {roleLabel(invite.role)} · sign in as {invite.email || userProfile?.email}</p>
                 </div>
                 <div className="flex gap-2 shrink-0">
                   <button onClick={() => handleAcceptInvite(invite)} disabled={Boolean(acceptingId || decliningId)} className="byjan-btn !h-8 text-xs">
@@ -1058,10 +1088,6 @@ export default function Dashboard() {
           )}
         </section>
 
-        {hasFeature('money') && hasFeature('money_recurring') ? <UpcomingHomeStrip items={upcoming} currencyCode={currencyCode} /> : null}
-
-        {hasFeature('money') && hasFeature('money_inbox') && statsReady ? <FinancialInbox items={attentionItems} /> : null}
-
         {hasFeature('money') && (
           <section className="home-pills" aria-label="Quick actions">
             {hasFeature('money_add') && (
@@ -1090,6 +1116,10 @@ export default function Dashboard() {
             )}
           </section>
         )}
+
+        {inviteBlock}
+
+        {hasFeature('money') && hasFeature('money_inbox') && statsReady ? <FinancialInbox items={attentionItems} /> : null}
 
         {hasFeature('money') && (
           <section className="home-qa" aria-label="Quick access">
@@ -1127,6 +1157,8 @@ export default function Dashboard() {
           </section>
         )}
 
+        {hasFeature('money') && hasFeature('money_recurring') ? <UpcomingHomeStrip items={upcoming} currencyCode={currencyCode} /> : null}
+
         {hasFeature('money') && hasFeature('money_settle') && uid ? <PendingPayStrip uid={uid} /> : null}
 
         {hasFeature('money') && (loading || recentEntries.length > 0) && (
@@ -1142,7 +1174,7 @@ export default function Dashboard() {
                 const isOut = row.entryType !== 'in' && row.entryType !== 'transfer';
                 const book = books.find((b) => b.id === row.bookId);
                 return (
-                  <Link key={row.id} to={row.bookId ? `/book/${row.bookId}` : '/expenses'} className="home-recent-card">
+                  <Link key={row.id} to={row.bookId ? `/book/${row.bookId}?entry=${encodeURIComponent(String(row.id))}` : '/expenses'} className="home-recent-card">
                     <span className="min-w-0 flex-1">
                       <span className={`home-recent-amt byjan-money ${isOut ? 'is-out' : 'is-in'}`}>
                         {isOut ? '−' : '+'}{formatIndianAmount(Math.abs(row.amount), currency).replace(/^−/, '')}
@@ -1159,8 +1191,6 @@ export default function Dashboard() {
             )}
           </section>
         )}
-
-        {inviteBlock}
 
         {hasFeature('business') && businessTree.length > 0 && (
           <section className="home-qa" aria-label="Business">
@@ -1365,6 +1395,14 @@ export default function Dashboard() {
               <div className={`md3-book-list is-${booksView}`}>
                 {bookList.pageRows.map(renderLedgerCard)}
               </div>
+              <ListPager
+                page={bookList.page}
+                totalPages={bookList.totalPages}
+                onPage={bookList.setPage}
+                pageSize={bookList.pageSize}
+                onPageSize={bookList.setPageSize}
+                total={bookList.filtered.length}
+              />
             </div>
           )}
       </section>

@@ -1,26 +1,36 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuth } from './AuthContext';
-import { getMe, upsertMe } from '../lib/me';
+import { getMe, saveOrgUiDefaults, upsertMe } from '../lib/me';
 import {
   DEFAULT_APP_PREFS,
+  applyOrgChrome,
+  chromePatch,
   getRuntimePrefs,
   normalizeAppPrefs,
+  normalizeOrgChrome,
   setRuntimePrefs,
   type AppPrefs,
+  type OrgUiChrome,
 } from '../lib/app-prefs';
 
 type AppPrefsContextValue = {
   prefs: AppPrefs;
+  orgChrome: OrgUiChrome | null;
   setPref: <K extends keyof AppPrefs>(key: K, value: AppPrefs[K]) => void;
   savePrefs: (next?: AppPrefs) => Promise<void>;
+  saveOrgDefaults: (next?: AppPrefs) => Promise<void>;
+  resetToOrgDefaults: () => void;
   confirmAction: (message: string, kind?: 'post' | 'delete') => Promise<boolean>;
 };
 
 const AppPrefsContext = createContext<AppPrefsContextValue>({
   prefs: DEFAULT_APP_PREFS,
+  orgChrome: null,
   setPref: () => undefined,
   savePrefs: async () => undefined,
+  saveOrgDefaults: async () => undefined,
+  resetToOrgDefaults: () => undefined,
   confirmAction: async () => true,
 });
 
@@ -28,51 +38,40 @@ export function useAppPrefs() {
   return useContext(AppPrefsContext);
 }
 
+function mergeFromRemote(stored: Record<string, unknown>, org: OrgUiChrome | null, currency?: string) {
+  const local = getRuntimePrefs();
+  const personal = normalizeAppPrefs({
+    ...local,
+    ...stored,
+    defaultCurrency: currency || stored.defaultCurrency || local.defaultCurrency,
+  });
+  return applyOrgChrome(personal, org);
+}
+
 export const AppPrefsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentUser, userProfile } = useAuth();
   const [prefs, setPrefs] = useState<AppPrefs>(() => getRuntimePrefs());
+  const [orgChrome, setOrgChrome] = useState<OrgUiChrome | null>(null);
   const [pending, setPending] = useState<{ message: string; resolve: (ok: boolean) => void } | null>(null);
-  const persistTimer = useRef(0);
 
   useEffect(() => {
     setRuntimePrefs(prefs);
-    document.documentElement.dataset.density = prefs.uiDensity;
-    document.documentElement.dataset.icon = prefs.iconSize;
-    document.documentElement.dataset.type = prefs.fontSize;
-    document.documentElement.dataset.radius = prefs.cornerRadius;
   }, [prefs]);
 
   useEffect(() => {
     if (!currentUser) return;
     const fromProfile = userProfile && (userProfile as { appPrefs?: unknown }).appPrefs;
     if (fromProfile && typeof fromProfile === 'object') {
-      const local = getRuntimePrefs();
-      const stored = fromProfile as Record<string, unknown>;
-      const next = normalizeAppPrefs({
-        ...local,
-        ...stored,
-        iconSize: stored.iconSize || local.iconSize,
-        fontSize: stored.fontSize || local.fontSize,
-        cornerRadius: stored.cornerRadius || local.cornerRadius,
-        uiDensity: stored.uiDensity || local.uiDensity,
-        defaultCurrency: userProfile?.defaultCurrency || local.defaultCurrency,
-      });
+      const next = mergeFromRemote(fromProfile as Record<string, unknown>, orgChrome, userProfile?.defaultCurrency);
       setPrefs(next);
       setRuntimePrefs(next);
     }
     void getMe().then((data) => {
       if (!data) return;
-      const local = getRuntimePrefs();
+      const org = normalizeOrgChrome((data as { orgUiDefaults?: unknown }).orgUiDefaults);
+      setOrgChrome(org);
       const stored = data.appPrefs && typeof data.appPrefs === 'object' ? data.appPrefs as Record<string, unknown> : {};
-      const next = normalizeAppPrefs({
-        ...local,
-        ...stored,
-        iconSize: stored.iconSize || local.iconSize,
-        fontSize: stored.fontSize || local.fontSize,
-        cornerRadius: stored.cornerRadius || local.cornerRadius,
-        uiDensity: stored.uiDensity || local.uiDensity,
-        defaultCurrency: String(data.defaultCurrency || userProfile?.defaultCurrency || local.defaultCurrency),
-      });
+      const next = mergeFromRemote(stored, org, String(data.defaultCurrency || userProfile?.defaultCurrency || ''));
       setPrefs(next);
       setRuntimePrefs(next);
     }).catch(() => undefined);
@@ -90,24 +89,33 @@ export const AppPrefsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     });
   }, [currentUser, prefs]);
 
-  const setPref = useCallback(<K extends keyof AppPrefs>(key: K, value: AppPrefs[K]) => {
+  const saveOrgDefaults = useCallback(async (next = prefs) => {
+    const patch = chromePatch(normalizeAppPrefs(next));
+    const saved = await saveOrgUiDefaults(patch);
+    const org = normalizeOrgChrome(saved);
+    setOrgChrome(org);
+  }, [prefs]);
+
+  const resetToOrgDefaults = useCallback(() => {
     setPrefs((prev) => {
-      const next = { ...prev, [key]: value };
+      const next = applyOrgChrome({ ...prev, uiOverride: false }, orgChrome);
       setRuntimePrefs(next);
-      const live = key === 'iconSize' || key === 'fontSize' || key === 'cornerRadius' || key === 'uiDensity';
-      if (currentUser && live) {
-        window.clearTimeout(persistTimer.current);
-        persistTimer.current = window.setTimeout(() => {
-          void upsertMe({
-            appPrefs: next,
-            defaultCurrency: next.defaultCurrency,
-            updatedAt: new Date().toISOString(),
-          }).catch(() => undefined);
-        }, 350);
-      }
       return next;
     });
-  }, [currentUser]);
+  }, [orgChrome]);
+
+  const setPref = useCallback(<K extends keyof AppPrefs>(key: K, value: AppPrefs[K]) => {
+    setPrefs((prev) => {
+      const chromeKeys: Array<keyof AppPrefs> = ['iconPx', 'typeScale', 'radiusPx', 'uiDensity'];
+      const next = normalizeAppPrefs({
+        ...prev,
+        [key]: value,
+        uiOverride: chromeKeys.includes(key) ? true : prev.uiOverride,
+      });
+      setRuntimePrefs(next);
+      return next;
+    });
+  }, []);
 
   const confirmAction = useCallback((message: string, kind: 'post' | 'delete' = 'post') => {
     const needed = kind === 'delete' ? prefs.confirmDeletes : prefs.confirmPosting;
@@ -115,7 +123,10 @@ export const AppPrefsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return new Promise<boolean>((resolve) => setPending({ message, resolve }));
   }, [prefs.confirmDeletes, prefs.confirmPosting]);
 
-  const value = useMemo(() => ({ prefs, setPref, savePrefs, confirmAction }), [prefs, setPref, savePrefs, confirmAction]);
+  const value = useMemo(
+    () => ({ prefs, orgChrome, setPref, savePrefs, saveOrgDefaults, resetToOrgDefaults, confirmAction }),
+    [prefs, orgChrome, setPref, savePrefs, saveOrgDefaults, resetToOrgDefaults, confirmAction],
+  );
 
   return (
     <AppPrefsContext.Provider value={value}>

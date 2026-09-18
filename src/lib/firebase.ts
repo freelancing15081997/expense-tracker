@@ -11,7 +11,12 @@ import {
   signInWithEmailAndPassword,
   signOut,
   deleteUser,
+  type UserCredential,
 } from 'firebase/auth';
+
+const WEB_GOOGLE_CLIENT_ID = '450686107760-hdlb65udu9lfo4u087ui439m13dtqkt5.apps.googleusercontent.com';
+void WEB_GOOGLE_CLIENT_ID;
+const NATIVE_AUTH_SCHEME = 'com.byjanbooks.app://auth';
 
 // Firebase is now ONLY used for Authentication
 // All data storage is handled by Neon Postgres
@@ -40,12 +45,84 @@ function googleSignInError(err: unknown) {
   const code = String(anyErr?.code || '');
   const message = String(anyErr?.message || '');
   if (/10\b|DEVELOPER_ERROR|ApiException:\s*10/i.test(`${code} ${message}`)) {
-    return new Error('Google sign-in is not set up for this Android build. Add the debug SHA-1 fingerprint in Firebase and try again.');
+    return new Error('Google sign-in is not set up for this Android build. Opening the web sign-in instead.');
   }
   if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request' || /12501|canceled|cancelled/i.test(message)) {
     return new Error('Google sign-in was cancelled.');
   }
   return err instanceof Error ? err : new Error(message || 'Failed to sign in with Google');
+}
+
+function nativeAppFlag() {
+  try {
+    const hash = String(window.location.hash || '');
+    const q = hash.includes('?') ? hash.slice(hash.indexOf('?') + 1) : window.location.search.replace(/^\?/, '');
+    return new URLSearchParams(q).get('nativeApp') === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function parseGoogleIdTokenFromUrl(url: string) {
+  const raw = String(url || '');
+  const normalized = raw.replace(/^com\.byjanbooks\.app:\/\//i, 'https://auth.byjanbooks.app/');
+  try {
+    const parsed = new URL(normalized);
+    const fromQuery = parsed.searchParams.get('idToken') || parsed.searchParams.get('id_token') || '';
+    if (fromQuery) return fromQuery;
+    const hash = parsed.hash.replace(/^#/, '');
+    if (hash) {
+      const params = new URLSearchParams(hash);
+      return params.get('idToken') || params.get('id_token') || '';
+    }
+  } catch { /* ignore */ }
+  const match = raw.match(/idToken=([^&#]+)/i) || raw.match(/id_token=([^&#]+)/i);
+  return match ? decodeURIComponent(match[1]) : '';
+}
+
+export async function completeGoogleIdTokenSignIn(idToken: string) {
+  return signInWithCredential(auth, GoogleAuthProvider.credential(idToken));
+}
+
+export async function handoffGoogleToNativeApp(result: UserCredential | null | undefined) {
+  if (!result || !nativeAppFlag()) return false;
+  const cred = GoogleAuthProvider.credentialFromResult(result);
+  const token = cred?.idToken;
+  if (!token) return false;
+  window.location.href = `${NATIVE_AUTH_SCHEME}?idToken=${encodeURIComponent(token)}`;
+  return true;
+}
+
+async function signInWithGoogleViaBrowser(): Promise<UserCredential> {
+  const { Browser } = await import('@capacitor/browser');
+  const { App } = await import('@capacitor/app');
+  const origin = 'https://easypado.com';
+  const url = `${origin}/#/login?nativeApp=1`;
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = async (err?: unknown, cred?: UserCredential) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      try { await handle.then((h) => h.remove()); } catch { /* ignore */ }
+      try { await Browser.close(); } catch { /* ignore */ }
+      if (err) reject(err instanceof Error ? err : new Error('Google sign-in failed'));
+      else if (cred) resolve(cred);
+      else reject(new Error('Google sign-in was cancelled.'));
+    };
+    const handle = App.addListener('appUrlOpen', async (event) => {
+      const token = parseGoogleIdTokenFromUrl(event.url || '');
+      if (!token) return;
+      try {
+        const cred = await completeGoogleIdTokenSignIn(token);
+        await finish(undefined, cred);
+      } catch (err) {
+        await finish(err);
+      }
+    });
+    const timer = window.setTimeout(() => { void finish(new Error('Google sign-in timed out. Try again.')); }, 180_000);
+    Browser.open({ url, presentationStyle: 'popover' }).catch((err) => { void finish(err); });
+  });
 }
 
 export async function signInWithGoogle() {
@@ -54,19 +131,22 @@ export async function signInWithGoogle() {
   } catch { /* private mode */ }
 
   if (Capacitor.isNativePlatform()) {
-    const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
     try {
+      const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
       const result = await FirebaseAuthentication.signInWithGoogle();
       const idToken = result.credential?.idToken;
-      if (!idToken) throw new Error('Google sign-in did not return a token');
-      return await signInWithCredential(auth, GoogleAuthProvider.credential(idToken));
+      if (idToken) return await signInWithCredential(auth, GoogleAuthProvider.credential(idToken));
     } catch (err) {
-      throw googleSignInError(err);
+      const mapped = googleSignInError(err);
+      if (/cancelled/i.test(mapped.message)) throw mapped;
     }
+    return signInWithGoogleViaBrowser();
   }
 
   try {
-    return await signInWithPopup(auth, googleProvider);
+    const result = await signInWithPopup(auth, googleProvider);
+    await handoffGoogleToNativeApp(result);
+    return result;
   } catch (err: any) {
     const code = String(err?.code || '');
     if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') throw err;

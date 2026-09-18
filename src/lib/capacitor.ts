@@ -193,8 +193,12 @@ export class CapacitorService {
     });
 
     App.addListener('appUrlOpen', (data) => {
-      console.log('App opened with URL:', data.url);
-      const slug = data.url.split('.com').pop();
+      const url = String(data.url || '');
+      if (/com\.byjanbooks\.app:\/\/auth/i.test(url) || /[?&#]idToken=/i.test(url) || /[?&#]id_token=/i.test(url)) {
+        window.dispatchEvent(new CustomEvent('byjan-google-auth', { detail: url }));
+        return;
+      }
+      const slug = url.split('.com').pop();
       if (slug) {
         window.location.href = slug;
       }

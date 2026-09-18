@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { ledgerAudit, ledgerGet, ledgerList, ledgerSet } from './_pg-tables.js';
+import { ledgerAddNotification, ledgerAudit, ledgerFindUidByEmail, ledgerGet, ledgerList, ledgerSet } from './_pg-tables.js';
 
 const FIREBASE_PROJECT = 'gen-lang-client-0616065043';
 const jwtMem = new Map<string, { uid: string; email: string; exp: number }>();
@@ -173,10 +173,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (op === 'list') {
-      const rows = await ledgerList('invites', [{ type: 'where', field: 'email', op: '==', value: user.email }]);
+      const mail = String(user.email || '').trim().toLowerCase();
+      const rows = await ledgerList('invites', [{ type: 'where', field: 'email', op: '==', value: mail }]);
       const invites = rows
         .map((row) => ({ id: row.id, ...(row.data as Record<string, unknown>) }) as Record<string, unknown> & { id: string })
-        .filter((row) => String(row.invitedBy || '') !== user.uid);
+        .filter((row) => {
+          const invited = String(row.email || '').trim().toLowerCase();
+          if (invited && invited !== mail) return false;
+          if (String(row.invitedBy || '') === user.uid) return false;
+          if (String(row.status || 'pending') !== 'pending') return false;
+          return true;
+        })
+        .map((row) => ({
+          id: row.id,
+          bookId: String(row.bookId || ''),
+          bookName: String(row.bookName || 'Ledger'),
+          role: String(row.role || 'contributor'),
+          invitedBy: String(row.invitedBy || ''),
+          email: String(row.email || mail),
+        }));
       json(res, 200, { invites });
       return;
     }
@@ -191,6 +206,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const role = String(body.role || 'contributor').trim() || 'contributor';
       if (!bookId || !email) {
         json(res, 400, { error: 'Ledger and email are required' });
+        return;
+      }
+      if (!/^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$/i.test(email)) {
+        json(res, 400, { error: 'Enter a valid email address. Invitations and notifications are sent only to that inbox.' });
         return;
       }
       if (email === user.email) {
@@ -220,6 +239,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         createdAt: new Date().toISOString(),
       };
       await ledgerSet(`invites/${id}`, data);
+      const inviteeUid = await ledgerFindUidByEmail(email).catch(() => '');
+      if (inviteeUid && inviteeUid !== user.uid) {
+        await ledgerAddNotification({
+          userId: inviteeUid,
+          bookId,
+          bookName: data.bookName,
+          kind: 'invite',
+          action: 'Ledger invitation',
+          detail: `${user.email} invited you to ${data.bookName}`,
+          link: '/',
+          inviteId: id,
+        }).catch(() => undefined);
+      }
       await ledgerAudit({
         bookId,
         actorUid: user.uid,

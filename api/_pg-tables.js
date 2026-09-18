@@ -1166,7 +1166,14 @@ async function ledgerList(prefix, constraints = []) {
   }
   if (parts[0] === "invites" && parts.length === 1) {
     const emailFilter = constraints.find((c) => c?.type === "where" && c.field === "email" && c.op === "==");
-    const rows = emailFilter ? await sql`SELECT id, data FROM invites WHERE email = ${String(emailFilter.value)}` : await sql`SELECT id, data FROM invites`;
+    const mail = String(emailFilter?.value || "").trim().toLowerCase();
+    const rows = mail
+      ? await sql`
+          SELECT id, data FROM invites
+          WHERE lower(coalesce(email, '')) = ${mail}
+             OR lower(coalesce(data->>'email', '')) = ${mail}
+        `
+      : await sql`SELECT id, data FROM invites`;
     return rowsOf(rows).filter((row) => !flag(row.data) && String(row.data.status || "pending") === "pending");
   }
   if (parts[0] === "inbound_hashes" && parts.length === 2) {
@@ -1214,22 +1221,6 @@ async function ledgerMember(bookId, uid) {
   const id = text(bookId);
   const userId = text(uid);
   if (!id || !userId) return null;
-  const sql = await getLedgerSql();
-  const rows = asRows(
-    await sql`
-      SELECT m.role, m.email, b.data
-      FROM book_members m
-      INNER JOIN books b ON b.id = m.book_id
-      WHERE m.book_id = ${id} AND m.uid = ${userId}
-      LIMIT 1
-    `
-  );
-  const row = rows[0];
-  if (row) {
-    const data = asObject(row.data) || {};
-    if (flag(data)) return null;
-    return { role: text(row.role), email: text(row.email) };
-  }
   const book = asObject(await ledgerGet(`books/${id}`));
   if (!book || flag(book)) return null;
   const roles = rolesOf(book.roles);
@@ -1237,6 +1228,45 @@ async function ledgerMember(bookId, uid) {
   if (rec?.role) return { role: text(rec.role), email: text(rec.email) };
   if (text(book.ownerId) === userId) return { role: "owner", email: "" };
   return null;
+}
+async function ledgerHasBookListRow(bookId, uid) {
+  const id = text(bookId);
+  const userId = text(uid);
+  if (!id || !userId) return false;
+  const sql = await getLedgerSql();
+  const rows = asRows(await sql`SELECT 1 FROM book_members WHERE book_id = ${id} AND uid = ${userId} LIMIT 1`);
+  return rows.length > 0;
+}
+async function ledgerFindUidByEmail(email) {
+  const mail = text(email).trim().toLowerCase();
+  if (!mail) return "";
+  const sql = await getLedgerSql();
+  const rows = asRows(
+    await sql`
+      SELECT id FROM users
+      WHERE lower(coalesce(email, '')) = ${mail}
+         OR lower(coalesce(data->>'email', '')) = ${mail}
+      LIMIT 1
+    `
+  );
+  return text(rows[0]?.id);
+}
+async function ledgerForgetBook(bookId, uid) {
+  const id = text(bookId);
+  const userId = text(uid);
+  if (!id || !userId) {
+    const err = new Error("Missing ledger");
+    err.status = 400;
+    throw err;
+  }
+  if (await ledgerMember(id, userId)) {
+    const err = new Error("Leave this book first, then you can remove it from your list.");
+    err.status = 400;
+    throw err;
+  }
+  const sql = await getLedgerSql();
+  await sql`DELETE FROM book_members WHERE book_id = ${id} AND uid = ${userId}`;
+  return { ok: true };
 }
 async function ledgerHasPendingInvite(bookId, email) {
   const id = text(bookId);
@@ -1287,7 +1317,13 @@ function bookRow(id, data) {
 }
 async function ledgerListBooksForUser(uid) {
   const rows = await ledgerList("books", [{ type: "where", field: `roles.${uid}.role`, op: "in", value: ["owner"] }]);
-  return rows.filter((row) => !flag(row.data)).map((row) => bookRow(row.id, row.data));
+  return rows.filter((row) => !flag(row.data)).map((row) => {
+    const data = row.data;
+    const roles = rolesOf(data.roles);
+    const rec = roles[uid];
+    const isMember = Boolean(rec?.role) || text(data.ownerId) === uid;
+    return { ...bookRow(row.id, data), isMember };
+  });
 }
 async function ledgerGetBookForUser(bookId, uid) {
   await ledgerRequireMember(bookId, uid);
@@ -1763,10 +1799,13 @@ export {
   ledgerDel,
   ledgerEnsureMailbox,
   ledgerFindDuplicateExpense,
+  ledgerFindUidByEmail,
+  ledgerForgetBook,
   ledgerGet,
   ledgerGetBookForUser,
   ledgerGetExpense,
   ledgerGetUser,
+  ledgerHasBookListRow,
   ledgerHasPendingInvite,
   ledgerInsertIfNew,
   ledgerList,

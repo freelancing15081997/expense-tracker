@@ -6,6 +6,19 @@ export type UiFontSize = 'sm' | 'md' | 'lg';
 export type UiRadius = 'sharp' | 'soft' | 'round';
 export type ListPageSize = 10 | 25 | 50 | 100;
 
+export const UI_CHROME_BOUNDS = {
+  iconPx: { min: 12, max: 40, fallback: 20 },
+  typeScale: { min: 80, max: 145, fallback: 100 },
+  radiusPx: { min: 0, max: 32, fallback: 14 },
+} as const;
+
+export type OrgUiChrome = {
+  iconPx: number;
+  typeScale: number;
+  radiusPx: number;
+  uiDensity: UiDensity;
+};
+
 export type AppPrefs = {
   dateFormat: DateFormat;
   numberFormat: NumberLocale;
@@ -13,6 +26,10 @@ export type AppPrefs = {
   fiscalYearStartMonth: number;
   weekStartsOn: 0 | 1;
   uiDensity: UiDensity;
+  iconPx: number;
+  typeScale: number;
+  radiusPx: number;
+  uiOverride: boolean;
   iconSize: UiIconSize;
   fontSize: UiFontSize;
   cornerRadius: UiRadius;
@@ -41,6 +58,10 @@ export const DEFAULT_APP_PREFS: AppPrefs = {
   fiscalYearStartMonth: 4,
   weekStartsOn: 1,
   uiDensity: 'comfortable',
+  iconPx: 20,
+  typeScale: 100,
+  radiusPx: 14,
+  uiOverride: false,
   iconSize: 'md',
   fontSize: 'md',
   cornerRadius: 'soft',
@@ -75,14 +96,91 @@ function asNum(value: unknown, fallback: number, min: number, max: number) {
   return Math.min(max, Math.max(min, Math.round(n)));
 }
 
+function iconPxFromLegacy(src: Record<string, unknown>, fallback: number) {
+  if (typeof src.iconPx === 'number' || typeof src.iconPx === 'string') {
+    return asNum(src.iconPx, fallback, UI_CHROME_BOUNDS.iconPx.min, UI_CHROME_BOUNDS.iconPx.max);
+  }
+  if (src.iconSize === 'sm') return 16;
+  if (src.iconSize === 'lg') return 26;
+  return fallback;
+}
+
+function typeScaleFromLegacy(src: Record<string, unknown>, fallback: number) {
+  if (typeof src.typeScale === 'number' || typeof src.typeScale === 'string') {
+    return asNum(src.typeScale, fallback, UI_CHROME_BOUNDS.typeScale.min, UI_CHROME_BOUNDS.typeScale.max);
+  }
+  if (src.fontSize === 'sm') return 88;
+  if (src.fontSize === 'lg') return 118;
+  return fallback;
+}
+
+function radiusPxFromLegacy(src: Record<string, unknown>, fallback: number) {
+  if (typeof src.radiusPx === 'number' || typeof src.radiusPx === 'string') {
+    return asNum(src.radiusPx, fallback, UI_CHROME_BOUNDS.radiusPx.min, UI_CHROME_BOUNDS.radiusPx.max);
+  }
+  if (src.cornerRadius === 'sharp') return 6;
+  if (src.cornerRadius === 'round') return 24;
+  return fallback;
+}
+
+export function iconLabel(px: number): UiIconSize {
+  if (px <= 17) return 'sm';
+  if (px >= 26) return 'lg';
+  return 'md';
+}
+
+export function typeLabel(scale: number): UiFontSize {
+  if (scale <= 90) return 'sm';
+  if (scale >= 112) return 'lg';
+  return 'md';
+}
+
+export function radiusLabel(px: number): UiRadius {
+  if (px <= 7) return 'sharp';
+  if (px >= 20) return 'round';
+  return 'soft';
+}
+
+export function normalizeOrgChrome(raw: unknown): OrgUiChrome | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const src = raw as Record<string, unknown>;
+  return {
+    iconPx: iconPxFromLegacy(src, DEFAULT_APP_PREFS.iconPx),
+    typeScale: typeScaleFromLegacy(src, DEFAULT_APP_PREFS.typeScale),
+    radiusPx: radiusPxFromLegacy(src, DEFAULT_APP_PREFS.radiusPx),
+    uiDensity: src.uiDensity === 'compact' ? 'compact' : 'comfortable',
+  };
+}
+
+export function applyOrgChrome(prefs: AppPrefs, org: OrgUiChrome | null | undefined): AppPrefs {
+  if (!org || prefs.uiOverride) return prefs;
+  return normalizeAppPrefs({
+    ...prefs,
+    iconPx: org.iconPx,
+    typeScale: org.typeScale,
+    radiusPx: org.radiusPx,
+    uiDensity: org.uiDensity,
+    uiOverride: false,
+  });
+}
+
+export function chromePatch(prefs: AppPrefs): OrgUiChrome {
+  return {
+    iconPx: prefs.iconPx,
+    typeScale: prefs.typeScale,
+    radiusPx: prefs.radiusPx,
+    uiDensity: prefs.uiDensity,
+  };
+}
+
 export function normalizeAppPrefs(raw: unknown): AppPrefs {
   const src = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
   const dateFormat = src.dateFormat === 'dmy' || src.dateFormat === 'mdy' ? src.dateFormat : 'iso';
   const numberFormat = src.numberFormat === 'en-US' || src.numberFormat === 'en-GB' ? src.numberFormat : 'en-IN';
   const uiDensity = src.uiDensity === 'compact' ? 'compact' : 'comfortable';
-  const iconSize = src.iconSize === 'sm' || src.iconSize === 'lg' ? src.iconSize : 'md';
-  const fontSize = src.fontSize === 'sm' || src.fontSize === 'lg' ? src.fontSize : 'md';
-  const cornerRadius = src.cornerRadius === 'sharp' || src.cornerRadius === 'round' ? src.cornerRadius : 'soft';
+  const iconPx = iconPxFromLegacy(src, DEFAULT_APP_PREFS.iconPx);
+  const typeScale = typeScaleFromLegacy(src, DEFAULT_APP_PREFS.typeScale);
+  const radiusPx = radiusPxFromLegacy(src, DEFAULT_APP_PREFS.radiusPx);
   const listPageSize = src.listPageSize === 25 || src.listPageSize === 50 || src.listPageSize === 100 ? src.listPageSize : 10;
   const defaultCashAccount = src.defaultCashAccount === 'cash' ? 'cash' : 'bank';
   return {
@@ -92,9 +190,13 @@ export function normalizeAppPrefs(raw: unknown): AppPrefs {
     fiscalYearStartMonth: asNum(src.fiscalYearStartMonth, 4, 1, 12),
     weekStartsOn: src.weekStartsOn === 0 ? 0 : 1,
     uiDensity,
-    iconSize,
-    fontSize,
-    cornerRadius,
+    iconPx,
+    typeScale,
+    radiusPx,
+    uiOverride: src.uiOverride === true,
+    iconSize: iconLabel(iconPx),
+    fontSize: typeLabel(typeScale),
+    cornerRadius: radiusLabel(radiusPx),
     listPageSize,
     confirmPosting: asBool(src.confirmPosting, true),
     confirmDeletes: asBool(src.confirmDeletes, true),
@@ -139,21 +241,26 @@ export function setRuntimePrefs(next: AppPrefs) {
 export function applyUiChrome(prefs: AppPrefs) {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
-  const icon = prefs.iconSize === 'sm' ? '16px' : prefs.iconSize === 'lg' ? '26px' : '20px';
-  const type = prefs.fontSize === 'sm' ? '0.88' : prefs.fontSize === 'lg' ? '1.18' : '1';
-  const radius = prefs.cornerRadius === 'sharp' ? '6px' : prefs.cornerRadius === 'round' ? '24px' : '14px';
-  const btnRadius = prefs.cornerRadius === 'sharp' ? '4px' : prefs.cornerRadius === 'round' ? '999px' : '10px';
-  const tw = prefs.cornerRadius === 'sharp'
-    ? { sm: '4px', md: '6px', lg: '8px', xl: '8px', '2xl': '10px', '3xl': '12px' }
-    : prefs.cornerRadius === 'round'
-      ? { sm: '10px', md: '14px', lg: '18px', xl: '22px', '2xl': '28px', '3xl': '32px' }
-      : { sm: '6px', md: '8px', lg: '12px', xl: '14px', '2xl': '16px', '3xl': '24px' };
+  const iconPx = asNum(prefs.iconPx, 20, UI_CHROME_BOUNDS.iconPx.min, UI_CHROME_BOUNDS.iconPx.max);
+  const typePct = asNum(prefs.typeScale, 100, UI_CHROME_BOUNDS.typeScale.min, UI_CHROME_BOUNDS.typeScale.max);
+  const radiusPx = asNum(prefs.radiusPx, 14, UI_CHROME_BOUNDS.radiusPx.min, UI_CHROME_BOUNDS.radiusPx.max);
+  const type = String(Math.round((typePct / 100) * 1000) / 1000);
+  const radius = `${radiusPx}px`;
+  const btnRadius = radiusPx <= 6 ? '4px' : radiusPx >= 22 ? '999px' : `${Math.max(8, Math.round(radiusPx * 0.72))}px`;
+  const tw = {
+    sm: `${Math.max(0, Math.round(radiusPx * 0.35))}px`,
+    md: `${Math.max(2, Math.round(radiusPx * 0.55))}px`,
+    lg: `${Math.max(4, Math.round(radiusPx * 0.8))}px`,
+    xl: `${radiusPx}px`,
+    '2xl': `${Math.round(radiusPx * 1.15)}px`,
+    '3xl': `${Math.round(radiusPx * 1.4)}px`,
+  };
 
   root.dataset.density = prefs.uiDensity;
-  root.dataset.icon = prefs.iconSize;
-  root.dataset.type = prefs.fontSize;
-  root.dataset.radius = prefs.cornerRadius;
-  root.style.setProperty('--ui-icon', icon);
+  root.dataset.icon = iconLabel(iconPx);
+  root.dataset.type = typeLabel(typePct);
+  root.dataset.radius = radiusLabel(radiusPx);
+  root.style.setProperty('--ui-icon', `${iconPx}px`);
   root.style.setProperty('--ui-type', type);
   root.style.setProperty('--ui-radius', radius);
   root.style.setProperty('--ui-btn-radius', btnRadius);

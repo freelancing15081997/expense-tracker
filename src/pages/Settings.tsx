@@ -7,13 +7,14 @@ import { Save, AlertCircle, CheckCircle2, Shield, BellRing, CircleHelp, UserX, T
 import { disableLock, lockConfig, lockIsEnabledFor, setLockPin, updateLockOptions } from '../lib/app-lock';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 import { useBooksTenantMeta } from '../lib/tenant';
-import type { AppPrefs, DateFormat, ListPageSize, NumberLocale, UiDensity } from '../lib/app-prefs';
+import { UI_CHROME_BOUNDS, type AppPrefs, type DateFormat, type ListPageSize, type NumberLocale, type UiDensity } from '../lib/app-prefs';
 import { useToast } from '../context/ToastContext';
 import UpiSetupSheet from '../components/UpiSetupSheet';
 import { pingSelfNotification } from '../lib/notifications';
 import { useFeatures } from '../lib/use-features';
 import { deactivateAccount, deleteAccount, setAuthNotice } from '../lib/support';
 import { deleteCurrentAuthUser, logout } from '../lib/firebase';
+import { EMAIL_NOTIFY_HINT } from '../lib/email';
 
 function Switch({ on, onChange, label, hint }: { on: boolean; onChange: (v: boolean) => void; label: string; hint: string }) {
   return (
@@ -47,7 +48,7 @@ export default function Settings() {
   const { userProfile, refreshUserProfile, isSuperUser } = useAuth();
   const { on: hasFeature } = useFeatures();
   const tenant = useBooksTenantMeta();
-  const { prefs, setPref, savePrefs } = useAppPrefs();
+  const { prefs, setPref, savePrefs, saveOrgDefaults, resetToOrgDefaults, orgChrome } = useAppPrefs();
   const { addToast } = useToast();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -71,6 +72,13 @@ export default function Settings() {
   const [pingBusy, setPingBusy] = useState(false);
   const [accountBusy, setAccountBusy] = useState<'off' | 'deactivate' | 'delete'>('off');
   const [confirmText, setConfirmText] = useState('');
+
+  const [orgBusy, setOrgBusy] = useState(false);
+  const [baseline, setBaseline] = useState(() => JSON.stringify({
+    displayName: userProfile?.displayName || '',
+    categories: userProfile?.customCategories || [],
+    prefs,
+  }));
 
   useEffect(() => {
     setDisplayName(userProfile?.displayName || '');
@@ -104,6 +112,7 @@ export default function Settings() {
       });
       setCategories(cleaned);
       await refreshUserProfile();
+      setBaseline(JSON.stringify({ displayName, categories: cleaned, prefs }));
       setMessage('Settings saved. Global categories now appear in every ledger entry form.');
       addToast('Settings saved', 'success');
     } catch (err: any) {
@@ -158,9 +167,21 @@ export default function Settings() {
     }
   };
 
+  const dirty = JSON.stringify({ displayName, categories, prefs }) !== baseline;
+
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-28 md:pb-10">
     <form onSubmit={handleSave} className="space-y-6">
+      {dirty ? (
+        <div className="settings-save-bar">
+          <p>Unsaved changes — preview is live on this screen.</p>
+          <button type="submit" disabled={loading} className="byjan-btn">
+            {loading && <span className="app-loader-ring app-loader-ring-sm" />}
+            <Save className="w-4 h-4" />
+            {loading ? 'Saving' : 'Save'}
+          </button>
+        </div>
+      ) : null}
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Preferences</p>
         <h1 className="font-display text-[28px] font-semibold tracking-[-0.04em] text-[#0B1F3A]">Settings</h1>
@@ -214,6 +235,7 @@ export default function Settings() {
         <div className="p-5 grid md:grid-cols-2 gap-5">
           <Field label="Email">
             <input type="email" disabled value={userProfile?.email || ''} className="byjan-input bg-slate-50 text-slate-500" />
+            <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">{EMAIL_NOTIFY_HINT}</p>
           </Field>
           <Field label="Display name">
             <input className="byjan-input" required value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
@@ -231,8 +253,8 @@ export default function Settings() {
           <div className="min-w-0">
             <p className="text-sm font-semibold text-[#0B1F3A] truncate">{userProfile?.upiId || 'No UPI ID yet'}</p>
             <p className="text-xs text-slate-500 mt-1">
-              {userProfile?.upiStatus
-                ? `Status: ${userProfile.upiStatus === 'SELF_CONFIRMED' ? 'Confirmed by you' : userProfile.upiStatus}`
+              {userProfile?.upiId
+                ? (userProfile.upiStatus === 'SELF_CONFIRMED' ? 'Confirmed by you — teammates can pay this ID.' : 'Saved. Teammates can pay this ID.')
                 : 'Required after you join a book that uses Split.'}
             </p>
           </div>
@@ -321,7 +343,7 @@ export default function Settings() {
       <section className="byjan-card overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-200 bg-[#F8FAFC]">
           <h2 className="text-base font-semibold text-slate-900">Display</h2>
-          <p className="text-xs text-slate-500 mt-1">These apply to the whole app immediately — Home, books, Help, and this screen.</p>
+          <p className="text-xs text-slate-500 mt-1">Drag any control — the whole app previews immediately. Save keeps it on this account.</p>
         </div>
         <div className="p-5 grid md:grid-cols-2 gap-5">
           <Field label="Density">
@@ -333,35 +355,35 @@ export default function Settings() {
               </SelectContent>
             </Select>
           </Field>
-          <Field label="Icon size" hint="Every Lucide icon in the app, including tabs and toolbars.">
-            <Select value={prefs.iconSize} onValueChange={(v) => setPref('iconSize', v as AppPrefs['iconSize'])}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="sm">Small</SelectItem>
-                <SelectItem value="md">Medium</SelectItem>
-                <SelectItem value="lg">Large</SelectItem>
-              </SelectContent>
-            </Select>
+          <Field label={`Icon size · ${prefs.iconPx}px`} hint="Any size between 12 and 40, not only small / medium / large.">
+            <input
+              className="ui-range"
+              type="range"
+              min={UI_CHROME_BOUNDS.iconPx.min}
+              max={UI_CHROME_BOUNDS.iconPx.max}
+              value={prefs.iconPx}
+              onChange={(e) => setPref('iconPx', Number(e.target.value))}
+            />
           </Field>
-          <Field label="Text size" hint="Scales type across Byjan, not only this page.">
-            <Select value={prefs.fontSize} onValueChange={(v) => setPref('fontSize', v as AppPrefs['fontSize'])}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="sm">Small</SelectItem>
-                <SelectItem value="md">Medium</SelectItem>
-                <SelectItem value="lg">Large</SelectItem>
-              </SelectContent>
-            </Select>
+          <Field label={`Text scale · ${prefs.typeScale}%`} hint="Fine-tune type from 80% to 145% across Byjan.">
+            <input
+              className="ui-range"
+              type="range"
+              min={UI_CHROME_BOUNDS.typeScale.min}
+              max={UI_CHROME_BOUNDS.typeScale.max}
+              value={prefs.typeScale}
+              onChange={(e) => setPref('typeScale', Number(e.target.value))}
+            />
           </Field>
-          <Field label="Corner shape" hint="Cards, buttons, fields, and sheets.">
-            <Select value={prefs.cornerRadius} onValueChange={(v) => setPref('cornerRadius', v as AppPrefs['cornerRadius'])}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="sharp">Sharp</SelectItem>
-                <SelectItem value="soft">Soft</SelectItem>
-                <SelectItem value="round">Round</SelectItem>
-              </SelectContent>
-            </Select>
+          <Field label={`Corner radius · ${prefs.radiusPx}px`} hint="Sharp at 0, pill-like toward 32.">
+            <input
+              className="ui-range"
+              type="range"
+              min={UI_CHROME_BOUNDS.radiusPx.min}
+              max={UI_CHROME_BOUNDS.radiusPx.max}
+              value={prefs.radiusPx}
+              onChange={(e) => setPref('radiusPx', Number(e.target.value))}
+            />
           </Field>
           <Field label="Rows per list">
             <Select value={String(prefs.listPageSize)} onValueChange={(v) => setPref('listPageSize', Number(v) as ListPageSize)}>
@@ -389,9 +411,34 @@ export default function Settings() {
             <SettingsIcon className="text-[#0B1F3A]" />
             <div>
               <strong>Live preview</strong>
-              <span>Icons, type, and corners should change on this row and on every other screen.</span>
+              <span>Icons, type, and corners update here and on every other screen as you drag.</span>
             </div>
             <button type="button" className="byjan-btn ml-auto">Sample</button>
+          </div>
+          <div className="md:col-span-2 flex flex-wrap gap-2">
+            {orgChrome ? (
+              <button type="button" className="byjan-btn-ghost" onClick={resetToOrgDefaults}>
+                Reset to organization default
+              </button>
+            ) : null}
+            {isSuperUser ? (
+              <button
+                type="button"
+                className="byjan-btn-ghost"
+                disabled={orgBusy}
+                onClick={() => {
+                  setOrgBusy(true);
+                  void saveOrgDefaults(prefs)
+                    .then(() => addToast('Organization display default saved. Other people see this until they customize.', 'success'))
+                    .catch((err) => addToast(err instanceof Error ? err.message : 'Could not save organization default', 'error'))
+                    .finally(() => setOrgBusy(false));
+                }}
+              >
+                {orgBusy ? 'Saving default…' : 'Save as organization default'}
+              </button>
+            ) : (
+              <p className="text-xs text-slate-500">Organization defaults are set by a super user. Your save keeps a personal override.</p>
+            )}
           </div>
         </div>
         {hasFeature('business') && (
@@ -566,7 +613,7 @@ export default function Settings() {
         </div>
       </section>
 
-      <div className="flex justify-end">
+      <div className={dirty ? 'hidden' : 'flex justify-end'}>
         <button type="submit" disabled={loading} className="byjan-btn">
           {loading && <span className="app-loader-ring app-loader-ring-sm" />}
           <Save className="w-4 h-4" />
@@ -579,7 +626,7 @@ export default function Settings() {
         initialUpiId={userProfile?.upiId || ''}
         initialName={userProfile?.upiDisplayName || userProfile?.displayName || ''}
         onClose={() => setUpiOpen(false)}
-        onSaved={() => void refreshUserProfile()}
+        onSaved={() => { void refreshUserProfile(); }}
         onToast={addToast}
       />
     </form>

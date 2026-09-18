@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { listAllExpenses } from '../lib/expenses';
 import { Receipt, ArrowUpRight, ArrowDownRight, Loader2, ArrowLeftRight, BookOpen } from 'lucide-react';
-import { ListControls, usePagedList } from '../components/ListControls';
+import { ListControls, ListPager, usePagedList } from '../components/ListControls';
 
 export default function AllExpenses() {
   const { currentUser } = useAuth();
@@ -136,6 +136,16 @@ export default function AllExpenses() {
                 ))}
               </tbody>
             </table>
+          </div>
+          <div className="p-3">
+            <ListPager
+              page={list.page}
+              totalPages={list.totalPages}
+              onPage={list.setPage}
+              pageSize={list.pageSize}
+              onPageSize={list.setPageSize}
+              total={list.filtered.length}
+            />
           </div>
           </>
         )}

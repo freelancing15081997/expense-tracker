@@ -4,4 +4,5 @@
     <string name="title_activity_main">Byjan</string>
     <string name="package_name">com.byjanbooks.app</string>
     <string name="custom_url_scheme">com.byjanbooks.app</string>
+    <string name="default_web_client_id" translatable="false">450686107760-hdlb65udu9lfo4u087ui439m13dtqkt5.apps.googleusercontent.com</string>
 </resources>

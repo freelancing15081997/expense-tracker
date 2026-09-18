@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronRight, Inbox } from 'lucide-react';
 import type { AttentionItem } from '../lib/financial-memory';
+import { formatIndianAmount } from '../lib/bridge-automations';
 import HomeSwipeDeck from './HomeSwipeDeck';
 
 export default function FinancialInbox({ items }: { items: AttentionItem[] }) {
@@ -12,7 +13,7 @@ export default function FinancialInbox({ items }: { items: AttentionItem[] }) {
   if (!count) return null;
 
   return (
-    <section className="fin-inbox home-upcoming" aria-label="Financial inbox">
+    <section className="home-upcoming" aria-label="Financial inbox">
       <div className="home-upcoming-head">
         <span className="home-upcoming-kicker">
           <Inbox className="w-4 h-4" strokeWidth={2.2} />
@@ -32,13 +33,19 @@ export default function FinancialInbox({ items }: { items: AttentionItem[] }) {
           <Link
             key={row.id}
             to={row.href || '/activity'}
-            className="home-swipe-slide home-upcoming-card fin-inbox-strip"
+            className="home-swipe-slide home-quad-card"
           >
-            <span className="fin-inbox-dot" data-kind={row.kind} aria-hidden />
-            <span className="min-w-0 flex-1">
-              <span className="fin-inbox-title">{row.title}</span>
-              <span className="fin-inbox-sub">{row.detail}</span>
+            <span className="home-quad-kind" data-kind={row.kind}>
+              {row.kind.replace('_', ' ')}
             </span>
+            <span className="home-quad-copy min-w-0">
+              <span className="home-upcoming-name">{row.title}</span>
+              <span className="home-upcoming-meta">{row.detail}</span>
+            </span>
+            <strong className="home-upcoming-amt">
+              {row.amount ? formatIndianAmount(row.amount) : '—'}
+            </strong>
+            <span className="home-quad-pay">{row.action || 'Open'}</span>
           </Link>
         ))}
       </HomeSwipeDeck>
