@@ -6920,21 +6920,54 @@ body:has(.onboard-shell) {
 }
 .home-hero-links { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 
-/* Concept reel — full-width Add / Split / Manage strip under balance */
+/* Compact concept reel — top-right beside name + amount (not a full-width block) */
 .home-feature-reel {
-  width: 100%;
-  margin-top: 10px;
-  border-radius: 20px;
-  padding: 14px 12px 12px;
+  width: 112px;
+  margin-top: 0;
+  border-radius: 16px;
+  padding: 8px 7px 6px;
   background:
     linear-gradient(160deg, rgba(255,255,255,0.96), rgba(238,252,249,0.82));
-  border: 1px solid rgba(18, 184, 168, 0.22);
-  box-shadow: 0 14px 28px -16px rgba(11, 31, 58, 0.4);
+  border: 1px solid rgba(18, 184, 168, 0.2);
+  box-shadow: 0 10px 20px -16px rgba(11, 31, 58, 0.35);
   overflow: hidden;
+  flex: none;
 }
 .home-feature-reel-stage {
   position: relative;
-  height: 132px;
+  height: 72px;
+}
+.home-hero-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.home-hero-main {
+  flex: 1;
+  min-width: 0;
+}
+.home-hero-main .home-amount-row {
+  margin-top: 4px;
+}
+.home-hero-main .home-amount {
+  margin-top: 0;
+  font-size: clamp(24px, 6.2vw, 34px);
+}
+.home-hero-main .home-amount-sub {
+  margin-top: 4px;
+}
+.home-hero-main .home-hero-chips {
+  margin-top: 6px;
+}
+.home-hero-aside {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex: none;
+  align-self: flex-start;
+  max-width: 120px;
 }
 .hfr-scene {
   position: absolute;
@@ -6943,10 +6976,61 @@ body:has(.onboard-shell) {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 4px;
   opacity: 0;
   transform: translateY(6px) scale(0.96);
   animation: hfr-cycle 9s ease-in-out infinite;
+}
+.hfr-chip {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #0e9f92;
+  background: rgba(18, 184, 168, 0.12);
+  border-radius: 999px;
+  padding: 2px 6px;
+}
+.hfr-card {
+  position: relative;
+  width: 78px;
+  height: 36px;
+  border-radius: 10px;
+  background: linear-gradient(165deg, #fff, #f1f5f9);
+  border: 1px solid rgba(11, 31, 58, 0.08);
+  box-shadow: 0 6px 14px -10px rgba(11, 31, 58, 0.4);
+}
+.hfr-rupee {
+  position: absolute;
+  left: 8px;
+  top: 6px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #0B1F3A;
+}
+.hfr-line-a { top: 20px; width: 40px; }
+.hfr-line-b { top: 26px; width: 24px; }
+.hfr-tick {
+  position: absolute;
+  right: 7px;
+  top: 8px;
+  width: 12px;
+  height: 12px;
+}
+.hfr-avatar {
+  width: 18px;
+  height: 18px;
+  font-size: 8px;
+}
+.hfr-bars { width: 64px; height: 6px; }
+.hfr-chart { height: 28px; width: 64px; }
+.home-feature-reel-caption {
+  height: 26px;
+  margin: 4px 0 0;
+}
+.hfr-cap {
+  font-size: 8px;
+  line-height: 1.2;
 }
 .hfr-scene.is-add { animation-delay: 0s; }
 .hfr-scene.is-split { animation-delay: 3s; }

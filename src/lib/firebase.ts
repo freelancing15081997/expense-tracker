@@ -168,26 +168,37 @@ export async function signInWithGoogle() {
 
   if (Capacitor.isNativePlatform()) {
     bindNativeGoogleAuthBridge();
-    try {
+    const tryNative = async (opts: { useCredentialManager: boolean }) => {
       const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
-      // Native Google account sheet → Google idToken → JS Firebase Auth (this app’s source of truth).
       const result = await FirebaseAuthentication.signInWithGoogle({
         skipNativeAuth: true,
-        useCredentialManager: false,
+        useCredentialManager: opts.useCredentialManager,
       });
       const idToken = result.credential?.idToken;
       const accessToken = result.credential?.accessToken;
-      if (idToken) {
-        return await signInWithCredential(auth, GoogleAuthProvider.credential(idToken, accessToken));
-      }
-      throw new Error('Google sign-in returned no id token');
+      if (!idToken) throw new Error('Google sign-in returned no id token');
+      return signInWithCredential(auth, GoogleAuthProvider.credential(idToken, accessToken));
+    };
+
+    // Stay inside the Android Google account sheet — never open easypado.com in the WebView.
+    try {
+      return await tryNative({ useCredentialManager: false });
     } catch (err) {
       const mapped = googleSignInError(err);
       if (/cancelled/i.test(mapped.message)) throw mapped;
-      console.warn('Native Google sign-in failed; trying browser handoff', mapped);
+      console.warn('Native Google (classic) failed; retrying Credential Manager', mapped);
     }
-    // Last resort: Custom Tab → deep-link idToken back into the app.
-    return signInWithGoogleViaBrowser();
+    try {
+      return await tryNative({ useCredentialManager: true });
+    } catch (err) {
+      const mapped = googleSignInError(err);
+      if (/cancelled/i.test(mapped.message)) throw mapped;
+      throw new Error(
+        mapped.message.includes('not set up')
+          ? mapped.message
+          : 'Google sign-in could not finish in the app. Check Google Play Services, then try again. (Website sign-in is disabled on mobile so you are not left in a browser.)',
+      );
+    }
   }
 
   try {

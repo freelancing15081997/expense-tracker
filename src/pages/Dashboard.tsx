@@ -1127,6 +1127,32 @@ export default function Dashboard() {
             <div className="home-hero-main min-w-0">
               <p className="home-greet">{hello}</p>
               <h1 className="home-name">{firstName}</h1>
+              {!hasAnyFeature ? (
+                <p className="home-lead-light">Your admin has not turned on Money or Business yet.</p>
+              ) : canSeeMoney ? (
+                <>
+                  <div className="home-amount-row">
+                    <CurrencyMark code={currencyCode} size="lg" />
+                    <AutoFitAmount className="home-amount byjan-money">
+                      {loading || !statsReady ? <span className="home-skel-balance byjan-skel" /> : formatIndianAmount(net, currency)}
+                    </AutoFitAmount>
+                  </div>
+                  <div className="home-hero-chips" aria-label="Snapshot">
+                    <span className="home-hero-chip is-in">In {loading || !statsReady ? '…' : formatIndianAmount(globalStats.totalIn, currency)}</span>
+                    <span className="home-hero-chip is-out">Out {loading || !statsReady ? '…' : formatIndianAmount(globalStats.totalOut, currency)}</span>
+                    <span className={`home-hero-chip${globalStats.uncategorized > 0 ? ' is-warn pulse-attn' : ''}`}>
+                      {loading || !statsReady ? '…' : `${globalStats.uncategorized} to review`}
+                    </span>
+                  </div>
+                  <p className="home-amount-sub">
+                    {loading || !statsReady
+                      ? 'Loading books'
+                      : `${visibleBooks.length} books · ${globalStats.entries} entries`}
+                  </p>
+                </>
+              ) : (
+                <p className="home-lead-light">Open Business when you need invoices and GST.</p>
+              )}
             </div>
             <div className="home-hero-aside">
               {isSuperUser && (
@@ -1139,35 +1165,9 @@ export default function Dashboard() {
                   </Link>
                 </div>
               )}
+              {canSeeMoney ? <HomeFeatureReel /> : null}
             </div>
           </div>
-          {!hasAnyFeature ? (
-            <p className="home-lead-light">Your admin has not turned on Money or Business yet.</p>
-          ) : canSeeMoney ? (
-            <>
-              <div className="home-amount-row">
-                <CurrencyMark code={currencyCode} size="lg" />
-                <AutoFitAmount className="home-amount byjan-money">
-                  {loading || !statsReady ? <span className="home-skel-balance byjan-skel" /> : formatIndianAmount(net, currency)}
-                </AutoFitAmount>
-              </div>
-              <div className="home-hero-chips" aria-label="Snapshot">
-                <span className="home-hero-chip is-in">In {loading || !statsReady ? '…' : formatIndianAmount(globalStats.totalIn, currency)}</span>
-                <span className="home-hero-chip is-out">Out {loading || !statsReady ? '…' : formatIndianAmount(globalStats.totalOut, currency)}</span>
-                <span className={`home-hero-chip${globalStats.uncategorized > 0 ? ' is-warn pulse-attn' : ''}`}>
-                  {loading || !statsReady ? '…' : `${globalStats.uncategorized} to review`}
-                </span>
-              </div>
-              <p className="home-amount-sub">
-                {loading || !statsReady
-                  ? 'Loading books'
-                  : `${visibleBooks.length} books · ${globalStats.entries} entries`}
-              </p>
-              <HomeFeatureReel />
-            </>
-          ) : (
-            <p className="home-lead-light">Open Business when you need invoices and GST.</p>
-          )}
         </section>
 
         {hasFeature('money') && hasFeature('money_settle') && uid ? <PendingPayStrip uid={uid} /> : null}

@@ -9,14 +9,12 @@ const config: CapacitorConfig = {
     iosScheme: 'https',
     hostname: 'localhost',
     cleartext: false,
+    // Do NOT allow easypado.com here — that loads the website inside the app WebView
+    // during OAuth/SSO fallbacks. External Browser / Custom Tabs do not need this list.
     allowNavigation: [
-      'easypado.com',
-      'www.easypado.com',
-      '*.easypado.com',
-      'byjan.com',
-      '*.byjan.com',
       '*.googleapis.com',
       '*.gstatic.com',
+      '*.google.com',
       '*.firebaseapp.com',
       '*.firebaseio.com',
     ],
@@ -26,7 +24,6 @@ const config: CapacitorConfig = {
       enabled: true,
     },
     FirebaseAuthentication: {
-      // JS Firebase Auth is the app source of truth; native layer only obtains the Google credential.
       skipNativeAuth: true,
       providers: ['google.com'],
     },

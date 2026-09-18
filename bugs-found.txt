@@ -89,7 +89,7 @@ Title: MEMBER_FEATURES omits money_settle / money_team / money_people
 Where: src/lib/features.ts:157-190; Dashboard.tsx:1173; Settings.tsx:246
 Repro: Fresh install with empty role_permissions table; sign in as non-super user; open Home.
 Expected: Default members can settle splits (ROLE_FEATURE_DEFAULTS.DEFAULT_USER has money_settle).
-Actual: resolveFeatures falls back to MEMBER_FEATURES → PendingPayStrip and UPI settings gated off.
+Actual: resolveFeatures falls back to MEMBER_FEATURES â PendingPayStrip and UPI settings gated off.
 Status: open
 ---
 BUG-012 | SEVERITY: high | AREA: features
@@ -127,7 +127,7 @@ Status: open
 BUG-016 | SEVERITY: high | AREA: race / Layout FAB
 Title: FAB quick-action on non-book routes races navigate + delayed event
 Where: src/components/Layout.tsx:66-76
-Repro: From Settings, open FAB is unavailable; from Activity path assumptions — from Home when handlers not mounted yet, or navigate('/') then fire after 380ms.
+Repro: From Settings, open FAB is unavailable; from Activity path assumptions â from Home when handlers not mounted yet, or navigate('/') then fire after 380ms.
 Expected: Wait for target route ready / use navigation state to open action.
 Actual: Fixed 380ms timeout; slow devices miss the byjan-quick event.
 Status: open
@@ -144,12 +144,12 @@ BUG-018 | SEVERITY: high | AREA: auth / roles
 Title: FAB Add/Voice ignore canWrite (viewers open write UI)
 Where: src/pages/BookView.tsx:629-633, 964-983; canWrite at 886
 Repro: Join as viewer; on book screen use FAB Add or Voice (if features on).
-Expected: No-op / toast “view only”.
+Expected: No-op / toast âview onlyâ.
 Actual: openNewExpense / setVoiceOpen run without canWrite check (scan correctly guards).
 Status: open
 ---
 BUG-019 | SEVERITY: high | AREA: android / deep links
-Title: No https App Links for invites / pay deep links — only custom auth scheme
+Title: No https App Links for invites / pay deep links â only custom auth scheme
 Where: android/.../AndroidManifest.xml:26-31
 Repro: Open https://www.easypado.com/#/invite/... from Android email; hope for installed app.
 Expected: verified App Links / intent filters for invite and pay URLs into the app.
@@ -160,7 +160,7 @@ BUG-020 | SEVERITY: high | AREA: ShareIntent
 Title: ShareIntentListener calls CapApp.removeAllListeners on unmount
 Where: src/components/ShareIntentListener.tsx:250-254
 Repro: Remount ShareIntentListener (route/provider remount); Google auth also uses App.addListener.
-Expected: Remove only this component’s handles.
+Expected: Remove only this componentâs handles.
 Actual: removeAllListeners wipes unrelated appUrlOpen / auth listeners.
 Status: open
 ---
@@ -169,7 +169,7 @@ Title: Invite rate-limit Map wipe clears all keys when size > 2000
 Where: api/invites.ts:9-16
 Repro: Drive many distinct invite keys until Map size exceeds 2000.
 Expected: Evict oldest entries or use TTL map.
-Actual: inviteHits.clear() resets everyone’s limits.
+Actual: inviteHits.clear() resets everyoneâs limits.
 Status: open
 ---
 BUG-022 | SEVERITY: medium | AREA: auth / JWT cache
@@ -192,14 +192,14 @@ BUG-024 | SEVERITY: medium | AREA: offline queue
 Title: Silent localStorage quota failures drop queued expenses
 Where: src/lib/money-offline.ts:29-34
 Repro: Fill localStorage; enqueueOfflineExpense.
-Expected: Surface error to user; do not claim “Saved offline”.
+Expected: Surface error to user; do not claim âSaved offlineâ.
 Actual: writeQueue catch empties; enqueue still returns a row that may not persist.
 Status: open
 ---
 BUG-025 | SEVERITY: medium | AREA: payments / UPI notes
 Title: UPI tn built from free-text expenseDescription (special chars / length)
 Where: api/_lib/settlement-upi.ts:490; SettlementPaySheet.tsx:165
-Repro: Split expense with description containing emoji / “&” / quotes; start UPI pay.
+Repro: Split expense with description containing emoji / â&â / quotes; start UPI pay.
 Expected: Sanitize tn to NPCI-safe charset or use stable mock note + internal tr.
 Actual: Raw `Byjan ${expenseDescription}` used as tn (many apps reject / truncate oddly).
 Status: open
@@ -216,7 +216,7 @@ BUG-027 | SEVERITY: medium | AREA: amount / multi-currency
 Title: MoneyReports uses only books[0] currency and budget
 Where: src/pages/MoneyReports.tsx:47-49
 Repro: Have INR and USD books with budgets; open /reports.
-Expected: Per-book or convert; don’t attribute all spend to first book’s currency/budget.
+Expected: Per-book or convert; donât attribute all spend to first bookâs currency/budget.
 Actual: currency + monthlyBudget always from books[0].
 Status: open
 ---
@@ -239,7 +239,7 @@ Status: open
 BUG-030 | SEVERITY: medium | AREA: Settings / no-op prefs
 Title: notifyOverdue / notifyApprovals toggles are no-ops
 Where: src/lib/app-prefs.ts:46-47; Settings.tsx:487-488
-Repro: Toggle “Highlight overdue invoices” / “Surface pending approvals”; Save; use Collections.
+Repro: Toggle âHighlight overdue invoicesâ / âSurface pending approvalsâ; Save; use Collections.
 Expected: UI behavior changes.
 Actual: Prefs stored but never read outside Settings/app-prefs definitions.
 Status: open
@@ -272,7 +272,7 @@ BUG-034 | SEVERITY: medium | AREA: a11y
 Title: Notifications bell has title but no aria-label
 Where: src/components/Layout.tsx:207-215, 253-261
 Repro: Screen reader focus on header bell.
-Expected: Named “Notifications” (and unread count).
+Expected: Named âNotificationsâ (and unread count).
 Actual: Icon-only button with title attribute (weak for a11y).
 Status: open
 ---
@@ -285,18 +285,18 @@ Actual: role="menu" parent; children are unlabeled motion.buttons (text in separ
 Status: open
 ---
 BUG-036 | SEVERITY: medium | AREA: a11y
-Title: Category remove “×” buttons lack accessible names
+Title: Category remove âÃâ buttons lack accessible names
 Where: src/pages/Settings.tsx:509-512
 Repro: Screen reader on custom category chips.
-Expected: “Remove {category}”.
-Actual: Bare × with no aria-label.
+Expected: âRemove {category}â.
+Actual: Bare Ã with no aria-label.
 Status: open
 ---
 BUG-037 | SEVERITY: medium | AREA: a11y
 Title: SearchTrigger buttons lack aria-label
 Where: src/components/GlobalSearch.tsx:20-64
 Repro: Focus search icon/bar with SR.
-Expected: “Search” name.
+Expected: âSearchâ name.
 Actual: Icon/button without aria-label (relies on visible text for bar only).
 Status: open
 ---
@@ -336,7 +336,7 @@ BUG-042 | SEVERITY: medium | AREA: ShareIntent
 Title: Large shared images dropped from sessionStorage with no user warning
 Where: src/components/ShareIntentListener.tsx:97-108, 268-269
 Repro: Share >200KB image; process killed before Dashboard consumes memoryPending.
-Expected: Persist to filesystem / warn “share again”.
+Expected: Persist to filesystem / warn âshare againâ.
 Actual: sessionStorage strips image; recovery returns null.
 Status: open
 ---
@@ -345,7 +345,7 @@ Title: Notification load errors only console.error (except quota)
 Where: src/components/Layout.tsx:135-137
 Repro: Break notifications API; open app.
 Expected: User-visible empty/error state.
-Actual: Silent fail + console.error; panel shows “No alerts yet”.
+Actual: Silent fail + console.error; panel shows âNo alerts yetâ.
 Status: open
 ---
 BUG-044 | SEVERITY: medium | AREA: Trace / ops
@@ -375,7 +375,7 @@ Status: open
 BUG-047 | SEVERITY: medium | AREA: app lock
 Title: App lock PIN uses single SHA-256 (offline brute-force friendly)
 Where: src/lib/app-lock.ts:36-39, 93-98
-Repro: Extract localStorage byjan.lock.v1; brute 4–8 digit PINs.
+Repro: Extract localStorage byjan.lock.v1; brute 4â8 digit PINs.
 Expected: PBKDF2/scrypt with high iterations + device binding.
 Actual: sha256(`${salt}:${digits}`) once.
 Status: open
@@ -384,12 +384,12 @@ BUG-048 | SEVERITY: medium | AREA: app lock
 Title: Default autoLockMs is 8 seconds (easy accidental lock thrash)
 Where: src/lib/app-lock.ts:15-17; Settings SelectItem 8000
 Repro: Enable lock with defaults; briefly switch apps.
-Expected: Safer default (e.g. 30–60s) or Immediate only if chosen.
+Expected: Safer default (e.g. 30â60s) or Immediate only if chosen.
 Actual: DEFAULT_OPTIONS.autoLockMs = 8000.
 Status: open
 ---
 BUG-049 | SEVERITY: medium | AREA: PendingPayStrip
-Title: “See all” links to first card’s book pay query, not a list
+Title: âSee allâ links to first cardâs book pay query, not a list
 Where: src/components/PendingPayStrip.tsx:51-53
 Repro: Multiple pending pays; tap See all.
 Expected: Settlements list / dedicated page.
@@ -409,7 +409,7 @@ Title: Activity silently swallows expense/notification fetch failures
 Where: src/pages/Activity.tsx:33-35
 Repro: API down; open Activity.
 Expected: Error banner.
-Actual: Empty lists; “No activity yet”.
+Actual: Empty lists; âNo activity yetâ.
 Status: open
 ---
 BUG-052 | SEVERITY: medium | AREA: NotificationsPage
@@ -417,7 +417,7 @@ Title: NotificationsPage silently clears on error
 Where: src/pages/NotificationsPage.tsx:33
 Repro: Force listNotifications reject.
 Expected: Error UI.
-Actual: setRows([]) — looks empty.
+Actual: setRows([]) â looks empty.
 Status: open
 ---
 BUG-053 | SEVERITY: medium | AREA: Help
@@ -437,7 +437,7 @@ Actual: acceptLedgerInvite returns notifyError; Dashboard does not surface it.
 Status: open
 ---
 BUG-055 | SEVERITY: medium | AREA: BookView invite
-Title: “auditor” role invited but ROLE_FEATURE_DEFAULTS has no auditor map
+Title: âauditorâ role invited but ROLE_FEATURE_DEFAULTS has no auditor map
 Where: BookView.tsx:3280; src/lib/money-flow.ts:153-264; features appRoleFromBooks
 Repro: Invite as auditor; accept; check feature resolution / canWrite.
 Expected: Dedicated auditor role permissions.
@@ -496,7 +496,7 @@ BUG-062 | SEVERITY: medium | AREA: features / FeatureGate
 Title: FeatureGate hard-redirects to / with no explanation
 Where: src/components/FeatureGate.tsx:8-11
 Repro: Disable money_reports; navigate to /reports.
-Expected: “Feature off” empty state.
+Expected: âFeature offâ empty state.
 Actual: Silent Navigate to "/".
 Status: open
 ---
@@ -544,16 +544,16 @@ BUG-068 | SEVERITY: medium | AREA: Register Google handoff
 Title: Register Google path returns early on native handoff without status message
 Where: Register.tsx:40-42
 Repro: Register via Google in nativeApp browser flow.
-Expected: “Returning to app…” like Login.tsx:47-48.
+Expected: âReturning to appâ¦â like Login.tsx:47-48.
 Actual: Silent return; user may think nothing happened.
 Status: open
 ---
 BUG-069 | SEVERITY: medium | AREA: SettlementPaySheet
 Title: Web/fallback path leaves phase unclear without forcing confirmation UX
 Where: SettlementPaySheet.tsx:199-221
-Repro: Pay on web/desktop; UPI link “opens”.
+Repro: Pay on web/desktop; UPI link âopensâ.
 Expected: Strong require-confirm / mark failed until user acts.
-Actual: phase unclear + success toast “Opened UPI app”.
+Actual: phase unclear + success toast âOpened UPI appâ.
 Status: open
 ---
 BUG-070 | SEVERITY: medium | AREA: confirm received
@@ -561,7 +561,7 @@ Title: Receiver confirmSettlementReceived can mark PAID without UPI proof (by de
 Where: api/_lib/settlement-upi.ts header comment; SettlementPaySheet confirmReceived
 Repro: As receiver, confirm received without payment occurring.
 Expected: Extra friction / payer co-confirm for large amounts.
-Actual: Single-party confirm → PAID.
+Actual: Single-party confirm â PAID.
 Status: open
 ---
 BUG-071 | SEVERITY: low | AREA: TraceOps UI
@@ -583,7 +583,7 @@ Status: open
 BUG-073 | SEVERITY: medium | AREA: inbound mailbox
 Title: inboundMailboxSlug collisions possible across books with similar names
 Where: src/lib/inbound-mail.ts:5-19
-Repro: Create two books “Trip” → both want trip@easypado.com unless claimed uniquely server-side.
+Repro: Create two books âTripâ â both want trip@easypado.com unless claimed uniquely server-side.
 Expected: Guaranteed unique server allocation always.
 Actual: Client slug derivation is name-based; race depends on server ensureLedgerMailbox.
 Status: open
@@ -605,7 +605,7 @@ Actual: Effect re-fires when bookId/state persist.
 Status: open
 ---
 BUG-076 | SEVERITY: medium | AREA: Settings delete account
-Title: deleteAccount server then deleteCurrentAuthUser — orphan risk if second fails
+Title: deleteAccount server then deleteCurrentAuthUser â orphan risk if second fails
 Where: Settings.tsx:152-167
 Repro: Soft-delete succeeds; Firebase deleteUser fails (requiresRecentLogin).
 Expected: Reauth flow before delete; transactional messaging.
@@ -624,14 +624,14 @@ BUG-078 | SEVERITY: low | AREA: Currency helper
 Title: Unknown currency code falls back to "$"
 Where: src/lib/currency.ts:1-10
 Repro: Book currency "JPY"; display symbol.
-Expected: "¥" or code "JPY".
-Actual: default return code || '$' — if code missing shows $.
+Expected: "Â¥" or code "JPY".
+Actual: default return code || '$' â if code missing shows $.
 Status: open
 ---
 BUG-079 | SEVERITY: medium | AREA: BookView amounts
 Title: Entry card uses Number(amount).toFixed(2) without Indian grouping
 Where: BookView.tsx:~2548
-Repro: View ₹123456.78 entry.
+Repro: View â¹123456.78 entry.
 Expected: en-IN 1,23,456.78 via prefs.
 Actual: plain toFixed(2) with symbol.
 Status: open
@@ -685,7 +685,7 @@ Actual: Filters out String(row.invitedBy) === user.uid always.
 Status: open
 ---
 BUG-086 | SEVERITY: low | AREA: TraceOps
-Title: Trace refresh disabled state doesn’t announce loading to AT
+Title: Trace refresh disabled state doesnât announce loading to AT
 Where: TraceOps.tsx:95-98, 111-116
 Repro: Refresh Trace with SR.
 Expected: aria-busy on region.
@@ -701,11 +701,11 @@ Actual: .catch(console.error) / console.error paths.
 Status: open
 ---
 BUG-088 | SEVERITY: medium | AREA: Split / settlements
-Title: Payment started notifies receiver with generic “Someone” copy
+Title: Payment started notifies receiver with generic âSomeoneâ copy
 Where: settlement-upi.ts:534-539
 Repro: Start UPI payment; receiver push/in-app.
 Expected: Include payer name/amount book context consistently.
-Actual: “Someone started a ₹… UPI payment…”.
+Actual: âSomeone started a â¹â¦ UPI paymentâ¦â.
 Status: open
 ---
 BUG-089 | SEVERITY: medium | AREA: HashRouter + SSO
@@ -720,7 +720,7 @@ BUG-090 | SEVERITY: low | AREA: Onboarding
 Title: Onboarding dismiss stored forever; no reset in Settings
 Where: Login.tsx:11, 97-99
 Repro: Finish onboard; want to re-see slides.
-Expected: Settings “Replay intro”.
+Expected: Settings âReplay introâ.
 Actual: localStorage byjan.onboard.v1 sticky with no UI reset.
 Status: open
 ---
@@ -765,10 +765,10 @@ Actual: BookView local key handler may still run (separate from GlobalSearch gua
 Status: open
 ---
 BUG-096 | SEVERITY: low | AREA: MoneyReports
-Title: Top categories show leading “+” for money-out (confusing sign)
+Title: Top categories show leading â+â for money-out (confusing sign)
 Where: MoneyReports.tsx:120
 Repro: View category list.
-Expected: Expense as outflow without “+” or with “−”.
+Expected: Expense as outflow without â+â or with âââ.
 Actual: `+{formatIndianAmount(...)}` for spend.
 Status: open
 ---
@@ -777,11 +777,11 @@ Title: Accept invite is not transactional (book write then close invite)
 Where: api/invites.ts:289-294
 Repro: Concurrent accept + decline / double accept.
 Expected: Single DB transaction / unique membership constraint.
-Actual: Sequential ledgerSet book then closeInvite — race windows possible.
+Actual: Sequential ledgerSet book then closeInvite â race windows possible.
 Status: open
 ---
 BUG-098 | SEVERITY: medium | AREA: TypeScript any footgun
-Title: Layout notifications typed as any[] — runtime assumes fields
+Title: Layout notifications typed as any[] â runtime assumes fields
 Where: Layout.tsx:92, 110-132
 Repro: API returns malformed notification without id.
 Expected: Schema validation.
@@ -789,15 +789,15 @@ Actual: any[] + String(row.id) filtering; detail.senderName assumed.
 Status: open
 ---
 BUG-099 | SEVERITY: medium | AREA: BookView any
-Title: Heavy (userProfile as any)?.upiId usage — profile type drift
+Title: Heavy (userProfile as any)?.upiId usage â profile type drift
 Where: BookView.tsx:2212-2213, 2817-2818, 3424-3425
 Repro: Profile missing upi fields typed elsewhere.
 Expected: MeProfile includes upiId/upiDisplayName.
-Actual: Casts hide missing fields → empty UPI until refresh.
+Actual: Casts hide missing fields â empty UPI until refresh.
 Status: open
 ---
 BUG-100 | SEVERITY: low | AREA: Switch / Settings live preview
-Title: Unsaved prefs “preview is live” but lock options write immediately
+Title: Unsaved prefs âpreview is liveâ but lock options write immediately
 Where: Settings.tsx:175-176 vs 596-598 updateLockOptions on toggle
 Repro: Change lock shuffle without Save; reload.
 Expected: Consistent dirty/save model.
@@ -816,12 +816,12 @@ BUG-102 | SEVERITY: high | AREA: invites API
 Title: create invite does not reject emails already in book.roles
 Where: api/invites.ts:215-241
 Repro: Invite teammate@ already listed in book.roles with another uid/email match; create again.
-Expected: 400 “already a member”.
+Expected: 400 âalready a memberâ.
 Actual: Only blocks inviting your own email; pending invite row overwritten for existing members.
 Status: open
 ---
 BUG-103 | SEVERITY: medium | AREA: Settings / density
-Title: BookView “D” hotkey writes byjan.density separately from prefs.uiDensity
+Title: BookView âDâ hotkey writes byjan.density separately from prefs.uiDensity
 Where: src/pages/BookView.tsx:639-641, 667-670; src/lib/app-prefs.ts:263
 Repro: Set Density Compact in Settings+Save; open book; press D; reload.
 Expected: Single source of truth (appPrefs.uiDensity).
@@ -837,7 +837,7 @@ Actual: useState(10) hardcoded; Business PagedList alone reads getRuntimePrefs()
 Status: open
 ---
 BUG-105 | SEVERITY: high | AREA: offline queue race
-Title: flushOfflineQueue has no in-flight mutex — concurrent flushes can double-create
+Title: flushOfflineQueue has no in-flight mutex â concurrent flushes can double-create
 Where: src/lib/money-offline.ts:61-81; BookView.tsx:601-615
 Repro: Queue offline entry; trigger mount sync + networkStatusChange connected nearly together.
 Expected: Single-flight lock; second flush waits or no-ops.
@@ -849,15 +849,15 @@ Title: After sync, offline placeholder row remains beside server expense
 Where: BookView.tsx:1332-1334, 604-610; api/_lib/pg-tables.ts:1718
 Repro: Save offline (local id = idempotencyKey); reconnect on that book; watch list.
 Expected: Replace/remove offlineQueued placeholder when flush returns server expense.
-Actual: applyExpenseLocal(server) uses newLedgerId(); filter keeps idempotencyKey row → duplicate lines until reload.
+Actual: applyExpenseLocal(server) uses newLedgerId(); filter keeps idempotencyKey row â duplicate lines until reload.
 Status: open
 ---
 BUG-107 | SEVERITY: medium | AREA: Split / percentage
-Title: Initial % shares use Math.round(100/n) and often fail “must total 100%”
+Title: Initial % shares use Math.round(100/n) and often fail âmust total 100%â
 Where: SplitExpenseSheet.tsx:79; money-splits.ts:85-86
 Repro: Open Split on a 3-member book; switch method to %.
 Expected: Percents sum to 100 (e.g. 34/33/33).
-Actual: 33+33+33=99 → allocateSplit errors until user edits.
+Actual: 33+33+33=99 â allocateSplit errors until user edits.
 Status: open
 ---
 BUG-108 | SEVERITY: medium | AREA: TraceOps
@@ -872,7 +872,7 @@ BUG-109 | SEVERITY: low | AREA: TraceOps empty state
 Title: Empty freeTiers array renders blank health grid with no copy
 Where: TraceOps.tsx:121-134
 Repro: Trace payload with freeTiers: [] (or truncated error body that still passes).
-Expected: “No health tiles” empty state.
+Expected: âNo health tilesâ empty state.
 Actual: Empty <section className="trace-grid">.
 Status: open
 ---
@@ -887,7 +887,7 @@ Status: open
 BUG-111 | SEVERITY: high | AREA: AccessControl / FeatureGate
 Title: money_export toggle does not gate BookView PDF/CSV download
 Where: features.ts:47; BookView.tsx:1065-1172, 2154-2174, 2759-2764
-Repro: Super-user turns money_export off for a member; member opens book → Download report.
+Repro: Super-user turns money_export off for a member; member opens book â Download report.
 Expected: Export hidden/disabled.
 Actual: Feature key never checked; downloads always available when UI chrome is.
 Status: open
@@ -895,16 +895,16 @@ Status: open
 BUG-112 | SEVERITY: medium | AREA: Settings / FeatureGate
 Title: Toast / keyboard / confirm toggles hidden unless business feature on
 Where: Settings.tsx:465-477 (inside hasFeature('business'))
-Repro: Money-only account; open Settings looking for “Toast notifications” or shortcuts.
+Repro: Money-only account; open Settings looking for âToast notificationsâ or shortcuts.
 Expected: App-wide prefs available without Business.
-Actual: Entire “Posting and control” block (incl. showToasts, keyboardShortcuts) gated on business.
+Actual: Entire âPosting and controlâ block (incl. showToasts, keyboardShortcuts) gated on business.
 Status: open
 ---
 BUG-113 | SEVERITY: medium | AREA: invites peek privacy
-Title: wrong_account returned before closed/missing checks — leaks invitee email
+Title: wrong_account returned before closed/missing checks â leaks invitee email
 Where: api/invites.ts:136-154
 Repro: Signed-in as A; open invite already declined that was for B.
-Expected: closed/missing without revealing B’s address (or generic denial).
+Expected: closed/missing without revealing Bâs address (or generic denial).
 Actual: status wrong_account with invitedEmail even when invite not pending.
 Status: open
 ---
@@ -925,7 +925,7 @@ Actual: reset clears name/price/party but not interstate, taxCode, accountId, au
 Status: open
 ---
 BUG-116 | SEVERITY: medium | AREA: Books Recurring
-Title: “Recurring” templates have no cadence — only manual Run now
+Title: âRecurringâ templates have no cadence â only manual Run now
 Where: Recurring.tsx:49-52, 203-222; createRecurring payloads
 Repro: Create invoice template; look for schedule/cron/next run fields.
 Expected: Frequency + next run (or rename to Templates).
@@ -953,11 +953,11 @@ Title: listAllExpenses failure yields empty success UI, not error
 Where: RegularPayments.tsx:18-32
 Repro: Break expenses API; open /regular-payments.
 Expected: Error banner + retry.
-Actual: catch-less finally; patterns empty → “No recurring patterns yet”.
+Actual: catch-less finally; patterns empty â âNo recurring patterns yetâ.
 Status: open
 ---
 BUG-120 | SEVERITY: low | AREA: RegularPayments
-Title: Copy says “confirm before treating as fixed” but no confirm control exists
+Title: Copy says âconfirm before treating as fixedâ but no confirm control exists
 Where: RegularPayments.tsx:62-64, 74-108
 Repro: Open Regular payments with detected patterns.
 Expected: Confirm/dismiss per pattern (or change copy).
@@ -969,13 +969,13 @@ Title: Solo book / zero selected people: sheet opens empty with no recovery hint
 Where: SplitExpenseSheet.tsx:69-84, 145-148
 Repro: Book with only you; open Split; deselect all.
 Expected: Guidance to invite people / cannot split alone.
-Actual: Empty list; Save toasts “Select at least one member” only.
+Actual: Empty list; Save toasts âSelect at least one memberâ only.
 Status: open
 ---
 BUG-122 | SEVERITY: medium | AREA: Split / zero amount
 Title: Zero-amount expense still opens Split UI that hard-fails allocate
 Where: money-splits.ts:33, 73; SplitExpenseSheet open with amount=0
-Repro: Draft/zero amount entry → Split.
+Repro: Draft/zero amount entry â Split.
 Expected: Block open or disable Save with clear banner upfront.
 Actual: fillLockedAmounts/allocateSplit return ok:false; easy to miss until Save.
 Status: open
@@ -984,7 +984,7 @@ BUG-123 | SEVERITY: medium | AREA: AppPrefs
 Title: getMe() overwrites in-progress Settings edits without dirty guard
 Where: AppPrefsContext.tsx:61-77
 Repro: Change density slider (unsaved); trigger profile refresh / remount provider effect.
-Expected: Don’t clobber dirty local prefs.
+Expected: Donât clobber dirty local prefs.
 Actual: setPrefs(mergeFromRemote(...)) always applies remote.
 Status: open
 ---
@@ -1001,7 +1001,7 @@ Title: putIdempotent ON CONFLICT DO NOTHING can leave second expense without cac
 Where: api/_lib/money-handlers.ts:117-125; tracker.ts:356-410
 Repro: Two parallel create with same idempotencyKey before either stores response.
 Expected: Unique constraint / transaction so second waits or returns first expense.
-Actual: Both may pass checkExpenseIdempotency miss; both ledgerSaveExpense; second put no-ops — two expenses.
+Actual: Both may pass checkExpenseIdempotency miss; both ledgerSaveExpense; second put no-ops â two expenses.
 Status: open
 ---
 BUG-126 | SEVERITY: medium | AREA: FeatureGate
@@ -1025,7 +1025,7 @@ Title: decline on unknown id still returns ok:true
 Where: api/invites.ts:313-334
 Repro: Decline fabricated invite id while signed in.
 Expected: 404 if invite missing.
-Actual: if (invite) close…; always json 200 { ok: true }.
+Actual: if (invite) closeâ¦; always json 200 { ok: true }.
 Status: open
 ---
 BUG-129 | SEVERITY: medium | AREA: BooksApp routes
@@ -1033,15 +1033,15 @@ Title: Unknown /books/* paths silently Navigate to /books index
 Where: BooksApp.tsx:118
 Repro: Open /books/not-a-real-module or stale bookmark.
 Expected: 404 empty state with link home.
-Actual: Catch-all replace to /books — looks like a successful load of Dashboard.
+Actual: Catch-all replace to /books â looks like a successful load of Dashboard.
 Status: open
 ---
 BUG-130 | SEVERITY: medium | AREA: a11y
 Title: Settings category remove control is icon-only without aria-label
 Where: Settings.tsx:508-512
 Repro: Screen reader on custom category chips.
-Expected: “Remove {category}”.
-Actual: Bare × button (also see related BUG-036 if present in earlier pass — this line still unlabeled).
+Expected: âRemove {category}â.
+Actual: Bare Ã button (also see related BUG-036 if present in earlier pass â this line still unlabeled).
 Status: open
 ---
 BUG-131 | SEVERITY: medium | AREA: a11y
@@ -1065,11 +1065,11 @@ Title: LedgerStudio filter Switch is aria-pressed but nameless control
 Where: LedgerStudio.tsx:107-109
 Repro: SR on Hide amounts switch in Studio.
 Expected: accessible name from Row label (aria-labelledby) or aria-label.
-Actual: Empty <button aria-pressed> — name not associated.
+Actual: Empty <button aria-pressed> â name not associated.
 Status: open
 ---
 BUG-134 | SEVERITY: medium | AREA: Share / capture
-Title: Text-only share clears pending before CapturePreview confirm — back loses payload
+Title: Text-only share clears pending before CapturePreview confirm â back loses payload
 Where: BookView.tsx:594-598
 Repro: Share text SMS; preview opens; system back before Add.
 Expected: Keep pending until confirmed/cancelled explicitly.
@@ -1080,12 +1080,12 @@ BUG-135 | SEVERITY: medium | AREA: ShareIntent
 Title: listLedgers() after share can navigate away from picker mid-choice
 Where: ShareIntentListener.tsx:156-189
 Repro: Share with 2+ books; picker starts; server returns length===1 due to filter/archive race.
-Expected: Don’t auto-navigate after user sees picker.
+Expected: Donât auto-navigate after user sees picker.
 Actual: Async then may navigate to sole book after Home capture UI already shown.
 Status: open
 ---
 BUG-136 | SEVERITY: medium | AREA: Privacy
-Title: Hide amounts not offered in Settings — only Studio / H hotkey / localStorage
+Title: Hide amounts not offered in Settings â only Studio / H hotkey / localStorage
 Where: BookView privacy state; Settings has no privacy Switch
 Repro: Look in Settings for hide amounts.
 Expected: Account-visible toggle (and sync).
@@ -1096,7 +1096,7 @@ BUG-137 | SEVERITY: medium | AREA: voice sound
 Title: voiceStartSound applies immediately via setPref but reverts if user leaves without Save
 Where: Settings.tsx:275; AppPrefsContext setPref vs savePrefs; baseline dirty bar
 Repro: Turn off recording sound; leave Settings without Save; reopen voice.
-Expected: Either auto-save this toggle or don’t apply until Save.
+Expected: Either auto-save this toggle or donât apply until Save.
 Actual: Runtime cue off until remount/getMe restores saved true.
 Status: open
 ---
@@ -1112,17 +1112,17 @@ Status: open
 BUG-139 | SEVERITY: medium | AREA: AccessControl save
 Title: Saving person features does not call invalidateRolePermissionCache / force peer refresh
 Where: AccessControl.tsx:245-259
-Repro: Change another user’s features; they keep old session map until relaunch.
+Repro: Change another userâs features; they keep old session map until relaunch.
 Expected: Documented push/invalidate or version bump.
 Actual: Toast only; peer cache stale (role save invalidates, person save does not).
 Status: open
 ---
 BUG-140 | SEVERITY: low | AREA: TraceOps
-Title: Recent events empty state only; Email pipeline lacks empty “no sends yet” when sent+fails empty beyond lastFail line
+Title: Recent events empty state only; Email pipeline lacks empty âno sends yetâ when sent+fails empty beyond lastFail line
 Where: TraceOps.tsx:152-154, 179-190
 Repro: Fresh env with zero email traffic.
 Expected: Explicit empty for sent list section.
-Actual: sent section omitted entirely; only “No recent email.send failures”.
+Actual: sent section omitted entirely; only âNo recent email.send failuresâ.
 Status: open
 ---
 BUG-141 | SEVERITY: medium | AREA: create expense amount 0
@@ -1150,7 +1150,7 @@ Actual: 404 only if ledgerGet null; soft-deleted book shapes may still add roles
 Status: open
 ---
 BUG-144 | SEVERITY: low | AREA: InviteAccept loading
-Title: Loader shown only when loading && !peek — errors during reload keep stale peek
+Title: Loader shown only when loading && !peek â errors during reload keep stale peek
 Where: InviteAccept.tsx:35, 30-33
 Repro: Accept page loaded; switch account; peek refetches.
 Expected: Loading overlay or disable actions while refreshing.
@@ -1174,11 +1174,11 @@ Actual: Free text saved to tenant used on invoices.
 Status: open
 ---
 BUG-147 | SEVERITY: medium | AREA: FeatureGate mismatch
-Title: Home “See all” activity link gated, but recent entries section still lists activity-like data when money_activity off
+Title: Home âSee allâ activity link gated, but recent entries section still lists activity-like data when money_activity off
 Where: Dashboard.tsx:1269-1273
 Repro: Disable money_activity; open Home with recent entries.
 Expected: Hide activity-like recent block or keep consistent.
-Actual: Recent entries show; “See all” becomes inert <span />.
+Actual: Recent entries show; âSee allâ becomes inert <span />.
 Status: open
 ---
 BUG-148 | SEVERITY: medium | AREA: offline / BookView
@@ -1186,11 +1186,11 @@ Title: Successful flush toast even when some queue items fail in same pass
 Where: BookView.tsx:604-610
 Repro: Queue 2 offline items; first syncs, second 400s.
 Expected: Report partial failure.
-Actual: Toast “Synced N offline entries” for ok only — failed item silent except lastError in storage.
+Actual: Toast âSynced N offline entriesâ for ok only â failed item silent except lastError in storage.
 Status: open
 ---
 BUG-149 | SEVERITY: low | AREA: CapturePreview
-Title: Amount input empty string when fromPaise is 0 — controlled input flicker
+Title: Amount input empty string when fromPaise is 0 â controlled input flicker
 Where: CapturePreviewSheet.tsx:88
 Repro: Preview with amountPaise 0.
 Expected: Show 0.
@@ -1201,7 +1201,7 @@ BUG-150 | SEVERITY: medium | AREA: Share fingerprint debounce
 Title: 1.5s fingerprint debounce can drop a second distinct share of same file size/header
 Where: ShareIntentListener.tsx:127-132
 Repro: Share two different images that share JPEG header prefix quickly.
-Expected: Both processed (receivedAt differs — included in fp).
+Expected: Both processed (receivedAt differs â included in fp).
 Actual: If receivedAt collision / clock skew and mid-slice collide, second share ignored for 1.5s.
 Status: open
 ---
@@ -1214,11 +1214,11 @@ Actual: detectAnomalies always rendered when page open.
 Status: open
 ---
 BUG-152 | SEVERITY: medium | AREA: AccessControl roles
-Title: Role chip “owner” missing from role defaults editor
+Title: Role chip âownerâ missing from role defaults editor
 Where: AccessControl.tsx:367
-Repro: Edit ROLE → FEATURE; look for owner defaults.
+Repro: Edit ROLE â FEATURE; look for owner defaults.
 Expected: owner / viewer / contributor / admin / DEFAULT_USER.
-Actual: DEFAULT_USER, viewer, contributor, admin only — no owner.
+Actual: DEFAULT_USER, viewer, contributor, admin only â no owner.
 Status: open
 ---
 BUG-153 | SEVERITY: medium | AREA: InviteAccept / UPI
@@ -1230,11 +1230,11 @@ Actual: Effect re-opens sheet whenever search still has setupUpi; no feature che
 Status: open
 ---
 BUG-154 | SEVERITY: medium | AREA: display prefs
-Title: Org “Reset to organization default” does not persist until Save
+Title: Org âReset to organization defaultâ does not persist until Save
 Where: AppPrefsContext resetToOrgDefaults; Settings.tsx:432
 Repro: Reset to org default; leave without Save.
-Expected: Either persist or mark dirty clearly (dirty bar exists — verify baseline).
-Actual: Local prefs change; baseline still old until Save — easy to lose reset on navigate away if dirty bar missed.
+Expected: Either persist or mark dirty clearly (dirty bar exists â verify baseline).
+Actual: Local prefs change; baseline still old until Save â easy to lose reset on navigate away if dirty bar missed.
 Status: open
 ---
 BUG-155 | SEVERITY: medium | AREA: UPI settings
@@ -1254,9 +1254,9 @@ Actual: Disabled button + spin class; data stays visible without busy announceme
 Status: open
 ---
 BUG-157 | SEVERITY: medium | AREA: money-splits exact method
-Title: Exact method with all zeros passes allocate when total is 0 only; when total>0 zeros fail — OK; locked partial can assign remainder to index 0 only
+Title: Exact method with all zeros passes allocate when total is 0 only; when total>0 zeros fail â OK; locked partial can assign remainder to index 0 only
 Where: money-splits.ts:59-62
-Repro: Partial auto; lock none; one free member — OK. With freeIdx, remainder always dumped on freeIdx[0].
+Repro: Partial auto; lock none; one free member â OK. With freeIdx, remainder always dumped on freeIdx[0].
 Expected: Documented; or distribute remainder fairly across free members.
 Actual: First unlocked member always absorbs paise remainder (bias).
 Status: open
@@ -1270,11 +1270,11 @@ Actual: Full page works; header bell hidden.
 Status: open
 ---
 BUG-159 | SEVERITY: medium | AREA: InviteAccept / auth
-Title: peek auth_required when token missing, but Accept page still shows “Back to Byjan” into Protected app
+Title: peek auth_required when token missing, but Accept page still shows âBack to Byjanâ into Protected app
 Where: InviteAccept.tsx:89-93, 139
 Repro: Logged-out invite link; tap Back to Byjan.
 Expected: Stay on login or returnTo invite.
-Actual: Link to "/" hits ProtectedRoute → login without preserving invite returnTo (goLogin does set returnTo; Back does not).
+Actual: Link to "/" hits ProtectedRoute â login without preserving invite returnTo (goLogin does set returnTo; Back does not).
 Status: open
 ---
 BUG-160 | SEVERITY: medium | AREA: BooksApp / FeatureGate
@@ -1719,9 +1719,698 @@ Actual: No flex-wrap/min-width:0 -> horizontal overflow.
 Status: open
 ---
 
-Summary count: 214 bugs in log (BUG-001 ... BUG-214). This append: +54 (BUG-161 ... BUG-214).
-Highest severities in this append: high -- BUG-161, BUG-162, BUG-163, BUG-164, BUG-165, BUG-167, BUG-168, BUG-193, BUG-194, BUG-197, BUG-199.
-Prioritize: credit-apply GL gap, inventory races, truncated Books reports, saveSplit settlement swallow, invite accept RMW, delete-account membership orphan.
+BUG-215 | SEVERITY: high | AREA: BookView / undo delete
+Title: Undo after soft-delete always 404s — ledgerGetExpense hides deleted rows
+Where: BookView.tsx:2298-2308; api/tracker.ts update→ledgerGetExpense; pg-tables.ts:78-80,1707-1710,1767-1779
+Repro: Delete an entry; tap Undo.
+Expected: Restore clears deleted/deletedAt/status.
+Actual: update merges patch but getExpense returns null when deletedAt set → 404; UI reverts.
+Status: open
+---
+BUG-216 | SEVERITY: high | AREA: BookView / edit daily cap
+Title: Edit save double-counts amount against daily cap
+Where: BookView.tsx:1245-1248; ledger-advanced.ts wouldBreakDailyCap/todayOut
+Repro: Book dailyCap 1000; existing out 600 same day; edit amount to 500 (still under).
+Expected: Cap uses delta (new−old) or excludes current id.
+Actual: todayOut includes 600 then adds full 500 → false over-cap confirm.
+Status: open
+---
+BUG-217 | SEVERITY: high | AREA: SettlementPaySheet
+Title: Receiver "I did not get it" calls onPaid and clears ?pay= deep link
+Where: SettlementPaySheet.tsx:273-280; SettlementsPanel onPaid
+Repro: Open settlement via ?pay= as receiver; tap I did not get it.
+Expected: Mark review; keep deep-link until resolved or explicit dismiss.
+Actual: onPaid?.() + onClose; consumedPay set as if paid.
+Status: open
+---
+BUG-218 | SEVERITY: medium | AREA: BookView / bulk delete
+Title: Bulk delete optimistically hides IDs with no rollback on mid-loop failure
+Where: BookView.tsx:1494-1521 dropExpensesLocal then sequential softDelete
+Repro: Select 5; force softDelete fail on 3rd.
+Expected: Restore remaining / refresh from server.
+Actual: All 5 dropped locally; toast error; hiddenExpenseIds keep them gone until reload.
+Status: open
+---
+BUG-219 | SEVERITY: medium | AREA: BookView / bulk delete
+Title: Bulk delete skips team notify that single delete sends
+Where: BookView.tsx:1432-1448 vs runBulk delete branch
+Repro: Bulk-delete entries in shared book.
+Expected: Team push/email like single delete.
+Actual: softDelete only; no notifyTeamMembers.
+Status: open
+---
+BUG-220 | SEVERITY: medium | AREA: BookView / duplicate
+Title: Duplicate resets date to today and drops receipt/splits/flag/notes linkage
+Where: BookView.tsx:1459-1480
+Repro: Duplicate flagged entry with receipt + personSplits + past date.
+Expected: Copy material fields or confirm what is reset.
+Actual: isoDay() date; no receiptPath, personSplits, flagged, billable tags beyond listed; only notes/merchant/etc.
+Status: open
+---
+BUG-221 | SEVERITY: medium | AREA: BookView / duplicate
+Title: "Repeat last" duplicates expenses[0] (newest createdAt), not last user action
+Where: BookView.tsx:2288-2290
+Repro: Older entry edited recently; teammate adds newer; tap Repeat last.
+Expected: Last entry user created/edited.
+Actual: Sort head by createdAt only.
+Status: open
+---
+BUG-222 | SEVERITY: medium | AREA: BookView / flag
+Title: Flag toggle has no error handling — failed update leaves stale star until refresh
+Where: BookView.tsx:2476,2592 updateExpense(...).then(refreshExpenses) no catch
+Repro: Toggle flag offline/403.
+Expected: Toast + revert optimistic or keep prior.
+Actual: Promise rejection unhandled; UI unchanged until manual refresh.
+Status: open
+---
+BUG-223 | SEVERITY: medium | AREA: BookView / edit
+Title: Edit cannot clear attached receipt — receiptMeta null falls back to old path
+Where: BookView.tsx:1280-1281
+Repro: Open edit with receipt; remove attachment in UI (if exposed) or clear meta; save.
+Expected: Explicit null clears receiptPath.
+Actual: receiptMeta?.receiptPath || editingExpense.receiptPath keeps old file.
+Status: open
+---
+BUG-224 | SEVERITY: medium | AREA: BookView / edit splits
+Title: Saving edit rebuilds equal personSplits — custom split ratios lost
+Where: BookView.tsx:1251,1279; money-splits.ts buildEqualPersonSplits
+Repro: Entry with unequal personSplits; open edit (splitWithTeam true); save without changing split UI.
+Expected: Preserve existing amounts.
+Actual: buildEqualPersonSplits overwrites equal shares.
+Status: open
+---
+BUG-225 | SEVERITY: medium | AREA: BookView / edit splits
+Title: Unchecking split on edit sends personSplits:undefined — may leave stale splits
+Where: BookView.tsx:1251 (ternary undefined), update patch merge tracker.ts:431-433
+Repro: Edit split entry; turn off splitWithTeam; save.
+Expected: Clear personSplits [] explicitly.
+Actual: undefined omitted/merged; prior splits can remain server-side depending on merge.
+Status: open
+---
+BUG-226 | SEVERITY: medium | AREA: BookView / entry deep-link
+Title: ?entry= open path skips custom-category handling used by openEditExpense
+Where: BookView.tsx:338-361 vs openEditExpense:1118-1124
+Repro: Entry with category not in categoryOptions; open via Activity ?entry=.
+Expected: __custom__ + customCatInput like edit button.
+Actual: setCategory(raw string) only — select may show blank/wrong.
+Status: open
+---
+BUG-227 | SEVERITY: medium | AREA: BookView / selection
+Title: Select-all only toggles current page IDs while dock count implies all selected
+Where: BookView.tsx:2355-2361
+Repro: 3 pages of entries; Select page; dock shows N; bulk delete.
+Expected: Label "Select page" consistent and/or select-filtered-all.
+Actual: Aria says Select page but users often assume full filtered set.
+Status: open
+---
+BUG-228 | SEVERITY: medium | AREA: BookView / peopleFromBook
+Title: Equal splits label members by email local-part, not displayName
+Where: money-splits.ts:7-14 peopleFromBook name: email.split('@')[0]
+Repro: Split with members who have display names.
+Expected: displayName from roles/profile.
+Actual: Always email prefix / uid fallback.
+Status: open
+---
+BUG-229 | SEVERITY: medium | AREA: SettlementsPanel
+Title: Unpaid/totals use case-sensitive status !== 'PAID' while UI uses toUpperCase elsewhere
+Where: SettlementsPanel.tsx:132-135,153-161 vs filtered toUpperCase
+Repro: Settlement status stored as 'paid' lowercase.
+Expected: Treat as PAID.
+Actual: Counted in unpaid/owe totals; badge wrong.
+Status: open
+---
+BUG-230 | SEVERITY: medium | AREA: SettlementsPanel
+Title: Compact list shows first 12 of mine including PAID with no unpaid filter
+Where: SettlementsPanel.tsx:283-288 mine.slice(0,12)
+Repro: Many PAID then open unpaid; compact Split panel.
+Expected: Prefer open items or filter.
+Actual: PAID can crowd out actionable rows.
+Status: open
+---
+BUG-231 | SEVERITY: medium | AREA: SettlementsPanel
+Title: Badge counts CANCELLED only with case-sensitive !== 'CANCELLED'
+Where: SettlementsPanel.tsx:135
+Repro: status 'cancelled' lowercase.
+Expected: Excluded from badge like PAID handling.
+Actual: Included in unpaid badge.
+Status: open
+---
+BUG-232 | SEVERITY: medium | AREA: SettlementPaySheet
+Title: Unclear web path offers Retry which starts a new UPI attempt without cancelling prior
+Where: SettlementPaySheet.tsx:301-307,506-510
+Repro: Web launch leaves phase unclear; tap Retry payment.
+Expected: Cancel/expire prior attemptId then start fresh.
+Actual: startPay again; old attempt may linger AWAITING.
+Status: open
+---
+BUG-233 | SEVERITY: medium | AREA: SettlementPaySheet
+Title: Payer hero shows receiverNameSnapshot for "To" but receiver path uses payerNameSnapshot loosely typed
+Where: SettlementPaySheet.tsx:346-348 (any).payerNameSnapshot
+Repro: Receiver view when payerNameSnapshot missing.
+Expected: Reliable payer label field.
+Actual: Falls back to receiverNameSnapshot (wrong person) via || chain.
+Status: open
+---
+BUG-234 | SEVERITY: medium | AREA: SettlementPaySheet / mock notes
+Title: Copy claims "Success or failure is read automatically" even on web/intent path that stays unclear
+Where: SettlementPaySheet.tsx:460-462 vs launchUpiUri branch 217-220
+Repro: Pay on desktop web.
+Expected: Copy matches behavior (manual confirm).
+Actual: Auto-read promise; often phase unclear.
+Status: open
+---
+BUG-235 | SEVERITY: medium | AREA: PendingPayStrip / swipe
+Title: Single currency symbol from first card applied to all multi-currency settlements
+Where: PendingPayStrip.tsx:41-42,71-72
+Repro: Owe INR and USD settlements; swipe deck.
+Expected: Per-row currency.
+Actual: One symbol for every amount.
+Status: open
+---
+BUG-236 | SEVERITY: medium | AREA: PendingPayStrip / HomeSwipeDeck
+Title: Auto-rotate resumes 5s after swipe and can advance while user aims at Pay
+Where: HomeSwipeDeck.tsx:27-34,66; PendingPayStrip Link Pay
+Repro: Two+ cards; swipe; wait ~5s while finger near Pay.
+Expected: Stay paused until intentional next.
+Actual: interval resumes; card slides under tap target.
+Status: open
+---
+BUG-237 | SEVERITY: medium | AREA: HomeSwipeDeck
+Title: ClickCapture blocks click after any swipe>8px even when user intended Pay
+Where: HomeSwipeDeck.tsx:76-80
+Repro: Slight horizontal drift while tapping Pay.
+Expected: Small drift still activates link.
+Actual: preventDefault/stopPropagation after swiping.current.
+Status: open
+---
+BUG-238 | SEVERITY: medium | AREA: VoiceEntrySheet
+Title: Review & save still calls onReady when amount is 0 after toast
+Where: VoiceEntrySheet.tsx:86-91
+Repro: Parse with no amount; tap Review & save.
+Expected: Block close until amount heard/edited.
+Actual: Toast then onReady(parsed)+onClose anyway.
+Status: open
+---
+BUG-239 | SEVERITY: medium | AREA: VoiceEntrySheet / mobile CSS
+Title: Voice sheet uses pb-8 without safe-area-inset-bottom
+Where: VoiceEntrySheet.tsx:56
+Repro: iPhone home indicator; open Voice.
+Expected: env(safe-area-inset-bottom) under CTAs.
+Actual: Fixed pb-8; buttons can sit under home bar (same class as BUG-207 CapturePreview).
+Status: open
+---
+BUG-240 | SEVERITY: medium | AREA: voice-capture
+Title: Web SpeechRecognition onend clears timer without resolving — hang until timeout
+Where: voice-capture.ts:109-126
+Repro: Recognition ends with empty result and no onerror on some browsers.
+Expected: Resolve no-speech immediately on end.
+Actual: Only timeout resolves after 12s.
+Status: open
+---
+BUG-241 | SEVERITY: medium | AREA: voice-capture
+Title: voiceSupported() true on all native platforms even when VoiceCapture plugin missing
+Where: voice-capture.ts:34-37,138-150
+Repro: Old APK without plugin; open Voice.
+Expected: false / clear unsupported.
+Actual: supported true; listen falls through with confusing errors.
+Status: open
+---
+BUG-242 | SEVERITY: medium | AREA: voice-capture parse
+Title: Amount regex only matches rs/inr/rupees — non-INR spoken amounts ignored
+Where: voice-capture.ts:42-44
+Repro: USD book; say "paid 40 dollars to Uber".
+Expected: Parse 40 or currency-aware patterns.
+Actual: amount 0 unless "paid 40" verb pattern hits.
+Status: open
+---
+BUG-243 | SEVERITY: medium | AREA: ReceiptCaptureFlow
+Title: Batch import uses force:true — bypasses duplicate protection intentionally silent
+Where: ReceiptCaptureFlow.tsx:626-628
+Repro: Re-share same receipt batch.
+Expected: Duplicate confirm like single-file path.
+Actual: force:true creates duplicates (paired with BUG-190 silent failures).
+Status: open
+---
+BUG-244 | SEVERITY: medium | AREA: ReceiptCaptureFlow
+Title: scrubPreview clears reasons[] so OCR confidence reasons never reach review UI
+Where: ReceiptCaptureFlow.tsx:140-144
+Repro: Parse ambiguous receipt; open review.
+Expected: Show parse reasons.
+Actual: reasons forced to [].
+Status: open
+---
+BUG-245 | SEVERITY: medium | AREA: ReceiptCaptureFlow
+Title: Progress copy hardcodes ₹ even for non-INR books
+Where: ReceiptCaptureFlow.tsx:890 formatRupee / Found ₹
+Repro: EUR book share with amount.
+Expected: Book currency symbol.
+Actual: ₹ in status line (formatRupee helper).
+Status: open
+---
+BUG-246 | SEVERITY: medium | AREA: ReceiptCaptureFlow
+Title: Multi-row save aborts remaining rows when first 409 duplicate_confirm returns
+Where: ReceiptCaptureFlow.tsx:959-978
+Repro: Spreadsheet/multi preview; row2 duplicates; row3 new.
+Expected: Continue or queue remaining.
+Actual: return after setPendingDup — later rows never saved.
+Status: open
+---
+BUG-247 | SEVERITY: medium | AREA: ShareIntent
+Title: 1500ms fingerprint dedupe can drop a second intentional share of same screenshot
+Where: ShareIntentListener.tsx:127-132
+Repro: Share same UPI screenshot twice within 1.5s to different books.
+Expected: Second share accepted or ask.
+Actual: Early return; silent drop.
+Status: open
+---
+BUG-248 | SEVERITY: medium | AREA: ShareIntent
+Title: Large shares strip image from sessionStorage — reload loses pending with no user message
+Where: ShareIntentListener.tsx:100-108,260-269
+Repro: Share >200KB image; kill WebView before consume; relaunch.
+Expected: Persist or toast "share expired".
+Actual: session light copy without bytes; readPendingCapture returns null.
+Status: open
+---
+BUG-249 | SEVERITY: medium | AREA: ShareIntent
+Title: appUrlOpen handler treats any URL containing "capture" as share text body
+Where: ShareIntentListener.tsx:230-241
+Repro: Deep link .../capture without text/body params.
+Expected: Ignore or dedicated capture flag.
+Actual: routePending({ text: url }) — garbage transcript entry.
+Status: open
+---
+BUG-250 | SEVERITY: medium | AREA: Settings / deactivate copy
+Title: Copy says deactivate keeps books until email support — omits pushToken clear & status gate
+Where: Settings.tsx:649-652; support-tickets.ts deactivateUserAccount
+Repro: Read Settings Account section.
+Expected: Accurate: sign-in blocked; data retained; push cleared server-side.
+Actual: Only "keeps your books but blocks sign-in until you email…".
+Status: open
+---
+BUG-251 | SEVERITY: medium | AREA: Settings / delete copy
+Title: Delete copy omits Business Books workspaces and silent soft-delete failures
+Where: Settings.tsx:651-652; support-tickets.ts:154-164
+Repro: User with /books orgs + owned money books; read delete blurb.
+Expected: Mention Books orgs / that soft-delete errors are logged only.
+Actual: "owned money books" only; catch swallows soft-delete fail (see BUG-1594 area).
+Status: open
+---
+BUG-252 | SEVERITY: medium | AREA: Settings / confirm
+Title: Single confirm field for DEACTIVATE and DELETE — easy to arm wrong action
+Where: Settings.tsx:656-682
+Repro: Type DELETE; click Deactivate (toast); field still DELETE; click Delete.
+Expected: Separate confirms or clear field after failed action.
+Actual: Shared confirmText; no clear on mismatch.
+Status: open
+---
+BUG-253 | SEVERITY: medium | AREA: Settings / delete
+Title: Client still calls deleteCurrentAuthUser after server already attempts Firebase delete
+Where: Settings.tsx:157-160; support-tickets.ts:187-196
+Repro: Delete account when server authDeleted=true.
+Expected: Skip client auth delete if server succeeded / handle requires-recent-login first.
+Actual: Double delete path; client errors confuse recovery (overlaps BUG-076).
+Status: open
+---
+BUG-254 | SEVERITY: medium | AREA: Activity / day grouping
+Title: Section React key is day label — colliding "Earlier" groups risk reconciliation bugs
+Where: Activity.tsx:92-93 key={group.label}
+Repro: Mix of invalid timestamps producing multiple Earlier sections across re-renders.
+Expected: key includes index or day iso.
+Actual: Duplicate keys if non-contiguous same label.
+Status: open
+---
+BUG-255 | SEVERITY: medium | AREA: Activity / day grouping
+Title: Day groups built only within current page — same calendar day can repeat headers across pages
+Where: Activity.tsx:68-76 grouped from list.pageRows
+Repro: >10 items Today; page size 10; go page 2.
+Expected: Continuous day header or sticky day.
+Actual: New "Today" section on next page (confusing with pager).
+Status: open
+---
+BUG-256 | SEVERITY: medium | AREA: Activity
+Title: Money rows use createdAt for dayHeading when present — activity day ≠ expense date
+Where: Activity.tsx:48 at: createdAt || date
+Repro: Backdated expense date yesterday; created today.
+Expected: Group by business date or show both.
+Actual: Lands under Today via createdAt.
+Status: open
+---
+BUG-257 | SEVERITY: medium | AREA: MoneyReports / NL search
+Title: "where did i spend more" returns comparison rows but UI only renders nl.expenses
+Where: money-intelligence.ts:266-286; MoneyReports.tsx:138-149
+Repro: Type where did i spend more.
+Expected: Show category delta table (query.rows).
+Actual: expenses:[]; no results section.
+Status: open
+---
+BUG-258 | SEVERITY: medium | AREA: MoneyReports / NL search
+Title: NL date phrases filter inside already period-bounded dataset — last month under Month chip empties
+Where: MoneyReports.tsx:44-54; parseNaturalLanguageSearch last month
+Repro: Period=Month (this month); query "Food last month".
+Expected: Expand corpus or ignore period for NL.
+Actual: filtered is this month only → empty.
+Status: open
+---
+BUG-259 | SEVERITY: medium | AREA: MoneyReports / NL search
+Title: NL token match uses OR (some) so leftover keywords over-match unrelated rows
+Where: money-intelligence.ts:300-303
+Repro: Query "Food spending above 100"; category Food set but token "spending" optional.
+Expected: AND of meaningful tokens / drop stopwords better.
+Actual: any token hit keeps row; noisy results.
+Status: open
+---
+BUG-260 | SEVERITY: medium | AREA: MoneyReports / NL search
+Title: Empty NL result has no UI — query looks ignored
+Where: MoneyReports.tsx:138 only when nl.expenses.length > 0
+Repro: Nonsense query with period data present.
+Expected: "No matches".
+Actual: Search box only; overview unchanged.
+Status: open
+---
+BUG-261 | SEVERITY: medium | AREA: MoneyReports / NL search
+Title: NL results not linked to book/entry — dead-end list
+Where: MoneyReports.tsx:142-147
+Repro: Get NL hits; try to open entry.
+Expected: Link /book/{id}?entry=.
+Actual: Plain div truncate text.
+Status: open
+---
+BUG-262 | SEVERITY: medium | AREA: MoneyReports / periodBounds
+Title: Week/month `to` uses toISOString UTC — local late evening can shift range day
+Where: money-reports.ts:42-55
+Repro: US Pacific evening; select Week.
+Expected: Local calendar dates.
+Actual: UTC slice can move `to` to next/prev day.
+Status: open
+---
+BUG-263 | SEVERITY: medium | AREA: MoneyReports
+Title: Top categories show rose "+amount" as if increase — actually absolute spend
+Where: MoneyReports.tsx:120
+Repro: View What changed · categories.
+Expected: Signed delta or remove +.
+Actual: Always +prefix on absolute amount.
+Status: open
+---
+BUG-264 | SEVERITY: medium | AREA: FeatureTour
+Title: Tour dialog has no Escape / focus trap — blocks app until Skip/Continue
+Where: FeatureTour.tsx:97-113
+Repro: First visit /; press Esc / Tab.
+Expected: Esc dismisses; focus cycle in dialog.
+Actual: Only Skip/Continue; focus can leave card.
+Status: open
+---
+BUG-265 | SEVERITY: medium | AREA: FeatureTour
+Title: Settings tour claims "Sign out is on your photo" — may not match Layout control
+Where: FeatureTour.tsx:37-40
+Repro: New user Settings tour; look for sign-out on avatar.
+Expected: Accurate control location.
+Actual: Copy may point to wrong chrome (sign-out often elsewhere).
+Status: open
+---
+BUG-266 | SEVERITY: medium | AREA: FeatureTour
+Title: Tour never reappears after skip/done — no Settings reset
+Where: FeatureTour.tsx:50-52,85-88 localStorage byjan.tour.*
+Repro: Skip tour; want replay.
+Expected: Reset in Settings/Help.
+Actual: Permanently !seen until storage cleared.
+Status: open
+---
+BUG-267 | SEVERITY: medium | AREA: FeatureTour
+Title: Ledger tour promises "Team alerts" sound/vibrate for every entry — oversells
+Where: FeatureTour.tsx:26-27
+Repro: Add entry with notifications gated off.
+Expected: Qualify feature/permission.
+Actual: Absolute claim.
+Status: open
+---
+BUG-268 | SEVERITY: medium | AREA: PullToRefresh
+Title: Release uses React state offset — last move may not flush before touchend (missed refresh)
+Where: PullToRefresh.tsx:45-66
+Repro: Pull past threshold and release quickly on low-end device.
+Expected: Ref-backed distance for threshold.
+Actual: Closure `offset` can be one frame stale → snap back without refresh.
+Status: open
+---
+BUG-269 | SEVERITY: medium | AREA: PullToRefresh
+Title: No onTouchCancel — interrupted gesture can leave spinner height / pulling sticky
+Where: PullToRefresh.tsx:29-68 (no cancel handler)
+Repro: Pull then system gesture/call interrupts touch.
+Expected: Reset offset/pulling.
+Actual: Only start/move/end.
+Status: open
+---
+BUG-270 | SEVERITY: medium | AREA: PullToRefresh
+Title: Does not preventDefault while pulling — native overscroll fights custom PTR
+Where: PullToRefresh.tsx:37-50
+Repro: Android Chrome at scrollTop 0; pull down.
+Expected: preventDefault when dy>0 to own the gesture.
+Actual: Browser rubber-band + custom offset both move.
+Status: open
+---
+BUG-271 | SEVERITY: medium | AREA: PullToRefresh coverage
+Title: PullToRefresh only wraps Dashboard — BookView/Activity/Reports lack PTR
+Where: Dashboard.tsx imports; BookView/Activity/MoneyReports absent
+Repro: Pull on book ledger list expecting refresh.
+Expected: Consistent mobile refresh.
+Actual: No PTR on primary money surfaces.
+Status: open
+---
+BUG-272 | SEVERITY: medium | AREA: BooksApp / Journals
+Title: Journal description not required — empty description posts
+Where: Journals.tsx:81,58 postJournal
+Repro: New journal; leave description blank; post balanced lines.
+Expected: Require memo/description.
+Actual: Saves with empty description.
+Status: open
+---
+BUG-273 | SEVERITY: medium | AREA: BooksApp / Journals
+Title: No remove-line control — cannot delete an added blank journal line
+Where: Journals.tsx:110-111 Add line only
+Repro: Add 5 lines; want 2.
+Expected: Remove line button.
+Actual: Only add; must clear account fields awkwardly.
+Status: open
+---
+BUG-274 | SEVERITY: medium | AREA: BooksApp / Journals
+Title: Reverse button fire-and-forget — CancelledError swallowed, no local busy/error in flyout
+Where: Journals.tsx:156-157 onClick={() => reverse(journal.id)}
+Repro: Reverse; cancel confirm; or reverse fails.
+Expected: Await + flyout error.
+Actual: Promise unhandled in UI; only toast from after().
+Status: open
+---
+BUG-275 | SEVERITY: medium | AREA: BooksApp / Banking
+Title: "Mark page reconciled" reconciles up to 25 outstanding, not the visible PagedTable page
+Where: Banking.tsx:111-120 slice(0,25) on visibleTxns
+Repro: >15 outstanding; click Mark page reconciled on page 1.
+Expected: Current page rows only.
+Actual: First 25 outstanding across pages.
+Status: open
+---
+BUG-276 | SEVERITY: medium | AREA: BooksApp / Banking
+Title: Opening balance can be posted repeatedly — no one-shot guard
+Where: Banking.tsx:226-249
+Repro: Post opening twice same account.
+Expected: Detect existing opening / warn.
+Actual: Second retained-earnings credit allowed.
+Status: open
+---
+BUG-277 | SEVERITY: medium | AREA: BooksApp / Banking
+Title: Empty statement field still computes difference vs 0 via statementMinor || 0
+Where: Banking.tsx:44-52,91
+Repro: Leave statement blank; read Difference KPI.
+Expected: Hide difference until statement entered.
+Actual: sheet uses 0; rose difference vs book.
+Status: open
+---
+BUG-278 | SEVERITY: medium | AREA: BooksApp / Banking rules
+Title: New matching rule defaults clearingAccountId to postingAccounts[0] if unset
+Where: Banking.tsx:313
+Repro: Submit rule with empty account select.
+Expected: Require account.
+Actual: postingAccounts[0] may be unrelated COA head.
+Status: open
+---
+BUG-279 | SEVERITY: medium | AREA: BooksApp / Banking CSV
+Title: CSV import posts up to 50 rows with no dry-run / duplicate statement detection
+Where: Banking.tsx:265-290; parseBankCsv
+Repro: Import same CSV twice.
+Expected: Dedupe by date+amount+memo or preview.
+Actual: Second import posts another 50 journals.
+Status: open
+---
+BUG-280 | SEVERITY: medium | AREA: BooksApp / Documents invoices
+Title: ?open= and ?memo= deep links never cleared from URL
+Where: Documents.tsx:65-73
+Repro: Open /books/invoices?open=id; close flyout; refresh.
+Expected: Replace URL without params.
+Actual: Effect re-opens selectedId/memo create every visit.
+Status: open
+---
+BUG-281 | SEVERITY: medium | AREA: BooksApp / Documents
+Title: Voided docs hidden but paid/posted filters lack "overdue" despite dueDate
+Where: Documents.tsx:48,99-105; profile due dates
+Repro: Look for overdue invoice filter.
+Expected: Overdue status filter common for AR.
+Actual: statusFilter only existing statuses; no overdue derived filter.
+Status: open
+---
+BUG-282 | SEVERITY: medium | AREA: BooksApp / Documents
+Title: Convert action available without blocking when destination already exists (repeat convert)
+Where: Documents.tsx:468 convertDoc; known convertDocument repeat (related BUG-170)
+Repro: Convert estimate→invoice twice.
+Expected: Disable after linked conversion.
+Actual: Button remains; creates another draft.
+Status: open
+---
+BUG-283 | SEVERITY: medium | AREA: BooksApp / Journals preview
+Title: Line preview swallows parseMoney errors — shows stale totals while inputs invalid
+Where: Journals.tsx:32-42 catch return null
+Repro: Type "abc" in debit; watch footer totals.
+Expected: Inline invalid state.
+Actual: preview null; prior footer may disappear without explaining.
+Status: open
+---
+BUG-284 | SEVERITY: medium | AREA: BookView / delete confirm
+Title: Single delete uses browser confirm() — ignores Settings confirmDeletes prefs
+Where: BookView.tsx:1434; Settings prefs.confirmDeletes is Books-oriented
+Repro: Disable confirm before void in Settings; delete money entry.
+Expected: Respect unified confirm preference or separate money pref.
+Actual: Always window.confirm for money delete.
+Status: open
+---
+BUG-285 | SEVERITY: medium | AREA: BookView / bulk reimburse
+Title: Bulk reimburse cannot unmark — only sets reimbursable:true
+Where: BookView.tsx:1506-1508
+Repro: Select reimbursable entries; want clear flag.
+Expected: Toggle or Unmark action.
+Actual: Only Mark reimbursable.
+Status: open
+---
+BUG-286 | SEVERITY: medium | AREA: SettlementsPanel / deep-link
+Title: initialPayId effect does not open panel when rows empty yet (race on slow listSettlements)
+Where: SettlementsPanel.tsx:97-110
+Repro: Cold open /book/x?pay=id before settlements resolve; then rows load after consumed logic?
+Expected: Wait for load; open when hit arrives.
+Actual: Early return if !rows.length; depends on later rerun — OK if deps include rows, but PAID check can consume before user sees. If hit missing initially then appears, OK. If pay id wrong, never toasts.
+Status: open
+---
+BUG-287 | SEVERITY: medium | AREA: SettlementsPanel
+Title: Unknown pay id deep-link silently no-ops — no toast
+Where: SettlementsPanel.tsx:97-110
+Repro: ?pay=not-a-real-id with settlements loaded.
+Expected: Toast settlement not found; clear param.
+Actual: No hit; URL may linger until tab clear effect.
+Status: open
+---
+BUG-288 | SEVERITY: medium | AREA: PendingPayStrip
+Title: Waiting-on-you cards labeled "Incoming" with Review CTA even when user cannot confirm in-strip
+Where: PendingPayStrip.tsx:66-74
+Repro: toUid=me unpaid; tap Review.
+Expected: Open confirm sheet inline or clear copy.
+Actual: Navigates to book ?pay= — OK but strip itself cannot confirm; meta shows merchant twice often.
+Status: open
+---
+BUG-289 | SEVERITY: medium | AREA: PendingPayStrip
+Title: Polling every 25s with no ETag/conditional — battery/network on home
+Where: PendingPayStrip.tsx:25
+Repro: Leave Home open.
+Expected: Backoff / visibility-only (visibility handler exists but interval always).
+Actual: setInterval 25s always while mounted.
+Status: open
+---
+BUG-290 | SEVERITY: medium | AREA: VoiceEntrySheet
+Title: Backdrop close during listening leaves busy listen running (related BUG-185) and can setState on unmounted phase
+Where: VoiceEntrySheet.tsx:55,27-50
+Repro: Start; tap backdrop; wait for result.
+Expected: Abort + ignore.
+Actual: onClose; listen finally still setBusy/setParsed when open flipped.
+Status: open
+---
+BUG-291 | SEVERITY: medium | AREA: ReceiptCaptureFlow / sha256
+Title: Hash caps at 4MB of base64 — huge receipts get truncated hash → weak duplicate detection
+Where: ReceiptCaptureFlow.tsx:64-65
+Repro: Share very large PDF/image.
+Expected: Full hash or refuse.
+Actual: slice(0,4_000_000) digest — collisions across distinct tails.
+Status: open
+---
+BUG-292 | SEVERITY: medium | AREA: ShareIntent / auth
+Title: Share routing runs without waiting for auth — can land capture on logged-out shell
+Where: ShareIntentListener.tsx:218-228
+Repro: Cold start from Android share before Firebase restores session.
+Expected: Queue until auth ready.
+Actual: navigate /?capture=1 immediately.
+Status: open
+---
+BUG-293 | SEVERITY: medium | AREA: FeatureTour / money
+Title: Money tour only on /expenses — never on /book/:id first visit after create
+Where: FeatureTour.tsx:54-61
+Repro: Create first book; land on /book/id.
+Expected: Ledger tour (startsWith /book/) OK — money tour skipped for /expenses-only users who deep-link books.
+Actual: Users who never open /expenses miss money tour; ledger tour may fire instead with different copy.
+Status: open
+---
+BUG-294 | SEVERITY: medium | AREA: FeatureTour
+Title: Opening tour resets step to 0 on every tour.id effect even mid-step if remount
+Where: FeatureTour.tsx:70-78
+Repro: Remount FeatureTour while open (layout change).
+Expected: Persist step.
+Actual: setStep(0).
+Status: open
+---
+BUG-295 | SEVERITY: medium | AREA: PullToRefresh / Dashboard
+Title: PTR onRefresh refreshes profile+dashboard but errors are swallowed by caller patterns
+Where: Dashboard.tsx PullToRefresh onRefresh; PullToRefresh finally clears busy even if throw
+Repro: Force fetchData throw during pull.
+Expected: Error toast; keep affordance.
+Actual: Spinner stops; silent failure unless fetchData toasts.
+Status: open
+---
+BUG-296 | SEVERITY: medium | AREA: MoneyReports / anomalies
+Title: Anomaly messages hardcode ₹ median even for non-INR books
+Where: money-intelligence.ts:137
+Repro: USD expenses; view anomalies.
+Expected: Book/report currency.
+Actual: `median ₹…` string.
+Status: open
+---
+BUG-297 | SEVERITY: medium | AREA: MoneyReports / NL last month
+Title: last-month `to` day forced to 31 — OK for compare but documents invalid calendar dates
+Where: money-intelligence.ts:247-251
+Repro: Inspect parseNaturalLanguageSearch("last month") in February.
+Expected: Real month end.
+Actual: YYYY-MM-31 sentinel (works via string compare but brittle if reused for display).
+Status: open
+---
+BUG-298 | SEVERITY: medium | AREA: BooksApp / Journals
+Title: Journal list search does not include line memos or account names
+Where: Journals.tsx:25-28
+Repro: Search by account name present only on lines.
+Expected: Match line memos/accounts.
+Actual: Only number/description/status/date.
+Status: open
+---
+BUG-299 | SEVERITY: medium | AREA: BooksApp / Banking transfer
+Title: Transfer form allows selecting empty cashOrAsset when chart missing cash/bank — posts odd accounts
+Where: Banking.tsx:16-21 fallback to type===asset
+Repro: Workspace without system cash/bank keys.
+Expected: Block banking until system accounts exist.
+Actual: Any asset accounts offered for "bank" transfer.
+Status: open
+---
+BUG-300 | SEVERITY: medium | AREA: BookView / undo visibility
+Title: Undo chip gated on canWrite not canDelete — writers without delete see Undo after others' deletes only if local lastDeleted
+Where: BookView.tsx:2293 lastDeleted && canWrite
+Repro: Role with write but not money_delete.
+Expected: Undo only if user performed delete.
+Actual: Gate is canWrite; delete button needs canDelete — inconsistent (local lastDeleted still only set on own delete).
+Status: open
+---
+
+Summary count: 300 bugs in log (BUG-001 ... BUG-300). This append: +86 (BUG-215 ... BUG-300).
+Highest severities in this append: high -- BUG-215 (undo/soft-delete), BUG-216 (edit daily cap), BUG-217 (didNotReceive onPaid).
+Prioritize: Undo restore API, edit daily-cap delta, SettlementPaySheet onPaid misuse, bulk-delete rollback, NL compare UI, Banking "Mark page" mislabel.
 
 === FIX CYCLE 1 VERIFY (2026-09-18 append) ===
 OK: BUG-001 markPaid remains false on client UPI return (settlement-upi.ts).
@@ -1750,3 +2439,18 @@ FIXED: BUG-106 applyExpenseLocal removes offline placeholder by idempotencyKey
 FIXED: BUG-111 money_export gates PDF/CSV download UI + handlers
 FIXED: BUG-142 stale - invite roles already allowlisted (same as BUG-006)
 FIXED earlier: BUG-001..009,014,007,003 (security/UI cycles)
+
+=== FIX CYCLE 2 VERIFY (2026-09-18 QA append BUG-215..300) ===
+OK: BUG-102 alreadyMember email check in api/invites.ts create path.
+OK: BUG-105 flushInFlight single-flight in money-offline.ts.
+OK: BUG-106 applyExpenseLocal filters offline placeholder by idempotencyKey (BookView.tsx).
+OK: BUG-111 canExport=hasFeature('money_export') gates CSV/PDF UI+handlers.
+OK: BUG-142 / BUG-006 invite role allowlist still present.
+NOTE — FIXED list itself looks correct; related open bugs look overstated/stale:
+- BUG-077 (deactivate push): server deactivateUserAccount already sets pushToken:'' — UI-path gap is weaker than written.
+- BUG-076 (delete orphan): server deleteUserAccount also tries deleteFirebaseAuthUser (authDeleted); client still double-calls deleteCurrentAuthUser (see BUG-253).
+
+=== FIX CYCLE 3 SSO + REEL (2026-09-18T19:50:16.8104593+05:30) ===
+FIXED: Native Google no longer falls back to easypado.com Browser (was loading website in/near app)
+FIXED: Removed easypado.com from capacitor allowNavigation (prevented WebView takeover)
+FIXED: Home reel back to compact top-right beside name+amount (not full-width feature strip)

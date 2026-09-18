@@ -193,7 +193,7 @@ const fabHome = await evalJs(send, `(() => {
   };
 })()`);
 check('fab-absent-on-home', fabHome.fabOnHome === false && fabHome.dataFab !== '1', fabHome);
-check('home-feature-reel-large', (fabHome.reelW || 0) >= 280 && (fabHome.reelH || 0) >= 140, {
+check('home-feature-reel-aside', (fabHome.reelW || 0) >= 96 && (fabHome.reelW || 0) <= 140 && (fabHome.reelH || 0) >= 70 && (fabHome.reelH || 0) <= 160, {
   reelW: fabHome.reelW,
   reelH: fabHome.reelH,
 });
