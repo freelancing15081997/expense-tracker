@@ -178,6 +178,9 @@ export default function Layout() {
   const canVoice = hasFeature('money_voice');
   const canNotify = hasFeature('app_notifications') && hasFeature('app_notifications_bell');
   const showFab = hasFeature('money') && (canAdd || canScan || canVoice);
+  const showBooksTab = hasFeature('money');
+  const showActivityTab = hasFeature('money') && hasFeature('money_activity');
+  const tabCount = 1 + (showBooksTab ? 1 : 0) + (showActivityTab ? 1 : 0) + 1;
 
   const handleMarkAsRead = async (id: string) => {
     try {
@@ -359,19 +362,25 @@ export default function Layout() {
         )}
       </AnimatePresence>
 
-      <nav className={`dash-tabbar md:hidden${showFab ? ' has-fab' : ''}`} aria-label="Primary">
+      <nav
+        className={`dash-tabbar md:hidden${showFab ? ' has-fab' : ''}`}
+        data-tabs={tabCount}
+        data-fab={showFab ? '1' : '0'}
+        aria-label="Primary"
+      >
         <MotionLink to="/" className="dash-tab dash-tab-home" data-on={onHome} onClick={pulseNav} whileTap={reduceMotion ? undefined : { scale: 0.9, rotateX: 16 }} transition={tabSpring} style={{ transformPerspective: 700 }}>
           <LayoutDashboard className="w-5 h-5" />
           Home
         </MotionLink>
-        {hasFeature('money') && (
+        {showBooksTab && (
           <MotionLink to="/expenses" className="dash-tab dash-tab-books" data-on={onLedgers} onClick={pulseNav} whileTap={reduceMotion ? undefined : { scale: 0.9, rotateX: 16 }} transition={tabSpring} style={{ transformPerspective: 700 }}>
             <BookText className="w-5 h-5" />
             Books
           </MotionLink>
         )}
-        {showFab ? <span className="dash-fab-slot" aria-hidden /> : null}
-        {hasFeature('money') && hasFeature('money_activity') && (
+        {/* Center gap only when 4+ tabs so Books stays middle with 3 tabs (Home · Books · More). */}
+        {showFab && tabCount >= 4 ? <span className="dash-fab-slot" aria-hidden /> : null}
+        {showActivityTab && (
           <MotionLink to="/activity" className="dash-tab dash-tab-activity" data-on={onActivity} onClick={pulseNav} whileTap={reduceMotion ? undefined : { scale: 0.9, rotateX: 16 }} transition={tabSpring} style={{ transformPerspective: 700 }}>
             <Activity className="w-5 h-5" />
             Activity

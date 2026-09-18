@@ -1031,28 +1031,37 @@ export default function Dashboard() {
   );
 
   const inviteBlock = canSeeMoney && invites.length > 0 && (
-        <div className="space-y-2">
-          <h2 className="dash-section-label"><Users className="w-3.5 h-3.5" /> Invitations for you</h2>
-          <div className="space-y-2">
+        <section className="home-invite-rail" aria-label="Invitations">
+          <div className="home-invite-head">
+            <div>
+              <p className="home-invite-kicker">Waiting for you</p>
+              <h2 className="home-invite-title">Invitations</h2>
+            </div>
+            <span className="home-invite-count">{invites.length}</span>
+          </div>
+          <div className="home-invite-scroller">
             {invites.map((invite) => (
-              <div key={invite.id} className="dash-invite">
-                <div className="min-w-0">
-                  <p className="font-semibold text-[#0B0F1F] truncate">{invite.bookName}</p>
-                  <p className="text-xs text-slate-500">Invited as {roleLabel(invite.role)} · sign in as {invite.email || userProfile?.email}</p>
+              <article key={invite.id} className="home-invite-card">
+                <div className="home-invite-card-top">
+                  <span className="home-invite-mark" aria-hidden>{initials(invite.bookName)}</span>
+                  <div className="min-w-0">
+                    <h3 className="truncate">{invite.bookName}</h3>
+                    <p>Invited as {roleLabel(invite.role)}</p>
+                  </div>
                 </div>
-                <div className="flex gap-2 shrink-0">
-                  <button onClick={() => handleAcceptInvite(invite)} disabled={Boolean(acceptingId || decliningId)} className="byjan-btn !h-8 text-xs">
+                <div className="home-invite-actions">
+                  <button type="button" onClick={() => handleAcceptInvite(invite)} disabled={Boolean(acceptingId || decliningId)} className="byjan-btn">
                     {acceptingId === invite.id ? <span className="app-loader-ring app-loader-ring-sm" /> : <Check className="w-3.5 h-3.5" />}
                     Accept
                   </button>
-                  <button onClick={() => handleDeclineInvite(invite.id)} disabled={Boolean(acceptingId || decliningId)} className="byjan-btn-ghost !h-8 text-xs">
+                  <button type="button" onClick={() => handleDeclineInvite(invite.id)} disabled={Boolean(acceptingId || decliningId)} className="byjan-btn-ghost">
                     Decline
                   </button>
                 </div>
-              </div>
+              </article>
             ))}
           </div>
-        </div>
+        </section>
   );
 
   if (!expensesOnly) {
@@ -1088,6 +1097,8 @@ export default function Dashboard() {
           )}
         </section>
 
+        {inviteBlock}
+
         {hasFeature('money') && (
           <section className="home-pills" aria-label="Quick actions">
             {hasFeature('money_add') && (
@@ -1116,8 +1127,6 @@ export default function Dashboard() {
             )}
           </section>
         )}
-
-        {inviteBlock}
 
         {hasFeature('money') && hasFeature('money_inbox') && statsReady ? <FinancialInbox items={attentionItems} /> : null}
 
@@ -1287,6 +1296,8 @@ export default function Dashboard() {
         )}
       </section>
 
+      {inviteBlock}
+
       {hasFeature('money_settle') && uid ? <PendingPayStrip uid={uid} /> : null}
 
       {canSeeMoney && books.length > 0 && (
@@ -1327,8 +1338,6 @@ export default function Dashboard() {
           )}
         </section>
       )}
-
-      {inviteBlock}
 
       {!canSeeMoney ? (
         <div className="dash-empty">
