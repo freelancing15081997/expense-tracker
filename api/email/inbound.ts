@@ -1356,51 +1356,18 @@ async function sendMail(
   html: string,
   attachments?: Array<{ filename: string; content: Buffer; contentType?: string }>,
 ) {
-  const nodemailerMod: any = await import('nodemailer');
-  const createTransport = nodemailerMod.createTransport || nodemailerMod.default?.createTransport;
-  const settings = {
-    host: process.env.SMTP_HOST || 'smtp-relay.brevo.com',
-    port: Number(process.env.SMTP_PORT || 2525),
-    secure: false,
-    auth: {
-      user: process.env.SMTP_USER || 'b7ffda001@smtp-brevo.com',
-      pass: process.env.SMTP_PASS || 'bskbpWFhUtdUJPH',
-    },
-  };
-  let transporter = createTransport(settings);
-  const from = mailFrom();
-  const mail = {
-    from: `"Byjan" <${from}>`,
-    replyTo: from,
-    envelope: { from, to },
+  const { sendTracedMail } = await import('../_lib/smtp-mail.js');
+  await sendTracedMail({
     to,
     subject,
-    text: html.replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim(),
     html,
-    ...(attachments?.length
-      ? {
-          attachments: attachments.map((row) => ({
-            filename: row.filename,
-            content: row.content,
-            contentType: row.contentType,
-          })),
-        }
-      : {}),
-    headers: {
-      'List-Unsubscribe': `<mailto:noreply@${INBOUND_DOMAIN}?subject=unsubscribe>`,
-      'X-Auto-Response-Suppress': 'All',
-    },
-  };
-  try {
-    await transporter.sendMail(mail);
-  } catch (first) {
-    if (settings.port === 2525) {
-      transporter = createTransport({ ...settings, port: 587 });
-      await transporter.sendMail(mail);
-      return;
-    }
-    throw first;
-  }
+    kind: 'email.inbound_notify',
+    attachments: attachments?.map((row) => ({
+      filename: row.filename,
+      content: row.content,
+      contentType: row.contentType,
+    })),
+  });
 }
 
 const inboundLive = new Map<string, Record<string, unknown>>();

@@ -50,7 +50,10 @@ export default function Login() {
       setError('');
       setBusy('google');
       const result = await signInWithGoogle();
-      if (await handoffGoogleToNativeApp(result)) return;
+      if (await handoffGoogleToNativeApp(result)) {
+        setError('Signed in — returning to the Byjan app…');
+        return;
+      }
       if (result) navigate(consumeReturnTo());
     } catch (err: any) {
       setError(err.message || 'Failed to sign in with Google');

@@ -1779,7 +1779,8 @@ export default function BookView() {
         <div className="flex-1 min-h-0 overflow-y-auto book-scroll">
         <div className="px-4 md:px-6 lg:px-8 pt-2 pb-0 bg-white">
         <div className="max-w-6xl mx-auto">
-      <div className="flex flex-col gap-2 mb-1">
+      <div className="book-head-sticky book-tabs-sticky sticky top-0 z-30 -mx-1 px-1 pt-0.5 bg-white/95 backdrop-blur-md">
+      <div className="flex flex-col gap-1.5 mb-1">
         <div className="flex items-start gap-2 min-w-0">
           <Link to="/expenses" className="mt-0.5 p-1.5 -ml-1 text-slate-400 hover:text-slate-700 rounded-lg" title="Back to money books">
             <ArrowLeft className="w-5 h-5" />
@@ -1975,7 +1976,7 @@ export default function BookView() {
         ) : null}
       </div>
 
-        <div className="book-tabs-sticky sticky top-0 z-30 -mx-1 px-1 pt-1 pb-2 bg-white/95 backdrop-blur-md border-b border-slate-100">
+        <div className="pt-1 pb-2 border-b border-slate-100">
         <Tabs.List className="book-tabs" aria-label="Book sections">
           <Tabs.Trigger value="ledger" className="book-tab">
             <Wallet className="w-3.5 h-3.5" />
@@ -2006,6 +2007,7 @@ export default function BookView() {
           </Tabs.Trigger>
           )}
         </Tabs.List>
+        </div>
         </div>
 
         {ledgerTab === 'ledger' && (

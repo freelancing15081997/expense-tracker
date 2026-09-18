@@ -15,6 +15,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "450686107760-jm0usq29m0jbp1e81ohaolbrggide52f.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.byjanbooks.app",
+            "certificate_hash": "0d7ab991f62d8e0250c1918696f4fb62fefe0128"
+          }
+        },
+        {
           "client_id": "450686107760-hdlb65udu9lfo4u087ui439m13dtqkt5.apps.googleusercontent.com",
           "client_type": 3
         }

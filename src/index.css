@@ -1434,21 +1434,24 @@ html[data-radius="round"] { --ui-radius: 24px; --ui-btn-radius: 999px; }
 .home-hero {
   padding: 6px 6px 2px;
 }
+.home-hero {
+  padding: 0 2px 0;
+}
 .home-greet {
   margin: 0;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   color: #94a3b8;
   letter-spacing: -0.01em;
 }
 .home-name {
-  margin: 2px 0 0;
+  margin: 0;
   font-family: var(--font-display), Outfit, ui-sans-serif, system-ui, sans-serif;
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 650;
   letter-spacing: -0.04em;
   color: #0B1220;
-  line-height: 1.15;
+  line-height: 1.1;
 }
 .home-amount {
   margin: 6px 0 0;
@@ -4937,14 +4940,23 @@ html[data-radius="round"] { --ui-radius: 24px; --ui-btn-radius: 999px; }
 }
 .dash-tabbar.has-fab {
   min-height: 82px;
-  padding-top: 16px;
-  padding-bottom: 16px;
+  padding-top: 18px;
+  padding-bottom: 14px;
+  /* 5 equal columns: L L ·FAB· R R — works for 3 or 4 visible tabs */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 72px minmax(0, 1fr) minmax(0, 1fr);
+  grid-auto-columns: unset;
 }
 .dash-fab-slot {
-  width: auto;
-  min-width: 0;
+  width: 72px;
+  min-width: 72px;
   height: 1px;
   pointer-events: none;
+  justify-self: center;
+}
+.dash-tab-spacer {
+  min-width: 0;
+  pointer-events: none;
+  visibility: hidden;
 }
 .dash-tabbar .dash-tab {
   width: 100%;
@@ -5002,7 +5014,8 @@ html[data-radius="round"] { --ui-radius: 24px; --ui-btn-radius: 999px; }
 .dash-fab-anchor {
   position: fixed;
   left: 50%;
-  bottom: calc(58px + env(safe-area-inset-bottom));
+  /* ~85% of FAB sits above the bar; ~15% dips into the nav notch */
+  bottom: calc(78px + env(safe-area-inset-bottom));
   width: 62px;
   height: 62px;
   transform: translateX(-50%);
@@ -6661,19 +6674,21 @@ body:has(.onboard-shell) {
 
 /* —— Premium density + glass surfaces (home, books, entries) —— */
 .home-shell {
-  gap: 10px;
+  gap: 8px;
   padding: 0 2px 118px;
 }
-.home-hero { padding: 2px 4px 0; }
-.home-greet { font-size: 13px; }
+.home-hero { padding: 0 2px 0; }
+.home-greet { font-size: 12px; }
 .home-name {
-  font-size: calc(24px * var(--ui-type, 1));
+  font-size: calc(20px * var(--ui-type, 1));
   margin-top: 0;
+  line-height: 1.1;
 }
 .home-amount {
-  margin-top: 4px;
-  font-size: clamp(30px, 7.4vw, 38px);
+  margin-top: 2px;
+  font-size: clamp(28px, 7vw, 36px);
 }
+.home-amount-sub { margin-top: 4px; }
 .home-amount-sub { margin-top: 4px; font-size: 13px; }
 .home-section-label,
 .home-qa .home-section-label,
@@ -7085,12 +7100,36 @@ body:has(.onboard-shell) {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
-  align-items: stretch;
+  align-items: start;
 }
 .home-attention > .home-upcoming {
   margin: 0;
   min-width: 0;
-  padding: 10px 8px 8px;
+  padding: 8px 8px 6px;
+}
+.home-attention > .home-upcoming.is-empty {
+  align-self: start;
+  padding: 6px 8px;
+}
+.home-upcoming-empty {
+  display: block;
+  padding: 6px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  line-height: 1.3;
+  color: #64748b;
+  background: rgba(248, 250, 252, 0.9);
+  border: 1px dashed rgba(11, 31, 58, 0.12);
+  text-decoration: none;
+}
+.home-attention:has(.home-upcoming.is-empty) {
+  grid-template-columns: 1.25fr 0.75fr;
+}
+.home-attention:has(> :only-child) {
+  grid-template-columns: 1fr;
+}
+.book-head-sticky {
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
 }
 .home-attention .home-upcoming-head { padding: 0 4px 6px; margin-bottom: 0; }
 .home-attention .home-upcoming-kicker { font-size: 10px; letter-spacing: 0.06em; }
@@ -7172,7 +7211,7 @@ section[aria-label="To pay"] {
   left: 50% !important;
   right: auto !important;
   top: auto !important;
-  bottom: calc(58px + env(safe-area-inset-bottom)) !important;
+  bottom: calc(78px + env(safe-area-inset-bottom)) !important;
   transform: translateX(-50%) !important;
   z-index: 90 !important;
   pointer-events: none;
@@ -7182,12 +7221,16 @@ section[aria-label="To pay"] {
   border: 5px solid #fff;
   z-index: 6;
 }
+.dash-tabbar.has-fab {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 72px minmax(0, 1fr) minmax(0, 1fr);
+}
 .dash-tabbar[data-tabs="3"].has-fab {
   padding-left: 4px;
   padding-right: 4px;
 }
-.dash-tabbar[data-tabs="3"] .dash-fab-slot {
-  min-width: 64px;
+.dash-tabbar.has-fab .dash-fab-slot {
+  min-width: 72px;
+  width: 72px;
 }
 
 .book-dash-compact .md3-stats {
@@ -7337,7 +7380,7 @@ section[aria-label="To pay"] {
 .md3-book-icon { width: 56px !important; height: 56px !important; }
 .md3-book-icon-face { font-size: 15px !important; }
 .home-amount { font-size: clamp(18px, 5.2vw, 36px) !important; }
-.home-name { font-size: calc(25px * var(--ui-type, 1)) !important; }
+.home-name { font-size: calc(20px * var(--ui-type, 1)) !important; }
 .home-pay-dock {
   margin-top: 4px;
   margin-bottom: 8px;
@@ -7352,6 +7395,9 @@ section[aria-label="To pay"] {
   z-index: 1;
 }
 .book-tabs-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 30;
   margin: 0 0 6px;
 }
 .book-tabs-sticky .book-tabs {

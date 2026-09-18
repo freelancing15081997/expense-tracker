@@ -1,13 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { mailFrom, smtpConfig, writeMailTrace } from '../_lib/mail.js';
 
 const FIREBASE_PROJECT = 'gen-lang-client-0616065043';
-const DEFAULT_FROM = 'byjanbooks@easypado.com';
-
-function mailFrom() {
-  const raw = String(process.env.MAIL_FROM || DEFAULT_FROM).trim();
-  if (!raw || /gmail\.com$/i.test(raw)) return DEFAULT_FROM;
-  return raw;
-}
 
 function json(res: VercelResponse, status: number, payload: unknown) {
   res.statusCode = status;
@@ -37,35 +31,6 @@ async function requireUid(req: VercelRequest) {
     },
   );
   return String(payload.user_id || payload.sub || '');
-}
-
-function smtpConfig() {
-  const user = String(process.env.SMTP_USER || '').trim();
-  const pass = String(process.env.SMTP_PASS || '').trim();
-  if (!user || !pass) {
-    throw new Error('SMTP is not configured. Set SMTP_USER and SMTP_PASS in the server environment.');
-  }
-  return {
-    host: process.env.SMTP_HOST || 'smtp-relay.brevo.com',
-    port: Number(process.env.SMTP_PORT || 2525),
-    secure: false,
-    auth: { user, pass },
-  };
-}
-
-async function writeTrace(kind: string, detail: Record<string, unknown>) {
-  try {
-    const { ledgerSet } = await import('../_pg-tables.js');
-    const id = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-    await ledgerSet(`ops/trace/${id}`, {
-      id,
-      kind,
-      at: new Date().toISOString(),
-      ...detail,
-    });
-  } catch {
-    /* never block mail on trace write */
-  }
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -100,7 +65,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
       settings = smtpConfig();
     } catch (cfgErr: any) {
-      await writeTrace('email.config', { ok: false, error: String(cfgErr?.message || cfgErr), uid });
+      await writeMailTrace('email.config', { ok: false, error: String(cfgErr?.message || cfgErr), uid });
       json(res, 503, { error: String(cfgErr?.message || 'SMTP not configured') });
       return;
     }
@@ -154,7 +119,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     try {
       const info = await transporter.sendMail(mail);
-      await writeTrace('email.send', {
+      await writeMailTrace('email.send', {
         ok: true,
         uid,
         to,
@@ -169,7 +134,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         try {
           transporter = createTransport({ ...settings, port: 587 });
           const info = await transporter.sendMail(mail);
-          await writeTrace('email.send', {
+          await writeMailTrace('email.send', {
             ok: true,
             uid,
             to,
@@ -182,7 +147,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           json(res, 200, { success: true, messageId: info.messageId });
           return;
         } catch (second: any) {
-          await writeTrace('email.send', {
+          await writeMailTrace('email.send', {
             ok: false,
             uid,
             to,
@@ -194,7 +159,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           throw second;
         }
       }
-      await writeTrace('email.send', {
+      await writeMailTrace('email.send', {
         ok: false,
         uid,
         to,

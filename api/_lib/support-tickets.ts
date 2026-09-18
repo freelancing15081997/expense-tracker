@@ -204,22 +204,7 @@ async function mailSupportTicket(input: {
   subject: string;
   message: string;
 }) {
-  const nodemailerMod: any = await import('nodemailer');
-  const nodemailer = nodemailerMod.default || nodemailerMod;
-  const from = (() => {
-    const raw = String(process.env.MAIL_FROM || 'byjanbooks@easypado.com').trim();
-    if (!raw || /gmail\.com$/i.test(raw)) return 'byjanbooks@easypado.com';
-    return raw;
-  })();
-  const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST || 'smtp-relay.brevo.com',
-    port: Number(process.env.SMTP_PORT || 2525),
-    secure: false,
-    auth: {
-      user: process.env.SMTP_USER || 'b7ffda001@smtp-brevo.com',
-      pass: process.env.SMTP_PASS || 'bskbpWFhUtdUJPH',
-    },
-  });
+  const { sendTracedMail } = await import('./smtp-mail.js');
   const topic = topicTitle(input.category);
   const body = [
     `Ticket ${input.id}`,
@@ -230,16 +215,16 @@ async function mailSupportTicket(input: {
     '',
     'Open Help in Byjan to reply in the product, or email the user directly.',
   ].join('\n');
-  await transporter.sendMail({
-    from: `Byjan Help <${from}>`,
+  await sendTracedMail({
     to: SUPPORT_INBOX,
     replyTo: input.email || SUPPORT_INBOX,
     subject: `[Byjan ticket ${input.id}] ${input.subject}`,
     text: body,
+    fromName: 'Byjan Help',
+    kind: 'email.support_ticket',
   });
   if (input.email) {
-    await transporter.sendMail({
-      from: `Byjan Help <${from}>`,
+    await sendTracedMail({
       to: input.email,
       subject: `We received your Byjan request (${input.id})`,
       text: [
@@ -251,6 +236,8 @@ async function mailSupportTicket(input: {
         'You can see this ticket any time in the app under Help.',
         'We read every message at byjanbooks@gmail.com.',
       ].join('\n'),
+      fromName: 'Byjan Help',
+      kind: 'email.support_ack',
     }).catch((err: unknown) => {
       console.error('support user copy failed', err);
     });

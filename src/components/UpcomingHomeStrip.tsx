@@ -29,7 +29,7 @@ export default function UpcomingHomeStrip({
   const safeIndex = rows.length ? Math.min(index, rows.length - 1) : 0;
 
   return (
-    <section className="home-upcoming" aria-label="Upcoming payments">
+    <section className={`home-upcoming${rows.length === 0 ? ' is-empty' : ''}`} aria-label="Upcoming payments">
       <div className="home-upcoming-head">
         <span className="home-upcoming-kicker">
           <CalendarClock className="w-4 h-4" strokeWidth={2.2} />
@@ -41,7 +41,7 @@ export default function UpcomingHomeStrip({
       </div>
       {rows.length === 0 ? (
         <Link to="/regular-payments" className="home-upcoming-empty">
-          No repeating bills detected yet. Open upcoming to review what Byjan finds from your entries.
+          No bills yet — tap to set up
         </Link>
       ) : (
         <HomeSwipeDeck

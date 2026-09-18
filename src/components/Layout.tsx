@@ -372,20 +372,20 @@ export default function Layout() {
           <LayoutDashboard className="w-5 h-5" />
           Home
         </MotionLink>
-        {showBooksTab && (
+        {showBooksTab ? (
           <MotionLink to="/expenses" className="dash-tab dash-tab-books" data-on={onLedgers} onClick={pulseNav} whileTap={reduceMotion ? undefined : { scale: 0.9, rotateX: 16 }} transition={tabSpring} style={{ transformPerspective: 700 }}>
             <BookText className="w-5 h-5" />
             Books
           </MotionLink>
-        )}
-        {/* Always reserve center gap when FAB is shown so + never covers a tab (3 or 4 tabs). */}
+        ) : (showFab ? <span className="dash-tab-spacer" aria-hidden /> : null)}
+        {/* Center column always reserved for + when FAB is on — keeps odd/even tab counts balanced. */}
         {showFab ? <span className="dash-fab-slot" aria-hidden /> : null}
-        {showActivityTab && (
+        {showActivityTab ? (
           <MotionLink to="/activity" className="dash-tab dash-tab-activity" data-on={onActivity} onClick={pulseNav} whileTap={reduceMotion ? undefined : { scale: 0.9, rotateX: 16 }} transition={tabSpring} style={{ transformPerspective: 700 }}>
             <Activity className="w-5 h-5" />
             Activity
           </MotionLink>
-        )}
+        ) : (showFab ? <span className="dash-tab-spacer" aria-hidden /> : null)}
         <MotionLink to="/settings" className="dash-tab dash-tab-more" data-on={onSettings} onClick={pulseNav} whileTap={reduceMotion ? undefined : { scale: 0.9, rotateX: 16 }} transition={tabSpring} style={{ transformPerspective: 700 }}>
           <Settings className="w-5 h-5" />
           More

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { User, onAuthStateChanged } from 'firebase/auth';
-import { auth, googleRedirectReady, logout } from '../lib/firebase';
+import { auth, googleRedirectReady, logout, bindNativeGoogleAuthBridge, handoffGoogleToNativeApp } from '../lib/firebase';
 import { getMe, upsertMe } from '../lib/me';
 import { MEMBER_FEATURES, type FeatureMap } from '../lib/features';
 import { emailIsSuperUser } from '../lib/super-users';
@@ -184,10 +184,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
     };
 
+    bindNativeGoogleAuthBridge();
+
     // Don't block auth on Google redirect forever — race with a short timeout.
     const redirectWait = Promise.race([
-      googleRedirectReady.catch(() => undefined),
-      new Promise((r) => window.setTimeout(r, 400)),
+      googleRedirectReady.then(async (cred) => {
+        if (cred) await handoffGoogleToNativeApp(cred);
+        return cred;
+      }).catch(() => undefined),
+      new Promise((r) => window.setTimeout(r, 800)),
     ]);
     void redirectWait.finally(start);
 

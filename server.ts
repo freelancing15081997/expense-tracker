@@ -2,10 +2,10 @@ import dns from 'dns';
 import "dotenv/config";
 import express from "express";
 import path from "path";
-import nodemailer from "nodemailer";
 import { handleBlobDeleteRequest, handleBlobUploadRequest } from "./api/_lib/blob-store";
 import { handleAuthRequest } from "./api/_lib/auth-handler";
 import { applyCors, requireUser } from "./api/_lib/helpers";
+import { sendTracedMail } from "./api/_lib/smtp-mail";
 
 dns.setDefaultResultOrder('ipv4first');
 
@@ -70,25 +70,6 @@ app.post("/api/migrate", async (req, res) => {
   await migrate(req as any, res as any);
 });
 
-const DEFAULT_FROM = "byjanbooks@easypado.com";
-const SYSTEM_EMAIL = (() => {
-  const raw = String(process.env.MAIL_FROM || DEFAULT_FROM).trim();
-  if (!raw || /gmail\.com$/i.test(raw)) return DEFAULT_FROM;
-  return raw;
-})();
-
-const createTransporter = () => {
-  return nodemailer.createTransport({
-    host: "smtp-relay.brevo.com",
-    port: 2525,
-    secure: false, 
-    auth: {
-      user: "b7ffda001@smtp-brevo.com", 
-      pass: "bskbpWFhUtdUJPH", 
-    },
-  });
-};
-
 app.post("/api/email/send-report", async (req, res) => {
   const uid = await requireUser(req, res);
   if (!uid) return;
@@ -98,25 +79,22 @@ app.post("/api/email/send-report", async (req, res) => {
     return res.status(400).json({ error: "Missing report, address, or subject" });
   }
   try {
-    const transporter = createTransporter();
-    const textMessage = message ? message.replace(/<[^>]*>?/gm, '') : 'Please find the attached report.';
-    
-    const info = await transporter.sendMail({
-      from: `"Byjan" <${SYSTEM_EMAIL}>`,
-      replyTo: SYSTEM_EMAIL,
-      envelope: { from: SYSTEM_EMAIL, to },
+    const textMessage = message ? String(message).replace(/<[^>]*>?/gm, '') : 'Please find the attached report.';
+    const info = await sendTracedMail({
       to,
       subject,
       text: `${textMessage}\n\nThe PDF report is attached.`,
       html: `<p>${textMessage}</p><p>The PDF is attached.</p>`,
+      fromName: 'Byjan',
+      kind: 'email.send-report',
       attachments: [
         {
           filename: String(filename || 'Byjan_Report.pdf').replace(/[^\w.-]+/g, '_'),
           content: pdf,
           encoding: 'base64',
           contentType: 'application/pdf',
-        }
-      ]
+        },
+      ],
     });
     console.log("Report sent: %s", info.messageId);
     res.json({ success: true, messageId: info.messageId });
@@ -134,23 +112,20 @@ app.post("/api/email/send", async (req, res) => {
     return res.status(400).json({ error: "Missing required fields" });
   }
   try {
-    const transporter = createTransporter();
-    const textMessage = message.replace(/<[^>]*>?/gm, '');
-    
-    const info = await transporter.sendMail({
-      from: `"Byjan Notifications" <${SYSTEM_EMAIL}>`,
-      replyTo: SYSTEM_EMAIL,
-      envelope: { from: SYSTEM_EMAIL, to },
+    const textMessage = String(message).replace(/<[^>]*>?/gm, '');
+    const info = await sendTracedMail({
       to,
       subject,
       text: textMessage,
       html: `<!DOCTYPE html><html><head><style>  body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }  .container { padding: 20px; border: 1px solid #eaeaea; border-radius: 5px; background: #fff; }</style></head><body style="background-color: #f9f9f9; padding: 20px;">  <div class="container" style="max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px;">    ${message}    <hr style="border: 0; border-top: 1px solid #eaeaea; margin-top: 20px;">    <p style="font-size: 12px; color: #888;">This is an automated notification from Byjan.</p>  </div></body></html>`,
+      fromName: 'Byjan Notifications',
+      kind: 'email.send',
     });
     console.log("Message sent: %s", info.messageId);
     res.json({ success: true, messageId: info.messageId });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error sending email:", error);
-    res.status(500).json({ error: "Failed to send email" });
+    res.status(500).json({ error: error?.message || "Failed to send email" });
   }
 });
 

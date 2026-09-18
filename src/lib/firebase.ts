@@ -17,6 +17,7 @@ import {
 const WEB_GOOGLE_CLIENT_ID = '450686107760-hdlb65udu9lfo4u087ui439m13dtqkt5.apps.googleusercontent.com';
 void WEB_GOOGLE_CLIENT_ID;
 const NATIVE_AUTH_SCHEME = 'com.byjanbooks.app://auth';
+const WEB_HANDOFF_ORIGIN = String(import.meta.env.VITE_API_URL || 'https://www.easypado.com').replace(/\/+$/, '');
 
 // Firebase is now ONLY used for Authentication
 // All data storage is handled by Neon Postgres
@@ -39,6 +40,8 @@ const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 export const googleRedirectReady = getRedirectResult(auth).catch(() => null);
+
+let nativeAuthBridgeBound = false;
 
 function googleSignInError(err: unknown) {
   const anyErr = err as { code?: unknown; message?: unknown };
@@ -84,19 +87,35 @@ export async function completeGoogleIdTokenSignIn(idToken: string) {
   return signInWithCredential(auth, GoogleAuthProvider.credential(idToken));
 }
 
+/** Keep a permanent bridge so Custom Tab deep-links always finish native auth. */
+export function bindNativeGoogleAuthBridge() {
+  if (nativeAuthBridgeBound || typeof window === 'undefined') return;
+  nativeAuthBridgeBound = true;
+  window.addEventListener('byjan-google-auth', (event) => {
+    const detail = (event as CustomEvent<string>).detail;
+    const token = parseGoogleIdTokenFromUrl(String(detail || ''));
+    if (!token) return;
+    void completeGoogleIdTokenSignIn(token).catch((err) => {
+      console.error('Native Google handoff failed', err);
+    });
+  });
+}
+
 export async function handoffGoogleToNativeApp(result: UserCredential | null | undefined) {
   if (!result || !nativeAppFlag()) return false;
   const cred = GoogleAuthProvider.credentialFromResult(result);
   const token = cred?.idToken;
   if (!token) return false;
+  // Bounce back into the installed Android app — never leave the user on the website.
   window.location.href = `${NATIVE_AUTH_SCHEME}?idToken=${encodeURIComponent(token)}`;
   return true;
 }
 
 async function signInWithGoogleViaBrowser(): Promise<UserCredential> {
+  bindNativeGoogleAuthBridge();
   const { Browser } = await import('@capacitor/browser');
   const { App } = await import('@capacitor/app');
-  const origin = 'https://easypado.com';
+  const origin = WEB_HANDOFF_ORIGIN.includes('localhost') ? 'https://www.easypado.com' : WEB_HANDOFF_ORIGIN;
   const url = `${origin}/#/login?nativeApp=1`;
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -120,7 +139,21 @@ async function signInWithGoogleViaBrowser(): Promise<UserCredential> {
         await finish(err);
       }
     });
-    const timer = window.setTimeout(() => { void finish(new Error('Google sign-in timed out. Try again.')); }, 180_000);
+    const onCustom = async (event: Event) => {
+      const token = parseGoogleIdTokenFromUrl(String((event as CustomEvent<string>).detail || ''));
+      if (!token) return;
+      try {
+        const cred = await completeGoogleIdTokenSignIn(token);
+        await finish(undefined, cred);
+      } catch (err) {
+        await finish(err);
+      }
+    };
+    window.addEventListener('byjan-google-auth', onCustom);
+    const timer = window.setTimeout(() => {
+      window.removeEventListener('byjan-google-auth', onCustom);
+      void finish(new Error('Google sign-in timed out. Try again.'));
+    }, 180_000);
     Browser.open({ url, presentationStyle: 'popover' }).catch((err) => { void finish(err); });
   });
 }
@@ -131,6 +164,7 @@ export async function signInWithGoogle() {
   } catch { /* private mode */ }
 
   if (Capacitor.isNativePlatform()) {
+    bindNativeGoogleAuthBridge();
     try {
       const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
       const result = await FirebaseAuthentication.signInWithGoogle();
@@ -140,6 +174,7 @@ export async function signInWithGoogle() {
       const mapped = googleSignInError(err);
       if (/cancelled/i.test(mapped.message)) throw mapped;
     }
+    // Fallback: Custom Tab on easypado → deep-link idToken back into the app.
     return signInWithGoogleViaBrowser();
   }
 
