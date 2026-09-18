@@ -177,7 +177,8 @@ export default function Layout() {
   const canScan = hasFeature('money_scan');
   const canVoice = hasFeature('money_voice');
   const canNotify = hasFeature('app_notifications') && hasFeature('app_notifications_bell');
-  const showFab = hasFeature('money') && (canAdd || canScan || canVoice);
+  // + only on an open money book — home/settings/etc. use their own entry points.
+  const showFab = onLedger && hasFeature('money') && (canAdd || canScan || canVoice);
   const showBooksTab = hasFeature('money');
   const showActivityTab = hasFeature('money') && hasFeature('money_activity');
   const tabCount = 1 + (showBooksTab ? 1 : 0) + (showActivityTab ? 1 : 0) + 1;

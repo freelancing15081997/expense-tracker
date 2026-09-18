@@ -178,82 +178,25 @@ await evalJs(send, `location.hash = '#/'`);
 await sleep(1600);
 shot('01-home');
 
-const fab = await evalJs(send, `(() => {
-  const bar = document.querySelector('.dash-tabbar');
+const fabHome = await evalJs(send, `(() => {
   const btn = document.querySelector('.dash-fab-center');
-  const anchor = document.querySelector('.dash-fab-anchor');
-  const tabs = [...document.querySelectorAll('.dash-tab')].map((t) => (t.textContent || '').trim());
-  if (!btn) {
-    return {
-      exists: false,
-      tabs,
-      dataFab: bar?.getAttribute('data-fab'),
-      dataTabs: bar?.getAttribute('data-tabs'),
-      hasFabClass: bar?.classList.contains('has-fab'),
-      barDisplay: bar ? getComputedStyle(bar).display : null,
-      barHtml: bar ? bar.outerHTML.slice(0, 500) : null,
-    };
-  }
-  const r = btn.getBoundingClientRect();
-  const ar = anchor?.getBoundingClientRect();
-  const cs = getComputedStyle(btn);
-  const acs = anchor ? getComputedStyle(anchor) : null;
-  const vh = window.innerHeight;
-  const vw = window.innerWidth;
+  const bar = document.querySelector('.dash-tabbar');
+  const reel = document.querySelector('.home-feature-reel');
+  const rr = reel?.getBoundingClientRect();
   return {
-    exists: true,
-    tabs,
+    fabOnHome: Boolean(btn),
     dataFab: bar?.getAttribute('data-fab'),
-    dataTabs: bar?.getAttribute('data-tabs'),
     hasFabClass: bar?.classList.contains('has-fab'),
-    visible: r.width > 20 && r.height > 20 && r.bottom > 0 && r.top < vh && cs.visibility !== 'hidden' && cs.display !== 'none' && Number(cs.opacity) > 0.2,
-    rect: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height), top: Math.round(r.top), bottom: Math.round(r.bottom) },
-    anchorRect: ar ? { x: Math.round(ar.x), y: Math.round(ar.y), w: Math.round(ar.width), h: Math.round(ar.height) } : null,
-    opacity: cs.opacity,
-    zIndex: cs.zIndex,
-    pointerEvents: cs.pointerEvents,
-    transform: cs.transform,
-    anchorTransform: acs?.transform || null,
-    anchorPointer: acs?.pointerEvents || null,
-    viewport: { vw, vh },
-    clippedOffTop: r.bottom < 0,
-    clippedOffBottom: r.top > vh,
-    underNav: bar ? r.bottom > bar.getBoundingClientRect().top + 8 : null,
-    label: btn.getAttribute('aria-label'),
+    tabs: [...document.querySelectorAll('.dash-tab')].map((t) => (t.textContent || '').trim()),
+    reelW: rr ? Math.round(rr.width) : null,
+    reelH: rr ? Math.round(rr.height) : null,
   };
 })()`);
-
-check('fab-exists', Boolean(fab.exists), fab);
-const centerX = fab.viewport ? fab.viewport.vw / 2 : 0;
-const fabMid = fab.rect ? fab.rect.x + fab.rect.w / 2 : 0;
-const centered = Math.abs(fabMid - centerX) < 40;
-check('fab-visible', Boolean(fab.exists && fab.visible), {
-  visible: fab.visible,
-  rect: fab.rect,
-  underNav: fab.underNav,
-  opacity: fab.opacity,
-  pointerEvents: fab.pointerEvents,
-  anchorPointer: fab.anchorPointer,
+check('fab-absent-on-home', fabHome.fabOnHome === false && fabHome.dataFab !== '1', fabHome);
+check('home-feature-reel-large', (fabHome.reelW || 0) >= 280 && (fabHome.reelH || 0) >= 140, {
+  reelW: fabHome.reelW,
+  reelH: fabHome.reelH,
 });
-check('fab-centered', Boolean(fab.exists && centered), { fabMid: Math.round(fabMid), centerX: Math.round(centerX), delta: Math.round(Math.abs(fabMid - centerX)) });
-
-if (fab.exists) {
-  await evalJs(send, `document.querySelector('.dash-fab-center')?.click()`);
-  await sleep(900);
-  shot('02-fab-open');
-  const orbit = await evalJs(send, `(() => {
-    const items = [...document.querySelectorAll('.dash-fab-item')].map((el) => ({
-      label: (el.querySelector('.dash-fab-label')?.textContent || '').trim(),
-      rect: (() => { const r = el.getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height), y: Math.round(r.y) }; })(),
-    }));
-    const open = document.querySelector('.dash-fab-center')?.getAttribute('data-open');
-    const scrim = Boolean(document.querySelector('.dash-fab-scrim'));
-    return { open, scrim, items, count: items.length };
-  })()`);
-  check('fab-orbit-open', orbit.open === 'true' && orbit.count >= 1, orbit);
-  await evalJs(send, `document.querySelector('.dash-fab-scrim')?.click() || document.querySelector('.dash-fab-center')?.click()`);
-  await sleep(500);
-}
 
 const home = await evalJs(send, `(() => {
   const text = document.body.innerText || '';
@@ -266,13 +209,10 @@ const home = await evalJs(send, `(() => {
   const amountOverflow = amount && amountWrap
     ? amount.scrollWidth <= amountWrap.clientWidth + 2
     : true;
-  const bar = document.querySelector('.dash-tabbar.has-fab');
-  const mask = bar ? getComputedStyle(bar).webkitMaskImage || getComputedStyle(bar).maskImage || '' : '';
-  const slot = Boolean(document.querySelector('.dash-fab-slot'));
   return {
     crashed: /This screen could not open|Minified React error/i.test(text),
     hasAmount: Boolean(amount) || /₹|Rs|INR/.test(text),
-    amountFull: amount ? !/\d+(\.\d+)?\s*[LC]r?\b/i.test((amount.textContent || '').replace(/₹/g, '')) : true,
+    amountFull: amount ? !/\\d+(\\.\\d+)?\\s*[LC]r?\\b/i.test((amount.textContent || '').replace(/₹/g, '')) : true,
     amountFits: amountOverflow,
     featureReel: Boolean(document.querySelector('.home-feature-reel')),
     amountFont: amount ? getComputedStyle(amount).fontSize : null,
@@ -287,8 +227,6 @@ const home = await evalJs(send, `(() => {
     pay: Boolean(payEl),
     payInView: payEl ? (payR.top < innerHeight * 0.72 && payR.bottom > 80) : null,
     payTop: payR ? Math.round(payR.top) : null,
-    notchMask: /radial-gradient/i.test(mask),
-    fabSlot: slot,
     qa: [...document.querySelectorAll('.home-qa-tile')].map((a) => (a.textContent || '').trim()),
   };
 })()`);
@@ -303,7 +241,7 @@ check('home-feature-reel', home.featureReel === true, { featureReel: home.featur
 check('home-amount-fits', home.amountFits !== false, { amountFits: home.amountFits, font: home.amountFont, w: home.amountW });
 check('home-add-split-adjacent', home.addSplitAdjacent === true || !home.pills.some((p) => /split/i.test(p)), { pills: home.pills });
 check('home-to-pay-visible', home.pay !== true || home.payInView === true, { pay: home.pay, payInView: home.payInView, payTop: home.payTop });
-check('fab-notch-down', home.notchMask === true && home.fabSlot === true, { notchMask: home.notchMask, fabSlot: home.fabSlot });
+shot('02-home');
 
 await evalJs(send, `document.querySelector('.dash-tab-books')?.click()`);
 await sleep(1400);
@@ -333,6 +271,9 @@ const book = await evalJs(send, `(() => {
   const teamBtn = [...document.querySelectorAll('button')].find((b) => /\\bTeam\\b/i.test(b.textContent || '') || /team — people/i.test(b.getAttribute('title') || ''));
   const fab = document.querySelector('.dash-fab-center');
   const fr = fab?.getBoundingClientRect();
+  const bar = document.querySelector('.dash-tabbar.has-fab');
+  const mask = bar ? getComputedStyle(bar).webkitMaskImage || getComputedStyle(bar).maskImage || '' : '';
+  const headerActs = [...document.querySelectorAll('button')].map((b) => (b.textContent || b.getAttribute('title') || '').trim()).filter((t) => /^(Add entry|Voice|Scan)$/i.test(t) || /scan receipt|voice entry/i.test(t));
   return {
     hash: location.hash,
     entries,
@@ -345,13 +286,42 @@ const book = await evalJs(send, `(() => {
     crashed: /Minified React error|This screen could not open/i.test(text),
     fabVisible: fab ? (fr.width > 20 && fr.top < innerHeight && fr.bottom > 0) : false,
     fabY: fr ? Math.round(fr.y) : null,
+    fabMid: fr ? Math.round(fr.x + fr.width / 2) : null,
+    centerX: Math.round(innerWidth / 2),
+    notchMask: /radial-gradient/i.test(mask),
+    fabSlot: Boolean(document.querySelector('.dash-fab-slot')),
+    headerAddScanMic: headerActs,
   };
 })()`);
 check('book-open', Boolean(bookLink) && !book.crashed, { bookLink, ...book });
 check('fab-on-book', book.fabVisible === true, { fabVisible: book.fabVisible, fabY: book.fabY });
+check('fab-centered-on-book', book.fabVisible && Math.abs((book.fabMid || 0) - (book.centerX || 0)) < 40, {
+  fabMid: book.fabMid,
+  centerX: book.centerX,
+});
+check('fab-notch-on-book', book.notchMask === true && book.fabSlot === true, { notchMask: book.notchMask, fabSlot: book.fabSlot });
+check('book-no-header-add-scan-mic', (book.headerAddScanMic || []).length === 0, { headerAddScanMic: book.headerAddScanMic });
 check('book-sticky-tabs', book.stickyTabs === true, { stickyTabs: book.stickyTabs, tabs: book.tabs });
 check('book-team-label', book.teamLabeled === true, { teamLabeled: book.teamLabeled });
 check('entry-icon-size', book.entryIconW == null || book.entryIconW >= 48, { entryIconW: book.entryIconW });
+
+if (book.fabVisible) {
+  await evalJs(send, `document.querySelector('.dash-fab-center')?.click()`);
+  await sleep(900);
+  shot('04b-fab-open');
+  const orbit = await evalJs(send, `(() => {
+    const items = [...document.querySelectorAll('.dash-fab-item')].map((el) => ({
+      label: (el.querySelector('.dash-fab-label')?.textContent || '').trim(),
+      rect: (() => { const r = el.getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height), y: Math.round(r.y) }; })(),
+    }));
+    const open = document.querySelector('.dash-fab-center')?.getAttribute('data-open');
+    const scrim = Boolean(document.querySelector('.dash-fab-scrim'));
+    return { open, scrim, items, count: items.length };
+  })()`);
+  check('fab-orbit-open', orbit.open === 'true' && orbit.count >= 1, orbit);
+  await evalJs(send, `document.querySelector('.dash-fab-scrim')?.click() || document.querySelector('.dash-fab-center')?.click()`);
+  await sleep(500);
+}
 
 await evalJs(send, `document.querySelector('[title="Download report"]')?.scrollIntoView({block:'center'})`);
 await sleep(250);

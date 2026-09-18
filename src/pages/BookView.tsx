@@ -21,7 +21,7 @@ import { notifyLedgerMembers } from '../lib/notify-team';
 import { CapacitorService } from '../lib/capacitor';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send, Copy, CopyPlus, Paperclip, Mail, Megaphone, Shield, Pin, PinOff, SlidersHorizontal, ArrowUpDown, Star, Wallet, ArrowUpRight, TrendingUp, Receipt, Mic, PenLine, ScanLine, History, PieChart, Split, MoreHorizontal, CalendarClock } from 'lucide-react';
+import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send, Copy, CopyPlus, Paperclip, Mail, Megaphone, Shield, Pin, PinOff, SlidersHorizontal, ArrowUpDown, Star, Wallet, ArrowUpRight, TrendingUp, Receipt, History, PieChart, Split, MoreHorizontal, CalendarClock } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Tabs from '@radix-ui/react-tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
@@ -652,10 +652,9 @@ export default function BookView() {
       }
       if (typing) return;
       if (key === 'n') {
-        const add = document.querySelector('[data-add-entry]') as HTMLButtonElement | null;
-        if (!add || add.disabled) return;
+        if (!canWrite) return;
         event.preventDefault();
-        add.click();
+        openNewExpense();
       }
       if (key === 'f') {
         event.preventDefault();
@@ -1821,33 +1820,6 @@ export default function BookView() {
             <span className="sm:hidden">People</span>
           </button>
           )}
-          {(canWrite || canVoice) && (
-            <>
-            {canWrite && (
-            <button 
-              type="button"
-              data-add-entry
-              onClick={() => { void CapacitorService.hapticTick(); openNewExpense(); }}
-              className="act-3d act-3d-add"
-              title="Add expense with full details"
-            >
-              <span className="act-3d-orb" aria-hidden><PenLine className="w-4 h-4" /></span>
-              <span>Add entry</span>
-            </button>
-            )}
-            {canVoice && (
-            <button
-              type="button"
-              className="act-3d"
-              title="Voice entry"
-              onClick={() => { void CapacitorService.hapticTick(); setVoiceOpen(true); }}
-            >
-              <span className="act-3d-orb tone-mic" aria-hidden><Mic className="w-4 h-4" /></span>
-              <span className="hidden sm:inline">Voice</span>
-            </button>
-            )}
-            </>
-          )}
           </div>
           <DropdownMenu.Root>
             <DropdownMenu.Trigger asChild>
@@ -1857,11 +1829,6 @@ export default function BookView() {
             </DropdownMenu.Trigger>
             <DropdownMenu.Portal>
               <DropdownMenu.Content className="book-overflow-menu" align="end" sideOffset={6}>
-                {canScan && (
-                  <DropdownMenu.Item className="book-overflow-item" onSelect={() => { void CapacitorService.hapticTick(); void scanReceiptEntry(); }}>
-                    <ScanLine className="w-4 h-4" /> Receipt
-                  </DropdownMenu.Item>
-                )}
                 {hasFeature('money_recurring') && (
                   <DropdownMenu.Item className="book-overflow-item" onSelect={() => navigate('/regular-payments')}>
                     <CalendarClock className="w-4 h-4" /> Upcoming
@@ -1888,40 +1855,8 @@ export default function BookView() {
             </DropdownMenu.Portal>
           </DropdownMenu.Root>
         </div>
-        {(canWrite || canScan || canVoice || hasFeature('money_people')) && (
+        {hasFeature('money_people') && (
         <div className="flex md:hidden items-center gap-2">
-          {canWrite && (
-          <button
-            type="button"
-            data-add-entry
-            onClick={() => { void CapacitorService.hapticTick(); openNewExpense(); }}
-            className="act-3d act-3d-add flex-1 !h-12"
-          >
-            <span className="act-3d-orb" aria-hidden><PenLine className="w-4 h-4" /></span>
-            Add entry
-          </button>
-          )}
-          {canScan && (
-          <button
-            type="button"
-            className="act-3d !h-12 !px-3 shrink-0"
-            title="Scan receipt"
-            onClick={() => { void CapacitorService.hapticTick(); void scanReceiptEntry(); }}
-          >
-            <span className="act-3d-orb tone-scan" aria-hidden><ScanLine className="w-4 h-4" /></span>
-          </button>
-          )}
-          {canVoice && (
-          <button
-            type="button"
-            className="act-3d !h-12 !px-3 shrink-0"
-            title="Voice entry"
-            onClick={() => { void CapacitorService.hapticTick(); setVoiceOpen(true); }}
-          >
-            <span className="act-3d-orb tone-mic" aria-hidden><Mic className="w-4 h-4" /></span>
-          </button>
-          )}
-          {hasFeature('money_people') && (
           <button
             type="button"
             onClick={() => setIsMembersModalOpen(true)}
@@ -1931,7 +1866,6 @@ export default function BookView() {
             <Users className="w-4 h-4" />
             <span className="text-[12px] font-semibold">Team</span>
           </button>
-          )}
         </div>
         )}
         {evolution && canManageUsers ? (

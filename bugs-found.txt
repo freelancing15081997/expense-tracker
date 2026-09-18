@@ -1,0 +1,809 @@
+Byjan expense-tracker QA findings (source review)
+Generated: 2026-09-18
+Scope: src/pages, src/components, src/lib, api/*, android Capacitor / deep links
+Method: static code review; prefer concrete, reproducible issues. Status: open
+
+---
+BUG-001 | SEVERITY: critical | AREA: security / payments
+Title: Client can mark UPI settlement PAID by posting outcome=success
+Where: api/_lib/settlement-upi.ts:602-626; src/lib/money-api.ts:195-208
+Repro: As the payer, call reportUpiReturn with attemptId and outcome "success" (or userAction "success") without completing a real UPI payment.
+Expected: Server only marks PAID on verified UPI intent result / independent confirmation.
+Actual: explicitSuccess trusts client-supplied outcome and sets markPaid=true.
+Status: open
+---
+BUG-002 | SEVERITY: critical | AREA: security / email
+Title: Authenticated email send is an open relay (any To address)
+Where: api/email/send.ts:48-60
+Repro: Sign in, POST /api/email/send with to=any@victim.com, subject/message of choice.
+Expected: Restrict recipients to book members / verified notify list and rate-limit.
+Actual: Any signed-in user can send arbitrary HTML email via Byjan SMTP once authenticated.
+Status: open
+---
+BUG-003 | SEVERITY: critical | AREA: security / auth
+Title: Google idToken passed in URL query on native handoff
+Where: src/lib/firebase.ts:104-112; android/.../AndroidManifest.xml:26-31
+Repro: Complete Google SSO with nativeApp=1; observe redirect to com.byjanbooks.app://auth?idToken=...
+Expected: Token exchanged via secure in-app channel / one-time code, not query string.
+Actual: Bearer-equivalent idToken lands in URL (logs, history, crash dumps, referrers).
+Status: open
+---
+BUG-004 | SEVERITY: critical | AREA: security / CORS
+Title: API CORS reflects arbitrary Origin with credentials
+Where: api/_lib/http.ts:14-17; api/invites.ts:93-94; api/email/send.ts:12-15; api/ops/trace.ts:28-31
+Repro: From evil.com, XHR to API with Origin: https://evil.com and credentials.
+Expected: Allowlist known origins (easypado.com / app).
+Actual: Access-Control-Allow-Origin echoes any Origin and sets Allow-Credentials true.
+Status: open
+---
+BUG-005 | SEVERITY: high | AREA: security / deep-link
+Title: Post-login returnTo allows protocol-relative open redirect
+Where: src/lib/return-to.ts:1-26; src/App.tsx:39; Login/Register navigate(consumeReturnTo())
+Repro: Set sessionStorage byjan.returnTo to "//evil.example/phish"; sign in (or hit /login while already signed in).
+Expected: Only same-app absolute paths like /invite/... are accepted.
+Actual: "//evil..." startsWith("/") so React Router / browser can leave the origin.
+Status: open
+---
+BUG-006 | SEVERITY: high | AREA: security / invites
+Title: Invite create accepts arbitrary role including owner
+Where: api/invites.ts:206; accept path 289-293
+Repro: As book admin, POST op=create with role "owner" (or crafted role string).
+Expected: Allowlist admin|contributor|viewer|auditor only; never owner via invite.
+Actual: role is stored and applied on accept with no allowlist.
+Status: open
+---
+BUG-007 | SEVERITY: high | AREA: security / app lock
+Title: /invite/:id bypasses AppLockGate while user is signed in
+Where: src/App.tsx:53-54 vs ProtectedRoute wrapping Layout only
+Repro: Enable app lock, lock the app, open #/invite/<id> (or cold-start that route).
+Expected: Locked session must unlock before any authenticated surfaces.
+Actual: InviteAccept renders outside ProtectedRoute/AppLockGate.
+Status: open
+---
+BUG-008 | SEVERITY: high | AREA: security / android
+Title: android:allowBackup="true" exposes local PIN hash / prefs
+Where: android/app/src/main/AndroidManifest.xml:6; src/lib/app-lock.ts:48-62
+Repro: adb backup / device backup includes app data; extract byjan.lock.v1.
+Expected: allowBackup false (or exclude sensitive SharedPreferences) for lock material.
+Actual: Backup allowed; PIN is only single-round SHA-256(salt:pin).
+Status: open
+---
+BUG-009 | SEVERITY: high | AREA: security / android
+Title: webContentsDebuggingEnabled left true in Capacitor Android config
+Where: capacitor.config.ts:58-62
+Repro: Build release APK; attach chrome://inspect to WebView.
+Expected: Debugging disabled for production builds.
+Actual: android.webContentsDebuggingEnabled: true.
+Status: open
+---
+BUG-010 | SEVERITY: high | AREA: security / inbound
+Title: Inbound webhook secret accepted via query string
+Where: api/email/inbound.ts:71, 2699-2725
+Repro: Call inbound endpoint with ?secret=<INBOUND_WEBHOOK_SECRET> (leaks via access logs / Referer).
+Expected: Secret only in Authorization / dedicated headers.
+Actual: Query param secret is an accepted candidate.
+Status: open
+---
+BUG-011 | SEVERITY: high | AREA: features / settlements
+Title: MEMBER_FEATURES omits money_settle / money_team / money_people
+Where: src/lib/features.ts:157-190; Dashboard.tsx:1173; Settings.tsx:246
+Repro: Fresh install with empty role_permissions table; sign in as non-super user; open Home.
+Expected: Default members can settle splits (ROLE_FEATURE_DEFAULTS.DEFAULT_USER has money_settle).
+Actual: resolveFeatures falls back to MEMBER_FEATURES → PendingPayStrip and UPI settings gated off.
+Status: open
+---
+BUG-012 | SEVERITY: high | AREA: features
+Title: Per-book featureAccess last grant wins and returns early (no merge)
+Where: src/lib/features.ts:425-430
+Repro: User is on Book A (settle on) and Book B (settle off via featureAccess); load profile features.
+Expected: Effective map merges grants or scopes by current book.
+Actual: First grant from end of books array replaces entire feature map and returns.
+Status: open
+---
+BUG-013 | SEVERITY: high | AREA: invites / notifications
+Title: Invite notifications navigate to Home, not /invite/:id
+Where: api/invites.ts:248-252; src/lib/notification-path.ts:7
+Repro: Invite an existing user; tap the in-app invite notification.
+Expected: Open #/invite/<inviteId> accept screen.
+Actual: link is "/" and notificationPath forces invite kinds to "/".
+Status: open
+---
+BUG-014 | SEVERITY: high | AREA: XSS / email
+Title: Invite-accept team email injects unsanitized displayName/bookName HTML
+Where: src/lib/invites.ts:75-83
+Repro: Set displayName to `<img src=x onerror=...>` (or similar), accept invite.
+Expected: Escape HTML before embedding in message.
+Actual: who and bookName interpolated raw into HTML body sent via /api/email/send.
+Status: open
+---
+BUG-015 | SEVERITY: high | AREA: offline queue
+Title: Offline expenses only flush when that BookView is open
+Where: src/pages/BookView.tsx:601-616; src/lib/money-offline.ts:61-81
+Repro: Save offline on Book A; leave app; reconnect while on Home / another book.
+Expected: Global online listener flushes all queued books.
+Actual: Network listener + flushOfflineQueue only run inside BookView for current bookId.
+Status: open
+---
+BUG-016 | SEVERITY: high | AREA: race / Layout FAB
+Title: FAB quick-action on non-book routes races navigate + delayed event
+Where: src/components/Layout.tsx:66-76
+Repro: From Settings, open FAB is unavailable; from Activity path assumptions — from Home when handlers not mounted yet, or navigate('/') then fire after 380ms.
+Expected: Wait for target route ready / use navigation state to open action.
+Actual: Fixed 380ms timeout; slow devices miss the byjan-quick event.
+Status: open
+---
+BUG-017 | SEVERITY: high | AREA: BookView / race
+Title: byjan-quick listener useEffect has no dependency array
+Where: src/pages/BookView.tsx:628-637
+Repro: Open a book; interact so BookView re-renders frequently; fire FAB actions.
+Expected: Stable subscription with [bookId] deps.
+Actual: Effect re-binds every render (teardown/setup gap can drop events).
+Status: open
+---
+BUG-018 | SEVERITY: high | AREA: auth / roles
+Title: FAB Add/Voice ignore canWrite (viewers open write UI)
+Where: src/pages/BookView.tsx:629-633, 964-983; canWrite at 886
+Repro: Join as viewer; on book screen use FAB Add or Voice (if features on).
+Expected: No-op / toast “view only”.
+Actual: openNewExpense / setVoiceOpen run without canWrite check (scan correctly guards).
+Status: open
+---
+BUG-019 | SEVERITY: high | AREA: android / deep links
+Title: No https App Links for invites / pay deep links — only custom auth scheme
+Where: android/.../AndroidManifest.xml:26-31
+Repro: Open https://www.easypado.com/#/invite/... from Android email; hope for installed app.
+Expected: verified App Links / intent filters for invite and pay URLs into the app.
+Actual: Only com.byjanbooks.app://auth is registered; shares use SEND filters only.
+Status: open
+---
+BUG-020 | SEVERITY: high | AREA: ShareIntent
+Title: ShareIntentListener calls CapApp.removeAllListeners on unmount
+Where: src/components/ShareIntentListener.tsx:250-254
+Repro: Remount ShareIntentListener (route/provider remount); Google auth also uses App.addListener.
+Expected: Remove only this component’s handles.
+Actual: removeAllListeners wipes unrelated appUrlOpen / auth listeners.
+Status: open
+---
+BUG-021 | SEVERITY: medium | AREA: invites / rate-limit
+Title: Invite rate-limit Map wipe clears all keys when size > 2000
+Where: api/invites.ts:9-16
+Repro: Drive many distinct invite keys until Map size exceeds 2000.
+Expected: Evict oldest entries or use TTL map.
+Actual: inviteHits.clear() resets everyone’s limits.
+Status: open
+---
+BUG-022 | SEVERITY: medium | AREA: auth / JWT cache
+Title: invites jwtMem.clear() drops all cached sessions when size > 300
+Where: api/invites.ts:27-45
+Repro: Hit peek/create with many distinct tokens until jwtMem.size > 300.
+Expected: LRU eviction of oldest tokens.
+Actual: Entire JWT memoization cache cleared (thundering herd re-verify).
+Status: open
+---
+BUG-023 | SEVERITY: medium | AREA: offline queue
+Title: Failed offline sync items retry forever with no max attempts / backoff
+Where: src/lib/money-offline.ts:61-79
+Repro: Queue an expense that always 400s; reopen book online repeatedly.
+Expected: Cap attempts, surface lastError, stop auto-retry.
+Actual: attempts increments but flush always retries every connected sync.
+Status: open
+---
+BUG-024 | SEVERITY: medium | AREA: offline queue
+Title: Silent localStorage quota failures drop queued expenses
+Where: src/lib/money-offline.ts:29-34
+Repro: Fill localStorage; enqueueOfflineExpense.
+Expected: Surface error to user; do not claim “Saved offline”.
+Actual: writeQueue catch empties; enqueue still returns a row that may not persist.
+Status: open
+---
+BUG-025 | SEVERITY: medium | AREA: payments / UPI notes
+Title: UPI tn built from free-text expenseDescription (special chars / length)
+Where: api/_lib/settlement-upi.ts:490; SettlementPaySheet.tsx:165
+Repro: Split expense with description containing emoji / “&” / quotes; start UPI pay.
+Expected: Sanitize tn to NPCI-safe charset or use stable mock note + internal tr.
+Actual: Raw `Byjan ${expenseDescription}` used as tn (many apps reject / truncate oddly).
+Status: open
+---
+BUG-026 | SEVERITY: medium | AREA: amount formatting
+Title: MoneyReports mixes formatIndianAmount with raw toLocaleString
+Where: src/pages/MoneyReports.tsx:96-99 vs 145, 194, 208, 231
+Repro: Open Reports; compare Overview amounts vs NL search / what-if lines.
+Expected: Consistent en-IN grouping via formatIndianAmount / prefs.numberFormat.
+Actual: Search/what-if use currency + Number.toLocaleString() (browser default locale).
+Status: open
+---
+BUG-027 | SEVERITY: medium | AREA: amount / multi-currency
+Title: MoneyReports uses only books[0] currency and budget
+Where: src/pages/MoneyReports.tsx:47-49
+Repro: Have INR and USD books with budgets; open /reports.
+Expected: Per-book or convert; don’t attribute all spend to first book’s currency/budget.
+Actual: currency + monthlyBudget always from books[0].
+Status: open
+---
+BUG-028 | SEVERITY: medium | AREA: amount / multi-currency
+Title: PendingPayStrip sums paise across currencies under one symbol
+Where: src/components/PendingPayStrip.tsx:40-41, 72
+Repro: Owe INR settlement and USD settlement; view Home pay strip.
+Expected: Separate totals per currency or convert.
+Actual: duePaise summed; single symbol from first row.
+Status: open
+---
+BUG-029 | SEVERITY: medium | AREA: RegularPayments
+Title: RegularPayments assumes books[0] currency for all patterns
+Where: src/pages/RegularPayments.tsx:26, 47, 82, 104
+Repro: Multi-currency books; open Regular payments.
+Expected: Show each pattern with its book currency.
+Actual: One currency from first book applied globally.
+Status: open
+---
+BUG-030 | SEVERITY: medium | AREA: Settings / no-op prefs
+Title: notifyOverdue / notifyApprovals toggles are no-ops
+Where: src/lib/app-prefs.ts:46-47; Settings.tsx:487-488
+Repro: Toggle “Highlight overdue invoices” / “Surface pending approvals”; Save; use Collections.
+Expected: UI behavior changes.
+Actual: Prefs stored but never read outside Settings/app-prefs definitions.
+Status: open
+---
+BUG-031 | SEVERITY: medium | AREA: Settings / no-op prefs
+Title: roundHalfUp toggle is a no-op
+Where: src/lib/app-prefs.ts:51; Settings.tsx:475
+Repro: Toggle Round halves up; Save; post invoice tax.
+Expected: Rounding path respects pref.
+Actual: Pref never referenced in money/tax code.
+Status: open
+---
+BUG-032 | SEVERITY: medium | AREA: Settings / no-op prefs
+Title: weekStartsOn preference unused by calendars/reports
+Where: Settings.tsx:320; app-prefs.ts:27
+Repro: Set week starts on Sunday; check week period bounds / calendars.
+Expected: Week periods honor preference.
+Actual: Only stored; no consumers found outside Settings.
+Status: open
+---
+BUG-033 | SEVERITY: medium | AREA: a11y
+Title: Settings Switch control missing role/aria-checked/name
+Where: src/pages/Settings.tsx:19-34
+Repro: Open Settings; navigate toggles with screen reader / axe.
+Expected: role="switch" aria-checked and accessible name.
+Actual: Plain button with visual knob only.
+Status: open
+---
+BUG-034 | SEVERITY: medium | AREA: a11y
+Title: Notifications bell has title but no aria-label
+Where: src/components/Layout.tsx:207-215, 253-261
+Repro: Screen reader focus on header bell.
+Expected: Named “Notifications” (and unread count).
+Actual: Icon-only button with title attribute (weak for a11y).
+Status: open
+---
+BUG-035 | SEVERITY: medium | AREA: a11y
+Title: FAB orbit items are not menuitem and lack accessible names
+Where: src/components/Layout.tsx:409-450
+Repro: Open FAB; inspect Voice/Add/Scan buttons.
+Expected: role="menuitem" + aria-label on each action.
+Actual: role="menu" parent; children are unlabeled motion.buttons (text in separate span).
+Status: open
+---
+BUG-036 | SEVERITY: medium | AREA: a11y
+Title: Category remove “×” buttons lack accessible names
+Where: src/pages/Settings.tsx:509-512
+Repro: Screen reader on custom category chips.
+Expected: “Remove {category}”.
+Actual: Bare × with no aria-label.
+Status: open
+---
+BUG-037 | SEVERITY: medium | AREA: a11y
+Title: SearchTrigger buttons lack aria-label
+Where: src/components/GlobalSearch.tsx:20-64
+Repro: Focus search icon/bar with SR.
+Expected: “Search” name.
+Actual: Icon/button without aria-label (relies on visible text for bar only).
+Status: open
+---
+BUG-038 | SEVERITY: medium | AREA: VoiceEntry
+Title: Review & save proceeds even when amount is 0
+Where: src/components/VoiceEntrySheet.tsx:83-92
+Repro: Speak text with no amount; tap Review & save.
+Expected: Block or force edit; do not call onReady with amount 0.
+Actual: Toast fires but onReady(parsed) and onClose still run.
+Status: open
+---
+BUG-039 | SEVERITY: medium | AREA: Register
+Title: No password confirmation field
+Where: src/pages/Register.tsx:98-111
+Repro: Create account with mistyped password once.
+Expected: Confirm password field.
+Actual: Single password input only (minLength 6).
+Status: open
+---
+BUG-040 | SEVERITY: medium | AREA: Login UX
+Title: Firebase raw error.message shown to users
+Where: src/pages/Login.tsx:73-74; Register.tsx:29-30
+Repro: Wrong password; observe Firebase-coded English string.
+Expected: Friendly mapped errors.
+Actual: err.message from Firebase (often includes auth/ codes).
+Status: open
+---
+BUG-041 | SEVERITY: medium | AREA: InviteAccept
+Title: Decline available without confirming wrong-account state handling for peek races
+Where: src/pages/InviteAccept.tsx:68-78; load effect 30-33
+Repro: Rapidly switch accounts while invite page open; click Decline during stale peek.
+Expected: Re-validate peek.status === 'ok' before mutate.
+Actual: decline only checks inviteId; accept checks peek+user.
+Status: open
+---
+BUG-042 | SEVERITY: medium | AREA: ShareIntent
+Title: Large shared images dropped from sessionStorage with no user warning
+Where: src/components/ShareIntentListener.tsx:97-108, 268-269
+Repro: Share >200KB image; process killed before Dashboard consumes memoryPending.
+Expected: Persist to filesystem / warn “share again”.
+Actual: sessionStorage strips image; recovery returns null.
+Status: open
+---
+BUG-043 | SEVERITY: medium | AREA: Layout / notifications
+Title: Notification load errors only console.error (except quota)
+Where: src/components/Layout.tsx:135-137
+Repro: Break notifications API; open app.
+Expected: User-visible empty/error state.
+Actual: Silent fail + console.error; panel shows “No alerts yet”.
+Status: open
+---
+BUG-044 | SEVERITY: medium | AREA: Trace / ops
+Title: Trace env presence leaks secret lengths to any super-admin session
+Where: api/ops/trace.ts:55-58, 120-129
+Repro: Open /trace as super user.
+Expected: booleans only (or omit lengths).
+Actual: Returns length of SMTP_PASS / GEMINI_API_KEY etc.
+Status: open
+---
+BUG-045 | SEVERITY: medium | AREA: super-users
+Title: Super-admin emails hardcoded in client bundle
+Where: src/lib/super-users.ts:8-15; api/ops/trace.ts:5
+Repro: View production JS; search pujaribadrinath@gmail.com.
+Expected: Server-only SUPER_USER_EMAILS.
+Actual: Builtin emails shipped in client (enumeration / targeting).
+Status: open
+---
+BUG-046 | SEVERITY: medium | AREA: Firebase config
+Title: Firebase apiKey and project IDs hardcoded in source
+Where: src/lib/firebase.ts:17-31
+Repro: Read firebase.ts / built assets.
+Expected: Env-injected config; document that apiKey is restricted by domain.
+Actual: Full client config committed (apiKey, appId, messagingSenderId).
+Status: open
+---
+BUG-047 | SEVERITY: medium | AREA: app lock
+Title: App lock PIN uses single SHA-256 (offline brute-force friendly)
+Where: src/lib/app-lock.ts:36-39, 93-98
+Repro: Extract localStorage byjan.lock.v1; brute 4–8 digit PINs.
+Expected: PBKDF2/scrypt with high iterations + device binding.
+Actual: sha256(`${salt}:${digits}`) once.
+Status: open
+---
+BUG-048 | SEVERITY: medium | AREA: app lock
+Title: Default autoLockMs is 8 seconds (easy accidental lock thrash)
+Where: src/lib/app-lock.ts:15-17; Settings SelectItem 8000
+Repro: Enable lock with defaults; briefly switch apps.
+Expected: Safer default (e.g. 30–60s) or Immediate only if chosen.
+Actual: DEFAULT_OPTIONS.autoLockMs = 8000.
+Status: open
+---
+BUG-049 | SEVERITY: medium | AREA: PendingPayStrip
+Title: “See all” links to first card’s book pay query, not a list
+Where: src/components/PendingPayStrip.tsx:51-53
+Repro: Multiple pending pays; tap See all.
+Expected: Settlements list / dedicated page.
+Actual: Navigates to `/book/{first}?pay={firstId}` only.
+Status: open
+---
+BUG-050 | SEVERITY: medium | AREA: MoneyReports
+Title: Reports CSV export ignores NL filter / what-if context
+Where: src/pages/MoneyReports.tsx:78-84
+Repro: Run NL search then Export CSV.
+Expected: Export filtered/search result set or warn.
+Actual: Always toLedgerCsv(filtered by period only).
+Status: open
+---
+BUG-051 | SEVERITY: medium | AREA: Activity
+Title: Activity silently swallows expense/notification fetch failures
+Where: src/pages/Activity.tsx:33-35
+Repro: API down; open Activity.
+Expected: Error banner.
+Actual: Empty lists; “No activity yet”.
+Status: open
+---
+BUG-052 | SEVERITY: medium | AREA: NotificationsPage
+Title: NotificationsPage silently clears on error
+Where: src/pages/NotificationsPage.tsx:33
+Repro: Force listNotifications reject.
+Expected: Error UI.
+Actual: setRows([]) — looks empty.
+Status: open
+---
+BUG-053 | SEVERITY: medium | AREA: Help
+Title: Support ticket list failures only toast; encoding risk in UI copy
+Where: src/pages/HelpPage.tsx:78-86, ~245
+Repro: Break support tickets API; open Help.
+Expected: Persistent error.
+Actual: catch toast/console patterns; tickets appear empty.
+Status: open
+---
+BUG-054 | SEVERITY: medium | AREA: Dashboard
+Title: Invite accept notifyError ignored after accept
+Where: src/pages/Dashboard.tsx:620-636; src/lib/invites.ts:84-86
+Repro: Accept invite when SMTP fails.
+Expected: Toast that team was not emailed.
+Actual: acceptLedgerInvite returns notifyError; Dashboard does not surface it.
+Status: open
+---
+BUG-055 | SEVERITY: medium | AREA: BookView invite
+Title: “auditor” role invited but ROLE_FEATURE_DEFAULTS has no auditor map
+Where: BookView.tsx:3280; src/lib/money-flow.ts:153-264; features appRoleFromBooks
+Repro: Invite as auditor; accept; check feature resolution / canWrite.
+Expected: Dedicated auditor role permissions.
+Actual: Role string stored; appRoleFromBooks may treat as viewer; features incomplete.
+Status: open
+---
+BUG-056 | SEVERITY: low | AREA: BookView
+Title: Privacy mode local-only and not explained as device-only
+Where: BookView.tsx:379-380, 674-688
+Repro: Toggle privacy; switch device.
+Expected: Sync preference or clear labeling.
+Actual: localStorage byjan.privacy only.
+Status: open
+---
+BUG-057 | SEVERITY: medium | AREA: logic / settlements create
+Title: Split re-save cancels CANCELLED rows again (status list includes CANCELLED)
+Where: api/_lib/settlement-upi.ts:206-212
+Repro: Replace split multiple times; inspect settlement history statuses.
+Expected: Only open statuses cancelled on replace.
+Actual: WHERE status IN (..., 'CANCELLED') rewrites already cancelled rows.
+Status: open
+---
+BUG-058 | SEVERITY: medium | AREA: UPI launch web
+Title: launchUpiUri always reports opened=true after click()
+Where: src/lib/upi.ts:131-143
+Repro: Desktop web; start payment; no UPI app.
+Expected: Detect failure / show fallback immediately.
+Actual: Synthetic <a>.click() returns opened:true even when nothing handles upi://.
+Status: open
+---
+BUG-059 | SEVERITY: medium | AREA: auth client
+Title: Stale Authorization reused for 45s when getAccessToken fails
+Where: src/lib/api.ts:120-122
+Repro: Transient token fetch failure while authHeaderCache warm.
+Expected: Fail closed (401) rather than reuse.
+Actual: Falls back to cache < 45s old.
+Status: open
+---
+BUG-060 | SEVERITY: medium | AREA: InviteAccept
+Title: peek load does not cancel in-flight requests (stale overwrite)
+Where: src/pages/InviteAccept.tsx:20-33
+Repro: Change inviteId quickly / login mid-peek.
+Expected: AbortController or ignore stale responses.
+Actual: Last response wins regardless of order.
+Status: open
+---
+BUG-061 | SEVERITY: medium | AREA: Layout
+Title: PageErrorBoundary message never shows the actual error
+Where: src/components/Layout.tsx:26-42
+Repro: Throw in a page; read UI.
+Expected: Optional details for support / report id.
+Actual: Generic copy only; error discarded after getDerivedStateFromError.
+Status: open
+---
+BUG-062 | SEVERITY: medium | AREA: features / FeatureGate
+Title: FeatureGate hard-redirects to / with no explanation
+Where: src/components/FeatureGate.tsx:8-11
+Repro: Disable money_reports; navigate to /reports.
+Expected: “Feature off” empty state.
+Actual: Silent Navigate to "/".
+Status: open
+---
+BUG-063 | SEVERITY: low | AREA: GuestRoute
+Title: GuestRoute peeks returnTo without consuming it
+Where: src/App.tsx:39
+Repro: While logged in, visit /login repeatedly with returnTo set.
+Expected: consume once.
+Actual: peekReturnTo leaves value for subsequent navigations.
+Status: open
+---
+BUG-064 | SEVERITY: medium | AREA: AccessControl
+Title: AccessControl tree Expand-all rebuilds entire FEATURE catalog each click (perf)
+Where: src/pages/AccessControl.tsx:53-58
+Repro: Expand all on large Business verb tree on low-end phone.
+Expected: Cached key list.
+Actual: Nested flatMap over full tree every click (jank; can freeze UI).
+Status: open
+---
+BUG-065 | SEVERITY: medium | AREA: money-offline + BookView
+Title: Offline local row uses idempotencyKey as id (collision / replace risk)
+Where: BookView.tsx:1332-1334; money-offline.ts:44-49
+Repro: Enqueue offline; inspect local expense id.
+Expected: Distinct client id vs server id mapping.
+Actual: applyExpenseLocal id: payload.idempotencyKey.
+Status: open
+---
+BUG-066 | SEVERITY: medium | AREA: Dashboard currency
+Title: Home net/in/out use single currencyCode across all books
+Where: Dashboard aggregates + formatIndianAmount(net, currency)
+Repro: Mixed INR/USD books; read hero balance.
+Expected: Separate or FX-normalized.
+Actual: Sums amounts as numbers under one symbol.
+Status: open
+---
+BUG-067 | SEVERITY: low | AREA: Login a11y
+Title: Google logo img uses empty alt (ok) but button has no aria-busy
+Where: Login.tsx:121-128
+Repro: Start Google sign-in; SR announces.
+Expected: aria-busy / live status.
+Actual: Visual spinner only.
+Status: open
+---
+BUG-068 | SEVERITY: medium | AREA: Register Google handoff
+Title: Register Google path returns early on native handoff without status message
+Where: Register.tsx:40-42
+Repro: Register via Google in nativeApp browser flow.
+Expected: “Returning to app…” like Login.tsx:47-48.
+Actual: Silent return; user may think nothing happened.
+Status: open
+---
+BUG-069 | SEVERITY: medium | AREA: SettlementPaySheet
+Title: Web/fallback path leaves phase unclear without forcing confirmation UX
+Where: SettlementPaySheet.tsx:199-221
+Repro: Pay on web/desktop; UPI link “opens”.
+Expected: Strong require-confirm / mark failed until user acts.
+Actual: phase unclear + success toast “Opened UPI app”.
+Status: open
+---
+BUG-070 | SEVERITY: medium | AREA: confirm received
+Title: Receiver confirmSettlementReceived can mark PAID without UPI proof (by design risk)
+Where: api/_lib/settlement-upi.ts header comment; SettlementPaySheet confirmReceived
+Repro: As receiver, confirm received without payment occurring.
+Expected: Extra friction / payer co-confirm for large amounts.
+Actual: Single-party confirm → PAID.
+Status: open
+---
+BUG-071 | SEVERITY: low | AREA: TraceOps UI
+Title: TraceOps freeTiers icons only handle smtp/neon; others show Server
+Where: TraceOps.tsx:122-125
+Repro: View R2/Gemini/FCM tiles.
+Expected: Distinct icons or generic.
+Actual: Non-smtp/neon always Server icon (cosmetic/logic smell).
+Status: open
+---
+BUG-072 | SEVERITY: medium | AREA: blob upload
+Title: Upload without valid bookId may take alternate path / Books ACL mismatch
+Where: api/_lib/blob-store.ts:109-151
+Repro: Upload with short/missing X-Book-Id.
+Expected: Always require money-book membership for money receipts.
+Actual: bookId length < 4 skips requireBookMember and hits different ACL branch.
+Status: open
+---
+BUG-073 | SEVERITY: medium | AREA: inbound mailbox
+Title: inboundMailboxSlug collisions possible across books with similar names
+Where: src/lib/inbound-mail.ts:5-19
+Repro: Create two books “Trip” → both want trip@easypado.com unless claimed uniquely server-side.
+Expected: Guaranteed unique server allocation always.
+Actual: Client slug derivation is name-based; race depends on server ensureLedgerMailbox.
+Status: open
+---
+BUG-074 | SEVERITY: low | AREA: Layout
+Title: Notifications panel dimmer not keyboard-dismissible / no focus trap
+Where: Layout.tsx:285-351
+Repro: Open notifications; press Esc / Tab.
+Expected: Esc closes; focus trapped.
+Actual: Click-dim only; no onKeyDown Escape / focus trap.
+Status: open
+---
+BUG-075 | SEVERITY: medium | AREA: Voice / BookView
+Title: location.state openVoice/openScan not cleared after handling
+Where: BookView.tsx:619-625
+Repro: navigate with state openVoice; leave and return via back stack.
+Expected: Replace state after consume.
+Actual: Effect re-fires when bookId/state persist.
+Status: open
+---
+BUG-076 | SEVERITY: medium | AREA: Settings delete account
+Title: deleteAccount server then deleteCurrentAuthUser — orphan risk if second fails
+Where: Settings.tsx:152-167
+Repro: Soft-delete succeeds; Firebase deleteUser fails (requiresRecentLogin).
+Expected: Reauth flow before delete; transactional messaging.
+Actual: User stuck: server deleted, auth session may remain / partial.
+Status: open
+---
+BUG-077 | SEVERITY: medium | AREA: Settings deactivate
+Title: Deactivate logs out without clearing native push token server-side guarantee in UI path
+Where: Settings.tsx:134-149
+Repro: Deactivate; check if FCM still targeted until server clears.
+Expected: Explicit revoke push on deactivate.
+Actual: Client only deactivateAccount + logout (depends on server side-effects).
+Status: open
+---
+BUG-078 | SEVERITY: low | AREA: Currency helper
+Title: Unknown currency code falls back to "$"
+Where: src/lib/currency.ts:1-10
+Repro: Book currency "JPY"; display symbol.
+Expected: "¥" or code "JPY".
+Actual: default return code || '$' — if code missing shows $.
+Status: open
+---
+BUG-079 | SEVERITY: medium | AREA: BookView amounts
+Title: Entry card uses Number(amount).toFixed(2) without Indian grouping
+Where: BookView.tsx:~2548
+Repro: View ₹123456.78 entry.
+Expected: en-IN 1,23,456.78 via prefs.
+Actual: plain toFixed(2) with symbol.
+Status: open
+---
+BUG-080 | SEVERITY: medium | AREA: featuresFromBooks
+Title: featuresFromBooks overwrites instead of OR-merging grants
+Where: src/lib/features.ts:359-365
+Repro: Call featuresFromBooks with multiple books granting different keys.
+Expected: Union of enabled features.
+Actual: next = granted each loop (last book wins entirely).
+Status: open
+---
+BUG-081 | SEVERITY: medium | AREA: MEMBER defaults
+Title: MEMBER_ON enables money_split but not money_settle (split without pay UI)
+Where: features.ts:165-168 vs missing money_settle
+Repro: Empty role_permissions; create equal split; look for pay strip / UPI settings.
+Expected: Split implies settle for members.
+Actual: Can split entries; settlement UI feature-gated off.
+Status: open
+---
+BUG-082 | SEVERITY: low | AREA: Capacitor
+Title: LocalNotifications sound 'beep.wav' may be missing
+Where: capacitor.config.ts:48-52
+Repro: Trigger local notification on Android.
+Expected: Bundled sound or omit.
+Actual: References beep.wav without verifying asset presence (silent / default).
+Status: open
+---
+BUG-083 | SEVERITY: medium | AREA: android permissions
+Title: ACCESS_FINE_LOCATION requested without clear money feature use in reviewed pages
+Where: AndroidManifest.xml:115-116
+Repro: Install APK; review permission prompts.
+Expected: Request only when feature needs location.
+Actual: Declared at manifest level (Play policy / trust risk).
+Status: open
+---
+BUG-084 | SEVERITY: medium | AREA: Login deep-link
+Title: nativeGoogleAuto session flag prevents retry after failed Google auto-start
+Where: Login.tsx:41-42
+Repro: Open login?nativeApp=1&google=1; Google fails once; reload same URL.
+Expected: Allow retry.
+Actual: sessionStorage byjan.nativeGoogleAuto blocks auto path for session.
+Status: open
+---
+BUG-085 | SEVERITY: medium | AREA: Invite list filter
+Title: Invite list hides invites you created even if emailed to yourself edge cases
+Where: api/invites.ts:183
+Repro: Create invite where invitedBy === self (should be blocked) / mis-synced rows.
+Expected: Show pending invites for email regardless.
+Actual: Filters out String(row.invitedBy) === user.uid always.
+Status: open
+---
+BUG-086 | SEVERITY: low | AREA: TraceOps
+Title: Trace refresh disabled state doesn’t announce loading to AT
+Where: TraceOps.tsx:95-98, 111-116
+Repro: Refresh Trace with SR.
+Expected: aria-busy on region.
+Actual: Button disabled + spinner class only.
+Status: open
+---
+BUG-087 | SEVERITY: medium | AREA: money-api / console
+Title: BookView notify/email failures only console.error
+Where: BookView.tsx:1199, 1536, 1361
+Repro: Break email send while adding entry with notify.
+Expected: User toast for notify failure.
+Actual: .catch(console.error) / console.error paths.
+Status: open
+---
+BUG-088 | SEVERITY: medium | AREA: Split / settlements
+Title: Payment started notifies receiver with generic “Someone” copy
+Where: settlement-upi.ts:534-539
+Repro: Start UPI payment; receiver push/in-app.
+Expected: Include payer name/amount book context consistently.
+Actual: “Someone started a ₹… UPI payment…”.
+Status: open
+---
+BUG-089 | SEVERITY: medium | AREA: HashRouter + SSO
+Title: Native Google browser URL uses hash login; return path fragile on some WebViews
+Where: firebase.ts:119-121
+Repro: Android Custom Tab Google handoff with slow network.
+Expected: Robust deep-link completion with retry UI.
+Actual: Depends on hash query nativeApp/google + session flag (see BUG-084).
+Status: open
+---
+BUG-090 | SEVERITY: low | AREA: Onboarding
+Title: Onboarding dismiss stored forever; no reset in Settings
+Where: Login.tsx:11, 97-99
+Repro: Finish onboard; want to re-see slides.
+Expected: Settings “Replay intro”.
+Actual: localStorage byjan.onboard.v1 sticky with no UI reset.
+Status: open
+---
+BUG-091 | SEVERITY: medium | AREA: AccessControl / me.ts
+Title: Deactivated/deleted accounts forced to MEMBER_FEATURES (may still show Money)
+Where: src/lib/me.ts:87-88
+Repro: Deactivated user profile returned before logout completes.
+Expected: No features / hard block.
+Actual: MEMBER_FEATURES still enables money capture set.
+Status: open
+---
+BUG-092 | SEVERITY: medium | AREA: api invites CORS
+Title: invites handler allows credentials with reflected Origin (same as BUG-004, endpoint-specific)
+Where: api/invites.ts:93-96
+Repro: Cross-origin credentialed POST /api/invites.
+Expected: Strict origin allowlist.
+Actual: origin || '*" with credentials when origin set.
+Status: open
+---
+BUG-093 | SEVERITY: low | AREA: UpiSetupSheet
+Title: Confirm checkbox error requires re-tick after failed save
+Where: UpiSetupSheet.tsx:30-36, 48-50
+Repro: Fail save; sheet stays open; confirm resets only on reopen.
+Expected: Keep confirm state on error.
+Actual: confirm resets when open/initial props effect runs; easy to miss.
+Status: open
+---
+BUG-094 | SEVERITY: medium | AREA: Home Split pill
+Title: Split quick action uses lastMoneyBookId without verifying write access
+Where: Dashboard.tsx:1185-1195
+Repro: last book is view-only; tap Split on Home.
+Expected: Pick writable book.
+Actual: Navigates to last/first book splits tab regardless of role.
+Status: open
+---
+BUG-095 | SEVERITY: medium | AREA: Keyboard shortcuts
+Title: keyboardShortcuts off still leaves some handlers unless GlobalSearch guards
+Where: Settings toggle; GlobalSearch.tsx:96; CommandPalette
+Repro: Disable shortcuts; test BookView letter hotkeys (privacy etc.).
+Expected: All shortcuts respect pref.
+Actual: BookView local key handler may still run (separate from GlobalSearch guard).
+Status: open
+---
+BUG-096 | SEVERITY: low | AREA: MoneyReports
+Title: Top categories show leading “+” for money-out (confusing sign)
+Where: MoneyReports.tsx:120
+Repro: View category list.
+Expected: Expense as outflow without “+” or with “−”.
+Actual: `+{formatIndianAmount(...)}` for spend.
+Status: open
+---
+BUG-097 | SEVERITY: medium | AREA: invite accept race
+Title: Accept invite is not transactional (book write then close invite)
+Where: api/invites.ts:289-294
+Repro: Concurrent accept + decline / double accept.
+Expected: Single DB transaction / unique membership constraint.
+Actual: Sequential ledgerSet book then closeInvite — race windows possible.
+Status: open
+---
+BUG-098 | SEVERITY: medium | AREA: TypeScript any footgun
+Title: Layout notifications typed as any[] — runtime assumes fields
+Where: Layout.tsx:92, 110-132
+Repro: API returns malformed notification without id.
+Expected: Schema validation.
+Actual: any[] + String(row.id) filtering; detail.senderName assumed.
+Status: open
+---
+BUG-099 | SEVERITY: medium | AREA: BookView any
+Title: Heavy (userProfile as any)?.upiId usage — profile type drift
+Where: BookView.tsx:2212-2213, 2817-2818, 3424-3425
+Repro: Profile missing upi fields typed elsewhere.
+Expected: MeProfile includes upiId/upiDisplayName.
+Actual: Casts hide missing fields → empty UPI until refresh.
+Status: open
+---
+BUG-100 | SEVERITY: low | AREA: Switch / Settings live preview
+Title: Unsaved prefs “preview is live” but lock options write immediately
+Where: Settings.tsx:175-176 vs 596-598 updateLockOptions on toggle
+Repro: Change lock shuffle without Save; reload.
+Expected: Consistent dirty/save model.
+Actual: Some lock options persist immediately; prefs wait for Save.
+Status: open
+---
+
+Summary count: 100 bugs written (BUG-001 … BUG-100).
+Prioritize fixing: BUG-001, BUG-002, BUG-003, BUG-004, BUG-005, BUG-006, BUG-007, BUG-008, BUG-009, BUG-011.

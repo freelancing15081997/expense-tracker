@@ -6920,20 +6920,21 @@ body:has(.onboard-shell) {
 }
 .home-hero-links { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 
-/* Concept reel — Add / Split / Manage */
+/* Concept reel — full-width Add / Split / Manage strip under balance */
 .home-feature-reel {
-  width: 118px;
-  border-radius: 16px;
-  padding: 8px 8px 6px;
+  width: 100%;
+  margin-top: 10px;
+  border-radius: 20px;
+  padding: 14px 12px 12px;
   background:
-    linear-gradient(160deg, rgba(255,255,255,0.92), rgba(238,252,249,0.75));
-  border: 1px solid rgba(18, 184, 168, 0.18);
-  box-shadow: 0 10px 22px -16px rgba(11, 31, 58, 0.35);
+    linear-gradient(160deg, rgba(255,255,255,0.96), rgba(238,252,249,0.82));
+  border: 1px solid rgba(18, 184, 168, 0.22);
+  box-shadow: 0 14px 28px -16px rgba(11, 31, 58, 0.4);
   overflow: hidden;
 }
 .home-feature-reel-stage {
   position: relative;
-  height: 64px;
+  height: 132px;
 }
 .hfr-scene {
   position: absolute;
@@ -6942,7 +6943,7 @@ body:has(.onboard-shell) {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 8px;
   opacity: 0;
   transform: translateY(6px) scale(0.96);
   animation: hfr-cycle 9s ease-in-out infinite;
@@ -6956,47 +6957,47 @@ body:has(.onboard-shell) {
   34%, 100% { opacity: 0; transform: translateY(-6px) scale(0.96); }
 }
 .hfr-chip {
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #0e9f92;
-  background: rgba(18, 184, 168, 0.12);
+  background: rgba(18, 184, 168, 0.14);
   border-radius: 999px;
-  padding: 2px 7px;
+  padding: 3px 10px;
 }
 .hfr-card {
   position: relative;
-  width: 72px;
-  height: 34px;
-  border-radius: 10px;
+  width: 108px;
+  height: 52px;
+  border-radius: 14px;
   background: linear-gradient(165deg, #fff, #f1f5f9);
   border: 1px solid rgba(11, 31, 58, 0.08);
-  box-shadow: 0 6px 14px -10px rgba(11, 31, 58, 0.4);
+  box-shadow: 0 8px 18px -10px rgba(11, 31, 58, 0.45);
 }
 .hfr-rupee {
   position: absolute;
-  left: 8px;
-  top: 6px;
-  font-size: 11px;
+  left: 12px;
+  top: 10px;
+  font-size: 16px;
   font-weight: 800;
   color: #0B1F3A;
 }
 .hfr-line {
   position: absolute;
-  left: 8px;
-  height: 3px;
+  left: 12px;
+  height: 4px;
   border-radius: 99px;
   background: #cbd5e1;
 }
-.hfr-line-a { top: 20px; width: 36px; }
-.hfr-line-b { top: 26px; width: 22px; }
+.hfr-line-a { top: 30px; width: 52px; }
+.hfr-line-b { top: 38px; width: 34px; }
 .hfr-tick {
   position: absolute;
-  right: 7px;
-  top: 8px;
-  width: 12px;
-  height: 12px;
+  right: 10px;
+  top: 12px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   background: #12B8A8;
   box-shadow: 0 0 0 0 rgba(18, 184, 168, 0.45);
@@ -7004,17 +7005,17 @@ body:has(.onboard-shell) {
 }
 @keyframes hfr-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(18, 184, 168, 0.35); }
-  50% { box-shadow: 0 0 0 5px rgba(18, 184, 168, 0); }
+  50% { box-shadow: 0 0 0 6px rgba(18, 184, 168, 0); }
 }
-.hfr-split-row { display: flex; gap: 4px; }
+.hfr-split-row { display: flex; gap: 6px; }
 .hfr-avatar {
-  width: 18px;
-  height: 18px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 8px;
+  font-size: 12px;
   font-weight: 800;
   color: #fff;
   background: linear-gradient(145deg, #3af0de, #0c9a8d);
@@ -7023,9 +7024,9 @@ body:has(.onboard-shell) {
 .hfr-avatar:nth-child(3) { background: linear-gradient(145deg, #fda4af, #be123c); }
 .hfr-bars {
   display: flex;
-  gap: 3px;
-  width: 64px;
-  height: 6px;
+  gap: 4px;
+  width: 96px;
+  height: 8px;
 }
 .hfr-bars span {
   flex: 1;
@@ -7042,13 +7043,13 @@ body:has(.onboard-shell) {
 .hfr-chart {
   display: flex;
   align-items: flex-end;
-  gap: 4px;
-  height: 28px;
-  width: 64px;
+  gap: 5px;
+  height: 48px;
+  width: 96px;
 }
 .hfr-bar {
   flex: 1;
-  border-radius: 4px 4px 2px 2px;
+  border-radius: 5px 5px 2px 2px;
   background: linear-gradient(180deg, #2aebd8, #0ea396);
   transform-origin: bottom;
   animation: hfr-grow 1.6s ease-in-out infinite;
@@ -7063,15 +7064,15 @@ body:has(.onboard-shell) {
 }
 .home-feature-reel-caption {
   position: relative;
-  height: 28px;
-  margin: 4px 0 0;
+  height: 36px;
+  margin: 6px 0 0;
   text-align: center;
 }
 .hfr-cap {
   position: absolute;
   inset: 0;
   margin: 0;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 650;
   line-height: 1.25;
   color: #64748b;
