@@ -108,7 +108,8 @@ export async function handoffGoogleToNativeApp(result: UserCredential | null | u
   const token = String(oauth?.idToken || tokenResponse?.oauthIdToken || '').trim();
   if (!token) return false;
   // Bounce back into the installed Android app — never leave the user on the website.
-  window.location.href = `${NATIVE_AUTH_SCHEME}?idToken=${encodeURIComponent(token)}`;
+  // Prefer hash fragment over query so tokens are less likely to hit server logs / history.
+  window.location.href = `${NATIVE_AUTH_SCHEME}#idToken=${encodeURIComponent(token)}`;
   return true;
 }
 
