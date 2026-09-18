@@ -99,11 +99,14 @@ function check(name, pass, data) {
 }
 
 async function attach() {
-  adb(`shell am force-stop ${PKG}`);
-  await sleep(800);
+  const soft = process.env.BYJAN_SOFT !== '0';
+  if (!soft) {
+    adb(`shell am force-stop ${PKG}`);
+    await sleep(800);
+  }
   try { adb(`shell am start -n ${PKG}/com.byjanbooks.com.MainActivity`); }
   catch { adb(`shell monkey -p ${PKG} -c android.intent.category.LAUNCHER 1`); }
-  await sleep(4500);
+  await sleep(soft ? 2500 : 4500);
   let pid = '';
   for (let i = 0; i < 12; i++) {
     pid = String(adb(`shell pidof ${PKG}`) || '').trim().split(/\s+/)[0];
@@ -126,25 +129,49 @@ async function attach() {
 const { send, ws } = await cdpFixed(await attach());
 await send('Runtime.enable');
 
-await evalJs(send, `(() => {
-  [...document.querySelectorAll('button')].find((b) => /skip|continue to sign in/i.test(b.textContent || ''))?.click();
-  return true;
+const onLogin = await evalJs(send, `(() => {
+  const hash = location.hash || '';
+  const text = document.body.innerText || '';
+  return hash.includes('login') || /sign in to byjan|welcome back|invalid email or password/i.test(text);
 })()`);
-await sleep(700);
-const needLogin = await evalJs(send, `/sign in|welcome back/i.test(document.body.innerText||'')`);
-if (needLogin) {
+if (!onLogin) {
+  steps.push({ name: 'auth-skip', pass: true, data: { alreadySignedIn: true } });
+  console.log('PASS auth-skip', JSON.stringify({ alreadySignedIn: true }));
+} else {
   await evalJs(send, `(() => {
-    const set = (el, v) => {
-      if (!el) return;
-      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(el, v);
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-    };
-    set(document.querySelector('input[type="email"]'), ${JSON.stringify(EMAIL)});
-    set(document.querySelector('input[type="password"]'), ${JSON.stringify(PASS)});
-    [...document.querySelectorAll('button')].find((b) => /sign in/i.test(b.textContent || ''))?.click();
+    [...document.querySelectorAll('button,a,[role="button"]')].find((b) => /skip|continue without|continue to sign in|use google|sign in with google/i.test(b.textContent || ''))?.click();
     return true;
   })()`);
-  await sleep(4500);
+  await sleep(1200);
+  let stillLogin = await evalJs(send, `(() => {
+    const hash = location.hash || '';
+    const text = document.body.innerText || '';
+    return hash.includes('login') || /sign in to byjan|welcome back/i.test(text);
+  })()`);
+  if (stillLogin) {
+    await evalJs(send, `(() => {
+      const set = (el, v) => {
+        if (!el) return;
+        Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(el, v);
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+      set(document.querySelector('input[type="email"],input[name="email"]'), ${JSON.stringify(EMAIL)});
+      set(document.querySelector('input[type="password"],input[name="password"]'), ${JSON.stringify(PASS)});
+      [...document.querySelectorAll('button')].find((b) => /^sign in$/i.test((b.textContent || '').trim()))?.click();
+      return true;
+    })()`);
+    await sleep(5500);
+    stillLogin = await evalJs(send, `(() => {
+      const hash = location.hash || '';
+      const text = document.body.innerText || '';
+      return hash.includes('login') || /sign in to byjan|invalid email or password/i.test(text);
+    })()`);
+  }
+  const authPass = !stillLogin;
+  steps.push({ name: 'auth-login', pass: authPass, data: { stillLogin } });
+  console.log(authPass ? 'PASS' : 'FAIL', 'auth-login', JSON.stringify({ stillLogin }));
+  if (!authPass) fails.push('auth-login');
 }
 
 await evalJs(send, `location.hash = '#/'`);
@@ -245,9 +272,12 @@ const home = await evalJs(send, `(() => {
   return {
     crashed: /This screen could not open|Minified React error/i.test(text),
     hasAmount: Boolean(amount) || /₹|Rs|INR/.test(text),
+    amountFull: amount ? !/\d+(\.\d+)?\s*[LC]r?\b/i.test((amount.textContent || '').replace(/₹/g, '')) : true,
     amountFits: amountOverflow,
+    featureReel: Boolean(document.querySelector('.home-feature-reel')),
     amountFont: amount ? getComputedStyle(amount).fontSize : null,
     amountW: amountR ? Math.round(amountR.width) : null,
+    amountText: amount ? (amount.textContent || '').trim().slice(0, 40) : null,
     pills,
     addSplitAdjacent: pills[0]?.toLowerCase().includes('add') && pills[1]?.toLowerCase().includes('split'),
     invite: Boolean(document.querySelector('.home-invite-rail')),
@@ -263,6 +293,13 @@ const home = await evalJs(send, `(() => {
   };
 })()`);
 check('home-screen', !home.crashed && home.pills.length >= 1 && home.hasAmount, home);
+check('home-amount-full', home.amountFull !== false && home.amountFits !== false, {
+  amountFull: home.amountFull,
+  amountFits: home.amountFits,
+  font: home.amountFont,
+  w: home.amountW,
+});
+check('home-feature-reel', home.featureReel === true, { featureReel: home.featureReel });
 check('home-amount-fits', home.amountFits !== false, { amountFits: home.amountFits, font: home.amountFont, w: home.amountW });
 check('home-add-split-adjacent', home.addSplitAdjacent === true || !home.pills.some((p) => /split/i.test(p)), { pills: home.pills });
 check('home-to-pay-visible', home.pay !== true || home.payInView === true, { pay: home.pay, payInView: home.payInView, payTop: home.payTop });
