@@ -757,7 +757,7 @@ Actual: Navigates to last/first book splits tab regardless of role.
 Status: open
 ---
 BUG-095 | SEVERITY: medium | AREA: Keyboard shortcuts
-Title: keyboardShortcuts off still leaves some handlers unless GlobalSearch guards
+Title: Keyboard f opens filters even when money_filters off
 Where: Settings toggle; GlobalSearch.tsx:96; CommandPalette
 Repro: Disable shortcuts; test BookView letter hotkeys (privacy etc.).
 Expected: All shortcuts respect pref.
@@ -1286,21 +1286,467 @@ Actual: Route renders module if business parent on; nav tree hides link only.
 Status: open
 ---
 
-Summary count: 160 bugs in log (BUG-001 … BUG-160). This append: +60 (BUG-101 … BUG-160).
-Highest severities in this append: high — BUG-102, BUG-105, BUG-106, BUG-111, BUG-125.
-Prioritize fixing: BUG-102, BUG-105, BUG-106, BUG-111, BUG-125, BUG-101, BUG-107, BUG-110.
+BUG-161 | SEVERITY: high | AREA: Books / credit apply
+Title: applyCredit updates paidMinor only - no AR/GL journal
+Where: src/books/data/repo.ts:893-918
+Repro: Post credit note + invoice; Apply credit to invoice.
+Expected: Balanced journal clears AR like a payment.
+Actual: Only paidMinor/status updated; GL/AR balances unchanged while docs show reduced balance.
+Status: open
+---
+BUG-162 | SEVERITY: high | AREA: Books / inventory
+Title: Stock journal posts before qty write - not atomic
+Where: src/books/data/domains.ts:70-108 (receiveStock/issueStock)
+Repro: Receive stock; fail the product updateDoc after postManualJournal succeeds.
+Expected: Journal and qtyMilli commit or roll back together.
+Actual: Journal can post while product qty stays stale.
+Status: open
+---
+BUG-163 | SEVERITY: high | AREA: Books / inventory race
+Title: issueStock validates against stale React product.qtyMilli
+Where: src/books/data/domains.ts:90-108; Inventory.tsx stockOut
+Repro: Two tabs with qty 10; issue 8 in each before refresh.
+Expected: Second issue rejected after first commits.
+Actual: Both pass client check on stale Product; journals post; qty can go wrong/negative.
+Status: open
+---
+BUG-164 | SEVERITY: high | AREA: Books / workspace load
+Title: Fallback workspace loads only 200 journals and 200 documents
+Where: src/books/data/repo.ts:310-311
+Repro: Workspace with 250+ journals; load Books via fallback path.
+Expected: Full history or explicit truncation warning.
+Actual: query(..., limit(200)); older journals/docs never enter context.
+Status: open
+---
+BUG-165 | SEVERITY: high | AREA: Books / Reports
+Title: P&L/BS/GST/cash flow built from truncated in-memory journals
+Where: src/books/modules/reporting/Reports.tsx; statements.ts activityByAccount
+Repro: Same as BUG-164; open Reports covering older periods.
+Expected: Reports match full ledger.
+Actual: Silent omission of activity beyond loaded 200 journals.
+Status: open
+---
+BUG-166 | SEVERITY: medium | AREA: Books / Close vs Reports
+Title: Month-end Close TB uses account totals; Reports TB recomputes from truncated journals
+Where: Close.tsx account debit/credit totals; Reports.tsx journal recompute
+Repro: >200 journals; compare Close Balanced vs Reports trial balance.
+Expected: Same TB source.
+Actual: Checklist and Reports can disagree.
+Status: open
+---
+BUG-167 | SEVERITY: high | AREA: Books / credit limit
+Title: Credit-limit check uses stale in-memory documents (TOCTOU)
+Where: src/books/context/BooksProvider.tsx postDoc partyReceivableExposure
+Repro: Limit INR 100k; post two INR 60k invoices from two tabs before refresh.
+Expected: Second post blocked.
+Actual: Both pass client exposure check and post.
+Status: open
+---
+BUG-168 | SEVERITY: high | AREA: Books / PaymentRun
+Title: Payment run pays bills sequentially with no batch rollback
+Where: src/books/modules/payables/PaymentRun.tsx:37-48
+Repro: Select 5 bills; fail mid-batch (closed period / missing cash account).
+Expected: All-or-nothing or clear partial summary.
+Actual: Earlier bills paid; later ones stop; no rollback of successful pays.
+Status: open
+---
+BUG-169 | SEVERITY: medium | AREA: Books / Recurring
+Title: Run now idempotency key includes randomUUID - same-day duplicates allowed
+Where: src/books/data/repo.ts:1073-1078
+Repro: Click Run now twice on same journal template for same date.
+Expected: Idempotent per template+date.
+Actual: Key is recur_${id}_${date}_${crypto.randomUUID()} -> duplicate journals.
+Status: open
+---
+BUG-170 | SEVERITY: medium | AREA: Books / Documents
+Title: List Post for expenses uses shared global payFrom state
+Where: Documents.tsx list Post; repo payDoc path
+Repro: Change pay-from in form for expense A; Post expense B from list without reopening.
+Expected: Per-document pay-from or prompt.
+Actual: Shared component payFrom credited for B.
+Status: open
+---
+BUG-171 | SEVERITY: medium | AREA: Books / convert
+Title: convertDocument can be repeated - duplicate downstream drafts
+Where: src/books/data/repo.ts:703-752
+Repro: Convert estimate -> invoice twice.
+Expected: Source marked converted or second blocked.
+Actual: New draft each time; source unchanged.
+Status: open
+---
+BUG-172 | SEVERITY: medium | AREA: Books / parties
+Title: Deactivated parties still postable
+Where: repo postDocument; Parties deactivateParty sets active:false only
+Repro: Deactivate vendor; post bill with that partyId.
+Expected: Post blocked for inactive parties.
+Actual: No active check on post.
+Status: open
+---
+BUG-173 | SEVERITY: medium | AREA: Books / banking
+Title: saveBankTxn has no assertCan at repo layer
+Where: src/books/data/domains.ts:319-351 vs toggleReconcile:353-354
+Repro: Invoke saveBankTxn with viewer TxCtx (bypass UI).
+Expected: assertCan(role, 'post') like reconcile.
+Actual: No permission assertion; bank journal writable.
+Status: open
+---
+BUG-174 | SEVERITY: medium | AREA: Books / banking UI
+Title: reconcileTxn flips UI reconciled before server confirms
+Where: BooksProvider.tsx reconcileTxn optimistic setBankTxns
+Repro: Mark reconciled; force toggleReconcile network failure.
+Expected: UI updates after success.
+Actual: Optimistic flip left wrong until refresh.
+Status: open
+---
+BUG-175 | SEVERITY: medium | AREA: Books / Inventory UI
+Title: Single shared qty input across all product rows
+Where: Inventory.tsx:18, 112-138
+Repro: Type qty on product A row; click Receive/Issue on product B.
+Expected: Per-row qty.
+Actual: Shared qty state - wrong SKU receives/issues that quantity.
+Status: open
+---
+BUG-176 | SEVERITY: medium | AREA: Books / Assets UI
+Title: Shared proceeds field across all asset dispose rows
+Where: Assets.tsx shared proceeds state used for every Dispose
+Repro: Enter proceeds for asset A; Dispose asset B.
+Expected: Per-asset proceeds.
+Actual: Wrong proceeds applied to B.
+Status: open
+---
+BUG-177 | SEVERITY: medium | AREA: Books / parties AR
+Title: Party outstanding omits debit notes (credit limit includes them)
+Where: Parties.tsx outstanding sum invoices/bills only; BooksProvider credit limit includes debit_note
+Repro: Customer with posted debit note; open party flyout.
+Expected: Outstanding includes debit notes.
+Actual: Understated AR vs credit-limit math.
+Status: open
+---
+BUG-178 | SEVERITY: medium | AREA: Books / Collections
+Title: Reminder copy always says invoice for debit notes
+Where: Collections.tsx reminder template
+Repro: Overdue debit note -> Copy reminder.
+Expected: Debit note / document wording.
+Actual: Hardcoded invoice ${number}.
+Status: open
+---
+BUG-179 | SEVERITY: medium | AREA: Books / Statements
+Title: Customer statement print includes draft rows; outstanding skips drafts
+Where: Statements.tsx:17-34; printCustomerStatement
+Repro: Customer with draft + posted invoices; Print statement.
+Expected: Posted/open only in PDF.
+Actual: outstanding excludes drafts but print rows include drafts with line totals.
+Status: open
+---
+BUG-180 | SEVERITY: medium | AREA: Books / Statements
+Title: Statements filter omits debit notes from AR
+Where: Statements.tsx:19 (invoice || credit_note only)
+Repro: Customer with posted debit note.
+Expected: Debit note on statement.
+Actual: Never listed; statement total wrong.
+Status: open
+---
+BUG-181 | SEVERITY: medium | AREA: Books / FeatureGate
+Title: Statements/Reports print & CSV skip canExtra('print') gates used by Documents
+Where: Statements.tsx Print; Reports Download CSV vs Documents canExtra('print')
+Repro: Restrict print feature; open Statements/Reports.
+Expected: Blocked like document print.
+Actual: Print/CSV still available.
+Status: open
+---
+BUG-182 | SEVERITY: medium | AREA: Books / cash flow
+Title: directCashFlow classifies multi-line cash journals using only other[0]
+Where: src/books/reporting/statements.ts directCashFlow
+Repro: Bank Dr with two expense credit lines.
+Expected: Reflect all contras or warn.
+Actual: Only first other line drives bucket/amount classification.
+Status: open
+---
+BUG-183 | SEVERITY: medium | AREA: Books / files
+Title: uploadWorkspaceFile can orphan blob if Firestore metadata write fails
+Where: src/books/data/files.ts uploadWorkspaceFile
+Repro: storeBooksFile succeeds; setDoc fails (non-quota).
+Expected: Rollback blob or retry metadata.
+Actual: Orphan storage object; no file record.
+Status: open
+---
+BUG-184 | SEVERITY: medium | AREA: Books / refresh race
+Title: scheduleRefresh drops coalesced refresh while refreshBusy
+Where: BooksProvider.tsx:396-407
+Repro: Several posts with autoRefresh; second schedules while first refresh in flight.
+Expected: Queue/retry after busy clears.
+Actual: Early return when refreshBusy; UI can stay stale.
+Status: open
+---
+BUG-185 | SEVERITY: medium | AREA: VoiceEntrySheet
+Title: Closing sheet mid-listen does not abort; stale parse can land on reopen
+Where: VoiceEntrySheet.tsx:18-50; voice-capture listenVoice
+Repro: Start listen; close sheet; reopen and Start again before first promise settles.
+Expected: Abort prior listen; isolate sessions.
+Actual: No abort; first resolve still setParsed/setBusy on open sheet.
+Status: open
+---
+BUG-186 | SEVERITY: medium | AREA: voice parse
+Title: Phrasing like 850 for Swiggy parses amount 0
+Where: src/lib/voice-capture.ts:42-45
+Repro: Transcript "850 for Swiggy" (no rupees/paid prefix).
+Expected: Amount 850 (for-merchant pattern).
+Actual: Regex requires rs/inr/rupees or paid|spent|received|got before digits -> amount 0.
+Status: open
+---
+BUG-187 | SEVERITY: medium | AREA: VoiceEntrySheet / currency
+Title: Voice preview hardcodes INR symbol ignoring book currency
+Where: VoiceEntrySheet.tsx:70
+Repro: Speak entry in USD/EUR book.
+Expected: Book currency symbol.
+Actual: Always shows INR symbol + amount.
+Status: open
+---
+BUG-188 | SEVERITY: medium | AREA: OCR / native
+Title: Native DocumentOcr failure returns empty text with mlkit-failed - silent
+Where: src/lib/document-ocr.ts:58-67
+Repro: Android OCR plugin throws; continue scan flow.
+Expected: User-visible OCR error.
+Actual: { text:'', engine:'mlkit-failed' }; draft/review proceeds without amount cue.
+Status: open
+---
+BUG-189 | SEVERITY: medium | AREA: ReceiptCaptureFlow
+Title: uploadLedgerReceipt failure swallowed on structured parse path
+Where: ReceiptCaptureFlow.tsx:163-173
+Repro: Share non-image doc; upload 401/413/network fails.
+Expected: Surface upload error or stop.
+Actual: Empty catch; parse continues; entry may miss receiptPath.
+Status: open
+---
+BUG-190 | SEVERITY: medium | AREA: ReceiptCaptureFlow bulk
+Title: Bulk import silently drops per-file createExpense failures
+Where: ReceiptCaptureFlow batch save loop catch empty
+Repro: Batch 3 docs; two createExpense fail.
+Expected: Per-file failure report.
+Actual: Loop continues; user sees partial success without which failed.
+Status: open
+---
+BUG-191 | SEVERITY: medium | AREA: Capacitor pick batch
+Title: pathToDataUrl rejection fails entire Promise.all batch
+Where: capacitor.ts pathToDataUrl; pickReceiptBatch maps all via Promise.all
+Repro: Multi-pick where one webPath is unreadable.
+Expected: Skip bad file or isolate error.
+Actual: One fetch reject aborts whole batch.
+Status: open
+---
+BUG-192 | SEVERITY: medium | AREA: Capacitor Share
+Title: shareContent catches errors and only console.errors - callers get success silence
+Where: src/lib/capacitor.ts Share.share try/catch
+Repro: Share plugin rejects (dismiss/unsupported).
+Expected: Propagate failure to UI toast.
+Actual: Logged only; caller assumes share happened.
+Status: open
+---
+BUG-193 | SEVERITY: high | AREA: Neon / saveSplit
+Title: Split JSON committed then settlement create errors swallowed - 200 success
+Where: api/_lib/money-handlers.ts:710-739
+Repro: saveSplit where createSettlementsFromSplit throws.
+Expected: Rollback or 5xx; consistent expense/settlements.
+Actual: split_data saved; settlements []; toast Split updated.
+Status: open
+---
+BUG-194 | SEVERITY: high | AREA: Neon / settlements race
+Title: Concurrent saveSplit can duplicate UNPAID settlements
+Where: settlement-upi createSettlementsFromSplit; money-handlers saveSplit
+Repro: Double-tap / parallel saveSplit same expense.
+Expected: One UNPAID set per participant (txn/lock).
+Actual: Cancel+insert without book/expense lock; both can insert.
+Status: open
+---
+BUG-195 | SEVERITY: medium | AREA: Neon / tracker create
+Title: Duplicate detection TOCTOU without idempotencyKey
+Where: api/tracker.ts create path ledgerFindDuplicateExpense then insertOnly
+Repro: Parallel create same amount/date/merchant, no receiptHash/idempotencyKey.
+Expected: One row or 409.
+Actual: Both pass find; two expense IDs created.
+Status: open
+---
+BUG-196 | SEVERITY: medium | AREA: Neon / expense update
+Title: Concurrent expense updates are last-write-wins with no version check
+Where: api/tracker.ts update read-merge-upsert
+Repro: Two users patch different fields of same expense concurrently.
+Expected: Merge/version conflict.
+Actual: Later full upsert overwrites earlier fields.
+Status: open
+---
+BUG-197 | SEVERITY: high | AREA: Neon / invites accept
+Title: Invite accept read-modify-write can clobber concurrent role map
+Where: api/invites.ts accept ledgerGet -> spread roles -> ledgerSet
+Repro: Owner adds member while invitee accepts in parallel.
+Expected: Both memberships preserved.
+Actual: Whole-book JSON write can drop the other update.
+Status: open
+---
+BUG-198 | SEVERITY: medium | AREA: Neon / UPI attempts
+Title: Multiple payment attempts allowed per settlement without in-flight guard
+Where: api/_lib/settlement-upi.ts start payment ~458-522
+Repro: Start UPI payment twice quickly on same settlement.
+Expected: Reject second or reuse attempt.
+Actual: New money_payment_attempts row each time; status PAYMENT_STARTED.
+Status: open
+---
+BUG-199 | SEVERITY: high | AREA: delete account
+Title: Soft-delete owned book failure still removes book_members row
+Where: api/_lib/support-tickets.ts:154-165
+Repro: Delete account when ledgerSoftDeleteBook throws for an owned book.
+Expected: All-or-nothing or keep membership until book cleaned.
+Actual: Error logged; DELETE book_members continues -> orphaned active book / lost access.
+Status: open
+---
+BUG-200 | SEVERITY: medium | AREA: Activity
+Title: Activity caps expenses at 40 before merge/sort - silent truncation
+Where: Activity.tsx:38 slice(0, 40)
+Repro: User with 100+ expenses; paginate Activity.
+Expected: Full feed or showing latest N.
+Actual: Older expenses dropped; pager totals reflect truncated set only.
+Status: open
+---
+BUG-201 | SEVERITY: medium | AREA: Activity filters
+Title: usePagedList search wired but no ListSearch UI; no kind filters
+Where: Activity.tsx:67, 119-127 vs AllExpenses ListSearch
+Repro: Open Activity; try to search or filter money vs notifications.
+Expected: Search input and/or kind filters.
+Actual: query state unused in UI; only chips to other pages.
+Status: open
+---
+BUG-202 | SEVERITY: medium | AREA: Activity timezone
+Title: Date-only expense dates group under wrong local day via Date.parse UTC midnight
+Where: Activity.tsx dayHeading + Date.parse(date)
+Repro: Expense date "2026-03-17" viewed in US timezone.
+Expected: Group under Mar 17.
+Actual: UTC midnight shifts to prior local evening -> wrong dayHeading.
+Status: open
+---
+BUG-203 | SEVERITY: medium | AREA: MoneyReports
+Title: listAllExpenses rejection leaves empty success Reports UI
+Where: MoneyReports.tsx:31-41 try/finally no catch
+Repro: Force listAllExpenses reject.
+Expected: Error + retry.
+Actual: expenses=[]; normal zero snapshot looks like no spending.
+Status: open
+---
+BUG-204 | SEVERITY: medium | AREA: MoneyReports budget
+Title: Budget block always current UTC month ignoring selected period
+Where: MoneyReports.tsx budget UI; money-reports.ts budgetPerformance monthKey
+Repro: Select Week/Quarter; view Budget this month.
+Expected: Period-aligned budget or hide outside month.
+Actual: Always new Date().toISOString().slice(0,7) vs periodBounds.
+Status: open
+---
+BUG-205 | SEVERITY: medium | AREA: currency / i18n
+Title: formatIndianAmount always en-IN grouping even for USD/EUR symbols
+Where: bridge-automations.ts formatIndianAmount
+Repro: Format 1234567.89 with $ symbol.
+Expected: Locale-appropriate grouping for currency.
+Actual: Indian grouping 12,34,567.89 with foreign symbol.
+Status: open
+---
+BUG-206 | SEVERITY: medium | AREA: currency
+Title: Unknown ISO codes (CAD/JPY) rendered as raw code via getCurrencySymbol default
+Where: src/lib/currency.ts default return code
+Repro: Book currency CAD.
+Expected: Symbol or consistent ISO formatting.
+Actual: Displays like CAD123.00 via formatIndianAmount prefix.
+Status: open
+---
+BUG-207 | SEVERITY: medium | AREA: mobile CSS / CapturePreview
+Title: CapturePreviewSheet Tailwind pb-8 overrides .record-sheet safe-area padding
+Where: CapturePreviewSheet.tsx:58; index.css .record-sheet safe-area
+Repro: Review capture on iPhone with home indicator; scroll to CTAs.
+Expected: padding-bottom includes env(safe-area-inset-bottom).
+Actual: pb-8 wins -> buttons can sit under home indicator.
+Status: open
+---
+BUG-208 | SEVERITY: medium | AREA: mobile CSS / toasts
+Title: Toast stack fixed bottom-4 overlaps tab bar / ignores safe-area
+Where: ToastContext.tsx fixed bottom-4; Layout dash-tabbar with safe-area
+Repro: Trigger toast on mobile with tab bar visible.
+Expected: Offset above tab bar + safe-area.
+Actual: Toasts near viewport bottom over floating tabbar.
+Status: open
+---
+BUG-209 | SEVERITY: medium | AREA: FeatureGate / BookView
+Title: Keyboard f opens filters even when money_filters off
+Where: BookView.tsx:659-662 vs canFilters hiding button
+Repro: Disable money_filters; press f in book.
+Expected: Filters unavailable.
+Actual: setFiltersOpen toggles; portal has no canFilters guard.
+Status: open
+---
+BUG-210 | SEVERITY: medium | AREA: FeatureGate / BookView
+Title: canScan/canVoice computed but openVoice/scan paths only check canWrite (or nothing)
+Where: BookView.tsx:887-888; openVoice/scan handlers
+Repro: Navigate with location.state openVoice while money_voice off.
+Expected: Blocked when canVoice false.
+Actual: canVoice/canScan unused; voice/scan can open.
+Status: open
+---
+BUG-211 | SEVERITY: medium | AREA: HelpPage / support copy
+Title: Help Settings -> App lock / Device alerts paths hidden when features off
+Where: support.ts lock/notifications answers; Settings Security gates
+Repro: User with app_lock or app_notifications off follows help into Settings.
+Expected: Accurate path or note when feature gated off.
+Actual: Sections missing; help still points there.
+Status: open
+---
+BUG-212 | SEVERITY: medium | AREA: HelpPage / reports
+Title: Reports help says Activity tab only; omits /reports FeatureGate
+Where: support.ts reports topic; App.tsx /reports money_reports
+Repro: User looks only under Activity for Reports when money_reports gated differently than chips.
+Expected: Document /reports route and feature requirement.
+Actual: Copy incomplete; export help also says book Export without money_export caveat (see BUG-111).
+Status: open
+---
+BUG-213 | SEVERITY: medium | AREA: Register validation
+Title: No confirm-password field - typo locks account until reset
+Where: Register.tsx password single field
+Repro: Typo password once; create account.
+Expected: Confirm match validation.
+Actual: Single input; Firebase minLength 6 only.
+Status: open
+---
+BUG-214 | SEVERITY: medium | AREA: list pager / mobile
+Title: .list-pager flex row can overflow horizontally on narrow viewports
+Where: index.css .list-pager; Activity ListPager
+Repro: 320px width Activity with pager meta + select + buttons.
+Expected: Wrap/stack.
+Actual: No flex-wrap/min-width:0 -> horizontal overflow.
+Status: open
+---
 
-=== FIX CYCLE 1 (2026-09-18T16:29:54.0125304+05:30) ===
-FIXED: BUG-001 UPI client success no longer marks PAID (await confirmation / receiver confirm)
-FIXED: BUG-002 email send recipient restricted to self or book members + HTML escaped
-FIXED: BUG-004/invites/trace CORS allowlisted via applyCors
-FIXED: BUG-005 returnTo sanitizes // and protocol URLs
-FIXED: BUG-006 invite roles allowlisted (no owner)
-FIXED: BUG-008 allowBackup=false
-FIXED: BUG-009 webContentsDebuggingEnabled only when BYJAN_WEBVIEW_DEBUG=1
-FIXED: BUG-014 email HTML body escaped when not full document
-UI FIXED earlier: FAB book-only, no book Add/Scan/Mic, full-width home reel
+Summary count: 214 bugs in log (BUG-001 ... BUG-214). This append: +54 (BUG-161 ... BUG-214).
+Highest severities in this append: high -- BUG-161, BUG-162, BUG-163, BUG-164, BUG-165, BUG-167, BUG-168, BUG-193, BUG-194, BUG-197, BUG-199.
+Prioritize: credit-apply GL gap, inventory races, truncated Books reports, saveSplit settlement swallow, invite accept RMW, delete-account membership orphan.
 
-FIXED: BUG-007 InviteAccept wrapped in AppLockGate when signed in
-FIXED: BUG-003 handoff idToken moved to URL hash fragment
+=== FIX CYCLE 1 VERIFY (2026-09-18 append) ===
+OK: BUG-001 markPaid remains false on client UPI return (settlement-upi.ts).
+OK: BUG-002 recipientAllowed + escapeHtml on email send.
+OK: BUG-004/invites/trace applyCors allowlist path present.
+OK: BUG-005 sanitizeReturnPath blocks // and protocol URLs (return-to.ts).
+OK: BUG-006/BUG-142 invite roles allowlisted (admin|contributor|viewer|auditor); owner blocked -- BUG-142 Status:open in log is STALE (fixed in code).
+OK: BUG-008 allowBackup=false; BUG-009 webContentsDebuggingEnabled gated on BYJAN_WEBVIEW_DEBUG=1.
+OK: BUG-014 email HTML escaped when not full document.
+NOTE: No FIX CYCLE 1 regression found in spot-check; only stale open status on BUG-142.
 
+
+=== PROGRESS (2026-09-18T16:51:05.3148123+05:30) ===
+Bug entries logged: 214+
+Phone retest: RETEST_OK after UI + security fix cycles
+Installed on device; app relaunched
+Shipped fixes include: FAB book-only, remove book Add/Scan/Mic, full-width home reel,
+UPI no client-PAID, CORS allowlist, invite role allowlist, email recipient restrict,
+returnTo sanitize, allowBackup false, invite AppLock, SSO token in hash
+Next: continue find?fix?full retest until 300+ logged and high/critical cleared
+
+=== FIX CYCLE 2 (2026-09-18T16:53:17.9003145+05:30) ===
+FIXED: BUG-102 invite create rejects emails already in book.roles
+FIXED: BUG-105 flushOfflineQueue single-flight mutex
+FIXED: BUG-106 applyExpenseLocal removes offline placeholder by idempotencyKey
+FIXED: BUG-111 money_export gates PDF/CSV download UI + handlers
+FIXED: BUG-142 stale - invite roles already allowlisted (same as BUG-006)
+FIXED earlier: BUG-001..009,014,007,003 (security/UI cycles)

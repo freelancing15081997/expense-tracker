@@ -897,6 +897,7 @@ export default function BookView() {
   const canHistory = hasFeature('money_history');
   const canPin = hasFeature('money_pin');
   const canEmailReport = hasFeature('money_email_report');
+  const canExport = hasFeature('money_export');
   const canLedgerSearch = hasFeature('money_search');
   const canFilters = hasFeature('money_filters');
   const canDuplicate = canWrite && hasFeature('money_duplicate');
@@ -1063,7 +1064,7 @@ export default function BookView() {
   };
 
   const downloadPdf = async () => {
-    if (exportingPdf) return;
+    if (!canExport || exportingPdf) return;
     setExportOpen(false);
     setExportingPdf(true);
     try {
@@ -1136,6 +1137,7 @@ export default function BookView() {
   };
 
   const downloadCsv = async () => {
+    if (!canExport) return;
     setExportOpen(false);
     const rows = filteredExpenses.map((exp) => [
       exp.date || '',
@@ -1204,7 +1206,16 @@ export default function BookView() {
   const applyExpenseLocal = (row: Record<string, unknown> | null | undefined) => {
     if (!row?.id) return;
     hiddenExpenseIds.current.delete(String(row.id));
-    setExpenses((curr) => [row, ...curr.filter((exp) => exp.id !== row.id)].sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt)));
+    const key = String(row.idempotencyKey || '');
+    setExpenses((curr) => {
+      const filtered = curr.filter((exp) => {
+        if (String(exp.id) === String(row.id)) return false;
+        if (key && (String(exp.id) === key || String(exp.idempotencyKey || '') === key)) return false;
+        if (exp.offlineQueued && key && String(exp.idempotencyKey || exp.id) === key) return false;
+        return true;
+      });
+      return [row, ...filtered].sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt));
+    });
   };
 
   const dropExpensesLocal = (ids: string[]) => {
@@ -2030,6 +2041,7 @@ export default function BookView() {
                 )}
               </button>
               )}
+              {canExport && (
               <button
                 type="button"
                 ref={exportBtnRef}
@@ -2041,6 +2053,7 @@ export default function BookView() {
               >
                 {exportingPdf ? <Loader2 className="animate-spin" /> : <Download />}
               </button>
+              )}
               {canEmailReport && (
               <button type="button" onClick={() => void emailReport()} disabled={sendingReport} className="byjan-btn-ghost byjan-tool-btn" title="Email PDF report">
                 {sendingReport ? <Loader2 className="animate-spin" /> : <Send />}
@@ -2144,7 +2157,7 @@ export default function BookView() {
           document.body
         )}
 
-        {exportOpen && createPortal(
+        {canExport && exportOpen && createPortal(
           <>
             <div className="fixed inset-0 z-[60]" onClick={() => setExportOpen(false)} />
             <div

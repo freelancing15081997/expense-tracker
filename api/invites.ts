@@ -229,6 +229,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         json(res, 403, { error: 'Not allowed to invite members' });
         return;
       }
+      const alreadyMember = memberEmails(roles).includes(email)
+        || Object.values(roles).some((row) => String(row?.email || '').trim().toLowerCase() === email);
+      if (alreadyMember) {
+        json(res, 400, { error: 'That person already has access to this ledger' });
+        return;
+      }
       const id = inviteId(bookId, email);
       const data = {
         email,

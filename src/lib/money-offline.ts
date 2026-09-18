@@ -58,27 +58,35 @@ export function removeOfflineExpense(id: string) {
   writeQueue(readQueue().filter((r) => r.id !== id));
 }
 
+let flushInFlight: Promise<Array<{ id: string; ok: boolean; expense?: Record<string, unknown>; error?: string }>> | null = null;
+
 export async function flushOfflineQueue(bookId?: string) {
-  const rows = listOfflineQueue(bookId);
-  const results: Array<{ id: string; ok: boolean; expense?: Record<string, unknown>; error?: string }> = [];
-  for (const row of rows) {
-    try {
-      const expense = await createExpense(row.bookId, row.expense, {
-        force: Boolean(row.expense.force),
-        idempotencyKey: row.idempotencyKey,
-      });
-      removeOfflineExpense(row.id);
-      results.push({ id: row.id, ok: true, expense: expense as Record<string, unknown> });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Sync failed';
-      const next = readQueue().map((r) => (
-        r.id === row.id ? { ...r, attempts: r.attempts + 1, lastError: message } : r
-      ));
-      writeQueue(next);
-      results.push({ id: row.id, ok: false, error: message });
+  if (flushInFlight) return flushInFlight;
+  flushInFlight = (async () => {
+    const rows = listOfflineQueue(bookId);
+    const results: Array<{ id: string; ok: boolean; expense?: Record<string, unknown>; error?: string }> = [];
+    for (const row of rows) {
+      try {
+        const expense = await createExpense(row.bookId, row.expense, {
+          force: Boolean(row.expense.force),
+          idempotencyKey: row.idempotencyKey,
+        });
+        removeOfflineExpense(row.id);
+        results.push({ id: row.id, ok: true, expense: expense as Record<string, unknown> });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Sync failed';
+        const next = readQueue().map((r) => (
+          r.id === row.id ? { ...r, attempts: r.attempts + 1, lastError: message } : r
+        ));
+        writeQueue(next);
+        results.push({ id: row.id, ok: false, error: message });
+      }
     }
-  }
-  return results;
+    return results;
+  })().finally(() => {
+    flushInFlight = null;
+  });
+  return flushInFlight;
 }
 
 export function isLikelyOfflineError(err: unknown) {
