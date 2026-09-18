@@ -99,7 +99,7 @@ export function CategoryBadge({
   return (
     <span className={`cat-badge tone-${tone} ${size === 'sm' ? 'is-sm' : ''} ${className}`.trim()} title={label}>
       <span className="cat-badge-icon" aria-hidden>
-        <Icon className={size === 'sm' ? 'w-3 h-3' : 'w-3.5 h-3.5'} strokeWidth={2.25} />
+        <Icon className={size === 'sm' ? 'w-3.5 h-3.5' : 'w-4 h-4'} strokeWidth={2.25} />
       </span>
       <span className="cat-badge-label">{label}</span>
     </span>
@@ -116,7 +116,7 @@ export function CategoryIconMark({
   const { icon: Icon, tone, label } = categoryVisual(name);
   return (
     <span className={`cat-mark tone-${tone} ${className}`.trim()} title={label} aria-hidden>
-      <Icon className="w-4 h-4" strokeWidth={2.2} />
+      <Icon className="w-5 h-5" strokeWidth={2.25} />
     </span>
   );
 }

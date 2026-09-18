@@ -7,7 +7,7 @@ export type UiRadius = 'sharp' | 'soft' | 'round';
 export type ListPageSize = 10 | 25 | 50 | 100;
 
 export const UI_CHROME_BOUNDS = {
-  iconPx: { min: 12, max: 40, fallback: 20 },
+  iconPx: { min: 14, max: 40, fallback: 22 },
   typeScale: { min: 80, max: 145, fallback: 100 },
   radiusPx: { min: 0, max: 32, fallback: 14 },
 } as const;
@@ -58,8 +58,8 @@ export const DEFAULT_APP_PREFS: AppPrefs = {
   fiscalYearStartMonth: 4,
   weekStartsOn: 1,
   uiDensity: 'comfortable',
-  iconPx: 20,
-  typeScale: 100,
+  iconPx: 22,
+  typeScale: 104,
   radiusPx: 14,
   uiOverride: false,
   iconSize: 'md',
@@ -241,8 +241,8 @@ export function setRuntimePrefs(next: AppPrefs) {
 export function applyUiChrome(prefs: AppPrefs) {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
-  const iconPx = asNum(prefs.iconPx, 20, UI_CHROME_BOUNDS.iconPx.min, UI_CHROME_BOUNDS.iconPx.max);
-  const typePct = asNum(prefs.typeScale, 100, UI_CHROME_BOUNDS.typeScale.min, UI_CHROME_BOUNDS.typeScale.max);
+  const iconPx = asNum(prefs.iconPx, 22, UI_CHROME_BOUNDS.iconPx.min, UI_CHROME_BOUNDS.iconPx.max);
+  const typePct = asNum(prefs.typeScale, 104, UI_CHROME_BOUNDS.typeScale.min, UI_CHROME_BOUNDS.typeScale.max);
   const radiusPx = asNum(prefs.radiusPx, 14, UI_CHROME_BOUNDS.radiusPx.min, UI_CHROME_BOUNDS.radiusPx.max);
   const type = String(Math.round((typePct / 100) * 1000) / 1000);
   const radius = `${radiusPx}px`;

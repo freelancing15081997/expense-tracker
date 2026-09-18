@@ -1,6 +1,6 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { toPaise } from './money-core';
-import { guessedMerchant } from './bridge-automations';
+import { guessCategoryFromText, guessedMerchant } from './bridge-automations';
 
 export type VoiceParse = {
   transcript: string;
@@ -44,18 +44,15 @@ export function parseVoiceLine(input: string): VoiceParse {
     || q.match(/\b(?:paid|spent|received|got)\s+([\d,]+(?:\.\d{1,2})?)/i);
   const amount = amtMatch ? Number(String(amtMatch[1]).replace(/,/g, '')) : 0;
   const toMatch = transcript.match(/\b(?:to|at|for)\s+([A-Za-z][A-Za-z0-9 &._-]{1,40})/i);
-  const guessed = guessedMerchant(transcript) || '';
-  const merchant = String(toMatch?.[1] || guessed || '').replace(/\bfrom\b.*$/i, '').trim();
+  const merchantGuess = guessedMerchant(transcript);
+  const merchant = String(toMatch?.[1] || merchantGuess?.merchant || '').replace(/\bfrom\b.*$/i, '').trim();
   const bookHint = (transcript.match(/\bfrom\s+([A-Za-z][A-Za-z0-9 &._-]{1,40})\s*book/i)?.[1] || '').trim();
   const entryType: VoiceParse['entryType'] = /\b(received|got|income|money in|credited)\b/i.test(q)
     ? 'in'
     : /\btransfer\b/i.test(q)
       ? 'transfer'
       : 'out';
-  let category = 'Uncategorized';
-  if (/\bswiggy|zomato|food|lunch|dinner\b/i.test(q)) category = 'Meals';
-  else if (/\buber|ola|fuel|petrol\b/i.test(q)) category = 'Travel';
-  else if (/\bgrocer|dmart|blinkit\b/i.test(q)) category = 'Groceries';
+  const category = guessCategoryFromText(q, merchant) || merchantGuess?.category || 'Uncategorized';
   const amounts = [...q.matchAll(/([\d,]+(?:\.\d{1,2})?)/g)].map((m) => Number(String(m[1]).replace(/,/g, ''))).filter((n) => n >= 1);
   const uniqueAmts = [...new Set(amounts)];
   const confidence: VoiceParse['confidence'] = amount > 0 && merchant

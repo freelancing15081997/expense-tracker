@@ -102,27 +102,52 @@ export function buildCapturePreview(
   };
 }
 
-export function capturePreviewToExpense(preview: CapturePreview, extras: Record<string, unknown> = {}) {
-  const entryType = preview.direction === 'MONEY_IN' ? 'in' : preview.direction === 'TRANSFER' ? 'transfer' : 'out';
-  const paidDate = String(preview.date || isoDay()).slice(0, 10);
-  return {
+export function ensurePreviewCategory(preview: CapturePreview, history: ExpenseRow[] = [], bookRules: CategoryRule[] = [], userRules: UserMoneyRule[] = []): CapturePreview {
+  const cat = String(preview.category || '').toLowerCase();
+  if (cat && cat !== 'uncategorized') return preview;
+  const draft: Record<string, unknown> = {
     amount: preview.amountPaise / 100,
     description: preview.description,
     merchant: preview.merchant,
-    category: preview.category,
-    entryType,
+    category: preview.category || 'Uncategorized',
+    entryType: preview.direction === 'MONEY_IN' ? 'in' : preview.direction === 'TRANSFER' ? 'transfer' : 'out',
     paymentMethod: preview.paymentMethod,
+    notes: preview.notes,
+    raw: preview.raw,
+  };
+  const enriched = enrichCapture(draft, history as Array<Record<string, unknown>>);
+  const classified = classifyCapture(enriched, bookRules, userRules, history);
+  return {
+    ...preview,
+    merchant: String(classified.draft.merchant || preview.merchant || ''),
+    category: String(classified.draft.category || preview.category || 'Uncategorized'),
+    paymentMethod: String(classified.draft.paymentMethod || preview.paymentMethod || 'cash'),
+    reasons: [...(preview.reasons || []), ...classified.reasons].slice(0, 8),
+  };
+}
+
+export function capturePreviewToExpense(preview: CapturePreview, extras: Record<string, unknown> = {}) {
+  const ready = ensurePreviewCategory(preview);
+  const entryType = ready.direction === 'MONEY_IN' ? 'in' : ready.direction === 'TRANSFER' ? 'transfer' : 'out';
+  const paidDate = String(ready.date || isoDay()).slice(0, 10);
+  return {
+    amount: ready.amountPaise / 100,
+    description: ready.description,
+    merchant: ready.merchant,
+    category: ready.category,
+    entryType,
+    paymentMethod: ready.paymentMethod,
     // Transaction / receipt paid date — separate from record createdAt (set by server on save).
     date: paidDate,
     paidAt: paidDate,
-    upiRef: preview.upiRef,
-    vpa: preview.vpa,
-    notes: preview.notes,
-    captureId: preview.id,
-    captureSource: preview.source,
-    processingStatus: preview.processingStatus,
+    upiRef: ready.upiRef,
+    vpa: ready.vpa,
+    notes: ready.notes,
+    captureId: ready.id,
+    captureSource: ready.source,
+    processingStatus: ready.processingStatus,
     financialStatus: 'CONFIRMED',
-    status: preview.amountPaise > 0 ? 'recorded' : 'draft',
+    status: ready.amountPaise > 0 ? 'recorded' : 'draft',
     ...extras,
   };
 }

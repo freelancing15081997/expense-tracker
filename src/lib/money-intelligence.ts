@@ -1,5 +1,5 @@
 import { applyCategoryRules, type CategoryRule } from './ledger-advanced';
-import { guessedMerchant } from './bridge-automations';
+import { guessedMerchant, guessCategoryFromText } from './bridge-automations';
 import { toPaise, type UserMoneyRule } from './money-core';
 import type { ExpenseRow } from './money-reports';
 import { detectRegularPayments } from './recurrence-engine';
@@ -54,7 +54,7 @@ export function classifyCapture(
   let next = { ...draft };
   const boosts: number[] = [];
 
-  const guess = guessedMerchant(`${next.description || ''} ${next.merchant || ''}`);
+  const guess = guessedMerchant(`${next.description || ''} ${next.merchant || ''} ${next.notes || ''} ${next.raw || ''}`);
   if (guess) {
     if (!next.merchant) next.merchant = guess.merchant;
     if (!next.category || String(next.category).toLowerCase() === 'uncategorized') {
@@ -63,6 +63,20 @@ export function classifyCapture(
       boosts.push(22);
     }
     if (!next.paymentMethod && guess.method) next.paymentMethod = guess.method;
+  }
+
+  if (!next.category || String(next.category).toLowerCase() === 'uncategorized') {
+    const fromText = guessCategoryFromText(
+      String(next.description || ''),
+      String(next.merchant || ''),
+      String(next.notes || ''),
+      String(next.raw || ''),
+    );
+    if (fromText) {
+      next.category = fromText;
+      reasons.push(`Description map → ${fromText}`);
+      boosts.push(18);
+    }
   }
 
   const bookCat = applyCategoryRules(String(next.description || ''), String(next.merchant || ''), bookRules);

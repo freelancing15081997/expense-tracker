@@ -79,8 +79,36 @@ export function guessedMerchant(text: string) {
   return INDIA_MERCHANTS.find((row) => hay.includes(row.match)) || null;
 }
 
+/** Keyword / description → category when merchant map misses (receipts, snap, share). */
+export const DESCRIPTION_CATEGORY_RULES: Array<{ match: RegExp; category: string }> = [
+  { match: /\b(swiggy|zomato|restaurant|cafe|meal|food|lunch|dinner|breakfast|biryani|dominos|mcdonald|starbucks|barista|dining|catering)\b/i, category: 'Food' },
+  { match: /\b(blinkit|zepto|bigbasket|dmart|grocer|kirana|supermarket|reliance fresh|more supermarket)\b/i, category: 'Groceries' },
+  { match: /\b(uber|ola|rapido|irctc|makemytrip|indigo|flight|railway|metro|travel|taxi|cab|hotel|airbnb|booking\.com)\b/i, category: 'Travel' },
+  { match: /\b(fuel|petrol|diesel|hpcl|iocl|bpcl|shell|indian oil|fastag|toll)\b/i, category: 'Travel' },
+  { match: /\b(apollo|pharma|hospital|clinic|medical|1mg|netmeds|pharmacy|doctor|health)\b/i, category: 'Health' },
+  { match: /\b(bescom|electricity|broadband|airtel|jio|vodafone|\bvi\b|water board|gas cylinder|utility|utilities|recharge)\b/i, category: 'Utilities' },
+  { match: /\b(amazon|flipkart|myntra|ajio|shopping|mall|nykaa)\b/i, category: 'Shopping' },
+  { match: /\b(netflix|spotify|prime|subscription|saas|software|chatgpt|notion)\b/i, category: 'Software Subscriptions' },
+  { match: /\b(rent|society|maintenance|housing|landlord)\b/i, category: 'Housing' },
+  { match: /\b(school|tuition|college|course|byju|education|fees)\b/i, category: 'Education' },
+  { match: /\b(lic|policybazaar|insurance|premium)\b/i, category: 'Insurance' },
+  { match: /\b(salary|payroll|stipend|income|credited|refund)\b/i, category: 'Income' },
+  { match: /\b(transfer|sent to|paid to|neft|imps|rtgs)\b/i, category: 'Transfers' },
+];
+
+export function guessCategoryFromText(...parts: Array<string | undefined | null>) {
+  const hay = parts.filter(Boolean).join(' ').trim();
+  if (!hay) return '';
+  const merchantHit = guessedMerchant(hay);
+  if (merchantHit?.category) return merchantHit.category;
+  for (const rule of DESCRIPTION_CATEGORY_RULES) {
+    if (rule.match.test(hay)) return rule.category;
+  }
+  return '';
+}
+
 export function enrichCapture(payload: Record<string, unknown>, expenses: Array<Record<string, unknown>>) {
-  const hay = `${payload.description || ''} ${payload.merchant || ''} ${payload.notes || ''}`;
+  const hay = `${payload.description || ''} ${payload.merchant || ''} ${payload.notes || ''} ${payload.raw || ''}`;
   const guess = guessedMerchant(hay);
   const upiRef = String(payload.upiRef || extractUtr(hay) || '');
   const vpa = String(payload.vpa || extractVpa(hay) || '');
@@ -90,6 +118,13 @@ export function enrichCapture(payload: Record<string, unknown>, expenses: Array<
     const cat = String(next.category || '').toLowerCase();
     if (!cat || cat === 'uncategorized') next.category = guess.category;
     if (!payload.paymentMethod && guess.method) next.paymentMethod = guess.method;
+  }
+  {
+    const cat = String(next.category || '').toLowerCase();
+    if (!cat || cat === 'uncategorized') {
+      const fromText = guessCategoryFromText(String(next.description || ''), String(next.merchant || ''), String(next.notes || ''), String(next.raw || ''));
+      if (fromText) next.category = fromText;
+    }
   }
   if (upiRef) next.upiRef = upiRef;
   if (vpa) next.vpa = vpa;

@@ -2573,7 +2573,7 @@ export default function BookView() {
                         <input type="checkbox" className="mt-1.5" aria-label={`Select ${exp.description}`} checked={selectedIds.includes(exp.id)} onChange={() => toggleSelected(exp.id)} />
                       )}
                       <span className={`mb-entry-icon tone-${exp.entryType === 'in' ? 'in' : exp.entryType === 'transfer' ? 'xfer' : 'out'}`} aria-hidden>
-                        <CategoryIconMark name={exp.category || (exp.entryType === 'in' ? 'income' : 'Uncategorized')} />
+                        <CategoryIconMark name={exp.category || (exp.entryType === 'in' ? 'income' : 'Uncategorized')} className="!w-full !h-full" />
                       </span>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 flex-wrap">
@@ -2594,8 +2594,8 @@ export default function BookView() {
                       {exp.merchant ? ` · ${exp.merchant}` : ''}
                       {exp.paymentMethod ? ` · ${exp.paymentMethod}` : ''}
                     </p>
-                    <div className="mt-1.5">
-                      <CategoryBadge name={exp.category || 'Uncategorized'} size="sm" />
+                    <div className="mt-1">
+                      <CategoryBadge name={exp.category || 'Uncategorized'} size="md" />
                     </div>
                     {why ? <p className="entry-card-why">{why}{exp.enteredBy || exp.paidByName ? ` · ${exp.enteredBy || exp.paidByName}` : ''}</p> : (
                       <p className="entry-card-why">{exp.enteredBy || exp.paidByName}</p>

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { createExpense, checkDuplicateExpense } from '../lib/expenses';
-import { buildCapturePreview, capturePreviewToExpense } from '../lib/money-capture';
+import { buildCapturePreview, capturePreviewToExpense, ensurePreviewCategory } from '../lib/money-capture';
 import { processReceiptJob } from '../lib/money-api';
 import { uploadLedgerReceipt } from '../lib/money-receipts';
 import {
@@ -130,7 +130,7 @@ async function parseReceiptNow(
   // Spreadsheets / huge blobs → server. Images + PDFs → on-device PP-OCRv4 (PdfRenderer for PDF).
   const useStructuredPath = sheet || rawLen > 2_400_000;
 
-  const scrubPreview = (preview: CapturePreview): CapturePreview => ({
+  const scrubPreview = (preview: CapturePreview): CapturePreview => ensurePreviewCategory({
     ...preview,
     reasons: [],
     parseEngine: undefined,
