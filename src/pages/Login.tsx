@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Capacitor } from '@capacitor/core';
 import { signInWithEmailAndPassword, signInWithGoogle, auth, handoffGoogleToNativeApp } from '../lib/firebase';
 import { Mail, Lock, AlertCircle } from 'lucide-react';
 import AuthScene from '../components/AuthScene';
@@ -17,6 +18,7 @@ export default function Login() {
   const [busy, setBusy] = useState<'email' | 'google' | ''>('');
   const [showOnboard, setShowOnboard] = useState(() => {
     try {
+      if (Capacitor.isNativePlatform()) return localStorage.getItem(ONBOARD_KEY) !== '1';
       const hash = String(window.location.hash || '');
       const q = hash.includes('?') ? hash.slice(hash.indexOf('?') + 1) : window.location.search.replace(/^\?/, '');
       if (new URLSearchParams(q).get('nativeApp') === '1') return false;
@@ -32,7 +34,9 @@ export default function Login() {
   }, []);
 
   useEffect(() => {
-    // Deep-link handoff from the Android app: open login and immediately start Google.
+    // Web-only: finish Google when opened as mobile handoff page. Never on Capacitor
+    // (native Google sheet only — do not load easypado.com inside the app).
+    if (Capacitor.isNativePlatform()) return;
     try {
       const hash = String(window.location.hash || '');
       const q = hash.includes('?') ? hash.slice(hash.indexOf('?') + 1) : window.location.search.replace(/^\?/, '');
@@ -82,7 +86,8 @@ export default function Login() {
       setError('');
       setBusy('google');
       const result = await signInWithGoogle();
-      if (await handoffGoogleToNativeApp(result)) {
+      // On Android/iOS stay in-app; only bounce from website → installed app.
+      if (!Capacitor.isNativePlatform() && (await handoffGoogleToNativeApp(result))) {
         setError('Signed in — returning to the Byjan app…');
         return;
       }

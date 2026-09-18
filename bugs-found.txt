@@ -2459,3 +2459,7 @@ FIXED: Home reel back to compact top-right beside name+amount (not full-width fe
 FIXED: Removed dead signInWithGoogleViaBrowser (easypado Browser.open) entirely from firebase.ts
 FIXED: Compact reel ~96x52 top-right beside name+amount; removed caption text that wasted vertical space
 FIXED: Scenario matrix now runs real deep UI checks (books x tabs x FAB, settings, notif filters, reports, negatives) — no fake coverage-slot passes
+
+=== FIX CYCLE 5 (2026-09-18T20:13:27.2428756+05:30) ===
+FIXED: Login on Capacitor never runs web nativeApp=1&google=1 auto-SSO (was web-shell path)
+FIXED: Google button on native skips website?app handoff redirect

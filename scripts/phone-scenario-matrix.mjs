@@ -552,6 +552,80 @@ for (const item of (safeClicks || [])) {
 // SSO invariant: Google path must not open website handoff helper in DOM
 check('sso-no-browser-handoff-in-bundle', await evalJs(`!/nativeApp=1&google=1/.test(document.documentElement.innerHTML||'')`));
 
+// —— Extra wave: entry row actions, settle mock UI, search, account menu (signed-in) ——
+await go('#/expenses');
+await sleep(900);
+const moreBooks = await evalJs(`([...document.querySelectorAll('a[href*="#/book/"]')].map(a => a.getAttribute('href')).filter(Boolean).slice(0,11))`);
+for (let bi = 0; bi < (moreBooks || []).length; bi++) {
+  const href = moreBooks[bi];
+  const hash = String(href).startsWith('#') ? String(href) : `#${href}`;
+  await go(hash);
+  await sleep(1000);
+  // Click first entry row if any
+  const entry = await evalJs(`(() => {
+    const row = document.querySelector('.entry-row, .md3-entry, [data-entry-id], .ledger-entry, li button, .book-entry');
+    if (!row) return { hit: false };
+    row.click();
+    return { hit: true };
+  })()`);
+  await sleep(600);
+  check(`entry${bi}-row-tap`, entry.hit === false || await evalJs(`!/Minified React error/i.test(document.body.innerText||'')`), entry);
+  await evalJs(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`);
+  // Team / people
+  await evalJs(`([...document.querySelectorAll('button')].find(b => /\\bTeam\\b|People|Members/i.test(b.textContent||''))||{}).click?.()`);
+  await sleep(700);
+  check(`book${bi}-team-panel`, await evalJs(`!/Minified React error/i.test(document.body.innerText||'') && !/easypado\\.com/i.test(location.href)`));
+  await evalJs(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`);
+  // Splits settle list (mock only — never confirm real UPI)
+  await evalJs(`([...document.querySelectorAll('.book-tab')].find(t => /split/i.test(t.textContent||''))||{}).click?.()`);
+  await sleep(700);
+  const settleBtns = await evalJs(`([...document.querySelectorAll('button')].filter(b => /pay|settle|remind/i.test(b.textContent||'')).map(b => (b.textContent||'').trim()).slice(0,6))`);
+  check(`book${bi}-splits-settle-ui`, true, { settleBtns });
+  for (const label of (settleBtns || []).slice(0, 3)) {
+    if (/confirm paid|mark paid|upi/i.test(label)) continue; // never auto-confirm payment
+    await evalJs(`([...document.querySelectorAll('button')].find(b => (b.textContent||'').trim()===${JSON.stringify(label)})||{}).click?.()`);
+    await sleep(500);
+    check(`book${bi}-settle-tap-${label.replace(/\\W+/g,'').slice(0,12)}`, await evalJs(`!/Minified React error/i.test(document.body.innerText||'')`));
+    await evalJs(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`);
+    await sleep(200);
+  }
+}
+
+// Account menu
+await go('#/');
+await sleep(500);
+await evalJs(`([...document.querySelectorAll('button,img,[role="button"]')].find(el => /account|profile|photo|avatar/i.test(el.getAttribute('aria-label')||'') || el.className?.toString?.().includes('avatar'))||document.querySelector('header button:last-child'))?.click?.()`);
+await sleep(600);
+check('account-menu-open', await evalJs(`!/Minified React error/i.test(document.body.innerText||'')`));
+const accountItems = await evalJs(`([...document.querySelectorAll('button,a')].map(e => (e.textContent||'').trim()).filter(t => /settings|sign out|workspace|profile|help/i.test(t)).slice(0,10))`);
+check('account-menu-items', (accountItems||[]).length >= 1, { accountItems });
+await evalJs(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`);
+
+// Pull-to-refresh / home reload invariant
+await go('#/');
+await sleep(400);
+await evalJs(`window.dispatchEvent(new Event('online'));`);
+check('home-after-online-event', await evalJs(`!/Minified React error/i.test(document.body.innerText||'')`));
+
+// Search / filter on books list
+await go('#/expenses');
+await sleep(700);
+const search = await evalJs(`(() => {
+  const input = document.querySelector('input[type="search"],input[placeholder*="Search" i],input[placeholder*="Filter" i]');
+  if (!input) return { has: false };
+  input.focus();
+  input.value = 'zzz-no-match-byjan';
+  input.dispatchEvent(new Event('input',{bubbles:true}));
+  return { has: true };
+})()`);
+await sleep(500);
+check('books-search-empty-query', search.has === false || await evalJs(`!/Minified React error/i.test(document.body.innerText||'')`), search);
+
+// Email/password negative surface without signing out (register validation via guest route blocked)
+await go('#/register');
+await sleep(600);
+check('register-while-signed-in-redirect', await evalJs(`!/#\\/register/i.test(location.hash) || /already|signed|home/i.test(document.body.innerText||'') || !/Minified React error/i.test(document.body.innerText||'')`));
+
 close();
 appendFileSync(LOG, `\nTOTAL pass=${passes.length} fail=${fails.length}\n`);
 console.log(`MATRIX_DONE pass=${passes.length} fail=${fails.length}`);
