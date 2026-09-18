@@ -1561,10 +1561,10 @@ html[data-radius="round"] { --ui-radius: 24px; --ui-btn-radius: 999px; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: #fff;
-  border: 1px solid rgba(15, 23, 42, 0.06);
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(15, 23, 42, 0.14);
   color: #0B1220;
-  box-shadow: 0 8px 18px -16px rgba(15, 23, 42, 0.4);
+  box-shadow: none;
 }
 .home-recent .home-zone-head h2 {
   text-transform: none;
@@ -6544,11 +6544,12 @@ html[data-radius="round"] { --ui-radius: 24px; --ui-btn-radius: 999px; }
   min-height: 64px;
   padding: 10px 12px;
   border-radius: 16px;
-  background: #fff;
-  border: 1px solid rgba(15, 23, 42, 0.06);
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(15, 23, 42, 0.14);
   text-decoration: none;
   color: inherit;
   box-sizing: border-box;
+  box-shadow: none;
 }
 .home-quad-card.is-late { border-color: rgba(190, 18, 60, 0.22); background: #fff7f8; }
 .home-quad-kind {
@@ -7283,10 +7284,26 @@ body:has(.onboard-shell) {
 .home-hero-chip.is-out { color: #9f1239; border-color: rgba(190,18,60,0.18); background: rgba(255,241,242,0.6); }
 .home-hero-chip.is-warn { color: #b45309; border-color: rgba(217,119,6,0.22); background: rgba(255,251,235,0.7); }
 
-.home-pill.tone-add { border-color: rgba(18,184,168,0.35); box-shadow: inset 0 0 0 1px rgba(18,184,168,0.12); }
-.home-pill.tone-scan { border-color: rgba(14,165,233,0.35); box-shadow: inset 0 0 0 1px rgba(14,165,233,0.1); }
-.home-pill.tone-voice { border-color: rgba(244,63,94,0.28); box-shadow: inset 0 0 0 1px rgba(244,63,94,0.08); }
-.home-pill.tone-book { border-color: rgba(11,31,58,0.2); box-shadow: inset 0 0 0 1px rgba(11,31,58,0.06); }
+.home-pill.tone-add {
+  border: 1px solid rgba(18, 184, 168, 0.35);
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: inset 0 0 0 1px rgba(18, 184, 168, 0.1);
+}
+.home-pill.tone-scan {
+  border: 1px solid rgba(14, 165, 233, 0.35);
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: inset 0 0 0 1px rgba(14, 165, 233, 0.08);
+}
+.home-pill.tone-voice {
+  border: 1px solid rgba(244, 63, 94, 0.28);
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: inset 0 0 0 1px rgba(244, 63, 94, 0.08);
+}
+.home-pill.tone-book {
+  border: 1px solid rgba(11, 31, 58, 0.2);
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: inset 0 0 0 1px rgba(11, 31, 58, 0.06);
+}
 
 .home-attention {
   display: grid;

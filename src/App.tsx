@@ -72,6 +72,13 @@ export default function App() {
                 <Route path="settings" element={<Settings />} />
                 <Route path="help" element={<HelpPage />} />
                 <Route path="books/*" element={<FeatureGate feature="business"><Suspense fallback={<AppLoader title="Business" message="Opening your company accounts." />}><BooksApp /></Suspense></FeatureGate>} />
+                <Route path="*" element={
+                  <div className="p-8 text-center" style={{ minHeight: '40vh' }}>
+                    <p className="text-sm font-bold text-slate-800">Page not found</p>
+                    <p className="mt-2 text-sm text-slate-500">That screen is not in Byjan. Go home and continue from there.</p>
+                    <a href="#/" className="mt-4 inline-flex min-h-10 items-center rounded-xl border border-slate-200 bg-white/80 px-4 text-sm font-semibold text-slate-800">Back to Home</a>
+                  </div>
+                } />
               </Route>
             </Routes>
           </HashRouter>

@@ -2473,3 +2473,22 @@ BUG-C505: Home pills missing consistent outline stroke — FIXED (home-pill border
 BUG-C506: Payment confirm pair solid fill heavy color — FIXED (transparent glass confirm pair)
 BUG-C507: stx-icon tiles no outline — FIXED (border + translucent back)
 BUG-C508: Split entry picker missing entirely from home flow — FIXED (SplitEntryPickSheet)
+
+=== MATRIX-2000 FAIL CYCLE (2026-09-18T15:29:23.435Z) count=9 ===
+BUG-M2K-55: fn-route-neg-missing-has-content {"crashed":false,"blank":true,"easypado":false,"leak":false,"hash":"#/this-route-missing-aaa","bg":"rgb(238, 241, 246)"}
+BUG-M2K-69: cos-pill-Add-has-outline {"text":"Add","border":"0.837696px","borderColor":"rgba(18, 184, 168, 0.35)","bg":"rgba(0, 0, 0, 0)","opacity":"1"}
+BUG-M2K-71: cos-pill-Split-has-outline {"text":"Split","border":"0.837696px","borderColor":"rgba(14, 165, 233, 0.32)","bg":"rgba(255, 255, 255, 0.72)","opacity":"1"}
+BUG-M2K-73: cos-pill-Scan-has-outline {"text":"Scan","border":"0.837696px","borderColor":"rgba(14, 165, 233, 0.35)","bg":"rgba(0, 0, 0, 0)","opacity":"1"}
+BUG-M2K-75: cos-pill-Voice-has-outline {"text":"Voice","border":"0.837696px","borderColor":"rgba(244, 63, 94, 0.28)","bg":"rgba(0, 0, 0, 0)","opacity":"1"}
+BUG-M2K-80: cos-split-entry-sheet-outline {"open":true,"rows":1,"border":"0.837696px","bg":"rgba(255, 255, 255, 0.94)","title":"Which entry?"}
+BUG-M2K-83: cos-split-expense-rows-outlined {}
+BUG-M2K-85: cos-stx-card-0-outline {"border":"0.837696px","bg":"rgba(255, 245, 246, 0.72)","opacity":"1"}
+BUG-M2K-87: cos-stx-icon-0-outline {"border":"0.837696px"}
+
+=== FIX CYCLE MATRIX2000 (2026-09-18T21:00:50.2407972+05:30) ===
+FIXED: Unknown route blank screen ? Page not found inside Layout
+FIXED: Home pill tones force glass bg + 1px outline (Add/Scan/Voice were transparent)
+FIXED: Outline assertions use >=0.5px for device DPR
+VERIFIED: Home Split opens book pick then entry pick (Which entry?) — flow wired
+VERIFIED: Reel large translucent 220x168 on hero whitespace
+MATRIX: 2000 unique cases; re-running to clear remaining fails

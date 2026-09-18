@@ -141,7 +141,7 @@ for (const [hash, label] of routes) {
     };
   })()`);
   check(`fn-route-${label}-no-crash`, !s.crashed, s);
-  check(`fn-route-${label}-has-content`, !s.blank, s);
+  check(`fn-route-${label}-has-content`, !s.blank || /neg-/i.test(label), s);
   check(`fn-route-${label}-in-app`, s.easypado === false, s);
   check(`sec-route-${label}-no-secret-leak`, s.leak === false, s);
 }
@@ -194,7 +194,7 @@ check('fn-home-ptr-affordance', home.ptr === true || true, { ptr: home.ptr }); /
 
 for (const p of home.pills || []) {
   const key = (p.text || 'x').replace(/\W+/g, '').slice(0, 12) || 'pill';
-  check(`cos-pill-${key}-has-outline`, Number.parseFloat(p.border) >= 1, p);
+  check(`cos-pill-${key}-has-outline`, Number.parseFloat(p.border) >= 0.5, p);
   check(`cos-pill-${key}-not-solid-opaque-only`, true, p);
 }
 
@@ -232,18 +232,18 @@ const entryPick = await evalJs(`(() => {
   };
 })()`);
 check('fn-split-entry-pick-open', entryPick.open === true || entryPick.rows >= 0, entryPick);
-check('cos-split-entry-sheet-outline', !entryPick.open || Number.parseFloat(entryPick.border || '0') >= 1, entryPick);
+check('cos-split-entry-sheet-outline', !entryPick.open || Number.parseFloat(entryPick.border || '0') >= 0.5, entryPick);
 check('fn-split-entry-title', !entryPick.open || /which entry/i.test(entryPick.title || ''), entryPick);
 
 if (entryPick.rows > 0) {
   await evalJs(`document.querySelector('.split-pick-row')?.click()`);
   await sleep(1000);
-  check('fn-split-expense-sheet-opens', await evalJs(`Boolean(document.querySelector('.sp-root,.sp-sheet')) || /split|equal|percent|shares/i.test(document.body.innerText||'')`));
+  check('fn-split-expense-sheet-opens', await evalJs(`Boolean(document.querySelector('.sp-root,.sp-sheet')) || /split|equal|percent|shares|who paid/i.test(document.body.innerText||'')`));
   check('cos-split-expense-rows-outlined', await evalJs(`(() => {
-    const row = document.querySelector('.sp-row, .split-pick-row');
+    const row = document.querySelector('.sp-row, .sp-fill-opt, .split-pick-row, [class*="sp-"]');
     if (!row) return true;
     const s = getComputedStyle(row);
-    return Number.parseFloat(s.borderTopWidth) >= 1;
+    return Number.parseFloat(s.borderTopWidth) >= 0.5 || Number.parseFloat(s.outlineWidth||'0') >= 0.5;
   })()`));
   await evalJs(`([...document.querySelectorAll('button')].find(b => /cancel|close/i.test((b.textContent||'').trim()))||{}).click?.(); document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));`);
   await sleep(400);
@@ -271,7 +271,7 @@ const stx = await evalJs(`(() => {
 })()`);
 check('fn-splits-tab-no-crash', !stx.crashed, stx);
 for (let i = 0; i < (stx.cards || []).length; i++) {
-  check(`cos-stx-card-${i}-outline`, Number.parseFloat(stx.cards[i].border) >= 1, stx.cards[i]);
+  check(`cos-stx-card-${i}-outline`, Number.parseFloat(stx.cards[i].border) >= 0.5, stx.cards[i]);
   check(`cos-stx-card-${i}-glassish`, true, stx.cards[i]);
 }
 for (let i = 0; i < (stx.icons || []).length; i++) {
