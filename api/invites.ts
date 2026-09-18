@@ -89,11 +89,8 @@ async function closeInvite(id: string, invite: Record<string, unknown>, status: 
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
-    const origin = String(req.headers.origin || '');
-    res.setHeader('Access-Control-Allow-Origin', origin || '*');
-    if (origin) res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,POST,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Authorization,Content-Type');
+    const { applyCors } = await import('./_lib/http.js');
+    applyCors(req as any, res as any);
     if (req.method === 'OPTIONS') {
       res.statusCode = 204;
       res.end();
@@ -203,9 +200,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return;
       }
       const email = String(body.email || '').trim().toLowerCase();
-      const role = String(body.role || 'contributor').trim() || 'contributor';
+      const roleRaw = String(body.role || 'contributor').trim().toLowerCase() || 'contributor';
+      const ALLOWED_INVITE_ROLES = new Set(['admin', 'contributor', 'viewer', 'auditor']);
+      const role = ALLOWED_INVITE_ROLES.has(roleRaw) ? roleRaw : '';
       if (!bookId || !email) {
         json(res, 400, { error: 'Ledger and email are required' });
+        return;
+      }
+      if (!role) {
+        json(res, 400, { error: 'Role must be admin, contributor, viewer, or auditor' });
         return;
       }
       if (!/^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$/i.test(email)) {

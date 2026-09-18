@@ -2,6 +2,32 @@ import type { IncomingMessage, ServerResponse } from 'http';
 
 export const ALLOWED_API_METHODS = 'GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS';
 
+const CORS_ALLOW = [
+  'https://easypado.com',
+  'https://www.easypado.com',
+  'https://byjan.com',
+  'https://www.byjan.com',
+  'capacitor://localhost',
+  'https://localhost',
+  'http://localhost',
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:5173',
+];
+
+function corsOriginAllowed(origin: string) {
+  if (!origin) return false;
+  if (CORS_ALLOW.includes(origin)) return true;
+  try {
+    const host = new URL(origin).hostname.toLowerCase();
+    if (host === 'easypado.com' || host.endsWith('.easypado.com')) return true;
+    if (host === 'byjan.com' || host.endsWith('.byjan.com')) return true;
+    if (host === 'localhost' || host === '127.0.0.1') return true;
+  } catch { /* ignore */ }
+  return false;
+}
+
 export function requestPath(req: IncomingMessage) {
   const raw = String((req as IncomingMessage & { originalUrl?: string }).originalUrl || req.url || '/');
   try {
@@ -13,8 +39,14 @@ export function requestPath(req: IncomingMessage) {
 
 export function applyCors(req: IncomingMessage, res: ServerResponse) {
   const origin = String(req.headers.origin || '').trim();
-  res.setHeader('Access-Control-Allow-Origin', origin || '*');
-  if (origin) res.setHeader('Access-Control-Allow-Credentials', 'true');
+  if (corsOriginAllowed(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  } else if (!origin) {
+    // Non-browser clients (no Origin) — no ACAO echo.
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', 'https://www.easypado.com');
+  }
   res.setHeader('Access-Control-Allow-Methods', ALLOWED_API_METHODS);
   res.setHeader(
     'Access-Control-Allow-Headers',

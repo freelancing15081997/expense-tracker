@@ -807,3 +807,14 @@ Status: open
 
 Summary count: 100 bugs written (BUG-001 … BUG-100).
 Prioritize fixing: BUG-001, BUG-002, BUG-003, BUG-004, BUG-005, BUG-006, BUG-007, BUG-008, BUG-009, BUG-011.
+
+=== FIX CYCLE 1 (2026-09-18T16:29:54.0125304+05:30) ===
+FIXED: BUG-001 UPI client success no longer marks PAID (await confirmation / receiver confirm)
+FIXED: BUG-002 email send recipient restricted to self or book members + HTML escaped
+FIXED: BUG-004/invites/trace CORS allowlisted via applyCors
+FIXED: BUG-005 returnTo sanitizes // and protocol URLs
+FIXED: BUG-006 invite roles allowlisted (no owner)
+FIXED: BUG-008 allowBackup=false
+FIXED: BUG-009 webContentsDebuggingEnabled only when BYJAN_WEBVIEW_DEBUG=1
+FIXED: BUG-014 email HTML body escaped when not full document
+UI FIXED earlier: FAB book-only, no book Add/Scan/Mic, full-width home reel

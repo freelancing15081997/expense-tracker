@@ -58,7 +58,8 @@ const config: CapacitorConfig = {
   android: {
     allowMixedContent: false,
     captureInput: true,
-    webContentsDebuggingEnabled: true,
+    // Enable only for local debug installs — never ship Play builds with CDP open.
+    webContentsDebuggingEnabled: process.env.BYJAN_WEBVIEW_DEBUG === '1',
   }
 };
 

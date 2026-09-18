@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { applyCors } from '../_lib/http.js';
 
 const FIREBASE_PROJECT = 'gen-lang-client-0616065043';
 
@@ -26,9 +27,7 @@ function json(res: VercelResponse, status: number, payload: unknown) {
 }
 
 function cors(req: VercelRequest, res: VercelResponse) {
-  const origin = String(req.headers.origin || '');
-  res.setHeader('Access-Control-Allow-Origin', origin || '*');
-  if (origin) res.setHeader('Access-Control-Allow-Credentials', 'true');
+  applyCors(req as any, res as any);
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Authorization,Content-Type');
 }

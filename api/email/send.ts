@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { mailFrom, smtpConfig, writeMailTrace } from '../_lib/mail.js';
+import { applyCors } from '../_lib/http.js';
 
 const FIREBASE_PROJECT = 'gen-lang-client-0616065043';
 
@@ -9,18 +10,19 @@ function json(res: VercelResponse, status: number, payload: unknown) {
   res.end(JSON.stringify(payload));
 }
 
-function cors(req: VercelRequest, res: VercelResponse) {
-  const origin = String(req.headers.origin || '');
-  res.setHeader('Access-Control-Allow-Origin', origin || '*');
-  if (origin) res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Authorization,Content-Type');
+function escapeHtml(s: string) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
-async function requireUid(req: VercelRequest) {
+async function requireUser(req: VercelRequest) {
   const header = String(req.headers.authorization || '');
   const token = header.toLowerCase().startsWith('bearer ') ? header.slice(7).trim() : '';
-  if (!token) return '';
+  if (!token) return null;
   const { createRemoteJWKSet, jwtVerify } = await import('jose');
   const { payload } = await jwtVerify(
     token,
@@ -30,12 +32,41 @@ async function requireUid(req: VercelRequest) {
       audience: FIREBASE_PROJECT,
     },
   );
-  return String(payload.user_id || payload.sub || '');
+  return {
+    uid: String(payload.user_id || payload.sub || ''),
+    email: String(payload.email || '').trim().toLowerCase(),
+  };
+}
+
+async function recipientAllowed(opts: { uid: string; email: string; to: string; bookId: string }) {
+  const to = opts.to.trim().toLowerCase();
+  if (!to) return false;
+  if (opts.email && to === opts.email) return true;
+  const bookId = String(opts.bookId || '').trim();
+  if (!bookId) return false;
+  try {
+    const { ledgerGet, ledgerRequireMember } = await import('../_pg-tables.js');
+    await ledgerRequireMember(bookId, opts.uid);
+    const book = await ledgerGet(`books/${bookId}`);
+    const roles = (book && typeof book === 'object' ? (book as any).roles : null) || {};
+    const notify = Array.isArray((book as any)?.notifyEmails)
+      ? (book as any).notifyEmails.map((e: string) => String(e).toLowerCase())
+      : [];
+    if (notify.includes(to)) return true;
+    for (const uid of Object.keys(roles || {})) {
+      const row = roles[uid];
+      const em = String(row?.email || row?.mail || '').trim().toLowerCase();
+      if (em && em === to) return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
-    cors(req, res);
+    applyCors(req as any, res as any);
     if (req.method === 'OPTIONS') {
       res.statusCode = 204;
       res.end();
@@ -45,17 +76,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       json(res, 405, { error: 'POST required' });
       return;
     }
-    const uid = await requireUid(req);
-    if (!uid) {
+    const user = await requireUser(req);
+    if (!user?.uid) {
       json(res, 401, { error: 'Sign in required' });
       return;
     }
+    const uid = user.uid;
     const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
-    const to = String(body.to || '').trim();
+    const to = String(body.to || '').trim().toLowerCase();
     const subject = String(body.subject || '').trim();
     const message = String(body.message || '');
+    const bookId = String(body.bookId || '').trim();
     if (!to || !subject || !message) {
       json(res, 400, { error: 'Missing required fields' });
+      return;
+    }
+    if (!(await recipientAllowed({ uid, email: user.email, to, bookId }))) {
+      json(res, 403, { error: 'You can only email yourself or members of a book you belong to' });
       return;
     }
 
@@ -72,6 +109,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let transporter = createTransport(settings);
     const textMessage = message.replace(/<[^>]*>?/gm, '');
     const from = mailFrom();
+    const safeBody = /<!DOCTYPE html/i.test(message) ? message : escapeHtml(message).replace(/\n/g, '<br/>');
     const html = /<!DOCTYPE html/i.test(message) ? message : `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
@@ -84,10 +122,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           <p style="margin:8px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:#12B8A8">${String(body.kind || '') === 'announcement' ? 'Team announcement' : 'Ledger notice'}</p>
         </td></tr>
         <tr><td style="height:4px;background:#12B8A8;font-size:0;line-height:0">&nbsp;</td></tr>
-        <tr><td style="padding:28px 32px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.65;color:#334155">${message}</td></tr>
+        <tr><td style="padding:28px 32px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.65;color:#334155">${safeBody}</td></tr>
         <tr><td style="padding:18px 32px 26px;border-top:1px solid #edf2f7;font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#94a3b8">
           You received this because you are a member of a Byjan ledger.<br/>
-          ${body.ledgerMail ? `Send receipts or entries to ${String(body.ledgerMail)} and Byjan will record them for the team.<br/>` : ''}
+          ${body.ledgerMail ? `Send receipts or entries to ${escapeHtml(String(body.ledgerMail))} and Byjan will record them for the team.<br/>` : ''}
           Byjan · easypado.com · Service notice, not marketing.
         </td></tr>
       </table>

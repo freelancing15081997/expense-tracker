@@ -599,9 +599,10 @@ export async function reportUpiReturn(opts: {
   const statusUp = statusRaw.toUpperCase();
   const codeUp = codeRaw.toUpperCase();
 
-  const explicitSuccess =
-    outcome === 'success'
-    || statusUp.includes('SUCCESS')
+  // Client-declared success is spoofable — never mark PAID from outcome/userAction alone.
+  const clientClaimsSuccess = outcome === 'success' || outcome === 'paid';
+  const pspSignalsSuccess =
+    statusUp.includes('SUCCESS')
     || codeUp === '00'
     || codeUp === '0';
   const explicitFail =
@@ -618,13 +619,13 @@ export async function reportUpiReturn(opts: {
   let next = 'UNKNOWN';
   let failure = '';
   let verificationSource: string | null = null;
-  let markPaid = false;
+  const markPaid = false;
 
-  // Treat payment cancel like a failed attempt so the settlement stays retryable.
-  if (explicitSuccess) {
-    next = 'PAID';
-    markPaid = true;
-    verificationSource = 'upi_intent_result';
+  // Treat cancel like a failed attempt so the settlement stays retryable.
+  // Never mark PAID from client-reported UPI results (spoofable). Receiver confirms via confirmSettlementReceived.
+  if (clientClaimsSuccess || pspSignalsSuccess) {
+    next = 'AWAITING_CONFIRMATION';
+    verificationSource = 'client_reported_unverified';
   } else if (explicitFail || explicitCancel) {
     next = 'FAILED';
     failure = explicitCancel ? 'Payment cancelled in UPI app' : 'UPI app reported failure';
