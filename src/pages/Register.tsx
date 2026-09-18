@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Capacitor } from '@capacitor/core';
 import { createUserWithEmailAndPassword, signInWithGoogle, auth, handoffGoogleToNativeApp } from '../lib/firebase';
 import { Mail, Lock, AlertCircle } from 'lucide-react';
 import AuthScene from '../components/AuthScene';
@@ -38,7 +39,7 @@ export default function Register() {
       setError('');
       setBusy('google');
       const result = await signInWithGoogle();
-      if (await handoffGoogleToNativeApp(result)) return;
+      if (!Capacitor.isNativePlatform() && (await handoffGoogleToNativeApp(result))) return;
       if (result) navigate(consumeReturnTo());
     } catch (err: any) {
       setError(err.message || 'Failed to sign in with Google');
