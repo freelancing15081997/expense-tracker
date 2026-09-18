@@ -6963,12 +6963,12 @@ section[aria-label="To pay"] {
   content: '';
   position: absolute;
   left: 50%;
-  top: -18px;
-  width: 86px;
-  height: 40px;
+  top: -22px;
+  width: 92px;
+  height: 44px;
   transform: translateX(-50%);
-  background: rgba(255,255,255,0.94);
-  border-radius: 0 0 43px 43px;
+  background: rgba(255,255,255,0.96);
+  border-radius: 0 0 46px 46px;
   box-shadow:
     0 1px 0 rgba(255,255,255,0.9) inset,
     0 10px 18px -16px rgba(11,31,58,0.35);
@@ -6977,19 +6977,27 @@ section[aria-label="To pay"] {
   pointer-events: none;
   z-index: 0;
 }
-.dash-tabbar.has-fab .dash-tab,
-.dash-tabbar.has-fab .dash-fab-anchor {
+.dash-tabbar.has-fab .dash-tab {
   position: relative;
   z-index: 1;
 }
 .dash-tabbar.has-fab .dash-fab-anchor {
-  transform: translate(-50%, -112%);
+  position: absolute !important;
+  left: 50% !important;
+  right: auto !important;
+  top: 0 !important;
+  grid-column: 1 / -1;
+  justify-self: center;
+  z-index: 5;
+  transform: translate(-50%, -128%) !important;
+  pointer-events: none;
 }
 .dash-tabbar[data-tabs="3"].has-fab .dash-fab-anchor {
-  transform: translate(-50%, -118%);
+  transform: translate(-50%, -132%) !important;
 }
 .dash-fab-center {
   border: 5px solid #fff;
+  z-index: 6;
 }
 
 .book-dash-compact .md3-stats {
@@ -7141,8 +7149,8 @@ section[aria-label="To pay"] {
 .home-amount { font-size: clamp(32px, 7.6vw, 40px) !important; }
 .home-name { font-size: calc(25px * var(--ui-type, 1)) !important; }
 .home-pay-dock {
-  margin-bottom: calc(18px + env(safe-area-inset-bottom));
-  padding-bottom: 10px;
+  margin-bottom: calc(28px + env(safe-area-inset-bottom));
+  padding-bottom: 14px;
   position: relative;
   z-index: 40;
 }
@@ -7151,6 +7159,6 @@ section[aria-label="To pay"] {
 }
 @media (max-width: 768px) {
   .home-shell {
-    padding-bottom: 140px;
+    padding-bottom: 156px;
   }
 }
