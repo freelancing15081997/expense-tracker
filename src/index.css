@@ -6922,20 +6922,20 @@ body:has(.onboard-shell) {
 
 /* Compact concept reel — top-right beside name + amount (not a full-width block) */
 .home-feature-reel {
-  width: 112px;
+  width: 96px;
   margin-top: 0;
-  border-radius: 16px;
-  padding: 8px 7px 6px;
+  border-radius: 14px;
+  padding: 6px 5px 5px;
   background:
     linear-gradient(160deg, rgba(255,255,255,0.96), rgba(238,252,249,0.82));
   border: 1px solid rgba(18, 184, 168, 0.2);
-  box-shadow: 0 10px 20px -16px rgba(11, 31, 58, 0.35);
+  box-shadow: 0 8px 16px -14px rgba(11, 31, 58, 0.35);
   overflow: hidden;
   flex: none;
 }
 .home-feature-reel-stage {
   position: relative;
-  height: 72px;
+  height: 52px;
 }
 .home-hero-top {
   display: flex;
@@ -6967,7 +6967,7 @@ body:has(.onboard-shell) {
   gap: 6px;
   flex: none;
   align-self: flex-start;
-  max-width: 120px;
+.max-width: 100px;
 }
 .hfr-scene {
   position: absolute;
@@ -7025,12 +7025,12 @@ body:has(.onboard-shell) {
 .hfr-bars { width: 64px; height: 6px; }
 .hfr-chart { height: 28px; width: 64px; }
 .home-feature-reel-caption {
-  height: 26px;
-  margin: 4px 0 0;
+  height: 18px;
+  margin: 2px 0 0;
 }
 .hfr-cap {
-  font-size: 8px;
-  line-height: 1.2;
+  font-size: 7px;
+  line-height: 1.15;
 }
 .hfr-scene.is-add { animation-delay: 0s; }
 .hfr-scene.is-split { animation-delay: 3s; }
@@ -7040,48 +7040,14 @@ body:has(.onboard-shell) {
   14%, 28% { opacity: 1; transform: translateY(0) scale(1); }
   34%, 100% { opacity: 0; transform: translateY(-6px) scale(0.96); }
 }
-.hfr-chip {
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #0e9f92;
-  background: rgba(18, 184, 168, 0.14);
-  border-radius: 999px;
-  padding: 3px 10px;
-}
-.hfr-card {
-  position: relative;
-  width: 108px;
-  height: 52px;
-  border-radius: 14px;
-  background: linear-gradient(165deg, #fff, #f1f5f9);
-  border: 1px solid rgba(11, 31, 58, 0.08);
-  box-shadow: 0 8px 18px -10px rgba(11, 31, 58, 0.45);
-}
-.hfr-rupee {
-  position: absolute;
-  left: 12px;
-  top: 10px;
-  font-size: 16px;
-  font-weight: 800;
-  color: #0B1F3A;
-}
 .hfr-line {
   position: absolute;
-  left: 12px;
-  height: 4px;
+  left: 8px;
+  height: 3px;
   border-radius: 99px;
   background: #cbd5e1;
 }
-.hfr-line-a { top: 30px; width: 52px; }
-.hfr-line-b { top: 38px; width: 34px; }
 .hfr-tick {
-  position: absolute;
-  right: 10px;
-  top: 12px;
-  width: 16px;
-  height: 16px;
   border-radius: 50%;
   background: #12B8A8;
   box-shadow: 0 0 0 0 rgba(18, 184, 168, 0.45);
@@ -7089,17 +7055,14 @@ body:has(.onboard-shell) {
 }
 @keyframes hfr-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(18, 184, 168, 0.35); }
-  50% { box-shadow: 0 0 0 6px rgba(18, 184, 168, 0); }
+  50% { box-shadow: 0 0 0 4px rgba(18, 184, 168, 0); }
 }
-.hfr-split-row { display: flex; gap: 6px; }
+.hfr-split-row { display: flex; gap: 4px; }
 .hfr-avatar {
-  width: 28px;
-  height: 28px;
   border-radius: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
   font-weight: 800;
   color: #fff;
   background: linear-gradient(145deg, #3af0de, #0c9a8d);
@@ -7108,9 +7071,7 @@ body:has(.onboard-shell) {
 .hfr-avatar:nth-child(3) { background: linear-gradient(145deg, #fda4af, #be123c); }
 .hfr-bars {
   display: flex;
-  gap: 4px;
-  width: 96px;
-  height: 8px;
+  gap: 3px;
 }
 .hfr-bars span {
   flex: 1;
@@ -7127,13 +7088,11 @@ body:has(.onboard-shell) {
 .hfr-chart {
   display: flex;
   align-items: flex-end;
-  gap: 5px;
-  height: 48px;
-  width: 96px;
+  gap: 3px;
 }
 .hfr-bar {
   flex: 1;
-  border-radius: 5px 5px 2px 2px;
+  border-radius: 4px 4px 2px 2px;
   background: linear-gradient(180deg, #2aebd8, #0ea396);
   transform-origin: bottom;
   animation: hfr-grow 1.6s ease-in-out infinite;
@@ -7148,17 +7107,13 @@ body:has(.onboard-shell) {
 }
 .home-feature-reel-caption {
   position: relative;
-  height: 36px;
-  margin: 6px 0 0;
   text-align: center;
 }
 .hfr-cap {
   position: absolute;
   inset: 0;
   margin: 0;
-  font-size: 11px;
   font-weight: 650;
-  line-height: 1.25;
   color: #64748b;
   opacity: 0;
   animation: hfr-cycle 9s ease-in-out infinite;

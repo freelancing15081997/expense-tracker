@@ -17,7 +17,6 @@ import {
 const WEB_GOOGLE_CLIENT_ID = '450686107760-hdlb65udu9lfo4u087ui439m13dtqkt5.apps.googleusercontent.com';
 void WEB_GOOGLE_CLIENT_ID;
 const NATIVE_AUTH_SCHEME = 'com.byjanbooks.app://auth';
-const WEB_HANDOFF_ORIGIN = String(import.meta.env.VITE_API_URL || 'https://www.easypado.com').replace(/\/+$/, '');
 
 // Firebase is now ONLY used for Authentication
 // All data storage is handled by Neon Postgres
@@ -111,54 +110,6 @@ export async function handoffGoogleToNativeApp(result: UserCredential | null | u
   // Prefer hash fragment over query so tokens are less likely to hit server logs / history.
   window.location.href = `${NATIVE_AUTH_SCHEME}#idToken=${encodeURIComponent(token)}`;
   return true;
-}
-
-async function signInWithGoogleViaBrowser(): Promise<UserCredential> {
-  bindNativeGoogleAuthBridge();
-  const { Browser } = await import('@capacitor/browser');
-  const { App } = await import('@capacitor/app');
-  const origin = WEB_HANDOFF_ORIGIN.includes('localhost') ? 'https://www.easypado.com' : WEB_HANDOFF_ORIGIN;
-  // Auto-start Google on the web page so the user does not tap Sign in twice.
-  const url = `${origin}/#/login?nativeApp=1&google=1`;
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const finish = async (err?: unknown, cred?: UserCredential) => {
-      if (settled) return;
-      settled = true;
-      window.clearTimeout(timer);
-      window.removeEventListener('byjan-google-auth', onCustom);
-      try { await handle.then((h) => h.remove()); } catch { /* ignore */ }
-      try { await Browser.close(); } catch { /* ignore */ }
-      if (err) reject(err instanceof Error ? err : new Error('Google sign-in failed'));
-      else if (cred) resolve(cred);
-      else reject(new Error('Google sign-in was cancelled.'));
-    };
-    const handle = App.addListener('appUrlOpen', async (event) => {
-      const token = parseGoogleIdTokenFromUrl(event.url || '');
-      if (!token) return;
-      try {
-        const cred = await completeGoogleIdTokenSignIn(token);
-        await finish(undefined, cred);
-      } catch (err) {
-        await finish(err);
-      }
-    });
-    const onCustom = async (event: Event) => {
-      const token = parseGoogleIdTokenFromUrl(String((event as CustomEvent<string>).detail || ''));
-      if (!token) return;
-      try {
-        const cred = await completeGoogleIdTokenSignIn(token);
-        await finish(undefined, cred);
-      } catch (err) {
-        await finish(err);
-      }
-    };
-    window.addEventListener('byjan-google-auth', onCustom);
-    const timer = window.setTimeout(() => {
-      void finish(new Error('Google sign-in timed out. Try again.'));
-    }, 180_000);
-    Browser.open({ url, presentationStyle: 'popover' }).catch((err) => { void finish(err); });
-  });
 }
 
 export async function signInWithGoogle() {

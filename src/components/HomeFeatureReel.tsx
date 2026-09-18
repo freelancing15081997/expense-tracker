@@ -1,12 +1,12 @@
 import React from 'react';
 
 /**
- * Compact looping concept reel for Home hero (top-right free space).
- * Pure CSS — no video file, no network. Shows Add → Split → Manage.
+ * Compact looping concept reel — top-right beside name + amount.
+ * Pure CSS, no video file. Add → Split → Manage.
  */
 export default function HomeFeatureReel() {
   return (
-    <aside className="home-feature-reel" aria-label="How Byjan works">
+    <aside className="home-feature-reel" aria-label="Add, split, manage">
       <div className="home-feature-reel-stage" aria-hidden>
         <div className="hfr-scene is-add">
           <span className="hfr-chip">Add</span>
@@ -38,11 +38,6 @@ export default function HomeFeatureReel() {
           </div>
         </div>
       </div>
-      <p className="home-feature-reel-caption">
-        <span className="hfr-cap is-add">Capture every expense</span>
-        <span className="hfr-cap is-split">Split fairly with your team</span>
-        <span className="hfr-cap is-manage">Stay on top of money</span>
-      </p>
     </aside>
   );
 }

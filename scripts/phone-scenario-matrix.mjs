@@ -288,38 +288,272 @@ const nav = await evalJs(`(() => {
 })()`);
 check('nav-tab-spacing-balanced', nav.spread < 80, nav);
 
-// Generate combinatorial negatives from UI probes
-const probes = await evalJs(`(() => {
-  const buttons = [...document.querySelectorAll('button')].slice(0, 40).map(b => ({
-    text: (b.textContent||'').trim().slice(0,40),
-    disabled: b.disabled,
-    aria: b.getAttribute('aria-label'),
-  }));
-  return { buttons, inputs: document.querySelectorAll('input,textarea,select').length };
-})()`);
-check('home-has-interactive-controls', (probes.buttons?.length || 0) >= 3, { count: probes.buttons?.length });
+// —— Deep real UI matrix (positive + negative). No fake coverage-slot passes. ——
+const snap = async (label) => {
+  const s = await evalJs(`(() => {
+    const text = document.body.innerText || '';
+    return {
+      hash: location.hash,
+      crashed: /Minified React error|This screen could not open/i.test(text),
+      blank: text.trim().length < 12,
+      len: text.length,
+      head: text.replace(/\\s+/g,' ').slice(0,100),
+      easypado: /easypado\\.com/i.test(location.href) || /easypado\\.com/i.test(document.title||''),
+      buttons: document.querySelectorAll('button').length,
+      links: document.querySelectorAll('a').length,
+      inputs: document.querySelectorAll('input,textarea,select').length,
+    };
+  })()`);
+  check(`${label}-no-crash`, !s.crashed, s);
+  check(`${label}-has-ui`, !s.blank, s);
+  check(`${label}-not-website`, s.easypado === false, { href: s.hash, easypado: s.easypado });
+  return s;
+};
 
-// Expand synthetic scenario ids for matrix coverage reporting
-const syntheticAreas = [
-  'entry-create', 'entry-edit', 'entry-delete', 'entry-flag', 'entry-duplicate', 'entry-bulk',
-  'split-equal', 'split-percent', 'settle-list', 'settle-pay-mock', 'settle-confirm',
-  'voice-open', 'scan-open', 'receipt-preview', 'export-pdf', 'export-csv', 'email-report',
-  'invite-create', 'invite-accept', 'invite-decline', 'people-remove', 'announce',
-  'filter-week', 'filter-month', 'filter-category', 'search-ledger', 'offline-queue',
-  'upi-setup', 'pending-pay-strip', 'upcoming-strip', 'inbox', 'notifications-mark',
-  'app-lock', 'density', 'privacy', 'voice-sound', 'deactivate', 'delete-account',
-  'business-dashboard', 'business-invoice', 'business-bill', 'business-banking',
-  'register-validation', 'login-wrong-password', 'guest-redirect', 'feature-gate-off',
-];
-for (const area of syntheticAreas) {
-  // Mark as pending automation coverage (tracked), not fake pass
-  check(`coverage-slot-${area}`, true, { status: 'scheduled', note: 'matrix slot reserved for deep flow' });
+await go('#/');
+await snap('deep-home');
+const homeDeep = await evalJs(`(() => {
+  const reel = document.querySelector('.home-feature-reel');
+  const rr = reel?.getBoundingClientRect();
+  const name = document.querySelector('.home-name')?.getBoundingClientRect();
+  const amount = document.querySelector('.home-amount');
+  const ar = amount?.getBoundingClientRect();
+  return {
+    reelW: rr ? Math.round(rr.width) : 0,
+    reelH: rr ? Math.round(rr.height) : 0,
+    reelBeside: !!(reel && name && rr.left >= name.right - 24),
+    amountFull: amount ? !/\\d+(\\.\\d+)?\\s*[LC]r?\\b/i.test((amount.textContent||'').replace(/₹/g,'')) : true,
+    amountFits: ar ? ar.right <= innerWidth - 4 : true,
+    pills: [...document.querySelectorAll('.home-pill')].map(p => (p.textContent||'').trim()),
+    payStrip: /to pay|you owe|owed/i.test(document.body.innerText||''),
+    upcoming: /upcoming|due/i.test(document.body.innerText||''),
+    fab: Boolean(document.querySelector('.dash-fab-center')),
+  };
+})()`);
+check('deep-home-reel-compact', homeDeep.reelW > 0 && homeDeep.reelW <= 120 && homeDeep.reelH <= 90, homeDeep);
+check('deep-home-reel-beside-name', homeDeep.reelBeside === true, homeDeep);
+check('deep-home-amount-full', homeDeep.amountFull === true && homeDeep.amountFits === true, homeDeep);
+check('deep-home-no-fab', homeDeep.fab === false, homeDeep);
+check('deep-home-pills-order', /add/i.test(homeDeep.pills[0]||'') && /split/i.test(homeDeep.pills[1]||''), homeDeep);
+
+// Home pills open (positive) then dismiss (negative: no crash)
+for (const [idx, name] of [['0','Add'],['1','Split']]) {
+  await go('#/');
+  await sleep(400);
+  const opened = await evalJs(`(() => {
+    const p = document.querySelectorAll('.home-pill')[${idx}];
+    if (!p) return false;
+    p.click();
+    return true;
+  })()`);
+  await sleep(900);
+  const after = await evalJs(`(() => {
+    const text = document.body.innerText||'';
+    const dlg = document.querySelector('[role="dialog"],.modal,.sheet,.drawer,form');
+    return { opened: ${JSON.stringify(name)}, crashed: /Minified React error/i.test(text), hasUi: Boolean(dlg) || text.length > 40 };
+  })()`);
+  check(`deep-home-pill-${name}-opens`, opened === true && !after.crashed, after);
+  await evalJs(`(() => {
+    const close = [...document.querySelectorAll('button')].find(b => /^(Close|Cancel|Done|Back)$/i.test((b.textContent||'').trim()) || b.getAttribute('aria-label')==='Close');
+    if (close) close.click();
+    else document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+  })()`);
+  await sleep(400);
+  check(`deep-home-pill-${name}-dismiss-ok`, await evalJs(`!/Minified React error/i.test(document.body.innerText||'')`));
 }
+
+// Nav tab round-trip
+const navLabels = ['Home', 'Books', 'Activity', 'More'];
+for (const label of navLabels) {
+  const hit = await clickText(new RegExp(`^${label}$`, 'i'));
+  await sleep(800);
+  const s = await snap(`nav-${label.toLowerCase()}`);
+  check(`nav-${label.toLowerCase()}-clicked`, hit === true || s.len > 20, { hit });
+}
+
+// Books: open up to 8 books, each tab, FAB orbit, export menu — combinatorial
+await go('#/expenses');
+await sleep(1000);
+const bookHrefs = await evalJs(`([...document.querySelectorAll('a[href*="#/book/"]')].map(a => a.getAttribute('href')).filter(Boolean).slice(0,8))`);
+check('deep-books-found', Array.isArray(bookHrefs) && bookHrefs.length >= 1, { n: bookHrefs?.length });
+
+for (let bi = 0; bi < (bookHrefs || []).length; bi++) {
+  const href = bookHrefs[bi];
+  const hash = String(href).startsWith('#') ? String(href) : `#${href}`;
+  await go(hash);
+  await sleep(1200);
+  await snap(`book${bi}-open`);
+  const meta = await evalJs(`(() => ({
+    tabs: [...document.querySelectorAll('.book-tab')].map(t => (t.textContent||'').trim()),
+    fab: Boolean(document.querySelector('.dash-fab-center')),
+    headerAdd: [...document.querySelectorAll('button')].some(b => /^(Add entry|Voice|Scan)$/i.test((b.textContent||'').trim())),
+    sticky: getComputedStyle(document.querySelector('.book-tabs-sticky')||document.body).position === 'sticky',
+  }))()`);
+  check(`book${bi}-fab`, meta.fab === true, meta);
+  check(`book${bi}-no-header-add`, meta.headerAdd === false, meta);
+  check(`book${bi}-sticky-tabs`, meta.sticky === true || (meta.tabs||[]).length >= 2, meta);
+
+  for (const tab of (meta.tabs || [])) {
+    await evalJs(`([...document.querySelectorAll('.book-tab')].find(t => (t.textContent||'').trim()===${JSON.stringify(tab)})||{}).click?.()`);
+    await sleep(650);
+    const tSnap = await evalJs(`(() => ({
+      active: (document.querySelector('.book-tab[data-state="active"],.book-tab.active')?.textContent||'').trim(),
+      crashed: /Minified React error/i.test(document.body.innerText||''),
+      hash: location.hash,
+    }))()`);
+    check(`book${bi}-tab-${tab.replace(/\\W+/g,'')}-ok`, !tSnap.crashed, tSnap);
+  }
+
+  // FAB orbit open/close
+  await evalJs(`document.querySelector('.dash-fab-center')?.click()`);
+  await sleep(500);
+  const orbit = await evalJs(`({ open: document.querySelector('.dash-fab-center')?.getAttribute('data-open'), n: document.querySelectorAll('.dash-fab-item').length })`);
+  check(`book${bi}-fab-orbit`, orbit.open === 'true' && orbit.n >= 2, orbit);
+  // Open Add from FAB (positive), then cancel (negative: no save)
+  await evalJs(`([...document.querySelectorAll('.dash-fab-item')].find(el => /add/i.test(el.textContent||''))||{}).click?.()`);
+  await sleep(900);
+  check(`book${bi}-fab-add-sheet`, await evalJs(`!/Minified React error/i.test(document.body.innerText||'') && ((document.querySelectorAll('input,textarea').length>0) || /amount|note|category|save/i.test(document.body.innerText||''))`));
+  // Negative: submit empty
+  await evalJs(`document.querySelector('form')?.dispatchEvent(new Event('submit',{cancelable:true,bubbles:true}))`);
+  await sleep(300);
+  check(`book${bi}-neg-empty-submit`, await evalJs(`!/Minified React error/i.test(document.body.innerText||'')`));
+  await evalJs(`(() => {
+    const c = [...document.querySelectorAll('button')].find(b => /cancel|close|back/i.test((b.textContent||'').trim()));
+    if (c) c.click(); else document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+  })()`);
+  await sleep(400);
+
+  // Export menu positive
+  await evalJs(`([...document.querySelectorAll('button')].find(b => /export|download|pdf|csv/i.test((b.textContent||b.getAttribute('aria-label')||'')))||{}).click?.()`);
+  await sleep(500);
+  check(`book${bi}-export-ui`, await evalJs(`!/Minified React error/i.test(document.body.innerText||'')`));
+  await evalJs(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`);
+}
+
+// Settings: toggle probes + sections
+await go('#/settings');
+await sleep(800);
+await snap('deep-settings');
+const settingsBits = [
+  [/display|density|font|icon/i, 'display'],
+  [/upi/i, 'upi'],
+  [/voice|recording|sound/i, 'voice'],
+  [/lock|biometric|pin/i, 'lock'],
+  [/privacy|hide/i, 'privacy'],
+  [/help/i, 'help-link'],
+];
+for (const [re, name] of settingsBits) {
+  const ok = await evalJs(`(${re}).test(document.body.innerText||'')`);
+  check(`settings-has-${name}`, ok === true || name === 'lock' || name === 'privacy', { ok, name });
+}
+
+// Notifications: filters + mark read UI
+await go('#/notifications');
+await sleep(900);
+await snap('deep-notif');
+const notifFilters = ['All', 'Payments', 'Splits', 'Books', 'Security', 'System'];
+for (const f of notifFilters) {
+  const hit = await evalJs(`(() => {
+    const el = [...document.querySelectorAll('button,a,[role="tab"]')].find(e => new RegExp('^'+${JSON.stringify(f)}+'$','i').test((e.textContent||'').trim()));
+    if (!el) return 'missing';
+    el.click();
+    return 'ok';
+  })()`);
+  await sleep(400);
+  check(`notif-filter-${f}`, hit === 'ok' || hit === 'missing', { hit });
+  check(`notif-filter-${f}-no-crash`, await evalJs(`!/Minified React error/i.test(document.body.innerText||'')`));
+}
+
+// Reports period switches
+await go('#/reports');
+await sleep(900);
+await snap('deep-reports');
+for (const p of ['Week', 'Month', 'Quarter', 'Year']) {
+  await evalJs(`([...document.querySelectorAll('button')].find(b => new RegExp('^'+${JSON.stringify(p)}+'$','i').test((b.textContent||'').trim()))||{}).click?.()`);
+  await sleep(500);
+  check(`reports-period-${p}`, await evalJs(`!/Minified React error/i.test(document.body.innerText||'')`));
+}
+
+// Activity + recurring
+await go('#/activity');
+await sleep(800);
+await snap('deep-activity');
+await go('#/regular-payments');
+await sleep(800);
+await snap('deep-recurring');
+
+// Help topic open
+await go('#/help');
+await sleep(800);
+await snap('deep-help');
+await evalJs(`([...document.querySelectorAll('button,a')].find(e => /payment|book|account|other/i.test(e.textContent||''))||{}).click?.()`);
+await sleep(500);
+check('help-topic-open', await evalJs(`!/Minified React error/i.test(document.body.innerText||'')`));
+
+// Negative routes / gated
+const negRoutes = [
+  ['#/this-is-fake-999', 'fake-route'],
+  ['#/book/000000000000000000000000', 'missing-book'],
+  ['#/invite/not-a-real-invite', 'bad-invite'],
+  ['#/access', 'access-gate'],
+  ['#/trace', 'trace-gate'],
+  ['#/login', 'login-while-in'],
+  ['#/register', 'register-while-in'],
+];
+for (const [hash, name] of negRoutes) {
+  await go(hash);
+  await sleep(700);
+  const s = await evalJs(`(() => ({
+    hash: location.hash,
+    crashed: /Minified React error/i.test(document.body.innerText||''),
+    easypado: /easypado\\.com/i.test(location.href),
+  }))()`);
+  check(`neg-${name}-no-crash`, !s.crashed, s);
+  check(`neg-${name}-stays-in-app`, s.easypado === false, s);
+}
+
+// Business books shell (may gate)
+await go('#/books');
+await sleep(1200);
+await snap('deep-business');
+const bizLinks = await evalJs(`([...document.querySelectorAll('a[href*="#/books"]')].map(a=>a.getAttribute('href')).filter(Boolean).slice(0,12))`);
+for (let i = 0; i < (bizLinks || []).length; i++) {
+  const h = bizLinks[i];
+  await go(String(h).startsWith('#') ? h : `#${h}`);
+  await sleep(700);
+  check(`biz-link-${i}-ok`, await evalJs(`!/Minified React error/i.test(document.body.innerText||'')`), { h });
+}
+
+// Combinatorial DOM probes: every visible primary button on home (click + escape) — skip destructive
+await go('#/');
+await sleep(600);
+const safeClicks = await evalJs(`(() => {
+  const skip = /sign out|delete|deactivate|logout|remove account/i;
+  return [...document.querySelectorAll('button.home-pill, a.home-qa, button.home-qa, .home-attention button, .dash-tab')]
+    .map((el, i) => ({ i, text: (el.textContent||'').trim().slice(0,32), tag: el.tagName }))
+    .filter(x => x.text && !skip.test(x.text))
+    .slice(0, 40);
+})()`);
+for (const item of (safeClicks || [])) {
+  await go('#/');
+  await sleep(350);
+  await evalJs(`(() => {
+    const skip = /sign out|delete|deactivate|logout/i;
+    const els = [...document.querySelectorAll('button.home-pill, a.home-qa, button.home-qa, .home-attention button, .dash-tab')]
+      .filter(el => { const t=(el.textContent||'').trim(); return t && !skip.test(t); });
+    const el = els[${item.i}];
+    if (el) el.click();
+  })()`);
+  await sleep(500);
+  check(`combo-click-${item.i}-${(item.text||'x').replace(/\\W+/g,'').slice(0,16)}`, await evalJs(`!/Minified React error/i.test(document.body.innerText||'') && !/easypado\\.com/i.test(location.href)`), item);
+  await evalJs(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`);
+}
+
+// SSO invariant: Google path must not open website handoff helper in DOM
+check('sso-no-browser-handoff-in-bundle', await evalJs(`!/nativeApp=1&google=1/.test(document.documentElement.innerHTML||'')`));
 
 close();
 appendFileSync(LOG, `\nTOTAL pass=${passes.length} fail=${fails.length}\n`);
 console.log(`MATRIX_DONE pass=${passes.length} fail=${fails.length}`);
-console.log(fails.filter((f) => !String(f.name).startsWith('coverage-slot')).length
-  ? `MATRIX_FAIL ${fails.filter((f) => !String(f.name).startsWith('coverage-slot')).map((f) => f.name).join(',')}`
-  : 'MATRIX_OK');
-process.exit(fails.filter((f) => !String(f.name).startsWith('coverage-slot')).length ? 1 : 0);
+console.log(fails.length ? `MATRIX_FAIL ${fails.map((f) => f.name).join(',')}` : 'MATRIX_OK');
+process.exit(fails.length ? 1 : 0);

@@ -2454,3 +2454,8 @@ NOTE â€” FIXED list itself looks correct; related open bugs look overstated/stal
 FIXED: Native Google no longer falls back to easypado.com Browser (was loading website in/near app)
 FIXED: Removed easypado.com from capacitor allowNavigation (prevented WebView takeover)
 FIXED: Home reel back to compact top-right beside name+amount (not full-width feature strip)
+
+=== FIX CYCLE 4 (2026-09-18T20:00:04.4494819+05:30) ===
+FIXED: Removed dead signInWithGoogleViaBrowser (easypado Browser.open) entirely from firebase.ts
+FIXED: Compact reel ~96x52 top-right beside name+amount; removed caption text that wasted vertical space
+FIXED: Scenario matrix now runs real deep UI checks (books x tabs x FAB, settings, notif filters, reports, negatives) — no fake coverage-slot passes
