@@ -171,9 +171,13 @@ export function tdsHint(exp: Record<string, unknown>) {
 export function formatIndianAmount(amount: number, symbol = '₹') {
   const n = Math.abs(Number(amount) || 0);
   const sign = amount < 0 ? '−' : '';
-  if (n >= 10000000) return `${sign}${symbol}${(n / 10000000).toFixed(2)} Cr`;
-  if (n >= 100000) return `${sign}${symbol}${(n / 100000).toFixed(2)} L`;
-  return `${sign}${symbol}${n.toLocaleString('en-IN')}`;
+  // Always show the full amount (en-IN grouping). Never abbreviate as L / Cr —
+  // users need to read the real figure at a glance.
+  const body = n.toLocaleString('en-IN', {
+    minimumFractionDigits: Number.isInteger(n) ? 0 : 2,
+    maximumFractionDigits: 2,
+  });
+  return `${sign}${symbol}${body}`;
 }
 
 export function cashVsDigital(expenses: Array<Record<string, unknown>>, month = isoDay().slice(0, 7)) {

@@ -27,6 +27,13 @@ export type ReceiptLaunch = {
   source?: string;
   preferredBookId?: string;
   requireBookPick?: boolean;
+  /** Multiple images/docs → create one entry per file, in parallel. */
+  batch?: Array<{
+    imageDataUrl: string;
+    fileName?: string;
+    mimeType?: string;
+    text?: string;
+  }>;
 };
 
 type Props = {
@@ -553,6 +560,109 @@ export default function ReceiptCaptureFlow({
     if (typeof nextPct === 'number') setPct((p) => Math.max(p, nextPct));
   };
 
+  /** Parallel bulk import: many images/PDFs/sheets → many entries, fast. */
+  const saveBatch = async (bookId: string) => {
+    if (!launch?.batch?.length || !bookId || savingRef.current || doneRef.current) return;
+    savingRef.current = true;
+    setActiveBookId(bookId);
+    rememberMoneyBook(bookId);
+    setBusy(true);
+    setPhase('working');
+    setError('');
+    setPendingDup(null);
+    const items = launch.batch;
+    const total = items.length;
+    setProgress(`Importing ${total} documents…`, 8);
+    try {
+      const CONCURRENCY = 3;
+      const savedRows: Record<string, unknown>[] = [];
+      let needsEditCount = 0;
+      let doneCount = 0;
+
+      const processOne = async (item: NonNullable<ReceiptLaunch['batch']>[number], index: number) => {
+        const one: ReceiptLaunch = {
+          source: launch.source || 'batch',
+          imageDataUrl: item.imageDataUrl,
+          fileName: item.fileName || `receipt-${Date.now()}-${index}`,
+          mimeType: item.mimeType || 'image/jpeg',
+          text: item.text,
+        };
+        const { preview, previews } = await parseReceiptNow(bookId, one, () => undefined);
+        const rows = (previews.length ? previews : [preview]).filter(Boolean);
+        const anyAmount = rows.some((r) => Number(r.amountPaise || 0) > 0);
+        const needsEdit = Boolean(
+          one.imageDataUrl && !one.text && !isSpreadsheet(one.mimeType, one.fileName) && !anyAmount,
+        );
+        if (needsEdit) needsEditCount += 1;
+        const toSave = rows.length > 1
+          ? rows.filter((r) => Number(r.amountPaise || 0) > 0 || !anyAmount)
+          : rows;
+        const created: Record<string, unknown>[] = [];
+        await Promise.all(toSave.map(async (row, ri) => {
+          const payload = capturePreviewToExpense(row, {
+            receiptPath: row.receiptPath,
+            receiptName: row.receiptName,
+            captureSource: row.source || 'batch',
+          });
+          delete (payload as any).parseEngine;
+          delete (payload as any).parseSource;
+          delete (payload as any).reasons;
+          delete (payload as any).evidenceReasons;
+          if ((row as CapturePreview & { entryType?: string }).entryType === 'transfer'
+            || row.direction === 'TRANSFER') {
+            (payload as any).entryType = 'transfer';
+          } else if (row.direction === 'MONEY_IN') {
+            (payload as any).entryType = 'in';
+          }
+          if (!(Number(row.amountPaise || 0) > 0)) {
+            (payload as any).amount = 0;
+            (payload as any).status = 'draft';
+            (payload as any).notes = [
+              String((payload as any).notes || '').trim(),
+              'Could not read amount — edit to finish.',
+            ].filter(Boolean).join('\n');
+          }
+          try {
+            const saved = await createExpense(bookId, payload, {
+              force: true,
+              idempotencyKey: String(row.id || newMoneyId(`batch_${index}_${ri}`)),
+            });
+            created.push({ ...saved, bookId, _needsEdit: needsEdit });
+          } catch {
+            /* keep going — other docs still import */
+          }
+        }));
+        doneCount += 1;
+        setProgress(`Imported ${doneCount} of ${total}…`, 12 + Math.round((doneCount / total) * 80));
+        return created;
+      };
+
+      for (let i = 0; i < items.length; i += CONCURRENCY) {
+        const chunk = items.slice(i, i + CONCURRENCY);
+        const chunkResults = await Promise.all(chunk.map((item, j) => processOne(item, i + j)));
+        for (const list of chunkResults) savedRows.push(...list);
+      }
+
+      if (!savedRows.length) throw new Error('Could not import any of these documents');
+
+      setPct(100);
+      doneRef.current = true;
+      clearPendingCapture();
+      onConfirmed(savedRows[0], {
+        count: savedRows.length,
+        needsEdit: needsEditCount > 0,
+      });
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Bulk import failed');
+      setPhase('failed');
+      setStatusLine('Couldn’t finish bulk import — retry');
+    } finally {
+      savingRef.current = false;
+      setBusy(false);
+    }
+  };
+
   const finishDuplicateSame = (existing: Record<string, unknown>, bookId: string) => {
     setPct(100);
     doneRef.current = true;
@@ -716,6 +826,10 @@ export default function ReceiptCaptureFlow({
   };
 
   const saveNow = async (bookId: string) => {
+    if (launch?.batch?.length) {
+      await saveBatch(bookId);
+      return;
+    }
     if (!launch || !bookId || savingRef.current || doneRef.current) return;
     savingRef.current = true;
     setActiveBookId(bookId);

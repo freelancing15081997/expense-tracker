@@ -242,6 +242,118 @@ export class CapacitorService {
     }
   }
 
+  /** Convert a webPath / content URI into a data URL for OCR / upload. */
+  static async pathToDataUrl(webPath: string, mimeHint = 'image/jpeg'): Promise<string> {
+    const res = await fetch(webPath);
+    const blob = await res.blob();
+    const mime = blob.type || mimeHint;
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(new Error('Could not read file'));
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  static async fileToDataUrl(file: File): Promise<{ dataUrl: string; fileName: string; mimeType: string }> {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(new Error('Could not read file'));
+      reader.readAsDataURL(file);
+    });
+    return {
+      dataUrl,
+      fileName: file.name || `receipt-${Date.now()}`,
+      mimeType: file.type || 'application/octet-stream',
+    };
+  }
+
+  /**
+   * Multi-select receipts / documents (images, PDF, CSV, Excel).
+   * Native gallery when available; otherwise a multi file picker.
+   */
+  static async pickReceiptBatch(options: { limit?: number; quality?: number } = {}): Promise<Array<{
+    imageDataUrl: string;
+    fileName: string;
+    mimeType: string;
+  }>> {
+    const limit = Math.max(2, Math.min(40, Number(options.limit) || 24));
+    const quality = options.quality || 82;
+
+    if (isMobile) {
+      try {
+        const cam = Camera as typeof Camera & {
+          pickImages?: (o: Record<string, unknown>) => Promise<{ photos?: Array<{ webPath?: string; format?: string; path?: string }> }>;
+          chooseFromGallery?: (o: Record<string, unknown>) => Promise<{ results?: Array<{ webPath?: string; format?: string; mimeType?: string }> }>;
+        };
+        if (typeof cam.chooseFromGallery === 'function') {
+          const { results } = await cam.chooseFromGallery({
+            allowMultipleSelection: true,
+            quality,
+            limit,
+            targetWidth: 1600,
+            targetHeight: 1600,
+          });
+          const rows = Array.isArray(results) ? results : [];
+          const out = await Promise.all(rows.slice(0, limit).map(async (row, i) => {
+            const path = String(row.webPath || '');
+            if (!path) return null;
+            const mime = String(row.mimeType || (row.format === 'png' ? 'image/png' : 'image/jpeg'));
+            const dataUrl = await this.pathToDataUrl(path, mime);
+            return { imageDataUrl: dataUrl, fileName: `receipt-${Date.now()}-${i}.${row.format || 'jpg'}`, mimeType: mime };
+          }));
+          const cleaned = out.filter(Boolean) as Array<{ imageDataUrl: string; fileName: string; mimeType: string }>;
+          if (cleaned.length) return cleaned;
+        }
+        if (typeof cam.pickImages === 'function') {
+          const { photos } = await cam.pickImages({ quality, limit, width: 1600, height: 1600 });
+          const rows = Array.isArray(photos) ? photos : [];
+          const out = await Promise.all(rows.slice(0, limit).map(async (row, i) => {
+            const path = String(row.webPath || row.path || '');
+            if (!path) return null;
+            const mime = row.format === 'png' ? 'image/png' : 'image/jpeg';
+            const dataUrl = await this.pathToDataUrl(path, mime);
+            return { imageDataUrl: dataUrl, fileName: `receipt-${Date.now()}-${i}.${row.format || 'jpg'}`, mimeType: mime };
+          }));
+          const cleaned = out.filter(Boolean) as Array<{ imageDataUrl: string; fileName: string; mimeType: string }>;
+          if (cleaned.length) return cleaned;
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err || '');
+        if (/cancel/i.test(msg)) throw err;
+        /* fall through to file input */
+      }
+    }
+
+    return await new Promise((resolve, reject) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.multiple = true;
+      input.accept = 'image/*,application/pdf,.pdf,.csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      input.style.display = 'none';
+      const cleanup = () => { try { input.remove(); } catch { /* */ } };
+      input.onchange = () => {
+        const files = Array.from(input.files || []).slice(0, limit);
+        cleanup();
+        if (!files.length) {
+          reject(new Error('cancelled'));
+          return;
+        }
+        void Promise.all(files.map((f) => this.fileToDataUrl(f)))
+          .then((rows) => resolve(rows.map((r) => ({
+            imageDataUrl: r.dataUrl,
+            fileName: r.fileName,
+            mimeType: r.mimeType,
+          }))))
+          .catch(reject);
+      };
+      input.oncancel = () => { cleanup(); reject(new Error('cancelled')); };
+      document.body.appendChild(input);
+      input.click();
+    });
+  }
+
   static async requestCameraPermission() {
     try {
       const permissions = await Camera.checkPermissions();

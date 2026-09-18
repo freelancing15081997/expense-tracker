@@ -25,6 +25,7 @@ import ReceiptCaptureFlow, { type ReceiptLaunch } from '../components/ReceiptCap
 import { cacheMoneyBooks, readPendingCapture, clearPendingCapture, rememberMoneyBook, readCachedMoneyBooks, lastMoneyBookId, type PendingCapture } from '../components/ShareIntentListener';
 import { readUserJson, writeUserJson } from '../lib/user-cache';
 import PendingPayStrip from '../components/PendingPayStrip';
+import HomeFeatureReel from '../components/HomeFeatureReel';
 import { CapacitorService } from '../lib/capacitor';
 import { CameraSource } from '@capacitor/camera';
 import BookPickSheet from '../components/BookPickSheet';
@@ -48,8 +49,8 @@ function AutoFitAmount({ children, className }: { children: React.ReactNode; cla
     const text = textRef.current;
     if (!wrap || !text) return;
     const fit = () => {
-      const max = 40;
-      const min = 18;
+      const max = 36;
+      const min = 14;
       let size = max;
       text.style.fontSize = `${size}px`;
       text.style.whiteSpace = 'nowrap';
@@ -680,20 +681,39 @@ export default function Dashboard() {
   const scanHomeReceipt = async (bookId?: string) => {
     try {
       await CapacitorService.requestCameraPermission();
-      const photo = await CapacitorService.takePicture({ source: CameraSource.Prompt, quality: 85 });
-      const dataUrl = photo.dataUrl || (photo.base64String ? `data:image/jpeg;base64,${photo.base64String}` : '');
-      if (!dataUrl) throw new Error('No photo data');
       const preferred = bookId || (visibleBooks.length === 1 ? visibleBooks[0].id : '');
+      let batch: Array<{ imageDataUrl: string; fileName: string; mimeType: string }> = [];
+      try {
+        batch = await CapacitorService.pickReceiptBatch({ limit: 24, quality: 82 });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : '';
+        if (/cancel/i.test(msg)) return;
+        // Fallback: single camera/prompt shot so Scan never feels broken.
+        const photo = await CapacitorService.takePicture({ source: CameraSource.Prompt, quality: 85 });
+        const dataUrl = photo.dataUrl || (photo.base64String ? `data:image/jpeg;base64,${photo.base64String}` : '');
+        if (!dataUrl) throw new Error('No photo data');
+        batch = [{ imageDataUrl: dataUrl, fileName: `receipt-${Date.now()}.jpg`, mimeType: 'image/jpeg' }];
+      }
+      if (!batch.length) return;
+      if (batch.length === 1) {
+        setReceiptLaunch({
+          source: 'gallery',
+          imageDataUrl: batch[0].imageDataUrl,
+          fileName: batch[0].fileName,
+          mimeType: batch[0].mimeType,
+          preferredBookId: preferred || undefined,
+          requireBookPick: !preferred,
+        });
+        return;
+      }
       setReceiptLaunch({
-        source: 'camera',
-        imageDataUrl: dataUrl,
-        fileName: `receipt-${Date.now()}.jpg`,
-        mimeType: 'image/jpeg',
+        source: 'batch',
+        batch,
         preferredBookId: preferred || undefined,
         requireBookPick: !preferred,
       });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Could not open camera';
+      const msg = err instanceof Error ? err.message : 'Could not open documents';
       if (/cancel/i.test(msg)) return;
       addToast(msg, 'error');
     }
@@ -774,13 +794,15 @@ export default function Dashboard() {
   const pickSheetTitle = bookPickKind === 'scan'
     ? 'Scan into which book?'
     : bookPickKind === 'voice'
-      ? 'Voice entry for which book?'
+      ? 'Voice entry into which book?'
       : bookPickKind === 'share'
-        ? 'Save shared receipt to which book?'
-        : 'Add entry to which book?';
-  const pickSheetSubtitle = bookPickKind === 'share'
-    ? 'Pick a money book for this shared receipt'
-    : 'Pick a money book to continue';
+        ? 'Save share into which book?'
+        : 'Add entry into which book?';
+  const pickSheetSubtitle = bookPickKind === 'scan'
+    ? 'Pick several receipts or docs at once — Byjan creates an entry for each.'
+    : bookPickKind === 'share'
+      ? 'Pick a money book for this shared receipt'
+      : 'Pick a money book to continue';
 
   const changeBooksView = (next: BooksView) => {
     setBooksView(next);
@@ -1106,16 +1128,19 @@ export default function Dashboard() {
               <p className="home-greet">{hello}</p>
               <h1 className="home-name">{firstName}</h1>
             </div>
-            {isSuperUser && (
-              <div className="home-hero-links">
-                <Link to="/access" className="home-access-link">
-                  <Shield className="w-3.5 h-3.5" /> Access
-                </Link>
-                <Link to="/trace" className="home-access-link">
-                  Trace
-                </Link>
-              </div>
-            )}
+            <div className="home-hero-aside">
+              {isSuperUser && (
+                <div className="home-hero-links">
+                  <Link to="/access" className="home-access-link">
+                    <Shield className="w-3.5 h-3.5" /> Access
+                  </Link>
+                  <Link to="/trace" className="home-access-link">
+                    Trace
+                  </Link>
+                </div>
+              )}
+              {canSeeMoney ? <HomeFeatureReel /> : null}
+            </div>
           </div>
           {!hasAnyFeature ? (
             <p className="home-lead-light">Your admin has not turned on Money or Business yet.</p>
@@ -1310,8 +1335,12 @@ export default function Dashboard() {
             }
             addToast(
               extras?.needsEdit
-                ? 'Could not read amount — saved as draft for you to edit'
-                : 'Entry saved',
+                ? (Number(extras?.count || 1) > 1
+                  ? `Imported ${extras.count} — some need amount edits`
+                  : 'Could not read amount — saved as draft for you to edit')
+                : (Number(extras?.count || 1) > 1
+                  ? `Imported ${extras.count} entries`
+                  : 'Entry saved'),
               extras?.needsEdit ? 'error' : 'success',
             );
             if (bookId) navigate(`/book/${bookId}`);
