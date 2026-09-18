@@ -41,6 +41,7 @@ import { ReceiptModal, attachmentKind } from '../components/ReceiptModal';
 import { EventMailTrack, emailStatusClass, emailStatusLabel, resolvedStatus } from '../components/EmailActivityFlow';
 import { ListControls, ListPager, usePagedList } from '../components/ListControls';
 import AppLoader from '../components/AppLoader';
+import { MoneyBookScreenSkeleton } from '../components/money/MoneySkeletons';
 import LedgerTools from '../components/LedgerTools';
 import LedgerStudio from '../components/LedgerStudio';
 import {
@@ -833,7 +834,7 @@ export default function BookView() {
       .slice(0, 8);
   }, [expenses, merchant]);
 
-  if (loading) return <AppLoader title="Money book" message="Opening records and balances." />;
+  if (loading) return <MoneyBookScreenSkeleton />;
   if (!book) return <div className="p-8 text-center text-sm text-slate-500">Book not found or access denied.</div>;
 
   const isActiveMember = Boolean(book.roles?.[currentUser!.uid]?.role) || book.ownerId === currentUser!.uid;
@@ -1053,7 +1054,7 @@ export default function BookView() {
     try {
       const { base64, fileName } = buildReportPdf();
       const how = await savePdfBase64(fileName, base64, `${book?.name || 'Ledger'} report`);
-      addToast(how === 'shared' ? 'PDF ready. Save or share it from the sheet.' : 'PDF downloaded.', 'success');
+      addToast('PDF downloaded.', 'success');
     } catch (err) {
       addToast(err instanceof Error ? err.message : 'Could not create the PDF', 'error');
     } finally {
@@ -1140,7 +1141,7 @@ export default function BookView() {
       .join('\n');
     try {
       const how = await saveTextFile(`${reportFileBase()}-entries.csv`, csv, 'text/csv', `${book?.name || 'Ledger'} CSV`);
-      addToast(how === 'shared' ? 'CSV ready. Save or share it from the sheet.' : 'CSV downloaded.', 'success');
+      addToast('CSV downloaded.', 'success');
     } catch (err) {
       addToast(err instanceof Error ? err.message : 'Could not save the CSV', 'error');
     }
@@ -1483,35 +1484,26 @@ export default function BookView() {
 
   const sendEmailNotification = async (toEmail: string, subject: string, message: string, meta?: { action?: string }) => {
     try {
-      const { authHeaders } = await import('../lib/auth-client');
-      const res = await fetch(apiUrl('/api/email/send'), {
-        method: 'POST',
-        headers: await authHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({
-          to: toEmail,
-          subject,
-          message,
-          ledgerMail: inboundAddress || bookInboundAddress(book),
-          kind: meta?.action?.toLowerCase().includes('announcement') ? 'announcement' : 'notice',
-        })
+      const { apiPost } = await import('../lib/api');
+      await apiPost('/api/email/send', {
+        to: toEmail,
+        subject,
+        message,
+        ledgerMail: inboundAddress || bookInboundAddress(book),
+        kind: meta?.action?.toLowerCase().includes('announcement') ? 'announcement' : 'notice',
       });
-      const payload = await res.json().catch(() => ({}));
       if (bookId) {
         await addLedgerMailEvent(bookId, {
           direction: 'outbound',
-          status: res.ok ? 'sent' : 'failed',
+          status: 'sent',
           toEmail,
           subject,
           action: meta?.action || 'Team notification',
-          detail: res.ok ? 'Notification email sent' : String(payload.error || res.statusText || 'Send failed'),
+          detail: 'Notification email sent',
           createdAt: new Date().toISOString(),
         }).catch(() => undefined);
       }
-      if (!res.ok) {
-         console.error('Email API Error:', payload.error || res.statusText);
-         addToast(payload.error || 'Email sending failed on the server.', 'error');
-      }
-      return res.ok;
+      return true;
     } catch (err: any) {
       console.error('Failed to send email via backend:', err);
       if (bookId) {
@@ -1521,11 +1513,11 @@ export default function BookView() {
           toEmail,
           subject,
           action: meta?.action || 'Team notification',
-          detail: err?.message || 'Network error',
+          detail: err?.message || 'Send failed',
           createdAt: new Date().toISOString(),
         }).catch(() => undefined);
       }
-      addToast('Network error sending email: ' + err.message, 'error');
+      addToast(err?.message || 'Email sending failed on the server.', 'error');
       return false;
     }
   };
@@ -1984,7 +1976,7 @@ export default function BookView() {
         </Tabs.List>
 
         {ledgerTab === 'ledger' && (
-          <div className="book-dash mt-2 space-y-3">
+          <div className="book-dash book-dash-compact mt-1.5 space-y-1.5">
             <div className="book-dash-kpis">
             <div className="md3-stats">
               <div className="md3-stat tone-idle">
@@ -2223,10 +2215,10 @@ export default function BookView() {
           document.body
         )}
 
-        <div className="flex-1 min-h-0 overflow-y-auto px-4 md:px-6 lg:px-8 py-2">
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 md:px-6 lg:px-8 py-1.5 book-scroll">
         <div className="max-w-6xl mx-auto">
         <Tabs.Content value="ledger" className="outline-none">
-          <div className="tool-collapse-row mb-2">
+          <div className="tool-collapse-row tool-collapse-row-soft mb-1.5">
           <LedgerTools
             bookId={bookId!}
             book={book}

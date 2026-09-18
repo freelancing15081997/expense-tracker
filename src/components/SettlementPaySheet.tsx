@@ -341,17 +341,19 @@ export default function SettlementPaySheet({
         <div className="sp-body">
           <div className="sp-hero">
             <p className="sp-hero-label">{role === 'receiver' ? 'From' : 'To'}</p>
-            <p className="sp-hero-amount" style={{ fontSize: 22 }}>
-              {role === 'receiver'
-                ? (settlement as any).payerNameSnapshot || settlement.receiverNameSnapshot || 'Teammate'
-                : settlement.receiverNameSnapshot || 'Teammate'}
-            </p>
+            <div className="sp-glass-card">
+              <p className="sp-hero-amount" style={{ fontSize: 20 }}>
+                {role === 'receiver'
+                  ? (settlement as any).payerNameSnapshot || settlement.receiverNameSnapshot || 'Teammate'
+                  : settlement.receiverNameSnapshot || 'Teammate'}
+              </p>
+            </div>
             <div className="sp-meters">
-              <div>
+              <div className="sp-glass-card">
                 <span>UPI ID</span>
                 <strong style={{ fontSize: 13 }}>{settlement.receiverUpiSnapshot || 'Not set yet'}</strong>
               </div>
-              <div>
+              <div className="sp-glass-card">
                 <span>For</span>
                 <strong style={{ fontSize: 13 }}>{settlement.expenseDescription || settlement.merchant || 'Split'}</strong>
               </div>
@@ -402,20 +404,20 @@ export default function SettlementPaySheet({
                 <>
                   <p className="sp-kicker" style={{ marginBottom: 8 }}>Slide to unlock payment</p>
                   <div
-                    className={`sp-swipe${swipeX > 0.82 ? ' is-go' : ''}${swipeX > 0.08 ? ' is-drag' : ''}`}
+                    className={`sp-swipe${swipeX > 0.62 ? ' is-go' : ''}${swipeX > 0.08 ? ' is-drag' : ''}`}
                     onPointerDown={(e) => {
                       swipeStart.current = e.clientX;
                       (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
                     }}
                     onPointerMove={(e) => {
                       if (swipeStart.current == null) return;
-                      const w = Math.max(1, (e.currentTarget as HTMLDivElement).clientWidth - 64);
+                      const w = Math.max(1, (e.currentTarget as HTMLDivElement).clientWidth - 48);
                       const next = Math.max(0, Math.min(1, (e.clientX - swipeStart.current) / w));
                       swipeXRef.current = next;
                       setSwipeX(next);
                     }}
                     onPointerUp={() => {
-                      if (swipeXRef.current > 0.82) {
+                      if (swipeXRef.current > 0.62) {
                         setPayUnlocked(true);
                         setSwipeX(1);
                       } else {
@@ -426,9 +428,9 @@ export default function SettlementPaySheet({
                     }}
                   >
                     <span className="sp-swipe-track" aria-hidden />
-                    <span className="sp-swipe-fill" style={{ width: `${Math.max(18, swipeX * 100)}%` }} />
-                    <span className="sp-swipe-hint">{swipeX > 0.82 ? 'Release to pay' : 'Swipe to choose UPI app'}</span>
-                    <span className="sp-swipe-knob" style={{ left: `calc(6px + ${swipeX} * (100% - 64px))` }}>
+                    <span className="sp-swipe-fill" style={{ width: `${Math.max(22, swipeX * 100)}%` }} />
+                    <span className="sp-swipe-hint">{swipeX > 0.62 ? 'Release' : 'Swipe to pay'}</span>
+                    <span className="sp-swipe-knob" style={{ left: `calc(4px + ${swipeX} * (100% - 48px))` }}>
                       <span className="sp-swipe-chevrons" aria-hidden>
                         <i /><i /><i />
                       </span>

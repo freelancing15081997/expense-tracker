@@ -40,15 +40,32 @@ async function requireUid(req: VercelRequest) {
 }
 
 function smtpConfig() {
+  const user = String(process.env.SMTP_USER || '').trim();
+  const pass = String(process.env.SMTP_PASS || '').trim();
+  if (!user || !pass) {
+    throw new Error('SMTP is not configured. Set SMTP_USER and SMTP_PASS in the server environment.');
+  }
   return {
     host: process.env.SMTP_HOST || 'smtp-relay.brevo.com',
     port: Number(process.env.SMTP_PORT || 2525),
     secure: false,
-    auth: {
-      user: process.env.SMTP_USER || 'b7ffda001@smtp-brevo.com',
-      pass: process.env.SMTP_PASS || 'bskbpWFhUtdUJPH',
-    },
+    auth: { user, pass },
   };
+}
+
+async function writeTrace(kind: string, detail: Record<string, unknown>) {
+  try {
+    const { ledgerSet } = await import('../_pg-tables.js');
+    const id = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    await ledgerSet(`ops/trace/${id}`, {
+      id,
+      kind,
+      at: new Date().toISOString(),
+      ...detail,
+    });
+  } catch {
+    /* never block mail on trace write */
+  }
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -79,7 +96,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const nodemailerMod: any = await import('nodemailer');
     const createTransport = nodemailerMod.createTransport || nodemailerMod.default?.createTransport;
-    const settings = smtpConfig();
+    let settings: ReturnType<typeof smtpConfig>;
+    try {
+      settings = smtpConfig();
+    } catch (cfgErr: any) {
+      await writeTrace('email.config', { ok: false, error: String(cfgErr?.message || cfgErr), uid });
+      json(res, 503, { error: String(cfgErr?.message || 'SMTP not configured') });
+      return;
+    }
     let transporter = createTransport(settings);
     const textMessage = message.replace(/<[^>]*>?/gm, '');
     const from = mailFrom();
@@ -130,14 +154,55 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     try {
       const info = await transporter.sendMail(mail);
+      await writeTrace('email.send', {
+        ok: true,
+        uid,
+        to,
+        subject: subject.slice(0, 120),
+        messageId: info.messageId,
+        host: settings.host,
+        port: settings.port,
+      });
       json(res, 200, { success: true, messageId: info.messageId });
     } catch (first: any) {
       if (settings.port === 2525) {
-        transporter = createTransport({ ...settings, port: 587 });
-        const info = await transporter.sendMail(mail);
-        json(res, 200, { success: true, messageId: info.messageId });
-        return;
+        try {
+          transporter = createTransport({ ...settings, port: 587 });
+          const info = await transporter.sendMail(mail);
+          await writeTrace('email.send', {
+            ok: true,
+            uid,
+            to,
+            subject: subject.slice(0, 120),
+            messageId: info.messageId,
+            host: settings.host,
+            port: 587,
+            note: 'fallback-port-587',
+          });
+          json(res, 200, { success: true, messageId: info.messageId });
+          return;
+        } catch (second: any) {
+          await writeTrace('email.send', {
+            ok: false,
+            uid,
+            to,
+            subject: subject.slice(0, 120),
+            error: String(second?.message || second || first?.message || 'Send failed'),
+            host: settings.host,
+            port: 587,
+          });
+          throw second;
+        }
       }
+      await writeTrace('email.send', {
+        ok: false,
+        uid,
+        to,
+        subject: subject.slice(0, 120),
+        error: String(first?.message || first || 'Send failed'),
+        host: settings.host,
+        port: settings.port,
+      });
       throw first;
     }
   } catch (err: any) {

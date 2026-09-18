@@ -1069,8 +1069,22 @@ export default function Dashboard() {
       <PullToRefresh onRefresh={async () => { await refreshUserProfile(); await fetchData({ silent: true }); }} className="home-shell ios-page">
         {createDialog}
         <section className="home-hero">
-          <p className="home-greet">{hello}</p>
-          <h1 className="home-name">{firstName}</h1>
+          <div className="home-hero-top">
+            <div className="min-w-0">
+              <p className="home-greet">{hello}</p>
+              <h1 className="home-name">{firstName}</h1>
+            </div>
+            {isSuperUser && (
+              <div className="home-hero-links">
+                <Link to="/access" className="home-access-link">
+                  <Shield className="w-3.5 h-3.5" /> Access
+                </Link>
+                <Link to="/trace" className="home-access-link">
+                  Trace
+                </Link>
+              </div>
+            )}
+          </div>
           {!hasAnyFeature ? (
             <p className="home-lead-light">Your admin has not turned on Money or Business yet.</p>
           ) : canSeeMoney ? (
@@ -1078,8 +1092,15 @@ export default function Dashboard() {
               <div className="home-amount-row">
                 <CurrencyMark code={currencyCode} size="lg" />
                 <p className="home-amount byjan-money">
-                  {formatIndianAmount(statsReady ? net : 0, currency)}
+                  {loading || !statsReady ? <span className="home-skel-balance byjan-skel" /> : formatIndianAmount(net, currency)}
                 </p>
+              </div>
+              <div className="home-hero-chips" aria-label="Snapshot">
+                <span className="home-hero-chip is-in">In {loading || !statsReady ? '…' : formatIndianAmount(globalStats.totalIn, currency)}</span>
+                <span className="home-hero-chip is-out">Out {loading || !statsReady ? '…' : formatIndianAmount(globalStats.totalOut, currency)}</span>
+                <span className={`home-hero-chip${globalStats.uncategorized > 0 ? ' is-warn pulse-attn' : ''}`}>
+                  {loading || !statsReady ? '…' : `${globalStats.uncategorized} to review`}
+                </span>
               </div>
               <p className="home-amount-sub">
                 {loading || !statsReady
@@ -1090,11 +1111,6 @@ export default function Dashboard() {
           ) : (
             <p className="home-lead-light">Open Business when you need invoices and GST.</p>
           )}
-          {isSuperUser && (
-            <Link to="/access" className="home-access-link">
-              <Shield className="w-3.5 h-3.5" /> Access
-            </Link>
-          )}
         </section>
 
         {inviteBlock}
@@ -1102,25 +1118,25 @@ export default function Dashboard() {
         {hasFeature('money') && (
           <section className="home-pills" aria-label="Quick actions">
             {hasFeature('money_add') && (
-              <button type="button" className="home-pill" onClick={() => { void CapacitorService.hapticTick(); requestQuick('add'); }}>
+              <button type="button" className="home-pill tone-add" onClick={() => { void CapacitorService.hapticTick(); requestQuick('add'); }}>
                 <Plus className="w-4 h-4" strokeWidth={2.4} />
                 Add
               </button>
             )}
             {hasFeature('money_scan') && (
-              <button type="button" className="home-pill" onClick={() => { void CapacitorService.hapticTick(); requestQuick('scan'); }}>
+              <button type="button" className="home-pill tone-scan" onClick={() => { void CapacitorService.hapticTick(); requestQuick('scan'); }}>
                 <ScanLine className="w-4 h-4" strokeWidth={2.4} />
                 Scan
               </button>
             )}
             {hasFeature('money_voice') && (
-              <button type="button" className="home-pill" onClick={() => { void CapacitorService.hapticTick(); requestQuick('voice'); }}>
+              <button type="button" className="home-pill tone-voice" onClick={() => { void CapacitorService.hapticTick(); requestQuick('voice'); }}>
                 <Mic className="w-4 h-4" strokeWidth={2.4} />
                 Voice
               </button>
             )}
             {hasFeature('money_create_book') && (
-            <button type="button" className="home-pill" onClick={() => setShowNewBook(true)}>
+            <button type="button" className="home-pill tone-book" onClick={() => setShowNewBook(true)}>
               <BookText className="w-4 h-4" strokeWidth={2.4} />
               New book
             </button>
@@ -1128,7 +1144,21 @@ export default function Dashboard() {
           </section>
         )}
 
-        {hasFeature('money') && hasFeature('money_inbox') && statsReady ? <FinancialInbox items={attentionItems} /> : null}
+        {hasFeature('money') && (hasFeature('money_inbox') || hasFeature('money_recurring')) ? (
+          <section className="home-attention" aria-label="Attention">
+            {loading || !statsReady ? (
+              <div className="home-attention-skel">
+                <span className="byjan-skel h-20 rounded-2xl w-full" />
+                <span className="byjan-skel h-20 rounded-2xl w-full" />
+              </div>
+            ) : (
+              <>
+                {hasFeature('money_inbox') ? <FinancialInbox items={attentionItems} /> : null}
+                {hasFeature('money_recurring') ? <UpcomingHomeStrip items={upcoming} currencyCode={currencyCode} /> : null}
+              </>
+            )}
+          </section>
+        ) : null}
 
         {hasFeature('money') && (
           <section className="home-qa" aria-label="Quick access">
@@ -1165,8 +1195,6 @@ export default function Dashboard() {
             </div>
           </section>
         )}
-
-        {hasFeature('money') && hasFeature('money_recurring') ? <UpcomingHomeStrip items={upcoming} currencyCode={currencyCode} /> : null}
 
         {hasFeature('money') && hasFeature('money_settle') && uid ? <PendingPayStrip uid={uid} /> : null}
 

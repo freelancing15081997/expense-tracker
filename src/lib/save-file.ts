@@ -37,52 +37,38 @@ function webDownload(blob: Blob, fileName: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
-async function nativeShareBase64(fileName: string, base64: string, title: string) {
+/** Save to app Documents and return the URI — no share sheet / store picker. */
+async function nativeSaveBase64(fileName: string, base64: string) {
   const { Filesystem, Directory } = await import('@capacitor/filesystem');
-  const { Share } = await import('@capacitor/share');
-  const path = `byjan_${Date.now()}_${fileName}`;
-  const shareUri = async (uri: string) => {
-    try {
-      await Share.share({
-        title,
-        text: title,
-        url: uri,
-        dialogTitle: 'Save or share',
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err || '');
-      if (/cancel/i.test(message)) return;
-      throw err;
-    }
-  };
+  const path = `Byjan/${safeFileName(fileName)}`;
+  await Filesystem.writeFile({ path, data: base64, directory: Directory.Documents, recursive: true });
+  const uri = await Filesystem.getUri({ path, directory: Directory.Documents });
   try {
-    await Filesystem.writeFile({ path, data: base64, directory: Directory.Cache, recursive: true });
-    const uri = await Filesystem.getUri({ path, directory: Directory.Cache });
-    await shareUri(uri.uri);
+    const { Toast } = await import('@capacitor/toast');
+    await Toast.show({ text: `Saved · ${fileName}`, duration: 'short', position: 'bottom' });
   } catch {
-    await Filesystem.writeFile({ path, data: base64, directory: Directory.Documents, recursive: true });
-    const uri = await Filesystem.getUri({ path, directory: Directory.Documents });
-    await shareUri(uri.uri);
+    /* toast optional */
   }
+  return uri.uri;
 }
 
-export async function saveTextFile(fileName: string, text: string, mime = 'text/plain', title?: string) {
+export async function saveTextFile(fileName: string, text: string, mime = 'text/plain', _title?: string) {
   const name = safeFileName(fileName);
   if (Capacitor.isNativePlatform()) {
-    await nativeShareBase64(name, textToBase64(text), title || name);
-    return 'shared' as const;
+    await nativeSaveBase64(name, textToBase64(text));
+    return 'downloaded' as const;
   }
   webDownload(new Blob([text], { type: `${mime};charset=utf-8` }), name);
   return 'downloaded' as const;
 }
 
-export async function savePdfBase64(fileName: string, base64: string, title?: string) {
+export async function savePdfBase64(fileName: string, base64: string, _title?: string) {
   const name = safeFileName(fileName.endsWith('.pdf') ? fileName : `${fileName}.pdf`);
   const data = String(base64 || '').replace(/^data:application\/pdf[^,]*,/i, '');
   if (!data) throw new Error('The PDF was empty.');
   if (Capacitor.isNativePlatform()) {
-    await nativeShareBase64(name, data, title || name);
-    return 'shared' as const;
+    await nativeSaveBase64(name, data);
+    return 'downloaded' as const;
   }
   webDownload(base64ToBlob(data, 'application/pdf'), name);
   return 'downloaded' as const;

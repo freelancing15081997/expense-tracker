@@ -12,6 +12,7 @@ import InviteAccept from './pages/InviteAccept';
 import Settings from './pages/Settings';
 import HelpPage from './pages/HelpPage';
 import AccessControl from './pages/AccessControl';
+import TraceOps from './pages/TraceOps';
 import MoneyReports from './pages/MoneyReports';
 import Activity from './pages/Activity';
 import RegularPayments from './pages/RegularPayments';
@@ -53,6 +54,7 @@ export default function App() {
               <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
                 <Route index element={<Dashboard />} />
                 <Route path="access" element={<SuperUserGate><AccessControl /></SuperUserGate>} />
+                <Route path="trace" element={<SuperUserGate><TraceOps /></SuperUserGate>} />
                 <Route path="expenses" element={<FeatureGate feature="money"><Dashboard /></FeatureGate>} />
                 <Route path="activity" element={<FeatureGate feature="money_activity"><Activity /></FeatureGate>} />
                 <Route path="notifications" element={<FeatureGate feature="app_notifications"><NotificationsPage /></FeatureGate>} />

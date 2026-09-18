@@ -45,7 +45,7 @@ export default function FinancialInbox({ items }: { items: AttentionItem[] }) {
             <strong className="home-upcoming-amt">
               {row.amount ? formatIndianAmount(row.amount) : '—'}
             </strong>
-            <span className="home-quad-pay">{row.action || 'Open'}</span>
+            <span className={`home-quad-pay${/pay|review|remind/i.test(row.kind + row.action) ? ' pulse-attn' : ''}`}>{row.action || 'Open'}</span>
           </Link>
         ))}
       </HomeSwipeDeck>

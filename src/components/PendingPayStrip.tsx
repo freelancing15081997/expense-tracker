@@ -42,9 +42,9 @@ export default function PendingPayStrip({ uid }: { uid: string }) {
   const safeIndex = Math.min(index, cards.length - 1);
 
   return (
-    <section className="home-upcoming" aria-label="Pending payments">
+    <section className="home-upcoming home-pay-dock" aria-label="Pending payments">
       <div className="home-upcoming-head">
-        <span className="home-upcoming-kicker">
+        <span className="home-upcoming-kicker pulse-attn">
           <Banknote className="w-4 h-4" strokeWidth={2.2} />
           {mineToPay.length ? `To pay · ${symbol}${paiseToUpiAmount(duePaise)}` : 'Awaiting you'}
         </span>
@@ -62,8 +62,8 @@ export default function PendingPayStrip({ uid }: { uid: string }) {
           const iOwe = row.fromUid === me;
           const href = `/book/${row.bookId}?pay=${encodeURIComponent(row.id)}`;
           return (
-            <div key={row.id} className="home-swipe-slide home-quad-card">
-              <span className="home-quad-kind">{iOwe ? 'You owe' : 'Incoming'}</span>
+            <div key={row.id} className={`home-swipe-slide home-quad-card${iOwe ? ' is-late' : ''}`}>
+              <span className="home-quad-kind" data-kind={iOwe ? 'pay' : 'review'}>{iOwe ? 'You owe' : 'Incoming'}</span>
               <span className="home-quad-copy min-w-0">
                 <span className="home-upcoming-name">{row.expenseDescription || row.merchant || 'Split'}</span>
                 <span className="home-upcoming-meta">{row.merchant || 'Money book'}</span>
@@ -71,7 +71,7 @@ export default function PendingPayStrip({ uid }: { uid: string }) {
               <strong className="home-upcoming-amt">
                 {symbol}{paiseToUpiAmount(row.amountPaise)}
               </strong>
-              <Link to={href} className="home-quad-pay">{iOwe ? 'Pay' : 'Review'}</Link>
+              <Link to={href} className="home-quad-pay pulse-attn">{iOwe ? 'Pay' : 'Review'}</Link>
             </div>
           );
         })}

@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useLocation } from 'react-router-dom';
-import { BookOpen, BookText, ChevronRight, LayoutDashboard, LogOut, Pin, PinOff, Settings, Shield } from 'lucide-react';
+import { BookOpen, BookText, ChevronRight, LayoutDashboard, LogOut, Pin, PinOff, Radar, Settings, Shield } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import BrandLogo from './BrandLogo';
@@ -54,6 +54,7 @@ export default function AppSidebar({ expanded, pinned, tenant, userProfile, onLo
   const onExpenses = location.pathname === '/expenses' || location.pathname.startsWith('/book/');
   const onHome = location.pathname === '/';
   const onAccess = location.pathname === '/access';
+  const onTrace = location.pathname === '/trace';
   const onSettings = location.pathname === '/settings';
   const showText = expanded;
 
@@ -157,6 +158,19 @@ export default function AppSidebar({ expanded, pinned, tenant, userProfile, onLo
             <Shield className="w-5 h-5" strokeWidth={2.2} />
           </span>
           {showText && <span className={cn('text-[13.5px] font-semibold tracking-[-0.01em]', onAccess ? 'text-[#0B1F3A]' : 'text-slate-600')}>Access</span>}
+        </Link>
+        )}
+
+        {showAccess && (
+        <Link
+          to="/trace"
+          title="Ops Trace"
+          className={cn('group flex items-center rounded-2xl', showText ? 'gap-3 px-1.5 py-1' : 'justify-center py-0.5')}
+        >
+          <span className={iconWell(onTrace)}>
+            <Radar className="w-5 h-5" strokeWidth={2.2} />
+          </span>
+          {showText && <span className={cn('text-[13.5px] font-semibold tracking-[-0.01em]', onTrace ? 'text-[#0B1F3A]' : 'text-slate-600')}>Trace</span>}
         </Link>
         )}
 

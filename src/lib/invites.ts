@@ -72,30 +72,15 @@ export async function acceptLedgerInvite(opts: {
   });
   const to = Array.isArray(payload.notifyEmails) ? payload.notifyEmails : [];
   if (!to.length) return {};
+  const who = opts.displayName || opts.email;
+  const bookName = payload.bookName || opts.invite.bookName;
+  const bookId = payload.bookId || opts.invite.bookId;
   try {
-    const { getAccessToken } = await import('./firebase');
-    const token = await getAccessToken();
-    if (!token) return {};
-    const who = opts.displayName || opts.email;
-    const bookName = payload.bookName || opts.invite.bookName;
-    const bookId = payload.bookId || opts.invite.bookId;
-    const { apiUrl } = await import('./api');
-    const res = await fetch(apiUrl('/api/email/send'), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        to: to.join(', '),
-        subject: `${who} joined ${bookName} expense book`,
-        message: `<p>Hello,</p><p><b>${who}</b> has accepted the invitation and joined the ledger <b>${bookName}</b>.</p>${openLedgerButtonHtml(bookId)}`,
-      }),
+    await apiPost('/api/email/send', {
+      to: to.join(', '),
+      subject: `${who} joined ${bookName} expense book`,
+      message: `<p>Hello,</p><p><b>${who}</b> has accepted the invitation and joined the ledger <b>${bookName}</b>.</p>${openLedgerButtonHtml(bookId)}`,
     });
-    if (!res.ok) {
-      const errBody = await res.json().catch(() => ({}));
-      return { notifyError: String(errBody.error || 'Email sending failed on the server.') };
-    }
   } catch (err: any) {
     return { notifyError: err?.message || 'Could not notify the team.' };
   }

@@ -1,6 +1,5 @@
 import { createNotification } from './notifications';
-import { apiUrl } from './api';
-import { authHeaders } from './auth-client';
+import { apiPost } from './api';
 import { memberEmails } from './invites';
 import {
   bookInboundAddress,
@@ -89,16 +88,12 @@ export async function notifyTeamOfLedgerChange(input: {
 
   await Promise.all(emails.map(async (email) => {
     try {
-      await fetch(apiUrl('/api/email/send'), {
-        method: 'POST',
-        headers: await authHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({
-          to: email,
-          subject,
-          message,
-          ledgerMail: bookInboundAddress(input.book),
-          kind: 'notice',
-        }),
+      await apiPost('/api/email/send', {
+        to: email,
+        subject,
+        message,
+        ledgerMail: bookInboundAddress(input.book),
+        kind: 'notice',
       });
     } catch (err) {
       console.error('Team email failed', err);
