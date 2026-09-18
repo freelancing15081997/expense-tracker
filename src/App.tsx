@@ -40,6 +40,14 @@ const GuestRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return <>{children}</>;
 };
 
+const InviteRoute: React.FC = () => {
+  const { currentUser, loading } = useAuth();
+  if (loading) return <AppLoader overlay title="Byjan" message="Checking your session." />;
+  // Signed-in users must unlock before invite accept (BUG-007).
+  if (currentUser) return <AppLockGate><InviteAccept /></AppLockGate>;
+  return <InviteAccept />;
+};
+
 export default function App() {
   return (
     <AuthProvider>
@@ -50,7 +58,7 @@ export default function App() {
             <Routes>
               <Route path="/login" element={<GuestRoute><Login /></GuestRoute>} />
               <Route path="/register" element={<GuestRoute><Register /></GuestRoute>} />
-              <Route path="/invite/:inviteId" element={<InviteAccept />} />
+              <Route path="/invite/:inviteId" element={<InviteRoute />} />
               <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
                 <Route index element={<Dashboard />} />
                 <Route path="access" element={<SuperUserGate><AccessControl /></SuperUserGate>} />

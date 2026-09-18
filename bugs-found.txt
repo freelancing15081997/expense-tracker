@@ -804,9 +804,491 @@ Expected: Consistent dirty/save model.
 Actual: Some lock options persist immediately; prefs wait for Save.
 Status: open
 ---
+BUG-101 | SEVERITY: medium | AREA: InviteAccept
+Title: InviteAccept ignores notifyError after successful join
+Where: src/pages/InviteAccept.tsx:49-65; src/lib/invites.ts:68-87
+Repro: Accept invite while /api/email/send fails.
+Expected: Toast that teammates were not notified (Dashboard handleAcceptInvite does this).
+Actual: Navigates to book; notifyError discarded.
+Status: open
+---
+BUG-102 | SEVERITY: high | AREA: invites API
+Title: create invite does not reject emails already in book.roles
+Where: api/invites.ts:215-241
+Repro: Invite teammate@ already listed in book.roles with another uid/email match; create again.
+Expected: 400 “already a member”.
+Actual: Only blocks inviting your own email; pending invite row overwritten for existing members.
+Status: open
+---
+BUG-103 | SEVERITY: medium | AREA: Settings / density
+Title: BookView “D” hotkey writes byjan.density separately from prefs.uiDensity
+Where: src/pages/BookView.tsx:639-641, 667-670; src/lib/app-prefs.ts:263
+Repro: Set Density Compact in Settings+Save; open book; press D; reload.
+Expected: Single source of truth (appPrefs.uiDensity).
+Actual: Keyboard path mutates dataset + byjan.density; fights applyUiChrome(prefs).
+Status: open
+---
+BUG-104 | SEVERITY: medium | AREA: Settings / listPageSize no-op on money books
+Title: Rows per list preference never seeds BookView pagination
+Where: Settings.tsx:400-409; BookView.tsx:292; ListControls usePagedList default 10
+Repro: Set Rows per list to 50; Save; open a money book Expenses tab.
+Expected: itemsPerPage initializes from prefs.listPageSize.
+Actual: useState(10) hardcoded; Business PagedList alone reads getRuntimePrefs().listPageSize.
+Status: open
+---
+BUG-105 | SEVERITY: high | AREA: offline queue race
+Title: flushOfflineQueue has no in-flight mutex — concurrent flushes can double-create
+Where: src/lib/money-offline.ts:61-81; BookView.tsx:601-615
+Repro: Queue offline entry; trigger mount sync + networkStatusChange connected nearly together.
+Expected: Single-flight lock; second flush waits or no-ops.
+Actual: Both loops read same queue before remove; expense create race before idempotency row exists (TOCTOU).
+Status: open
+---
+BUG-106 | SEVERITY: high | AREA: offline queue / UI
+Title: After sync, offline placeholder row remains beside server expense
+Where: BookView.tsx:1332-1334, 604-610; api/_lib/pg-tables.ts:1718
+Repro: Save offline (local id = idempotencyKey); reconnect on that book; watch list.
+Expected: Replace/remove offlineQueued placeholder when flush returns server expense.
+Actual: applyExpenseLocal(server) uses newLedgerId(); filter keeps idempotencyKey row → duplicate lines until reload.
+Status: open
+---
+BUG-107 | SEVERITY: medium | AREA: Split / percentage
+Title: Initial % shares use Math.round(100/n) and often fail “must total 100%”
+Where: SplitExpenseSheet.tsx:79; money-splits.ts:85-86
+Repro: Open Split on a 3-member book; switch method to %.
+Expected: Percents sum to 100 (e.g. 34/33/33).
+Actual: 33+33+33=99 → allocateSplit errors until user edits.
+Status: open
+---
+BUG-108 | SEVERITY: medium | AREA: TraceOps
+Title: Failed email rows have no Retry action
+Where: src/pages/TraceOps.tsx:167-176; api/ops/trace.ts (GET-only)
+Repro: Open /trace with email.send failures listed.
+Expected: Retry last payload / deep-link to resend tooling.
+Actual: Failures are display-only; Refresh reloads log only.
+Status: open
+---
+BUG-109 | SEVERITY: low | AREA: TraceOps empty state
+Title: Empty freeTiers array renders blank health grid with no copy
+Where: TraceOps.tsx:121-134
+Repro: Trace payload with freeTiers: [] (or truncated error body that still passes).
+Expected: “No health tiles” empty state.
+Actual: Empty <section className="trace-grid">.
+Status: open
+---
+BUG-110 | SEVERITY: medium | AREA: AccessControl
+Title: Person feature search and role feature search share one featureQuery state
+Where: AccessControl.tsx:190, 335-343, 387-401
+Repro: Select a person; type a feature filter; scroll to Role defaults tree.
+Expected: Independent search fields.
+Actual: Same featureQuery filters both trees; clearing one clears the other.
+Status: open
+---
+BUG-111 | SEVERITY: high | AREA: AccessControl / FeatureGate
+Title: money_export toggle does not gate BookView PDF/CSV download
+Where: features.ts:47; BookView.tsx:1065-1172, 2154-2174, 2759-2764
+Repro: Super-user turns money_export off for a member; member opens book → Download report.
+Expected: Export hidden/disabled.
+Actual: Feature key never checked; downloads always available when UI chrome is.
+Status: open
+---
+BUG-112 | SEVERITY: medium | AREA: Settings / FeatureGate
+Title: Toast / keyboard / confirm toggles hidden unless business feature on
+Where: Settings.tsx:465-477 (inside hasFeature('business'))
+Repro: Money-only account; open Settings looking for “Toast notifications” or shortcuts.
+Expected: App-wide prefs available without Business.
+Actual: Entire “Posting and control” block (incl. showToasts, keyboardShortcuts) gated on business.
+Status: open
+---
+BUG-113 | SEVERITY: medium | AREA: invites peek privacy
+Title: wrong_account returned before closed/missing checks — leaks invitee email
+Where: api/invites.ts:136-154
+Repro: Signed-in as A; open invite already declined that was for B.
+Expected: closed/missing without revealing B’s address (or generic denial).
+Actual: status wrong_account with invitedEmail even when invite not pending.
+Status: open
+---
+BUG-114 | SEVERITY: low | AREA: InviteAccept
+Title: Accept always navigates with ?setupUpi=1 even if settlements feature off
+Where: InviteAccept.tsx:60, 108; features money_settle
+Repro: Accept invite as user with money_settle disabled.
+Expected: Open book without UPI setup query (or no-op handled).
+Actual: setupUpi=1 always appended.
+Status: open
+---
+BUG-115 | SEVERITY: medium | AREA: Books Recurring
+Title: reset() after save leaves interstate / tax / account / autoPost / dueDays sticky
+Where: src/books/modules/accounting/Recurring.tsx:37-46 vs state 19-24
+Repro: Create invoice template with Interstate+custom due days; save; open New again.
+Expected: Form defaults reset fully.
+Actual: reset clears name/price/party but not interstate, taxCode, accountId, autoPost, dueDays.
+Status: open
+---
+BUG-116 | SEVERITY: medium | AREA: Books Recurring
+Title: “Recurring” templates have no cadence — only manual Run now
+Where: Recurring.tsx:49-52, 203-222; createRecurring payloads
+Repro: Create invoice template; look for schedule/cron/next run fields.
+Expected: Frequency + next run (or rename to Templates).
+Actual: UI only supports Run now; subtitle implies recurring runs.
+Status: open
+---
+BUG-117 | SEVERITY: medium | AREA: Split settlements
+Title: peopleFromBook labels members by email local-part, not displayName
+Where: src/lib/money-splits.ts:7-14
+Repro: Split sheet / settlement suggestions for users with display names.
+Expected: Prefer profile/display name when available on role row.
+Actual: name = email.split('@')[0] || uid only (roles lack displayName).
+Status: open
+---
+BUG-118 | SEVERITY: medium | AREA: CapturePreview
+Title: Review sheet cannot edit merchant (only amount/description/category/method)
+Where: CapturePreviewSheet.tsx:81-123; confirmCapture uses preview.merchant
+Repro: Share SMS with wrong merchant parse; open Review before adding.
+Expected: Editable merchant field.
+Actual: No merchant input; wrong merchant persists on confirm.
+Status: open
+---
+BUG-119 | SEVERITY: medium | AREA: RegularPayments
+Title: listAllExpenses failure yields empty success UI, not error
+Where: RegularPayments.tsx:18-32
+Repro: Break expenses API; open /regular-payments.
+Expected: Error banner + retry.
+Actual: catch-less finally; patterns empty → “No recurring patterns yet”.
+Status: open
+---
+BUG-120 | SEVERITY: low | AREA: RegularPayments
+Title: Copy says “confirm before treating as fixed” but no confirm control exists
+Where: RegularPayments.tsx:62-64, 74-108
+Repro: Open Regular payments with detected patterns.
+Expected: Confirm/dismiss per pattern (or change copy).
+Actual: Read-only cards; no confirm action.
+Status: open
+---
+BUG-121 | SEVERITY: medium | AREA: Split edge case
+Title: Solo book / zero selected people: sheet opens empty with no recovery hint
+Where: SplitExpenseSheet.tsx:69-84, 145-148
+Repro: Book with only you; open Split; deselect all.
+Expected: Guidance to invite people / cannot split alone.
+Actual: Empty list; Save toasts “Select at least one member” only.
+Status: open
+---
+BUG-122 | SEVERITY: medium | AREA: Split / zero amount
+Title: Zero-amount expense still opens Split UI that hard-fails allocate
+Where: money-splits.ts:33, 73; SplitExpenseSheet open with amount=0
+Repro: Draft/zero amount entry → Split.
+Expected: Block open or disable Save with clear banner upfront.
+Actual: fillLockedAmounts/allocateSplit return ok:false; easy to miss until Save.
+Status: open
+---
+BUG-123 | SEVERITY: medium | AREA: AppPrefs
+Title: getMe() overwrites in-progress Settings edits without dirty guard
+Where: AppPrefsContext.tsx:61-77
+Repro: Change density slider (unsaved); trigger profile refresh / remount provider effect.
+Expected: Don’t clobber dirty local prefs.
+Actual: setPrefs(mergeFromRemote(...)) always applies remote.
+Status: open
+---
+BUG-124 | SEVERITY: medium | AREA: offline queue
+Title: Queue silently truncated to 200 with no user warning
+Where: money-offline.ts:31
+Repro: Enqueue >200 offline expenses.
+Expected: Warn that oldest were dropped.
+Actual: rows.slice(0, 200) on write; data loss silent.
+Status: open
+---
+BUG-125 | SEVERITY: high | AREA: idempotency race
+Title: putIdempotent ON CONFLICT DO NOTHING can leave second expense without cache hit protection mid-flight
+Where: api/_lib/money-handlers.ts:117-125; tracker.ts:356-410
+Repro: Two parallel create with same idempotencyKey before either stores response.
+Expected: Unique constraint / transaction so second waits or returns first expense.
+Actual: Both may pass checkExpenseIdempotency miss; both ledgerSaveExpense; second put no-ops — two expenses.
+Status: open
+---
+BUG-126 | SEVERITY: medium | AREA: FeatureGate
+Title: money_email_send action exists in Access tree but is never enforced in BookView
+Where: features.ts:39; BookView email/notify paths
+Repro: Turn money_email_send off; trigger team notify / invite email from book.
+Expected: Send paths gated.
+Actual: No hasFeature('money_email_send') usages in UI; toggle is a no-op.
+Status: open
+---
+BUG-127 | SEVERITY: medium | AREA: InviteAccept
+Title: Empty inviteId shows blank invitation card (no missing state)
+Where: InviteAccept.tsx:20-21, 116-118
+Repro: Visit /invite/ or route with empty param.
+Expected: missing/error copy.
+Actual: load() returns early; peek stays null; only title + Back link.
+Status: open
+---
+BUG-128 | SEVERITY: low | AREA: invites API
+Title: decline on unknown id still returns ok:true
+Where: api/invites.ts:313-334
+Repro: Decline fabricated invite id while signed in.
+Expected: 404 if invite missing.
+Actual: if (invite) close…; always json 200 { ok: true }.
+Status: open
+---
+BUG-129 | SEVERITY: medium | AREA: BooksApp routes
+Title: Unknown /books/* paths silently Navigate to /books index
+Where: BooksApp.tsx:118
+Repro: Open /books/not-a-real-module or stale bookmark.
+Expected: 404 empty state with link home.
+Actual: Catch-all replace to /books — looks like a successful load of Dashboard.
+Status: open
+---
+BUG-130 | SEVERITY: medium | AREA: a11y
+Title: Settings category remove control is icon-only without aria-label
+Where: Settings.tsx:508-512
+Repro: Screen reader on custom category chips.
+Expected: “Remove {category}”.
+Actual: Bare × button (also see related BUG-036 if present in earlier pass — this line still unlabeled).
+Status: open
+---
+BUG-131 | SEVERITY: medium | AREA: a11y
+Title: Header notifications Bell buttons lack aria-label (title only)
+Where: Layout.tsx:207-215, ~253-261
+Repro: SR focus on bell.
+Expected: aria-label="Notifications" (+ unread).
+Actual: title="Notifications" only on icon button.
+Status: open
+---
+BUG-132 | SEVERITY: medium | AREA: a11y
+Title: Settings Switch lacks role="switch" / aria-checked
+Where: Settings.tsx:19-34
+Repro: Axe / SR on Voice start sound and business toggles.
+Expected: switch semantics.
+Actual: unlabeled-as-switch plain button.
+Status: open
+---
+BUG-133 | SEVERITY: low | AREA: a11y
+Title: LedgerStudio filter Switch is aria-pressed but nameless control
+Where: LedgerStudio.tsx:107-109
+Repro: SR on Hide amounts switch in Studio.
+Expected: accessible name from Row label (aria-labelledby) or aria-label.
+Actual: Empty <button aria-pressed> — name not associated.
+Status: open
+---
+BUG-134 | SEVERITY: medium | AREA: Share / capture
+Title: Text-only share clears pending before CapturePreview confirm — back loses payload
+Where: BookView.tsx:594-598
+Repro: Share text SMS; preview opens; system back before Add.
+Expected: Keep pending until confirmed/cancelled explicitly.
+Actual: clearPendingCapture() immediately when preview set.
+Status: open
+---
+BUG-135 | SEVERITY: medium | AREA: ShareIntent
+Title: listLedgers() after share can navigate away from picker mid-choice
+Where: ShareIntentListener.tsx:156-189
+Repro: Share with 2+ books; picker starts; server returns length===1 due to filter/archive race.
+Expected: Don’t auto-navigate after user sees picker.
+Actual: Async then may navigate to sole book after Home capture UI already shown.
+Status: open
+---
+BUG-136 | SEVERITY: medium | AREA: Privacy
+Title: Hide amounts not offered in Settings — only Studio / H hotkey / localStorage
+Where: BookView privacy state; Settings has no privacy Switch
+Repro: Look in Settings for hide amounts.
+Expected: Account-visible toggle (and sync).
+Actual: Discoverability limited to Studio Show tab / keyboard H.
+Status: open
+---
+BUG-137 | SEVERITY: medium | AREA: voice sound
+Title: voiceStartSound applies immediately via setPref but reverts if user leaves without Save
+Where: Settings.tsx:275; AppPrefsContext setPref vs savePrefs; baseline dirty bar
+Repro: Turn off recording sound; leave Settings without Save; reopen voice.
+Expected: Either auto-save this toggle or don’t apply until Save.
+Actual: Runtime cue off until remount/getMe restores saved true.
+Status: open
+---
+BUG-138 | SEVERITY: medium | AREA: FeatureGate / money_live
+Title: money_activity route gate ignores parent money_live module semantics
+Where: App.tsx FeatureGate money_activity; featureOn does not require parent
+Where-code: features.ts:288-292; AccessControl parentOff only in UI tree
+Repro: Turn off money_live parent in access map inconsistently; keep money_activity true.
+Expected: Parent-off disables children (normalizeFeatures / featureOn).
+Actual: featureOn checks key only; UI tree disables clicks but stored map can be inconsistent.
+Status: open
+---
+BUG-139 | SEVERITY: medium | AREA: AccessControl save
+Title: Saving person features does not call invalidateRolePermissionCache / force peer refresh
+Where: AccessControl.tsx:245-259
+Repro: Change another user’s features; they keep old session map until relaunch.
+Expected: Documented push/invalidate or version bump.
+Actual: Toast only; peer cache stale (role save invalidates, person save does not).
+Status: open
+---
+BUG-140 | SEVERITY: low | AREA: TraceOps
+Title: Recent events empty state only; Email pipeline lacks empty “no sends yet” when sent+fails empty beyond lastFail line
+Where: TraceOps.tsx:152-154, 179-190
+Repro: Fresh env with zero email traffic.
+Expected: Explicit empty for sent list section.
+Actual: sent section omitted entirely; only “No recent email.send failures”.
+Status: open
+---
+BUG-141 | SEVERITY: medium | AREA: create expense amount 0
+Title: API allows amount 0 as draft; clients can queue offline zero drafts that sync as drafts
+Where: api/tracker.ts:372-388; BookView payload status draft when amount 0
+Repro: Save 0 amount offline; flush.
+Expected: Block zero at enqueue or confirm draft intent.
+Actual: Allowed; clutter in ledgers.
+Status: open
+---
+BUG-142 | SEVERITY: medium | AREA: invite create role validation
+Title: Invite create accepts arbitrary role strings
+Where: api/invites.ts:206, 230-234
+Repro: POST create with role: "superadmin" or typo.
+Expected: Allowlist owner/admin/contributor/viewer/auditor.
+Actual: Any non-empty string stored and applied on accept.
+Status: open
+---
+BUG-143 | SEVERITY: medium | AREA: accept invite
+Title: Accept does not verify book still exists as non-deleted / roles writable
+Where: api/invites.ts:283-293
+Repro: Delete/archive book after invite; accept.
+Expected: Clear closed error.
+Actual: 404 only if ledgerGet null; soft-deleted book shapes may still add roles.
+Status: open
+---
+BUG-144 | SEVERITY: low | AREA: InviteAccept loading
+Title: Loader shown only when loading && !peek — errors during reload keep stale peek
+Where: InviteAccept.tsx:35, 30-33
+Repro: Accept page loaded; switch account; peek refetches.
+Expected: Loading overlay or disable actions while refreshing.
+Actual: Stale Accept/Decline remain clickable with old peek.
+Status: open
+---
+BUG-145 | SEVERITY: medium | AREA: settlements / zero people
+Title: suggestSettlements with empty people array still emits settlements with raw uids
+Where: money-splits.ts:150-180, 183-186
+Repro: Call suggestSettlements with expenses that have splits but people=[].
+Expected: Skip or require people map.
+Actual: Settlements created; formatSettlementLine falls back to uid strings.
+Status: open
+---
+BUG-146 | SEVERITY: medium | AREA: Books settings letterhead
+Title: BooksSettings Save may not validate GSTIN format
+Where: BooksSettings.tsx:63-64 (gstin free text)
+Repro: Enter invalid GSTIN; save company profile.
+Expected: Format check (15-char GSTIN).
+Actual: Free text saved to tenant used on invoices.
+Status: open
+---
+BUG-147 | SEVERITY: medium | AREA: FeatureGate mismatch
+Title: Home “See all” activity link gated, but recent entries section still lists activity-like data when money_activity off
+Where: Dashboard.tsx:1269-1273
+Repro: Disable money_activity; open Home with recent entries.
+Expected: Hide activity-like recent block or keep consistent.
+Actual: Recent entries show; “See all” becomes inert <span />.
+Status: open
+---
+BUG-148 | SEVERITY: medium | AREA: offline / BookView
+Title: Successful flush toast even when some queue items fail in same pass
+Where: BookView.tsx:604-610
+Repro: Queue 2 offline items; first syncs, second 400s.
+Expected: Report partial failure.
+Actual: Toast “Synced N offline entries” for ok only — failed item silent except lastError in storage.
+Status: open
+---
+BUG-149 | SEVERITY: low | AREA: CapturePreview
+Title: Amount input empty string when fromPaise is 0 — controlled input flicker
+Where: CapturePreviewSheet.tsx:88
+Repro: Preview with amountPaise 0.
+Expected: Show 0.
+Actual: value={fromPaise(...) || ''} clears field.
+Status: open
+---
+BUG-150 | SEVERITY: medium | AREA: Share fingerprint debounce
+Title: 1.5s fingerprint debounce can drop a second distinct share of same file size/header
+Where: ShareIntentListener.tsx:127-132
+Repro: Share two different images that share JPEG header prefix quickly.
+Expected: Both processed (receivedAt differs — included in fp).
+Actual: If receivedAt collision / clock skew and mid-slice collide, second share ignored for 1.5s.
+Status: open
+---
+BUG-151 | SEVERITY: medium | AREA: RegularPayments / Autopilot
+Title: Anomalies section shows without money_inbox / separate feature gate
+Where: RegularPayments.tsx:112-123; App FeatureGate only money_recurring
+Repro: Disable money_inbox; open Regular payments.
+Expected: Anomalies respect insight/inbox feature.
+Actual: detectAnomalies always rendered when page open.
+Status: open
+---
+BUG-152 | SEVERITY: medium | AREA: AccessControl roles
+Title: Role chip “owner” missing from role defaults editor
+Where: AccessControl.tsx:367
+Repro: Edit ROLE → FEATURE; look for owner defaults.
+Expected: owner / viewer / contributor / admin / DEFAULT_USER.
+Actual: DEFAULT_USER, viewer, contributor, admin only — no owner.
+Status: open
+---
+BUG-153 | SEVERITY: medium | AREA: InviteAccept / UPI
+Title: setupUpi=1 opens UPI sheet without clearing query or checking money_settle
+Where: BookView.tsx:501-506; InviteAccept navigate with setupUpi=1
+Repro: Accept invite; land on book; dismiss UPI; refresh/back.
+Expected: Consume query (replace URL); respect money_settle gate.
+Actual: Effect re-opens sheet whenever search still has setupUpi; no feature check.
+Status: open
+---
+BUG-154 | SEVERITY: medium | AREA: display prefs
+Title: Org “Reset to organization default” does not persist until Save
+Where: AppPrefsContext resetToOrgDefaults; Settings.tsx:432
+Repro: Reset to org default; leave without Save.
+Expected: Either persist or mark dirty clearly (dirty bar exists — verify baseline).
+Actual: Local prefs change; baseline still old until Save — easy to lose reset on navigate away if dirty bar missed.
+Status: open
+---
+BUG-155 | SEVERITY: medium | AREA: UPI settings
+Title: UPI section hidden when money_settle off even if user already has upiId
+Where: Settings.tsx:246-266
+Repro: User saved UPI; admin disables money_settle.
+Expected: Read-only view of existing UPI or manage path.
+Actual: Entire section hidden; cannot update/remove ID in Settings.
+Status: open
+---
+BUG-156 | SEVERITY: low | AREA: TraceOps
+Title: Refresh button not aria-busy; skeleton aria-busy only on first load
+Where: TraceOps.tsx:95-116
+Repro: Click Refresh with SR.
+Expected: aria-busy on main region while reloading.
+Actual: Disabled button + spin class; data stays visible without busy announcement.
+Status: open
+---
+BUG-157 | SEVERITY: medium | AREA: money-splits exact method
+Title: Exact method with all zeros passes allocate when total is 0 only; when total>0 zeros fail — OK; locked partial can assign remainder to index 0 only
+Where: money-splits.ts:59-62
+Repro: Partial auto; lock none; one free member — OK. With freeIdx, remainder always dumped on freeIdx[0].
+Expected: Documented; or distribute remainder fairly across free members.
+Actual: First unlocked member always absorbs paise remainder (bias).
+Status: open
+---
+BUG-158 | SEVERITY: medium | AREA: FeatureGate
+Title: /notifications gated on app_notifications but not app_notifications_bell
+Where: App.tsx:60; Layout bell requires both
+Repro: Enable app_notifications, disable app_notifications_bell; open /notifications.
+Expected: Consistent (page or bell both off).
+Actual: Full page works; header bell hidden.
+Status: open
+---
+BUG-159 | SEVERITY: medium | AREA: InviteAccept / auth
+Title: peek auth_required when token missing, but Accept page still shows “Back to Byjan” into Protected app
+Where: InviteAccept.tsx:89-93, 139
+Repro: Logged-out invite link; tap Back to Byjan.
+Expected: Stay on login or returnTo invite.
+Actual: Link to "/" hits ProtectedRoute → login without preserving invite returnTo (goLogin does set returnTo; Back does not).
+Status: open
+---
+BUG-160 | SEVERITY: medium | AREA: BooksApp / FeatureGate
+Title: Business FeatureGate is binary; module-level sales/buying off still routable via URL
+Where: App.tsx books/* FeatureGate feature="business"; BooksApp routes unfiltered by allowsHref
+Repro: Disable sales module; navigate /books/invoices directly.
+Expected: Gate or empty by allowsHref/filterBooksTree.
+Actual: Route renders module if business parent on; nav tree hides link only.
+Status: open
+---
 
-Summary count: 100 bugs written (BUG-001 … BUG-100).
-Prioritize fixing: BUG-001, BUG-002, BUG-003, BUG-004, BUG-005, BUG-006, BUG-007, BUG-008, BUG-009, BUG-011.
+Summary count: 160 bugs in log (BUG-001 … BUG-160). This append: +60 (BUG-101 … BUG-160).
+Highest severities in this append: high — BUG-102, BUG-105, BUG-106, BUG-111, BUG-125.
+Prioritize fixing: BUG-102, BUG-105, BUG-106, BUG-111, BUG-125, BUG-101, BUG-107, BUG-110.
 
 === FIX CYCLE 1 (2026-09-18T16:29:54.0125304+05:30) ===
 FIXED: BUG-001 UPI client success no longer marks PAID (await confirmation / receiver confirm)
@@ -818,3 +1300,7 @@ FIXED: BUG-008 allowBackup=false
 FIXED: BUG-009 webContentsDebuggingEnabled only when BYJAN_WEBVIEW_DEBUG=1
 FIXED: BUG-014 email HTML body escaped when not full document
 UI FIXED earlier: FAB book-only, no book Add/Scan/Mic, full-width home reel
+
+FIXED: BUG-007 InviteAccept wrapped in AppLockGate when signed in
+FIXED: BUG-003 handoff idToken moved to URL hash fragment
+
