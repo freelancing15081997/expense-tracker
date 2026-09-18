@@ -423,11 +423,12 @@ async function handleExpenses(req: VercelRequest, res: VercelResponse) {
       const expenseId = String(body.expenseId || body.expense && (body.expense as { id?: string }).id || '').trim();
       if (!bookId || !expenseId) throw new ApiError(400, 'Missing expense');
       await ledgerRequireWriter(bookId, user.uid);
-      const current = await ledgerGetExpense(bookId, expenseId);
-      if (!current) throw new ApiError(404, 'Expense not found');
       const patch = body.expense && typeof body.expense === 'object' && !Array.isArray(body.expense)
         ? body.expense as Record<string, unknown>
         : {};
+      const restoring = patch.deleted === false || patch.deletedAt === null;
+      const current = await ledgerGetExpense(bookId, expenseId, { includeDeleted: restoring });
+      if (!current) throw new ApiError(404, 'Expense not found');
       const saved = await ledgerSaveExpense(bookId, {
         ...current,
         ...patch,

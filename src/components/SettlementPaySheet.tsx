@@ -276,7 +276,7 @@ export default function SettlementPaySheet({
       await markSettlementReview(bookId, settlement.id, 'Receiver: I did not get this payment');
       onToast('Marked as not received — flagged for review', 'error');
       onChanged();
-      onPaid?.();
+      // Do not call onPaid — that clears ?pay= as if the settlement was paid.
       onClose();
     } catch (err) {
       onToast(err instanceof Error ? err.message : 'Could not update', 'error');

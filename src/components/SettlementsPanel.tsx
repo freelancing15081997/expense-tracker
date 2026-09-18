@@ -116,10 +116,7 @@ export default function SettlementsPanel({
   };
 
   const closePay = () => {
-    if (payTarget?.id && initialPayId && payTarget.id === initialPayId) {
-      consumedPay.current = initialPayId;
-      onPayConsumed?.();
-    }
+    // Closing / deny must not clear ?pay= — only onPaid consumes the deep link.
     setPayTarget(null);
     setPayFromNotification(false);
   };

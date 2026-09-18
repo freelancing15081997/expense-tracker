@@ -156,9 +156,13 @@ export default function Settings() {
     }
     setAccountBusy('delete');
     try {
-      await deleteAccount();
+      const result = await deleteAccount();
       setAuthNotice('Your Byjan account was deleted.');
-      await deleteCurrentAuthUser();
+      if (result?.authDeleted) {
+        await logout();
+      } else {
+        await deleteCurrentAuthUser();
+      }
       navigate('/login', { replace: true });
     } catch (err) {
       addToast(err instanceof Error ? err.message : 'Could not delete this account', 'error');

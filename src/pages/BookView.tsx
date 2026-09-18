@@ -1257,7 +1257,10 @@ export default function BookView() {
     }
     const cap = Number(book.dailyCap || 0);
     const extra = entryType === 'out' ? Number(amount || 0) : 0;
-    if (wouldBreakDailyCap(expenses, cap, extra, entryDate) && !window.confirm(`This would go past the daily cap of ${getCurrencySymbol(book.currency)}${cap.toLocaleString()}. Record anyway?`)) {
+    const capBase = editingExpense
+      ? expenses.filter((e) => String(e.id) !== String(editingExpense.id))
+      : expenses;
+    if (wouldBreakDailyCap(capBase, cap, extra, entryDate) && !window.confirm(`This would go past the daily cap of ${getCurrencySymbol(book.currency)}${cap.toLocaleString()}. Record anyway?`)) {
       setIsSaving(false);
       return;
     }

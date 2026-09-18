@@ -2492,3 +2492,9 @@ FIXED: Outline assertions use >=0.5px for device DPR
 VERIFIED: Home Split opens book pick then entry pick (Which entry?) — flow wired
 VERIFIED: Reel large translucent 220x168 on hero whitespace
 MATRIX: 2000 unique cases; re-running to clear remaining fails
+
+=== FIX CYCLE BUG-215..253 (2026-09-18T22:21:20.0389659+05:30) ===
+FIXED BUG-215: ledgerGetExpense includeDeleted on restore; tracker update uses it — undo soft-delete no longer 404s
+FIXED BUG-216: Edit daily-cap excludes current expense id (capBase filter)
+FIXED BUG-217: didNotReceive no longer calls onPaid; closePay no longer clears ?pay= (only onPaid does)
+FIXED BUG-253: Settings skips client Firebase delete when server authDeleted=true; logout instead
