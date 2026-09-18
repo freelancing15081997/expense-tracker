@@ -197,6 +197,9 @@ const fab = await evalJs(send, `(() => {
 })()`);
 
 check('fab-exists', Boolean(fab.exists), fab);
+const centerX = fab.viewport ? fab.viewport.vw / 2 : 0;
+const fabMid = fab.rect ? fab.rect.x + fab.rect.w / 2 : 0;
+const centered = Math.abs(fabMid - centerX) < 40;
 check('fab-visible', Boolean(fab.exists && fab.visible), {
   visible: fab.visible,
   rect: fab.rect,
@@ -205,6 +208,7 @@ check('fab-visible', Boolean(fab.exists && fab.visible), {
   pointerEvents: fab.pointerEvents,
   anchorPointer: fab.anchorPointer,
 });
+check('fab-centered', Boolean(fab.exists && centered), { fabMid: Math.round(fabMid), centerX: Math.round(centerX), delta: Math.round(Math.abs(fabMid - centerX)) });
 
 if (fab.exists) {
   await evalJs(send, `document.querySelector('.dash-fab-center')?.click()`);
