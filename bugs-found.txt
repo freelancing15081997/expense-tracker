@@ -2463,3 +2463,13 @@ FIXED: Scenario matrix now runs real deep UI checks (books x tabs x FAB, setting
 === FIX CYCLE 5 (2026-09-18T20:13:27.2428756+05:30) ===
 FIXED: Login on Capacitor never runs web nativeApp=1&google=1 auto-SSO (was web-shell path)
 FIXED: Google button on native skips website?app handoff redirect
+
+=== COSMETIC+FLOW CYCLE (2026-09-18T20:48:37.0872380+05:30) ===
+BUG-C501: Home Split skipped book/entry pick and jumped to settlements — FIXED (BookPick ? SplitEntryPick ? SplitExpenseSheet)
+BUG-C502: Feature reel too small / opaque / wasted as solid chip — FIXED (large translucent reel on hero whitespace behind amount)
+BUG-C503: Split settlements cards lacked visible outlines — FIXED (stx-card glass + border)
+BUG-C504: Split/payment sheet rows and method chips lacked outlines — FIXED (sp-row, sp-methods, sp-fill-opt, entry-split-cta)
+BUG-C505: Home pills missing consistent outline stroke — FIXED (home-pill border + tone-split outline)
+BUG-C506: Payment confirm pair solid fill heavy color — FIXED (transparent glass confirm pair)
+BUG-C507: stx-icon tiles no outline — FIXED (border + translucent back)
+BUG-C508: Split entry picker missing entirely from home flow — FIXED (SplitEntryPickSheet)

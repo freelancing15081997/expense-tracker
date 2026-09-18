@@ -26,11 +26,13 @@
   flex-direction: column;
   overflow: hidden;
   border-radius: 28px 28px 0 0;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 1) inset,
-    0 -28px 80px -24px rgba(15, 23, 42, 0.28);
+    0 -28px 80px -24px rgba(15, 23, 42, 0.22);
   color: #0f172a;
   padding: 10px 16px 22px;
   animation: sp-up 280ms cubic-bezier(0.22, 1, 0.36, 1);
@@ -58,8 +60,8 @@
   margin: 4px 0 8px;
   padding: 14px 14px 12px;
   border-radius: 18px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  background: linear-gradient(180deg, #f8fafc, #fff);
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: rgba(248, 250, 252, 0.65);
 }
 
 .sp-confirm-lead {
@@ -236,14 +238,14 @@
   gap: 6px;
   padding: 4px;
   border-radius: 16px;
-  background: #f1f5f9;
-  border: 1px solid rgba(15, 23, 42, 0.05);
+  background: rgba(241, 245, 249, 0.55);
+  border: 1px solid rgba(15, 23, 42, 0.12);
   margin-bottom: 12px;
 }
 
 .sp-methods button {
   min-height: 44px;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: 12px;
   background: transparent;
   color: #64748b;
@@ -258,9 +260,10 @@
 }
 
 .sp-methods button.is-on {
-  background: #fff;
+  background: rgba(255, 255, 255, 0.9);
   color: #0f172a;
-  box-shadow: 0 6px 16px -12px rgba(15, 23, 42, 0.45);
+  border-color: rgba(15, 23, 42, 0.14);
+  box-shadow: none;
 }
 
 .sp-partners {
@@ -338,9 +341,9 @@
   gap: 8px;
   align-items: flex-start;
   padding: 9px 10px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  border: 1px solid rgba(15, 23, 42, 0.14);
   border-radius: 14px;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.75);
   cursor: pointer;
 }
 
@@ -598,15 +601,15 @@
   align-items: center;
   padding: 10px 12px;
   border-radius: 16px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  background: rgba(255, 255, 255, 0.7);
   box-shadow: none;
   transition: border-color 120ms ease, background 120ms ease, transform 100ms ease;
 }
 
 .sp-row.is-on {
-  border-color: rgba(15, 23, 42, 0.18);
-  background: #f8fafc;
+  border-color: rgba(15, 23, 42, 0.22);
+  background: rgba(248, 250, 252, 0.85);
   box-shadow: none;
 }
 
@@ -763,8 +766,8 @@
   justify-content: center;
   gap: 6px;
   border-radius: 10px;
-  border: 1px solid rgba(15, 23, 42, 0.1);
-  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.16);
+  background: rgba(255, 255, 255, 0.72);
   color: #0f172a;
   font-size: 11px;
   font-weight: 700;

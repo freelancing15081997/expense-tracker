@@ -513,7 +513,7 @@ export default function Dashboard() {
 
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [receiptLaunch, setReceiptLaunch] = useState<ReceiptLaunch | null>(null);
-  const [bookPickKind, setBookPickKind] = useState<'add' | 'scan' | 'voice' | 'share' | null>(null);
+  const [bookPickKind, setBookPickKind] = useState<'add' | 'scan' | 'voice' | 'share' | 'split' | null>(null);
   const [sharePending, setSharePending] = useState<PendingCapture | null>(null);
   const [sharePickBooks, setSharePickBooks] = useState<Array<{ id: string; name: string }>>([]);
   const [sharePickLoading, setSharePickLoading] = useState(false);
@@ -733,7 +733,7 @@ export default function Dashboard() {
     else setBookPickKind('voice');
   };
 
-  const requestQuick = (kind: 'add' | 'scan' | 'voice') => {
+  const requestQuick = (kind: 'add' | 'scan' | 'voice' | 'split') => {
     if (loading) {
       setBookPickKind(kind);
       return;
@@ -744,6 +744,11 @@ export default function Dashboard() {
     }
     // Always let the user pick when more than one book; single book still confirms via sheet.
     setBookPickKind(kind);
+  };
+
+  const splitHomeEntry = (bookId: string) => {
+    rememberMoneyBook(bookId);
+    navigate(`/book/${bookId}`, { state: { openSplitPick: true } });
   };
 
   // Raised center + button on the tab bar fires these.
@@ -778,6 +783,7 @@ export default function Dashboard() {
     }
     if (kind === 'scan') void scanHomeReceipt(bookId);
     else if (kind === 'add') addHomeEntry(bookId);
+    else if (kind === 'split') splitHomeEntry(bookId);
     else voiceHomeEntry(bookId);
   };
 
@@ -797,12 +803,16 @@ export default function Dashboard() {
       ? 'Voice entry into which book?'
       : bookPickKind === 'share'
         ? 'Save share into which book?'
-        : 'Add entry into which book?';
+        : bookPickKind === 'split'
+          ? 'Split in which book?'
+          : 'Add entry into which book?';
   const pickSheetSubtitle = bookPickKind === 'scan'
     ? 'Pick several receipts or docs at once — Byjan creates an entry for each.'
     : bookPickKind === 'share'
       ? 'Pick a money book for this shared receipt'
-      : 'Pick a money book to continue';
+      : bookPickKind === 'split'
+        ? 'Choose a book, then the expense you want to split with your team.'
+        : 'Pick a money book to continue';
 
   const changeBooksView = (next: BooksView) => {
     setBooksView(next);
@@ -1124,6 +1134,7 @@ export default function Dashboard() {
         {createDialog}
         <section className="home-hero">
           <div className="home-hero-top">
+            {canSeeMoney ? <HomeFeatureReel /> : null}
             <div className="home-hero-main min-w-0">
               <p className="home-greet">{hello}</p>
               <h1 className="home-name">{firstName}</h1>
@@ -1165,7 +1176,6 @@ export default function Dashboard() {
                   </Link>
                 </div>
               )}
-              {canSeeMoney ? <HomeFeatureReel /> : null}
             </div>
           </div>
         </section>
@@ -1186,14 +1196,7 @@ export default function Dashboard() {
               <button
                 type="button"
                 className="home-pill tone-split"
-                onClick={() => {
-                  void CapacitorService.hapticTick();
-                  const last = lastMoneyBookId();
-                  const target = (last && visibleBooks.some((b) => b.id === last) ? last : visibleBooks[0]?.id) || '';
-                  if (target) navigate(`/book/${target}?tab=splits`);
-                  else if (hasFeature('money_create_book')) setShowNewBook(true);
-                  else navigate('/expenses');
-                }}
+                onClick={() => { void CapacitorService.hapticTick(); requestQuick('split'); }}
               >
                 <Split className="w-4 h-4" strokeWidth={2.4} />
                 Split

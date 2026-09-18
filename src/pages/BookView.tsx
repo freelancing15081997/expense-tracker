@@ -66,6 +66,7 @@ import { buildCapturePreview } from '../lib/money-capture';
 import CapturePreviewSheet from '../components/CapturePreviewSheet';
 import ReceiptCaptureFlow, { type ReceiptLaunch } from '../components/ReceiptCaptureFlow';
 import SplitExpenseSheet from '../components/SplitExpenseSheet';
+import SplitEntryPickSheet from '../components/SplitEntryPickSheet';
 import { ENTRY_PAY_METHODS, UpiBrandMark } from '../components/UpiBrandMark';
 import '../components/split-premium.css';
 import SettlementsPanel from '../components/SettlementsPanel';
@@ -259,6 +260,7 @@ export default function BookView() {
   const [successExpense, setSuccessExpense] = useState<Record<string, unknown> | null>(null);
   const [successCount, setSuccessCount] = useState(1);
   const [splitTarget, setSplitTarget] = useState<{ id: string; amount: number; merchant?: string; description?: string } | null>(null);
+  const [splitPickOpen, setSplitPickOpen] = useState(false);
   const [uploadingReceipt, setUploadingReceipt] = useState(false);
   const [offlineCount, setOfflineCount] = useState(0);
   const [typeFilter, setTypeFilter] = useState('all');
@@ -617,11 +619,22 @@ export default function BookView() {
   }, [bookId, location.search]);
 
   useEffect(() => {
-    const st = location.state as { openPeople?: boolean; openEntry?: boolean; openVoice?: boolean; openScan?: boolean } | null;
+    const st = location.state as {
+      openPeople?: boolean;
+      openEntry?: boolean;
+      openVoice?: boolean;
+      openScan?: boolean;
+      openSplitPick?: boolean;
+    } | null;
     if (st?.openPeople) setIsMembersModalOpen(true);
     if (st?.openEntry) setIsExpenseModalOpen(true);
     if (st?.openVoice) setVoiceOpen(true);
     if (st?.openScan) void scanReceiptEntry();
+    if (st?.openSplitPick) {
+      setSplitPickOpen(true);
+      // Clear one-shot navigation state so back/refresh does not reopen.
+      try { navigate(location.pathname + location.search, { replace: true, state: {} }); } catch { /* ignore */ }
+    }
   }, [location.state, bookId]);
 
   // Raised center + button on the tab bar fires these while a book is open.
@@ -3395,6 +3408,47 @@ export default function BookView() {
             onDone={() => setSuccessExpense(null)}
           />
         </MoneySheet>
+      ) : null}
+
+      {splitPickOpen && bookId ? (
+        <SplitEntryPickSheet
+          open
+          bookName={book?.name}
+          currencySymbol={getCurrencySymbol(book?.currency || 'INR')}
+          entries={(expenses || [])
+            .filter((e) => !e.deleted && !e.deletedAt && String(e.entryType || 'out') === 'out' && Number(e.amount || 0) > 0)
+            .slice(0, 80)
+            .map((e) => ({
+              id: String(e.id),
+              amount: Number(e.amount || 0),
+              merchant: String(e.merchant || ''),
+              description: String(e.description || ''),
+              date: String(e.date || e.createdAt || ''),
+              alreadySplit: Array.isArray(e.personSplits) && e.personSplits.length > 0,
+            }))}
+          onClose={() => setSplitPickOpen(false)}
+          onViewSettlements={() => {
+            setSplitPickOpen(false);
+            setSearchParams((prev) => {
+              const next = new URLSearchParams(prev);
+              next.set('tab', 'splits');
+              return next;
+            });
+          }}
+          onPick={(entry) => {
+            setSplitPickOpen(false);
+            if (!canSplitEntry) {
+              addToast('Split is not available for your role', 'error');
+              return;
+            }
+            setSplitTarget({
+              id: entry.id,
+              amount: entry.amount,
+              merchant: entry.merchant,
+              description: entry.description,
+            });
+          }}
+        />
       ) : null}
 
       {splitTarget && bookId ? (
