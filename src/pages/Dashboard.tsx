@@ -49,13 +49,14 @@ function AutoFitAmount({ children, className }: { children: React.ReactNode; cla
     const text = textRef.current;
     if (!wrap || !text) return;
     const fit = () => {
-      const max = 36;
-      const min = 14;
+      const max = 40;
+      const min = 15;
       let size = max;
       text.style.fontSize = `${size}px`;
       text.style.whiteSpace = 'nowrap';
-      while (size > min && text.scrollWidth > wrap.clientWidth) {
-        size -= 1;
+      text.style.letterSpacing = '-0.06em';
+      while (size > min && text.scrollWidth > wrap.clientWidth - 4) {
+        size -= 0.5;
         text.style.fontSize = `${size}px`;
       }
     };
@@ -746,7 +747,15 @@ export default function Dashboard() {
     setBookPickKind(kind);
   };
 
+  const requestQuickRef = useRef(requestQuick);
+  requestQuickRef.current = requestQuick;
+
   const splitHomeEntry = (bookId: string) => {
+    if (!String((userProfile as { upiId?: string } | null)?.upiId || '').trim()) {
+      addToast('Add your UPI ID in Settings or Splits before creating a split.', 'error');
+      navigate('/settings');
+      return;
+    }
     rememberMoneyBook(bookId);
     navigate(`/book/${bookId}`, { state: { openSplitPick: true } });
   };
@@ -755,11 +764,11 @@ export default function Dashboard() {
   useEffect(() => {
     const onQuick = (event: Event) => {
       const kind = (event as CustomEvent<string>).detail;
-      if (kind === 'scan' || kind === 'add' || kind === 'voice') requestQuick(kind);
+      if (kind === 'scan' || kind === 'add' || kind === 'voice') requestQuickRef.current(kind);
     };
     window.addEventListener('byjan-quick', onQuick);
     return () => window.removeEventListener('byjan-quick', onQuick);
-  });
+  }, []);
 
   const onBookPicked = (bookId: string) => {
     const kind = bookPickKind;

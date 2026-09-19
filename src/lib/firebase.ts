@@ -46,10 +46,18 @@ function googleSignInError(err: unknown) {
   const anyErr = err as { code?: unknown; message?: unknown };
   const code = String(anyErr?.code || '');
   const message = String(anyErr?.message || '');
-  if (/10\b|DEVELOPER_ERROR|ApiException:\s*10/i.test(`${code} ${message}`)) {
-    return new Error('Google sign-in is not set up for this Android build. Opening the web sign-in instead.');
+  const blob = `${code} ${message}`;
+  if (/10\b|DEVELOPER_ERROR|ApiException:\s*10/i.test(blob)) {
+    return new Error(
+      'Google sign-in setup for this app build is out of date in Firebase. In Firebase Console → Project settings → Your apps → com.byjanbooks.app, add SHA-1 0D:7A:B9:91:F6:2D:8E:02:50:C1:91:86:96:F4:FB:62:FE:FE:01:28, download a fresh google-services.json, then reinstall the app.',
+    );
   }
-  if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request' || /12501|canceled|cancelled/i.test(message)) {
+  if (/\[16\]|Account reauth failed|BAD_AUTHENTICATION|Long live credential/i.test(blob)) {
+    return new Error(
+      'This phone’s Google account needs a refresh. Open Settings → Passwords & accounts → Google → your account → Remove account, add it again, then retry Continue with Google once.',
+    );
+  }
+  if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request' || /12501|canceled|cancelled|Authorization canceled/i.test(message)) {
     return new Error('Google sign-in was cancelled.');
   }
   return err instanceof Error ? err : new Error(message || 'Failed to sign in with Google');
@@ -106,8 +114,6 @@ export async function handoffGoogleToNativeApp(result: UserCredential | null | u
   const tokenResponse = (result as { _tokenResponse?: { oauthIdToken?: string } })._tokenResponse;
   const token = String(oauth?.idToken || tokenResponse?.oauthIdToken || '').trim();
   if (!token) return false;
-  // Bounce back into the installed Android app — never leave the user on the website.
-  // Prefer hash fragment over query so tokens are less likely to hit server logs / history.
   window.location.href = `${NATIVE_AUTH_SCHEME}#idToken=${encodeURIComponent(token)}`;
   return true;
 }
@@ -119,36 +125,25 @@ export async function signInWithGoogle() {
 
   if (Capacitor.isNativePlatform()) {
     bindNativeGoogleAuthBridge();
-    const tryNative = async (opts: { useCredentialManager: boolean }) => {
-      const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
+    const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
+
+    // One in-app Google account sheet only — no browser, no second picker, no extra scopes.
+    // Credential Manager + idToken is enough for Firebase (skipNativeAuth).
+    try {
       const result = await FirebaseAuthentication.signInWithGoogle({
         skipNativeAuth: true,
-        useCredentialManager: opts.useCredentialManager,
+        useCredentialManager: true,
       });
       const idToken = result.credential?.idToken;
       const accessToken = result.credential?.accessToken;
-      if (!idToken) throw new Error('Google sign-in returned no id token');
-      return signInWithCredential(auth, GoogleAuthProvider.credential(idToken, accessToken));
-    };
-
-    // Stay inside the Android Google account sheet — never open easypado.com in the WebView.
-    try {
-      return await tryNative({ useCredentialManager: false });
+      if (!idToken) {
+        console.error('Native Google sign-in missing idToken', JSON.stringify(result));
+        throw new Error('Google sign-in returned no id token');
+      }
+      return await signInWithCredential(auth, GoogleAuthProvider.credential(idToken, accessToken || undefined));
     } catch (err) {
-      const mapped = googleSignInError(err);
-      if (/cancelled/i.test(mapped.message)) throw mapped;
-      console.warn('Native Google (classic) failed; retrying Credential Manager', mapped);
-    }
-    try {
-      return await tryNative({ useCredentialManager: true });
-    } catch (err) {
-      const mapped = googleSignInError(err);
-      if (/cancelled/i.test(mapped.message)) throw mapped;
-      throw new Error(
-        mapped.message.includes('not set up')
-          ? mapped.message
-          : 'Google sign-in could not finish in the app. Check Google Play Services, then try again. (Website sign-in is disabled on mobile so you are not left in a browser.)',
-      );
+      console.error('Native Google sign-in failed', err);
+      throw googleSignInError(err);
     }
   }
 

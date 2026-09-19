@@ -24,12 +24,13 @@
     "neon:export-firestore": "node scripts/export-neon-import.mjs --firestore",
     "validate:migration": "node scripts/validate-migration.mjs",
     "preflight:check": "node scripts/preflight-check.mjs",
-    "mobile:sync": "npm run build && npx cap sync",
-    "mobile:sync:android": "npm run build && npx cap sync android",
+    "mobile:sync": "npm run build && node scripts/apply-google-auth-patch.mjs && npx cap sync",
+    "mobile:sync:android": "npm run build && node scripts/apply-google-auth-patch.mjs && npx cap sync android",
     "mobile:open:android": "npx cap open android",
-    "mobile:build:android": "npm run build && npx cap sync android && cd android && ./gradlew assembleRelease",
-    "mobile:build:android:bundle": "npm run build && npx cap sync android && cd android && ./gradlew bundleRelease",
-    "mobile:run:android": "npm run build && npx cap sync android && npx cap run android"
+    "mobile:build:android": "npm run build && node scripts/apply-google-auth-patch.mjs && npx cap sync android && cd android && ./gradlew assembleRelease",
+    "mobile:build:android:bundle": "npm run build && node scripts/apply-google-auth-patch.mjs && npx cap sync android && cd android && ./gradlew bundleRelease",
+    "mobile:run:android": "npm run build && node scripts/apply-google-auth-patch.mjs && npx cap sync android && npx cap run android",
+    "postinstall": "node scripts/apply-google-auth-patch.mjs"
   },
   "dependencies": {
     "@capacitor-firebase/authentication": "^8.5.1",
@@ -97,6 +98,7 @@
     "@types/nodemailer": "^8.0.1",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
+    "patch-package": "^8.0.1",
     "terser": "^5.51.2",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2"

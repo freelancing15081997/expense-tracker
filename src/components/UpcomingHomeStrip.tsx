@@ -65,7 +65,7 @@ export default function UpcomingHomeStrip({
                   <span className="home-upcoming-name">{row.merchant}</span>
                   <span className="home-upcoming-meta">{row.bookName || 'Repeating'}</span>
                 </span>
-                <strong className="home-upcoming-amt">
+                <strong className="home-upcoming-amt byjan-money">
                   {formatIndianAmount(row.avgAmount, symbol)}
                 </strong>
                 <Link to={href} className="home-quad-pay">

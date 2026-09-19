@@ -1,4 +1,4 @@
-﻿import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
@@ -21,7 +21,7 @@ import { notifyLedgerMembers } from '../lib/notify-team';
 import { CapacitorService } from '../lib/capacitor';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send, Copy, CopyPlus, Paperclip, Mail, Megaphone, Shield, Pin, PinOff, SlidersHorizontal, ArrowUpDown, Star, Wallet, ArrowUpRight, TrendingUp, Receipt, History, PieChart, Split, MoreHorizontal, CalendarClock } from 'lucide-react';
+import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send, Copy, CopyPlus, Paperclip, Mail, Megaphone, Shield, Pin, PinOff, SlidersHorizontal, ArrowUpDown, Star, Wallet, ArrowUpRight, TrendingUp, Receipt, History, PieChart, Split, MoreHorizontal, CalendarClock, Check } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Tabs from '@radix-ui/react-tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
@@ -227,6 +227,16 @@ export default function BookView() {
   const [upiSetupOpen, setUpiSetupOpen] = useState(false);
   const [voiceOpen, setVoiceOpen] = useState(false);
   const [evolutionDismissed, setEvolutionDismissed] = useState(false);
+  /** Latest Add/Scan/Voice handlers — FAB listener mounts before book loads, so use a ref. */
+  const quickActionsRef = useRef<{
+    scan: () => void | Promise<void>;
+    add: () => void;
+    voice: () => void;
+  }>({
+    scan: () => undefined,
+    add: () => undefined,
+    voice: () => setVoiceOpen(true),
+  });
   
   // Modals state
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(() => Boolean((location.state as { openEntry?: boolean } | null)?.openEntry));
@@ -428,7 +438,7 @@ export default function BookView() {
         const next = await getLedger(bookId);
         if (!alive) return;
         setBook(next);
-        setMonthlyBudget(next.monthlyBudget != null ? String(next.monthlyBudget) : '');
+        setMonthlyBudget((next as any).monthlyBudget != null ? String((next as any).monthlyBudget) : '');
         setInboundAddress(bookInboundAddress(next));
         const isMember = next.isMember !== false && Boolean(next.roles?.[currentUser.uid]?.role || next.ownerId === currentUser.uid);
         if (!isMember) {
@@ -494,7 +504,7 @@ export default function BookView() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, itemsPerPage, typeFilter, dateFrom, dateTo, methodFilter, reimbursableOnly, uncategorizedOnly, hideTransfers, flaggedOnly, amountMin, amountMax, hideDrafts, staleOnly, anomalyOnly, missingOnly]);
+  }, [searchQuery, itemsPerPage, typeFilter, dateFrom, dateTo, methodFilter, categoryFilter, period, reimbursableOnly, uncategorizedOnly, hideTransfers, flaggedOnly, amountMin, amountMax, hideDrafts, staleOnly, anomalyOnly, missingOnly]);
 
   useEffect(() => {
     if (bookId) rememberMoneyBook(bookId);
@@ -517,6 +527,7 @@ export default function BookView() {
       if (typeof saved.searchQuery === 'string') setSearchQuery(saved.searchQuery);
       if (typeof saved.typeFilter === 'string') setTypeFilter(saved.typeFilter);
       if (typeof saved.methodFilter === 'string') setMethodFilter(saved.methodFilter);
+      if (typeof saved.categoryFilter === 'string') setCategoryFilter(saved.categoryFilter);
       if (typeof saved.dateFrom === 'string') setDateFrom(saved.dateFrom);
       if (typeof saved.dateTo === 'string') setDateTo(saved.dateTo);
       if (typeof saved.period === 'string') setPeriod(saved.period);
@@ -527,6 +538,7 @@ export default function BookView() {
       if (typeof saved.hideDrafts === 'boolean') setHideDrafts(saved.hideDrafts);
       if (typeof saved.staleOnly === 'boolean') setStaleOnly(saved.staleOnly);
       if (typeof saved.anomalyOnly === 'boolean') setAnomalyOnly(saved.anomalyOnly);
+      if (typeof saved.missingOnly === 'boolean') setMissingOnly(saved.missingOnly);
       if (typeof saved.amountMin === 'string') setAmountMin(saved.amountMin);
       if (typeof saved.amountMax === 'string') setAmountMax(saved.amountMax);
       if (saved.sortKey === 'date' || saved.sortKey === 'amount' || saved.sortKey === 'description' || saved.sortKey === 'category') setSortKey(saved.sortKey);
@@ -551,11 +563,11 @@ export default function BookView() {
     }
     try {
       sessionStorage.setItem(`byjan.ledger.filters.${bookId}`, JSON.stringify({
-        searchQuery, typeFilter, methodFilter, dateFrom, dateTo, period, reimbursableOnly, uncategorizedOnly, sortKey, sortDir,
-        hideTransfers, flaggedOnly, hideDrafts, staleOnly, anomalyOnly, amountMin, amountMax,
+        searchQuery, typeFilter, methodFilter, categoryFilter, dateFrom, dateTo, period, reimbursableOnly, uncategorizedOnly, sortKey, sortDir,
+        hideTransfers, flaggedOnly, hideDrafts, staleOnly, anomalyOnly, missingOnly, amountMin, amountMax,
       }));
     } catch { /* ignore */ }
-  }, [bookId, searchQuery, typeFilter, methodFilter, dateFrom, dateTo, period, reimbursableOnly, uncategorizedOnly, sortKey, sortDir, hideTransfers, flaggedOnly, hideDrafts, staleOnly, anomalyOnly, amountMin, amountMax]);
+  }, [bookId, searchQuery, typeFilter, methodFilter, categoryFilter, dateFrom, dateTo, period, reimbursableOnly, uncategorizedOnly, sortKey, sortDir, hideTransfers, flaggedOnly, hideDrafts, staleOnly, anomalyOnly, missingOnly, amountMin, amountMax]);
 
   useEffect(() => {
     if (bookId) touchRecentLedger(bookId);
@@ -631,7 +643,12 @@ export default function BookView() {
     if (st?.openVoice) setVoiceOpen(true);
     if (st?.openScan) void scanReceiptEntry();
     if (st?.openSplitPick) {
-      setSplitPickOpen(true);
+      if (!String((userProfile as { upiId?: string } | null)?.upiId || '').trim()) {
+        setUpiSetupOpen(true);
+        addToast('Add your UPI ID before splitting — teammates need it to pay you.', 'error');
+      } else {
+        setSplitPickOpen(true);
+      }
       // Clear one-shot navigation state so back/refresh does not reopen.
       try { navigate(location.pathname + location.search, { replace: true, state: {} }); } catch { /* ignore */ }
     }
@@ -641,13 +658,13 @@ export default function BookView() {
   useEffect(() => {
     const onQuick = (event: Event) => {
       const kind = (event as CustomEvent<string>).detail;
-      if (kind === 'scan') void scanReceiptEntry();
-      else if (kind === 'add') openNewExpense();
-      else if (kind === 'voice') setVoiceOpen(true);
+      if (kind === 'scan') void quickActionsRef.current.scan();
+      else if (kind === 'add') quickActionsRef.current.add();
+      else if (kind === 'voice') quickActionsRef.current.voice();
     };
     window.addEventListener('byjan-quick', onQuick);
     return () => window.removeEventListener('byjan-quick', onQuick);
-  });
+  }, []);
 
   useEffect(() => {
     const density = localStorage.getItem('byjan.density') || '';
@@ -981,8 +998,9 @@ export default function BookView() {
     setTxType(preset?.txType || (preset?.entryType === 'in' ? 'INCOME' : 'EXPENSE'));
     setAmount('');
     setDescription(preset?.description || '');
-    setCategory(preset?.category && categoryOptions.includes(preset.category) ? preset.category : (categoryOptions[0] || ''));
-    setCustomCatInput('');
+    const presetCat = String(preset?.category || '').trim();
+    setCategory(presetCat || categoryOptions[0] || '');
+    setCustomCatInput(presetCat && !categoryOptions.includes(presetCat) ? presetCat : '');
     setEntryDate(new Date().toISOString().split('T')[0]);
     setMerchant(preset?.merchant || '');
     setPurposeEntityType(preset?.entityType || purposeFields.entities[0] || '');
@@ -1391,7 +1409,11 @@ export default function BookView() {
   };
 
   const scanReceiptEntry = async () => {
-    if (!bookId || !canWrite) return;
+    if (!bookId) return;
+    if (!canScan) {
+      addToast(canWrite ? 'Scan is not enabled for this book' : 'You need write access to scan receipts', 'error');
+      return;
+    }
     try {
       await CapacitorService.requestCameraPermission();
       let batch: Array<{ imageDataUrl: string; fileName: string; mimeType: string }> = [];
@@ -1421,6 +1443,25 @@ export default function BookView() {
       if (/cancel/i.test(msg)) return;
       addToast(msg, 'error');
     }
+  };
+
+  // Keep FAB actions pointed at live handlers (hooks above run before book is ready).
+  quickActionsRef.current = {
+    scan: () => scanReceiptEntry(),
+    add: () => {
+      if (!canWrite) {
+        addToast('You need write access to add entries', 'error');
+        return;
+      }
+      openNewExpense();
+    },
+    voice: () => {
+      if (!canVoice) {
+        addToast('Voice entry is not available for your role', 'error');
+        return;
+      }
+      setVoiceOpen(true);
+    },
   };
 
   const attachReceiptFromCamera = async (source: CameraSource = CameraSource.Prompt) => {
@@ -1544,6 +1585,7 @@ export default function BookView() {
         to: toEmail,
         subject,
         message,
+        bookId: bookId || undefined,
         ledgerMail: inboundAddress || bookInboundAddress(book),
         kind: meta?.action?.toLowerCase().includes('announcement') ? 'announcement' : 'notice',
       });
@@ -1738,7 +1780,8 @@ export default function BookView() {
   const filterIn = filteredExpenses.filter((e) => e.entryType === 'in').reduce((sum, exp) => sum + Number(exp.amount || 0), 0);
   const filterOut = filteredExpenses.filter((e) => e.entryType !== 'in' && e.entryType !== 'transfer').reduce((sum, exp) => sum + Number(exp.amount || 0), 0);
   const totalPages = Math.max(1, Math.ceil(sortedExpenses.length / itemsPerPage));
-  const paginatedExpenses = sortedExpenses.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedExpenses = sortedExpenses.slice((safePage - 1) * itemsPerPage, safePage * itemsPerPage);
   const toggleSort = (key: typeof sortKey) => {
     if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
     else {
@@ -1802,10 +1845,10 @@ export default function BookView() {
     <>
       <div className="h-full min-h-0 flex flex-col" data-purpose-id={purposeId}>
       <Tabs.Root value={shownTab} onValueChange={onLedgerTabChange} className="h-full min-h-0 flex flex-col">
-        <div className="flex-1 min-h-0 overflow-y-auto book-scroll">
+        <div className="flex-1 min-h-0 overflow-y-auto book-scroll pb-[calc(7.5rem+env(safe-area-inset-bottom,0px))]">
         <div className="px-4 md:px-6 lg:px-8 pt-2 pb-0 bg-white">
         <div className="max-w-6xl mx-auto">
-      <div className="book-head-sticky book-tabs-sticky sticky top-0 z-30 -mx-1 px-1 pt-0.5 bg-white/95 backdrop-blur-md">
+      <div className="book-head mb-1">
       <div className="flex flex-col gap-1.5 mb-1">
         <div className="flex items-start gap-2 min-w-0">
           <Link to="/expenses" className="mt-0.5 p-1.5 -ml-1 text-slate-400 hover:text-slate-700 rounded-lg" title="Back to money books">
@@ -1825,76 +1868,64 @@ export default function BookView() {
               )}
             </div>
           </div>
-          <div className="hidden md:flex items-center gap-2 shrink-0">
-          {canAnnounce && (
-          <button
-            type="button"
-            onClick={() => setIsAnnounceOpen(true)}
-            className="byjan-btn-ghost !px-2 !py-1.5 hidden lg:inline-flex"
-            title="Send an announcement to this ledger team"
-          >
-            <Megaphone className="w-4 h-4 text-slate-400" />
-            <span>Announce</span>
-          </button>
-          )}
-          {hasFeature('money_people') && (
-          <button 
-            onClick={() => setIsMembersModalOpen(true)}
-            className={canManageUsers ? 'byjan-btn !px-2 !py-1.5' : 'byjan-btn-ghost !px-2 !py-1.5'}
-          >
-            <Users className="w-4 h-4" />
-            <span className="hidden sm:inline">People & access</span>
-            <span className="sm:hidden">People</span>
-          </button>
-          )}
-          </div>
-          <DropdownMenu.Root>
-            <DropdownMenu.Trigger asChild>
-              <button type="button" className="byjan-btn-ghost !h-10 !w-10 !px-0 shrink-0" aria-label="Book actions">
-                <MoreHorizontal className="w-5 h-5" />
+          <div className="flex items-center gap-1.5 shrink-0">
+            {canWrite && (
+              <button
+                type="button"
+                onClick={() => { void CapacitorService.hapticTick(); openNewExpense(); }}
+                className="book-head-action book-head-add"
+                title="Add entry"
+              >
+                <Plus className="w-4 h-4" />
+                <span className="hidden xs:inline sm:inline">Add</span>
               </button>
-            </DropdownMenu.Trigger>
-            <DropdownMenu.Portal>
-              <DropdownMenu.Content className="book-overflow-menu" align="end" sideOffset={6}>
-                {hasFeature('money_recurring') && (
-                  <DropdownMenu.Item className="book-overflow-item" onSelect={() => navigate('/regular-payments')}>
-                    <CalendarClock className="w-4 h-4" /> Upcoming
-                  </DropdownMenu.Item>
-                )}
-                {canPin && (
-                  <DropdownMenu.Item className="book-overflow-item" onSelect={() => { void togglePinned(); }}>
-                    {book.pinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
-                    {book.pinned ? 'Unpin' : 'Pin'}
-                  </DropdownMenu.Item>
-                )}
-                {canAnnounce && (
-                  <DropdownMenu.Item className="book-overflow-item" onSelect={() => setIsAnnounceOpen(true)}>
-                    <Megaphone className="w-4 h-4" /> Announce
-                  </DropdownMenu.Item>
-                )}
-                {canDeleteBook && (
-                  <DropdownMenu.Item className="book-overflow-item is-danger" onSelect={() => { void handleDeleteLedger(); }} disabled={deletingLedger}>
-                    {deletingLedger ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                    Delete book
-                  </DropdownMenu.Item>
-                )}
-              </DropdownMenu.Content>
-            </DropdownMenu.Portal>
-          </DropdownMenu.Root>
+            )}
+            {hasFeature('money_people') && (
+              <button
+                type="button"
+                onClick={() => setIsMembersModalOpen(true)}
+                className="book-head-action book-head-team"
+                title="Team — people with access to this book"
+              >
+                <Users className="w-4 h-4" />
+                <span>Team</span>
+              </button>
+            )}
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger asChild>
+                <button type="button" className="book-head-action book-head-more" aria-label="Book actions">
+                  <MoreHorizontal className="w-5 h-5" />
+                </button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content className="book-overflow-menu" align="end" sideOffset={6}>
+                  {hasFeature('money_recurring') && (
+                    <DropdownMenu.Item className="book-overflow-item" onSelect={() => navigate('/regular-payments')}>
+                      <CalendarClock className="w-4 h-4" /> Upcoming
+                    </DropdownMenu.Item>
+                  )}
+                  {canPin && (
+                    <DropdownMenu.Item className="book-overflow-item" onSelect={() => { void togglePinned(); }}>
+                      {book.pinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
+                      {book.pinned ? 'Unpin' : 'Pin'}
+                    </DropdownMenu.Item>
+                  )}
+                  {canAnnounce && (
+                    <DropdownMenu.Item className="book-overflow-item" onSelect={() => setIsAnnounceOpen(true)}>
+                      <Megaphone className="w-4 h-4" /> Announce
+                    </DropdownMenu.Item>
+                  )}
+                  {canDeleteBook && (
+                    <DropdownMenu.Item className="book-overflow-item is-danger" onSelect={() => { void handleDeleteLedger(); }} disabled={deletingLedger}>
+                      {deletingLedger ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                      Delete book
+                    </DropdownMenu.Item>
+                  )}
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
+          </div>
         </div>
-        {hasFeature('money_people') && (
-        <div className="flex md:hidden items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setIsMembersModalOpen(true)}
-            className="byjan-btn-ghost !h-11 !px-3 shrink-0 inline-flex items-center gap-1.5"
-            title="Team — people with access to this book"
-          >
-            <Users className="w-4 h-4" />
-            <span className="text-[12px] font-semibold">Team</span>
-          </button>
-        </div>
-        )}
         {evolution && canManageUsers ? (
           <div className="purpose-detect mt-2">
             <span className="flex-1 min-w-0">
@@ -1976,28 +2007,28 @@ export default function BookView() {
             <div className="book-dash-kpis">
             <div className="md3-stats">
               <div className="md3-stat tone-idle">
-                <span className="md3-stat-icon" aria-hidden><Wallet className="w-4 h-4" /></span>
+                <span className="md3-stat-icon" aria-hidden><Wallet className="w-3.5 h-3.5" /></span>
                 <span className="md3-stat-label">Net</span>
                 <strong className={cn('md3-stat-value byjan-money', balance >= 0 ? 'is-in' : '')}>
                   {balance < 0 ? '−' : ''}{getCurrencySymbol(book.currency)}{Math.abs(balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </strong>
               </div>
               <div className="md3-stat tone-out">
-                <span className="md3-stat-icon" aria-hidden><ArrowUpRight className="w-4 h-4" /></span>
+                <span className="md3-stat-icon" aria-hidden><ArrowUpRight className="w-3.5 h-3.5" /></span>
                 <span className="md3-stat-label">Money out</span>
                 <strong className="md3-stat-value byjan-money">
                   {getCurrencySymbol(book.currency)}{totalOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </strong>
               </div>
               <div className="md3-stat tone-in">
-                <span className="md3-stat-icon" aria-hidden><TrendingUp className="w-4 h-4" /></span>
+                <span className="md3-stat-icon" aria-hidden><TrendingUp className="w-3.5 h-3.5" /></span>
                 <span className="md3-stat-label">Money in</span>
                 <strong className="md3-stat-value byjan-money">
                   {getCurrencySymbol(book.currency)}{totalIn.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </strong>
               </div>
               <div className="md3-stat tone-warn">
-                <span className="md3-stat-icon" aria-hidden><Receipt className="w-4 h-4" /></span>
+                <span className="md3-stat-icon" aria-hidden><Receipt className="w-3.5 h-3.5" /></span>
                 <span className="md3-stat-label">This month</span>
                 <strong className="md3-stat-value byjan-money">
                   {getCurrencySymbol(book.currency)}{monthOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}
@@ -2021,7 +2052,7 @@ export default function BookView() {
               </div>
             )}
 
-            <div className="book-dash-tools">
+            <div className="book-dash-tools book-tools-sticky sticky top-0 z-30 -mx-1 px-1 py-1.5 bg-white/95 backdrop-blur-md border-b border-slate-100/80">
             <div className="flex items-center gap-1.5">
               {canLedgerSearch && (
               <label className="byjan-search flex-1">
@@ -2092,6 +2123,9 @@ export default function BookView() {
                         onCheckedChange={(checked) => setVisibleColumns((prev) => ({ ...prev, [col]: checked }))}
                         className="px-2 py-1.5 text-sm outline-none cursor-pointer hover:bg-slate-50 rounded flex items-center gap-2"
                       >
+                        <DropdownMenu.ItemIndicator className="w-4 inline-flex">
+                          <Check className="w-3.5 h-3.5 text-teal-700" />
+                        </DropdownMenu.ItemIndicator>
                         <span className="capitalize">{col}</span>
                       </DropdownMenu.CheckboxItem>
                     ))}
@@ -2106,9 +2140,9 @@ export default function BookView() {
 
         {filtersOpen && createPortal(
           <>
-            <div className="fixed inset-0 z-[60]" onClick={() => setFiltersOpen(false)} />
+            <div className="fixed inset-0 z-[100]" onClick={() => setFiltersOpen(false)} />
             <div
-              className="fixed z-[70] byjan-panel p-3.5 space-y-3"
+              className="fixed z-[110] byjan-panel p-3.5 space-y-3"
               style={{ top: filterPos.top, left: filterPos.left, width: filterPos.width }}
               role="dialog"
               aria-label="Filters"
@@ -2175,9 +2209,9 @@ export default function BookView() {
 
         {canExport && exportOpen && createPortal(
           <>
-            <div className="fixed inset-0 z-[60]" onClick={() => setExportOpen(false)} />
+            <div className="fixed inset-0 z-[100]" onClick={() => setExportOpen(false)} />
             <div
-              className="fixed z-[70] byjan-panel p-2 space-y-1"
+              className="fixed z-[110] byjan-panel p-2 space-y-1"
               style={{ top: exportPos.top, left: exportPos.left, width: exportPos.width }}
               role="dialog"
               aria-label="Download report"
@@ -2651,9 +2685,9 @@ export default function BookView() {
             </div>
           </div>
           {/* Pagination Controls */}
-          {filteredExpenses.length > 0 && (
+          {filteredExpenses.length > 0 && totalPages > 1 && (
             <ListPager
-              page={currentPage}
+              page={safePage}
               totalPages={totalPages}
               onPage={setCurrentPage}
               pageSize={itemsPerPage}
@@ -3440,6 +3474,11 @@ export default function BookView() {
           }}
           onPick={(entry) => {
             setSplitPickOpen(false);
+            if (!String((userProfile as { upiId?: string } | null)?.upiId || '').trim()) {
+              setUpiSetupOpen(true);
+              addToast('Add a valid UPI ID before splitting — it must be your ID so others can pay you.', 'error');
+              return;
+            }
             if (!canSplitEntry) {
               addToast('Split is not available for your role', 'error');
               return;
@@ -3479,12 +3518,13 @@ export default function BookView() {
         onClose={() => setVoiceOpen(false)}
         onToast={addToast}
         onReady={(parsed) => {
-          openNewExpense();
+          openNewExpense({
+            category: parsed.category && parsed.category !== 'Uncategorized' ? parsed.category : undefined,
+            entryType: parsed.entryType,
+            merchant: parsed.merchant,
+            description: parsed.merchant || parsed.transcript,
+          });
           setAmount(parsed.amount ? String(parsed.amount) : '');
-          setMerchant(parsed.merchant);
-          setDescription(parsed.merchant || parsed.transcript);
-          setEntryType(parsed.entryType);
-          if (parsed.category && parsed.category !== 'Uncategorized') setCategory(parsed.category);
           if (parsed.entryType === 'in') setTxType('INCOME');
         }}
       />

@@ -23,67 +23,76 @@ export default function HomeSwipeDeck({
   const startX = useRef(0);
   const swiping = useRef(false);
   const [drag, setDrag] = useState(0);
+  const [isSwiping, setIsSwiping] = useState(false);
 
   useEffect(() => {
     if (count <= 1) return undefined;
-    const id = window.setInterval(() => {
-      if (paused.current) return;
+    const tick = () => {
+      if (paused.current || document.visibilityState !== 'visible') return;
       onIndex((index + 1) % count);
-    }, intervalMs);
-    return () => window.clearInterval(id);
+    };
+    const id = window.setInterval(tick, intervalMs);
+    const onVis = () => { if (document.visibilityState !== 'visible') paused.current = true; };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener('visibilitychange', onVis);
+    };
   }, [count, index, intervalMs, onIndex]);
 
-  const go = (dir: number) => {
-    if (count <= 1) return;
-    const next = (index + dir + count) % count;
-    onIndex(next);
-  };
-
-  const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (count <= 1) return;
-    paused.current = true;
-    swiping.current = false;
-    startX.current = event.clientX;
-    event.currentTarget.setPointerCapture(event.pointerId);
-  };
-
-  const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (count <= 1 || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
-    const dx = event.clientX - startX.current;
-    if (Math.abs(dx) > 8) swiping.current = true;
-    setDrag(dx);
-  };
-
-  const onPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (count <= 1) {
-      paused.current = false;
-      return;
-    }
+  const endPointer = (event: React.PointerEvent<HTMLDivElement>) => {
+    try {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    } catch { /* ignore */ }
     const dx = event.clientX - startX.current;
     setDrag(0);
-    if (dx <= -48) go(1);
-    else if (dx >= 48) go(-1);
-    window.setTimeout(() => { paused.current = false; }, 5000);
+    setIsSwiping(false);
+    if (count > 1) {
+      if (dx <= -48) onIndex((index + 1) % count);
+      else if (dx >= 48) onIndex((index - 1 + count) % count);
+    }
+    window.setTimeout(() => {
+      paused.current = false;
+      swiping.current = false;
+    }, 5000);
   };
 
   return (
     <div className={`home-swipe ${className}`.trim()} aria-label={label} aria-roledescription="carousel">
       <div
         className="home-swipe-viewport"
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
+        onPointerDown={(event) => {
+          if (count <= 1) return;
+          paused.current = true;
+          swiping.current = false;
+          setIsSwiping(false);
+          startX.current = event.clientX;
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={(event) => {
+          if (count <= 1 || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
+          const dx = event.clientX - startX.current;
+          if (Math.abs(dx) > 8) {
+            swiping.current = true;
+            setIsSwiping(true);
+          }
+          setDrag(dx);
+        }}
+        onPointerUp={endPointer}
+        onPointerCancel={endPointer}
         onClickCapture={(event) => {
-          if (!swiping.current) return;
+          if (!swiping.current && !isSwiping) return;
           event.preventDefault();
           event.stopPropagation();
           swiping.current = false;
+          setIsSwiping(false);
         }}
-        onPointerCancel={() => { setDrag(0); window.setTimeout(() => { paused.current = false; }, 5000); }}
       >
         <div
           className="home-swipe-track"
-          data-swiping={swiping.current ? '1' : undefined}
+          data-swiping={isSwiping ? '1' : undefined}
           style={{
             transform: `translateX(calc(${-index * 100}% + ${drag}px))`,
             transition: drag ? 'none' : undefined,

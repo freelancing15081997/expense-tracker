@@ -76,11 +76,13 @@ export async function acceptLedgerInvite(opts: {
   const bookName = payload.bookName || opts.invite.bookName;
   const bookId = payload.bookId || opts.invite.bookId;
   try {
-    await apiPost('/api/email/send', {
-      to: to.join(', '),
+    await Promise.all(to.map((email) => apiPost('/api/email/send', {
+      to: email,
+      bookId,
       subject: `${who} joined ${bookName} expense book`,
       message: `<p>Hello,</p><p><b>${who}</b> has accepted the invitation and joined the ledger <b>${bookName}</b>.</p>${openLedgerButtonHtml(bookId)}`,
-    });
+      kind: 'notice',
+    })));
   } catch (err: any) {
     return { notifyError: err?.message || 'Could not notify the team.' };
   }

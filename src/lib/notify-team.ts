@@ -92,6 +92,7 @@ export async function notifyTeamOfLedgerChange(input: {
         to: email,
         subject,
         message,
+        bookId,
         ledgerMail: bookInboundAddress(input.book),
         kind: 'notice',
       });

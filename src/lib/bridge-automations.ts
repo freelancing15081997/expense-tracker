@@ -81,19 +81,21 @@ export function guessedMerchant(text: string) {
 
 /** Keyword / description → category when merchant map misses (receipts, snap, share). */
 export const DESCRIPTION_CATEGORY_RULES: Array<{ match: RegExp; category: string }> = [
-  { match: /\b(swiggy|zomato|restaurant|cafe|meal|food|lunch|dinner|breakfast|biryani|dominos|mcdonald|starbucks|barista|dining|catering)\b/i, category: 'Food' },
-  { match: /\b(blinkit|zepto|bigbasket|dmart|grocer|kirana|supermarket|reliance fresh|more supermarket)\b/i, category: 'Groceries' },
-  { match: /\b(uber|ola|rapido|irctc|makemytrip|indigo|flight|railway|metro|travel|taxi|cab|hotel|airbnb|booking\.com)\b/i, category: 'Travel' },
+  { match: /\b(swiggy|zomato|restaurant|cafe|meal|food|lunch|dinner|breakfast|biryani|dominos|mcdonald|starbucks|barista|dining|catering|pizza|burger|kfc|subway)\b/i, category: 'Food' },
+  { match: /\b(blinkit|zepto|bigbasket|dmart|grocer|kirana|supermarket|reliance fresh|more supermarket|instamart|nature.?s basket)\b/i, category: 'Groceries' },
+  { match: /\b(uber|ola|rapido|irctc|makemytrip|indigo|flight|railway|metro|travel|taxi|cab|hotel|airbnb|booking\.com|goibibo|cleartrip)\b/i, category: 'Travel' },
   { match: /\b(fuel|petrol|diesel|hpcl|iocl|bpcl|shell|indian oil|fastag|toll)\b/i, category: 'Travel' },
-  { match: /\b(apollo|pharma|hospital|clinic|medical|1mg|netmeds|pharmacy|doctor|health)\b/i, category: 'Health' },
-  { match: /\b(bescom|electricity|broadband|airtel|jio|vodafone|\bvi\b|water board|gas cylinder|utility|utilities|recharge)\b/i, category: 'Utilities' },
-  { match: /\b(amazon|flipkart|myntra|ajio|shopping|mall|nykaa)\b/i, category: 'Shopping' },
-  { match: /\b(netflix|spotify|prime|subscription|saas|software|chatgpt|notion)\b/i, category: 'Software Subscriptions' },
-  { match: /\b(rent|society|maintenance|housing|landlord)\b/i, category: 'Housing' },
-  { match: /\b(school|tuition|college|course|byju|education|fees)\b/i, category: 'Education' },
-  { match: /\b(lic|policybazaar|insurance|premium)\b/i, category: 'Insurance' },
-  { match: /\b(salary|payroll|stipend|income|credited|refund)\b/i, category: 'Income' },
-  { match: /\b(transfer|sent to|paid to|neft|imps|rtgs)\b/i, category: 'Transfers' },
+  { match: /\b(apollo|pharma|hospital|clinic|medical|1mg|netmeds|pharmacy|doctor|health|dental|lab test)\b/i, category: 'Health' },
+  { match: /\b(bescom|electricity|broadband|airtel|jio|vodafone|\bvi\b|water board|gas cylinder|utility|utilities|recharge|wifi|fiber)\b/i, category: 'Utilities' },
+  { match: /\b(amazon|flipkart|myntra|ajio|shopping|mall|nykaa|meesho|tatacliq)\b/i, category: 'Shopping' },
+  { match: /\b(netflix|spotify|prime|subscription|saas|software|chatgpt|notion|youtube|hotstar|disney)\b/i, category: 'Software Subscriptions' },
+  { match: /\b(rent|society|maintenance|housing|landlord|pg\b|hostel)\b/i, category: 'Housing' },
+  { match: /\b(school|tuition|college|course|byju|education|fees|udemy|coursera)\b/i, category: 'Education' },
+  { match: /\b(lic|policybazaar|insurance|premium|hdfc life|max life)\b/i, category: 'Insurance' },
+  { match: /\b(salary|payroll|stipend|income|credited|refund|freelance|invoice paid)\b/i, category: 'Income' },
+  { match: /\b(transfer|sent to|paid to|neft|imps|rtgs|upi to|gpay|phonepe|paytm)\b/i, category: 'Transfers' },
+  { match: /\b(movie|pvr|inox|bookmyshow|entertainment|concert)\b/i, category: 'Entertainment' },
+  { match: /\b(gym|cult\.?fit|fitness|yoga|sports)\b/i, category: 'Health' },
 ];
 
 export function guessCategoryFromText(...parts: Array<string | undefined | null>) {

@@ -218,6 +218,7 @@ export default function ShareIntentListener() {
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
     let removeShare: (() => void) | undefined;
+    let urlHandle: { remove: () => Promise<void> } | undefined;
     let alive = true;
 
     void (async () => {
@@ -242,7 +243,13 @@ export default function ShareIntentListener() {
       } catch { /* ignore */ }
     };
 
-    CapApp.addListener('appUrlOpen', (event) => { void handleUrl(event.url); }).catch(() => undefined);
+    CapApp.addListener('appUrlOpen', (event) => { void handleUrl(event.url); }).then((handle) => {
+      if (!alive) {
+        handle.remove().catch(() => undefined);
+        return;
+      }
+      urlHandle = handle;
+    }).catch(() => undefined);
     CapApp.getLaunchUrl().then((result) => {
       if (result?.url) void handleUrl(result.url);
     }).catch(() => undefined);
@@ -250,7 +257,7 @@ export default function ShareIntentListener() {
     return () => {
       alive = false;
       removeShare?.();
-      CapApp.removeAllListeners().catch(() => undefined);
+      urlHandle?.remove().catch(() => undefined);
     };
   }, [navigate, addToast]);
 

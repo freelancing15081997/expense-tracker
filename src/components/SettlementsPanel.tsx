@@ -104,13 +104,24 @@ export default function SettlementsPanel({
       onPayConsumed?.();
       return;
     }
+    if (!savedUpi) {
+      setUpiOpen(true);
+      onToast('Add your UPI ID before paying this settlement.', 'error');
+      setOpen(true);
+      return;
+    }
     setPayFromNotification(true);
     setPayTarget(hit);
     setOpen(true);
-  }, [initialPayId, rows, onPayConsumed]);
+  }, [initialPayId, rows, onPayConsumed, savedUpi, onToast]);
 
   const openPay = (row: MoneySettlementRow, fromNotification = false) => {
     if (String(row.status || '').toUpperCase() === 'PAID') return;
+    if (!savedUpi) {
+      setUpiOpen(true);
+      onToast('Add your UPI ID first — then you can pay or get paid for splits.', 'error');
+      return;
+    }
     setPayFromNotification(fromNotification);
     setPayTarget(row);
   };
@@ -126,7 +137,7 @@ export default function SettlementsPanel({
     [rows, currentUid],
   );
 
-  const unpaid = mine.filter((r) => r.status !== 'PAID');
+  const unpaid = mine.filter((r) => String(r.status || '').toUpperCase() !== 'PAID');
   const missingUpi = members.filter((m) => m.uid !== currentUid && !m.hasUpi);
   const iNeedUpi = !savedUpi;
   const badge = unpaid.filter((r) => r.status !== 'CANCELLED').length || (iNeedUpi ? 1 : 0) || missingUpi.length;
@@ -151,7 +162,7 @@ export default function SettlementsPanel({
     let owe = 0;
     let due = 0;
     for (const r of mine) {
-      if (r.status === 'PAID') continue;
+      if (String(r.status || '').toUpperCase() === 'PAID') continue;
       if (r.fromUid === currentUid) owe += Number(r.amountPaise || 0);
       else due += Number(r.amountPaise || 0);
     }
@@ -196,30 +207,30 @@ export default function SettlementsPanel({
         <div className="stx-stats">
           <div className="stx-stat">
             <span>You owe</span>
-            <strong>{symbol}{paiseToUpiAmount(totals.owe)}</strong>
+            <strong className="byjan-money">{symbol}{paiseToUpiAmount(totals.owe)}</strong>
           </div>
           <div className="stx-stat is-in">
             <span>Owed to you</span>
-            <strong>{symbol}{paiseToUpiAmount(totals.due)}</strong>
+            <strong className="byjan-money">{symbol}{paiseToUpiAmount(totals.due)}</strong>
           </div>
         </div>
       ) : null}
 
       {iNeedUpi ? (
-        <div className="mb-2 rounded-xl border border-teal-200 bg-teal-50/70 px-3 py-2">
-          <p className="text-sm font-semibold text-teal-900">Add your UPI ID</p>
-          <p className="text-xs text-teal-800/80 mt-0.5">Needed so teammates can pay you.</p>
+        <div className="mb-2 rounded-xl border border-amber-300 bg-amber-50/80 px-3 py-2.5">
+          <p className="text-sm font-semibold text-amber-950">Add your UPI ID</p>
+          <p className="text-xs text-amber-900/80 mt-0.5">Needed before you pay or receive split settlements.</p>
           <button type="button" className="byjan-btn !h-9 mt-2" onClick={() => setUpiOpen(true)}>
             Add UPI ID
           </button>
         </div>
       ) : (
-        <div className="mb-2 rounded-xl border border-slate-200 bg-white px-3 py-2 flex items-center justify-between gap-3">
+        <div className="upi-id-chip mb-2 rounded-xl border px-3 py-2.5 flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Your UPI ID</p>
-            <p className="text-sm font-semibold text-[#0B1F3A] truncate">{savedUpi}</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-teal-800/80">Your UPI ID · saved</p>
+            <p className="text-sm font-bold text-teal-950 truncate tabular-nums">{savedUpi}</p>
           </div>
-          <button type="button" className="byjan-btn-ghost !h-8 shrink-0" onClick={() => setUpiOpen(true)}>
+          <button type="button" className="byjan-btn-ghost !h-8 shrink-0 !border-teal-200" onClick={() => setUpiOpen(true)}>
             Update
           </button>
         </div>
@@ -303,7 +314,7 @@ export default function SettlementsPanel({
                     {row.receiverNameSnapshot ? ` · ${row.receiverNameSnapshot}` : ''}
                   </p>
                 </div>
-                {row.status !== 'PAID' ? (
+                {String(row.status || '').toUpperCase() !== 'PAID' ? (
                   <button
                     type="button"
                     className="byjan-btn !h-9 !px-3 text-xs shrink-0 inline-flex items-center"

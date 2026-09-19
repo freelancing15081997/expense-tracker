@@ -68,7 +68,7 @@ export default function PendingPayStrip({ uid }: { uid: string }) {
                 <span className="home-upcoming-name">{row.expenseDescription || row.merchant || 'Split'}</span>
                 <span className="home-upcoming-meta">{row.merchant || 'Money book'}</span>
               </span>
-              <strong className="home-upcoming-amt">
+              <strong className="home-upcoming-amt byjan-money">
                 {symbol}{paiseToUpiAmount(row.amountPaise)}
               </strong>
               <Link to={href} className="home-quad-pay pulse-attn">{iOwe ? 'Pay' : 'Review'}</Link>

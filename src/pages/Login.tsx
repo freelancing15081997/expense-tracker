@@ -42,8 +42,9 @@ export default function Login() {
       const q = hash.includes('?') ? hash.slice(hash.indexOf('?') + 1) : window.location.search.replace(/^\?/, '');
       const params = new URLSearchParams(q);
       if (params.get('nativeApp') !== '1' || params.get('google') !== '1') return;
-      if (sessionStorage.getItem('byjan.nativeGoogleAuto') === '1') return;
-      sessionStorage.setItem('byjan.nativeGoogleAuto', '1');
+      const autoKey = `byjan.nativeGoogleAuto.${params.get('ts') || '1'}`;
+      if (sessionStorage.getItem(autoKey) === '1') return;
+      sessionStorage.setItem(autoKey, '1');
       void (async () => {
         try {
           setBusy('google');
@@ -54,6 +55,7 @@ export default function Login() {
           }
           if (result) navigate(consumeReturnTo());
         } catch (err: any) {
+          try { sessionStorage.removeItem(autoKey); } catch { /* ignore */ }
           setError(err?.message || 'Failed to sign in with Google');
         } finally {
           setBusy('');
@@ -93,6 +95,7 @@ export default function Login() {
       }
       if (result) navigate(consumeReturnTo());
     } catch (err: any) {
+      try { sessionStorage.removeItem('byjan.nativeGoogleAuto'); } catch { /* ignore */ }
       setError(err.message || 'Failed to sign in with Google');
     } finally {
       setBusy('');
@@ -126,7 +129,7 @@ export default function Login() {
       <button
         type="button"
         onClick={handleGoogleLogin}
-        disabled={loading}
+        disabled={busy === 'google'}
         className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 h-10 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-60"
       >
         {busy === 'google' ? <span className="app-loader-ring app-loader-ring-sm" /> : <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" className="w-5 h-5" />}

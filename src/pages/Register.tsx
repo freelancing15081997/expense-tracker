@@ -66,7 +66,7 @@ export default function Register() {
       <button
         type="button"
         onClick={handleGoogleLogin}
-        disabled={loading}
+        disabled={busy === 'google'}
         className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 h-10 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-60"
       >
         {busy === 'google' ? <span className="app-loader-ring app-loader-ring-sm" /> : <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" className="w-5 h-5" />}
