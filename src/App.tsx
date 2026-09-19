@@ -68,7 +68,7 @@ export default function App() {
                 <Route path="access" element={<SuperUserGate><AccessControl /></SuperUserGate>} />
                 <Route path="trace" element={<SuperUserGate><TraceOps /></SuperUserGate>} />
                 <Route path="expenses" element={<FeatureGate feature="money"><Dashboard /></FeatureGate>} />
-                <Route path="activity" element={<FeatureGate feature="money_activity"><Activity /></FeatureGate>} />
+                <Route path="activity" element={<FeatureGate feature="money"><Activity /></FeatureGate>} />
                 <Route path="notifications" element={<FeatureGate feature="app_notifications"><NotificationsPage /></FeatureGate>} />
                 <Route path="regular-payments" element={<FeatureGate feature="money_recurring"><RegularPayments /></FeatureGate>} />
                 <Route path="book/:bookId" element={<FeatureGate feature="money"><BookView /></FeatureGate>} />

@@ -180,7 +180,8 @@ export default function Layout() {
   // + only on an open money book — home/settings/etc. use their own entry points.
   const showFab = onLedger && hasFeature('money') && (canAdd || canScan || canVoice);
   const showBooksTab = hasFeature('money');
-  const showActivityTab = hasFeature('money') && hasFeature('money_activity');
+  // Keep Activity in the bar whenever Money is on so FAB layouts stay balanced.
+  const showActivityTab = hasFeature('money');
   const tabCount = 1 + (showBooksTab ? 1 : 0) + (showActivityTab ? 1 : 0) + 1;
 
   const handleMarkAsRead = async (id: string) => {
@@ -378,7 +379,7 @@ export default function Layout() {
             <BookText className="w-5 h-5" />
             Books
           </MotionLink>
-        ) : (showFab ? <span className="dash-tab-spacer dash-tab-spacer-books" aria-hidden /> : null)}
+        ) : null}
         {showFab ? (
           <div className="dash-fab-slot is-live">
             <button
@@ -446,7 +447,7 @@ export default function Layout() {
             <Activity className="w-5 h-5" />
             Activity
           </MotionLink>
-        ) : (showFab ? <span className="dash-tab-spacer dash-tab-spacer-activity" aria-hidden /> : null)}
+        ) : null}
         <MotionLink to="/settings" className="dash-tab dash-tab-more" data-on={onSettings} onClick={pulseNav} whileTap={reduceMotion ? undefined : { scale: 0.9, rotateX: 16 }} transition={tabSpring} style={{ transformPerspective: 700 }}>
           <Settings className="w-5 h-5" />
           More
