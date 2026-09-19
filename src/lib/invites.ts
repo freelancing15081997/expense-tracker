@@ -1,5 +1,4 @@
 import { apiPost } from './api';
-import { openLedgerButtonHtml } from './inbound-mail';
 
 export type LedgerInvite = {
   id: string;
@@ -66,25 +65,10 @@ export async function acceptLedgerInvite(opts: {
   email: string;
   displayName?: string;
 }): Promise<{ notifyError?: string }> {
-  const payload = await apiPost<{ notifyEmails?: string[]; bookName?: string; bookId?: string }>('/api/invites', {
+  await apiPost<{ notifyEmails?: string[]; bookName?: string; bookId?: string; notifiedInviter?: boolean }>('/api/invites', {
     op: 'accept',
     id: opts.invite.id,
   });
-  const to = Array.isArray(payload.notifyEmails) ? payload.notifyEmails : [];
-  if (!to.length) return {};
-  const who = opts.displayName || opts.email;
-  const bookName = payload.bookName || opts.invite.bookName;
-  const bookId = payload.bookId || opts.invite.bookId;
-  try {
-    await Promise.all(to.map((email) => apiPost('/api/email/send', {
-      to: email,
-      bookId,
-      subject: `${who} joined ${bookName} expense book`,
-      message: `<p>Hello,</p><p><b>${who}</b> has accepted the invitation and joined the ledger <b>${bookName}</b>.</p>${openLedgerButtonHtml(bookId)}`,
-      kind: 'notice',
-    })));
-  } catch (err: any) {
-    return { notifyError: err?.message || 'Could not notify the team.' };
-  }
+  // Server already emails + notifies the inviter; keep client quiet unless accept itself fails.
   return {};
 }

@@ -301,6 +301,37 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       };
       await ledgerSet(`books/${bookId}`, { ...book, roles });
       await closeInvite(id, invite, 'accepted', user.uid);
+      const inviterUid = String(invite.invitedBy || '').trim();
+      const inviterEmail = String(invite.invitedByEmail || '').trim().toLowerCase();
+      const bookName = String(invite.bookName || book.name || 'Ledger');
+      if (inviterUid && inviterUid !== user.uid) {
+        await ledgerAddNotification({
+          userId: inviterUid,
+          bookId,
+          bookName,
+          kind: 'invite_accepted',
+          action: 'Invitation accepted',
+          detail: `${user.email} joined ${bookName}`,
+          link: `/book/${bookId}`,
+        }).catch(() => undefined);
+      }
+      const notifySet = new Set(memberEmails(roles, user.email));
+      if (inviterEmail && inviterEmail !== user.email) notifySet.add(inviterEmail);
+      const notifyEmails = [...notifySet];
+      // Prefer server-side mail so the inviter is notified even if the client fails.
+      if (notifyEmails.length) {
+        try {
+          const { sendTracedMail } = await import('./_lib/smtp-mail.js');
+          const openLink = `https://www.easypado.com/#/book/${encodeURIComponent(bookId)}`;
+          await Promise.all(notifyEmails.map((to) => sendTracedMail({
+            to,
+            subject: `${user.email} joined ${bookName}`,
+            kind: 'email.invite_accepted',
+            html: `<p><b>${user.email}</b> accepted your invitation and joined <b>${bookName}</b>.</p><p><a href="${openLink}">Open ledger</a></p>`,
+            text: `${user.email} accepted your invitation and joined ${bookName}. Open: ${openLink}`,
+          }).catch(() => undefined)));
+        } catch { /* never block accept */ }
+      }
       await ledgerAudit({
         bookId,
         actorUid: user.uid,
@@ -313,8 +344,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       json(res, 200, {
         ok: true,
         bookId,
-        bookName: String(invite.bookName || book.name || ''),
-        notifyEmails: memberEmails(roles, user.email),
+        bookName,
+        notifyEmails,
+        notifiedInviter: Boolean(inviterEmail || inviterUid),
       });
       return;
     }

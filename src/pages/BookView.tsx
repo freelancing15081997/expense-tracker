@@ -294,6 +294,9 @@ export default function BookView() {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteSentTo, setInviteSentTo] = useState('');
   const [inviteRole, setInviteRole] = useState('contributor');
+  const [isEditBookOpen, setIsEditBookOpen] = useState(false);
+  const [editBookName, setEditBookName] = useState('');
+  const [savingBook, setSavingBook] = useState(false);
   const [inviting, setInviting] = useState(false);
 
   // List enhancements
@@ -1880,7 +1883,7 @@ export default function BookView() {
                 title="Add entry"
               >
                 <Plus className="w-4 h-4" />
-                <span className="hidden xs:inline sm:inline">Add</span>
+                <span>Add entry</span>
               </button>
             )}
             {hasFeature('money_people') && (
@@ -1902,6 +1905,11 @@ export default function BookView() {
               </DropdownMenu.Trigger>
               <DropdownMenu.Portal>
                 <DropdownMenu.Content className="book-overflow-menu" align="end" sideOffset={6}>
+                  {canManageUsers && (
+                    <DropdownMenu.Item className="book-overflow-item" onSelect={() => { setEditBookName(String(book.name || '')); setIsEditBookOpen(true); }}>
+                      <PenSquare className="w-4 h-4" /> Edit book
+                    </DropdownMenu.Item>
+                  )}
                   {canManageUsers && (
                     <DropdownMenu.Item className="book-overflow-item" onSelect={() => setIsMembersModalOpen(true)}>
                       <UserPlus className="w-4 h-4" /> Invite people
@@ -3143,6 +3151,60 @@ export default function BookView() {
                 <button type="submit" disabled={announcing} className="byjan-btn">
                   {announcing && <span className="app-loader-ring app-loader-ring-sm" />}
                   Send announcement
+                </button>
+              </div>
+            </form>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      {/* Edit book */}
+      <Dialog.Root open={isEditBookOpen} onOpenChange={setIsEditBookOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 z-[90]" />
+          <Dialog.Content className="fixed left-[50%] top-[50%] z-[100] w-[min(100%-1.5rem,24rem)] translate-x-[-50%] translate-y-[-50%] rounded-[22px] bg-white border border-slate-200 p-5 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)]">
+            <div className="flex items-center justify-between mb-3">
+              <Dialog.Title className="text-base font-bold text-slate-900">Edit book</Dialog.Title>
+              <Dialog.Close className="rounded-md p-1 text-slate-400 hover:bg-slate-100"><X className="w-4 h-4" /></Dialog.Close>
+            </div>
+            <form
+              className="space-y-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const name = editBookName.trim();
+                if (!name || !bookId || !canManageUsers) return;
+                void (async () => {
+                  try {
+                    setSavingBook(true);
+                    const next = await updateLedger(bookId, { name });
+                    setBook(next || { ...book, name });
+                    addToast('Book updated', 'success');
+                    setIsEditBookOpen(false);
+                  } catch (err: any) {
+                    addToast(err?.message || 'Could not update book', 'error');
+                  } finally {
+                    setSavingBook(false);
+                  }
+                })();
+              }}
+            >
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Book name</label>
+                <input
+                  className="byjan-input"
+                  value={editBookName}
+                  onChange={(e) => setEditBookName(e.target.value)}
+                  required
+                  maxLength={80}
+                  autoFocus
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-1">
+                <Dialog.Close asChild>
+                  <button type="button" className="byjan-btn-ghost">Cancel</button>
+                </Dialog.Close>
+                <button type="submit" disabled={savingBook || !editBookName.trim()} className="byjan-btn">
+                  {savingBook ? 'Saving…' : 'Save'}
                 </button>
               </div>
             </form>

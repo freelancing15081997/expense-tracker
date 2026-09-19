@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Capacitor } from '@capacitor/core';
 import { signInWithEmailAndPassword, signInWithGoogle, auth, handoffGoogleToNativeApp } from '../lib/firebase';
 import { Mail, Lock, AlertCircle } from 'lucide-react';
@@ -182,6 +182,11 @@ export default function Login() {
           {busy === 'email' && <span className="app-loader-ring app-loader-ring-sm" />}
           {busy === 'email' ? 'Signing in' : 'Sign in'}
         </button>
+        <div className="mt-2 text-center">
+          <Link to="/forgot-password" className="text-sm font-semibold text-teal-700 hover:text-teal-600">
+            Forgot password?
+          </Link>
+        </div>
         <p className="mt-3 text-[11px] leading-relaxed text-slate-500 text-center">{EMAIL_NOTIFY_HINT}</p>
       </form>
     </AuthScene>

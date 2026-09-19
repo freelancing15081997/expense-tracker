@@ -378,82 +378,80 @@ export default function Layout() {
             <BookText className="w-5 h-5" />
             Books
           </MotionLink>
-        ) : (showFab ? <span className="dash-tab-spacer" aria-hidden /> : null)}
-        {/* Center column always reserved for + when FAB is on — keeps odd/even tab counts balanced. */}
-        {showFab ? <span className="dash-fab-slot" aria-hidden /> : null}
+        ) : (showFab ? <span className="dash-tab-spacer dash-tab-spacer-books" aria-hidden /> : null)}
+        {showFab ? (
+          <div className="dash-fab-slot is-live">
+            <button
+              type="button"
+              className="dash-fab-center"
+              data-open={fabOpen}
+              aria-label={fabOpen ? 'Close quick actions' : 'Quick actions'}
+              aria-expanded={fabOpen}
+              onClick={() => { pulseNav(); setFabOpen((v) => !v); }}
+            >
+              <Plus className="w-6 h-6" />
+            </button>
+            <AnimatePresence>
+              {fabOpen && (
+                <div className="dash-fab-orbit" role="menu" aria-label="Quick actions">
+                  {canVoice && (
+                    <motion.button
+                      type="button"
+                      className="dash-fab-item is-voice"
+                      initial={reduceMotion ? false : { opacity: 0, x: 0, y: 0, scale: 0.35 }}
+                      animate={{ opacity: 1, x: -78, y: -70, scale: 1 }}
+                      exit={{ opacity: 0, x: 0, y: 0, scale: 0.35 }}
+                      transition={{ ...fabMenuSpring, delay: 0.02 }}
+                      onClick={() => fireQuickAction('voice')}
+                    >
+                      <span className="dash-fab-btn tone-rose"><Mic className="w-5 h-5" strokeWidth={2.4} /></span>
+                      <span className="dash-fab-label">Voice</span>
+                    </motion.button>
+                  )}
+                  {canAdd && (
+                    <motion.button
+                      type="button"
+                      className="dash-fab-item is-add"
+                      initial={reduceMotion ? false : { opacity: 0, x: 0, y: 0, scale: 0.35 }}
+                      animate={{ opacity: 1, x: 0, y: -102, scale: 1 }}
+                      exit={{ opacity: 0, x: 0, y: 0, scale: 0.35 }}
+                      transition={{ ...fabMenuSpring, delay: 0.05 }}
+                      onClick={() => fireQuickAction('add')}
+                    >
+                      <span className="dash-fab-btn tone-brand"><PenLine className="w-5 h-5" strokeWidth={2.4} /></span>
+                      <span className="dash-fab-label">Add</span>
+                    </motion.button>
+                  )}
+                  {canScan && (
+                    <motion.button
+                      type="button"
+                      className="dash-fab-item is-scan"
+                      initial={reduceMotion ? false : { opacity: 0, x: 0, y: 0, scale: 0.35 }}
+                      animate={{ opacity: 1, x: 78, y: -70, scale: 1 }}
+                      exit={{ opacity: 0, x: 0, y: 0, scale: 0.35 }}
+                      transition={{ ...fabMenuSpring, delay: 0.08 }}
+                      onClick={() => fireQuickAction('scan')}
+                    >
+                      <span className="dash-fab-btn tone-gold"><ScanLine className="w-5 h-5" strokeWidth={2.4} /></span>
+                      <span className="dash-fab-label">Scan</span>
+                    </motion.button>
+                  )}
+                </div>
+              )}
+            </AnimatePresence>
+          </div>
+        ) : null}
         {showActivityTab ? (
           <MotionLink to="/activity" className="dash-tab dash-tab-activity" data-on={onActivity} onClick={pulseNav} whileTap={reduceMotion ? undefined : { scale: 0.9, rotateX: 16 }} transition={tabSpring} style={{ transformPerspective: 700 }}>
             <Activity className="w-5 h-5" />
             Activity
           </MotionLink>
-        ) : (showFab ? <span className="dash-tab-spacer" aria-hidden /> : null)}
+        ) : (showFab ? <span className="dash-tab-spacer dash-tab-spacer-activity" aria-hidden /> : null)}
         <MotionLink to="/settings" className="dash-tab dash-tab-more" data-on={onSettings} onClick={pulseNav} whileTap={reduceMotion ? undefined : { scale: 0.9, rotateX: 16 }} transition={tabSpring} style={{ transformPerspective: 700 }}>
           <Settings className="w-5 h-5" />
           More
         </MotionLink>
       </nav>
-      {showFab && (
-        <div className="dash-fab-anchor md:hidden">
-          <button
-            type="button"
-            className="dash-fab-center"
-            data-open={fabOpen}
-            aria-label={fabOpen ? 'Close quick actions' : 'Quick actions'}
-            aria-expanded={fabOpen}
-            onClick={() => { pulseNav(); setFabOpen((v) => !v); }}
-          >
-            <Plus className="w-6 h-6" />
-          </button>
-          <AnimatePresence>
-            {fabOpen && (
-              <div className="dash-fab-orbit" role="menu" aria-label="Quick actions">
-                {canVoice && (
-                  <motion.button
-                    type="button"
-                    className="dash-fab-item is-voice"
-                    initial={reduceMotion ? false : { opacity: 0, x: 0, y: 0, scale: 0.35 }}
-                    animate={{ opacity: 1, x: -78, y: -70, scale: 1 }}
-                    exit={{ opacity: 0, x: 0, y: 0, scale: 0.35 }}
-                    transition={{ ...fabMenuSpring, delay: 0.02 }}
-                    onClick={() => fireQuickAction('voice')}
-                  >
-                    <span className="dash-fab-btn tone-rose"><Mic className="w-5 h-5" strokeWidth={2.4} /></span>
-                    <span className="dash-fab-label">Voice</span>
-                  </motion.button>
-                )}
-                {canAdd && (
-                  <motion.button
-                    type="button"
-                    className="dash-fab-item is-add"
-                    initial={reduceMotion ? false : { opacity: 0, x: 0, y: 0, scale: 0.35 }}
-                    animate={{ opacity: 1, x: 0, y: -102, scale: 1 }}
-                    exit={{ opacity: 0, x: 0, y: 0, scale: 0.35 }}
-                    transition={{ ...fabMenuSpring, delay: 0.05 }}
-                    onClick={() => fireQuickAction('add')}
-                  >
-                    <span className="dash-fab-btn tone-brand"><PenLine className="w-5 h-5" strokeWidth={2.4} /></span>
-                    <span className="dash-fab-label">Add</span>
-                  </motion.button>
-                )}
-                {canScan && (
-                  <motion.button
-                    type="button"
-                    className="dash-fab-item is-scan"
-                    initial={reduceMotion ? false : { opacity: 0, x: 0, y: 0, scale: 0.35 }}
-                    animate={{ opacity: 1, x: 78, y: -70, scale: 1 }}
-                    exit={{ opacity: 0, x: 0, y: 0, scale: 0.35 }}
-                    transition={{ ...fabMenuSpring, delay: 0.08 }}
-                    onClick={() => fireQuickAction('scan')}
-                  >
-                    <span className="dash-fab-btn tone-gold"><ScanLine className="w-5 h-5" strokeWidth={2.4} /></span>
-                    <span className="dash-fab-label">Scan</span>
-                  </motion.button>
-                )}
-              </div>
-            )}
-          </AnimatePresence>
-        </div>
-      )}
     </div>
   );
 }

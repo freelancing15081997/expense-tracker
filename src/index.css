@@ -5097,30 +5097,47 @@ html[data-radius="round"] { --ui-radius: 24px; --ui-btn-radius: 999px; }
 }
 .dash-tabbar.has-fab {
   display: grid !important;
-  grid-auto-flow: unset !important;
+  grid-auto-flow: row !important;
   grid-auto-columns: unset !important;
-  /* Equal side columns so Home/Books and Activity/More stay balanced around centered + */
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 80px minmax(0, 1fr) minmax(0, 1fr) !important;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 72px minmax(0, 1fr) minmax(0, 1fr) !important;
+  grid-template-areas: "home books fab activity more" !important;
   min-height: 82px;
   padding-top: 18px;
   padding-bottom: 14px;
   align-items: center;
-  justify-items: stretch;
+  justify-items: center;
+  overflow: visible;
 }
-.dash-tabbar.has-fab > *:nth-child(1) { grid-column: 1 !important; justify-self: stretch; }
-.dash-tabbar.has-fab > *:nth-child(2) { grid-column: 2 !important; justify-self: stretch; }
-.dash-tabbar.has-fab > *:nth-child(3) { grid-column: 3 !important; justify-self: center; }
-.dash-tabbar.has-fab > *:nth-child(4) { grid-column: 4 !important; justify-self: stretch; }
-.dash-tabbar.has-fab > *:nth-child(5) { grid-column: 5 !important; justify-self: stretch; }
+.dash-tabbar.has-fab .dash-tab-home { grid-area: home !important; }
+.dash-tabbar.has-fab .dash-tab-books,
+.dash-tabbar.has-fab .dash-tab-spacer-books { grid-area: books !important; }
+.dash-tabbar.has-fab .dash-fab-slot { grid-area: fab !important; }
+.dash-tabbar.has-fab .dash-tab-activity,
+.dash-tabbar.has-fab .dash-tab-spacer-activity { grid-area: activity !important; }
+.dash-tabbar.has-fab .dash-tab-more { grid-area: more !important; }
+.dash-tabbar.has-fab > *:nth-child(1),
+.dash-tabbar.has-fab > *:nth-child(2),
+.dash-tabbar.has-fab > *:nth-child(3),
+.dash-tabbar.has-fab > *:nth-child(4),
+.dash-tabbar.has-fab > *:nth-child(5) {
+  grid-column: unset;
+}
 .dash-fab-slot {
-  width: 80px;
-  min-width: 80px;
-  height: 1px;
+  position: relative;
+  width: 72px;
+  min-width: 72px;
+  height: 56px;
   pointer-events: none;
   justify-self: center;
+  align-self: center;
+}
+.dash-fab-slot.is-live {
+  pointer-events: none;
+  z-index: 6;
 }
 .dash-tab-spacer {
   min-width: 0;
+  width: 100%;
   pointer-events: none;
   visibility: hidden;
 }
@@ -5181,15 +5198,35 @@ html[data-radius="round"] { --ui-radius: 24px; --ui-btn-radius: 999px; }
 }
 
 .dash-fab-anchor {
-  position: fixed;
+  display: none !important;
+}
+.dash-fab-slot.is-live .dash-fab-center {
+  position: absolute;
   left: 50%;
-  /* Sit above the bar; only ~15% of the FAB dips into the notch */
-  bottom: calc(96px + env(safe-area-inset-bottom));
+  top: 0;
   width: 62px;
   height: 62px;
-  transform: translateX(-50%);
-  z-index: 90;
-  pointer-events: none;
+  margin: 0;
+  transform: translate(-50%, -42%);
+  border-radius: 50%;
+  border: 5px solid #fff;
+  background: linear-gradient(160deg, #2aebd8, #0ea396);
+  color: #05221d;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow:
+    0 18px 32px -10px rgba(18, 184, 168, 0.7),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  cursor: pointer;
+  pointer-events: auto;
+  z-index: 8;
+}
+.dash-fab-slot.is-live .dash-fab-center:active {
+  transform: translate(-50%, -42%) scale(0.92);
+}
+.dash-fab-slot.is-live .dash-fab-center[data-open="true"] {
+  transform: translate(-50%, -42%) rotate(45deg);
 }
 .dash-fab-center {
   position: absolute;
@@ -7447,15 +7484,7 @@ section[aria-label="To pay"] {
   z-index: 1;
 }
 .dash-fab-anchor {
-  position: fixed !important;
-  left: 50% !important;
-  right: auto !important;
-  top: auto !important;
-  bottom: calc(96px + env(safe-area-inset-bottom)) !important;
-  transform: translateX(-50%) !important;
-  z-index: 90 !important;
-  pointer-events: none;
-  grid-column: unset !important;
+  display: none !important;
 }
 .dash-fab-center {
   border: 5px solid #fff;
@@ -7463,16 +7492,17 @@ section[aria-label="To pay"] {
 }
 .dash-tabbar.has-fab {
   display: grid !important;
-  grid-auto-flow: unset !important;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 80px minmax(0, 1fr) minmax(0, 1fr) !important;
+  grid-auto-flow: row !important;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 72px minmax(0, 1fr) minmax(0, 1fr) !important;
+  grid-template-areas: "home books fab activity more" !important;
 }
 .dash-tabbar[data-tabs="3"].has-fab {
   padding-left: 4px;
   padding-right: 4px;
 }
 .dash-tabbar.has-fab .dash-fab-slot {
-  min-width: 80px;
-  width: 80px;
+  min-width: 72px;
+  width: 72px;
 }
 .dash-tabbar.has-fab .dash-tab {
   overflow: hidden;
@@ -7540,6 +7570,12 @@ section[aria-label="To pay"] {
   background: linear-gradient(160deg, #2aebd8, #0ea396);
   border-color: transparent;
   color: #05221d;
+  padding-left: 10px;
+  padding-right: 12px;
+  white-space: nowrap;
+}
+.book-head-add span {
+  display: inline !important;
 }
 .book-head-team {
   background: #0B1F3A;

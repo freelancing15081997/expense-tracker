@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Capacitor } from '@capacitor/core';
-import { createUserWithEmailAndPassword, signInWithGoogle, auth, handoffGoogleToNativeApp } from '../lib/firebase';
+import { signInWithGoogle, handoffGoogleToNativeApp } from '../lib/firebase';
 import { Mail, Lock, AlertCircle } from 'lucide-react';
 import AuthScene from '../components/AuthScene';
 import { consumeReturnTo } from '../lib/return-to';
 import { EMAIL_NOTIFY_HINT, emailValidationMessage, normalizeEmail } from '../lib/email';
 import { checkNewPassword, PASSWORD_HINT } from '../lib/password';
 import { toUserMessage } from '../lib/user-message';
+import { apiPost } from '../lib/api';
 
 export default function Register() {
   const [email, setEmail] = useState('');
@@ -33,10 +34,13 @@ export default function Register() {
     try {
       setError('');
       setBusy('email');
-      await createUserWithEmailAndPassword(auth, cleaned, password);
-      navigate(consumeReturnTo());
+      await apiPost('/api/auth/otp', { op: 'send', purpose: 'register', email: cleaned });
+      try {
+        sessionStorage.setItem('byjan.pendingRegister', JSON.stringify({ email: cleaned, password, purpose: 'register' }));
+      } catch { /* ignore */ }
+      navigate('/verify-email', { state: { email: cleaned, password, purpose: 'register', otpSent: true } });
     } catch (err: any) {
-      setError(toUserMessage(err, 'Could not create your account. Please try again.'));
+      setError(toUserMessage(err, 'Could not send the verification code. Please try again.'));
     } finally {
       setBusy('');
     }
@@ -59,7 +63,7 @@ export default function Register() {
   return (
     <AuthScene
       title="Create your Byjan account"
-      subtitle="One workspace for books and expenses."
+      subtitle="Verify your email with a one-time code to activate."
       switchPrompt="Already have an account?"
       switchHref="/login"
       switchLabel="Sign in"
@@ -121,7 +125,7 @@ export default function Register() {
         </div>
         <button type="submit" disabled={loading} className="byjan-btn w-full h-10">
           {busy === 'email' && <span className="app-loader-ring app-loader-ring-sm" />}
-          {busy === 'email' ? 'Creating account' : 'Create account'}
+          {busy === 'email' ? 'Sending code' : 'Continue to verification'}
         </button>
         <p className="mt-3 text-[11px] leading-relaxed text-slate-500 text-center">{EMAIL_NOTIFY_HINT}</p>
       </form>

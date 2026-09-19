@@ -6,6 +6,8 @@ import { ToastProvider } from './context/ToastContext';
 import { AppPrefsProvider } from './context/AppPrefsContext';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import VerifyEmail from './pages/VerifyEmail';
+import ForgotPassword from './pages/ForgotPassword';
 import Dashboard from './pages/Dashboard';
 import BookView from './pages/BookView';
 import InviteAccept from './pages/InviteAccept';
@@ -58,6 +60,8 @@ export default function App() {
             <Routes>
               <Route path="/login" element={<GuestRoute><Login /></GuestRoute>} />
               <Route path="/register" element={<GuestRoute><Register /></GuestRoute>} />
+              <Route path="/verify-email" element={<GuestRoute><VerifyEmail /></GuestRoute>} />
+              <Route path="/forgot-password" element={<GuestRoute><ForgotPassword /></GuestRoute>} />
               <Route path="/invite/:inviteId" element={<InviteRoute />} />
               <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
                 <Route index element={<Dashboard />} />
