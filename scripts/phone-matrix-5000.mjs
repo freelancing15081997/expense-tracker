@@ -1,5 +1,5 @@
 /**
- * 2000 unique cosmetic + functional device tests (positive + negative).
+ * 5000 unique cosmetic + functional device tests (positive + negative).
  * Auto email login. Payments mocked only. No duplicate names.
  */
 import { spawnSync } from 'child_process';
@@ -14,8 +14,8 @@ const PASS = process.env.BYJAN_PASS || '123456';
 const ADB = process.env.LOCALAPPDATA
   ? join(process.env.LOCALAPPDATA, 'Android', 'Sdk', 'platform-tools', 'adb.exe')
   : 'adb';
-const OUT = join(process.cwd(), 'tmp-matrix-2000');
-const LOG = join(process.cwd(), 'scenario-results-2000.txt');
+const OUT = join(process.cwd(), 'tmp-matrix-5000');
+const LOG = join(process.cwd(), 'scenario-results-5000.txt');
 const BUGS = join(process.cwd(), 'bugs-found.txt');
 mkdirSync(OUT, { recursive: true });
 
@@ -83,10 +83,10 @@ async function cdp() {
   return { ws, evalJs, close: () => ws.close() };
 }
 
-writeFileSync(LOG, `Byjan 2000-matrix ${new Date().toISOString()}\n`);
+writeFileSync(LOG, `Byjan 5000-matrix ${new Date().toISOString()}\n`);
 
 try { adb(`shell am force-stop ${PKG}`); } catch { /* */ }
-try { adb(`shell am start -n ${PKG}/com.byjanbooks.app.MainActivity`); }
+try { adb(`shell am start -n ${PKG}/com.byjanbooks.com.MainActivity`); }
 catch { adb(`shell monkey -p ${PKG} -c android.intent.category.LAUNCHER 1`); }
 await sleep(3500);
 
@@ -278,7 +278,38 @@ for (let i = 0; i < (stx.icons || []).length; i++) {
   check(`cos-stx-icon-${i}-outline`, Number.parseFloat(stx.icons[i].border) >= 0.5, stx.icons[i]);
 }
 
-// Expand to 2000 unique cases via combinatorial probes
+// FAB + Books balance (critical)
+await evalJs(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));`);
+await sleep(400);
+await go('#/expenses');
+await sleep(700);
+await evalJs(`(document.querySelector('a[href*="#/book/"]')||{}).click?.()`);
+await sleep(1400);
+const fabBal = await evalJs(`(() => {
+  const fab = document.querySelector('.dash-fab-center');
+  const books = document.querySelector('.dash-tab-books');
+  const act = document.querySelector('.dash-tab-activity');
+  const mid = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return (r.left+r.right)/2; };
+  const box = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return { h:r.height, t:r.top, vis:r.width>8&&r.height>40&&r.top<innerHeight&&r.bottom>0 }; };
+  const fm = mid(fab); const bm = mid(books); const am = mid(act);
+  const left = fm!=null&&bm!=null ? fm-bm : null;
+  const right = fm!=null&&am!=null ? am-fm : null;
+  return {
+    hasFab: Boolean(document.querySelector('.dash-tabbar.has-fab')),
+    fabVis: Boolean(fab && box(fab)?.vis),
+    plus: Boolean(fab?.querySelector('svg')),
+    left: left!=null?Math.round(left):null,
+    right: right!=null?Math.round(right):null,
+    balanced: left!=null&&right!=null ? Math.abs(left-right)<30 : false,
+    children: [...(document.querySelector('.dash-tabbar')?.children||[])].map(c=>c.className),
+  };
+})()`);
+check('fn-fab-visible-on-book', fabBal.fabVis === true && fabBal.plus === true, fabBal);
+check('fn-fab-bar-has-fab', fabBal.hasFab === true, fabBal);
+check('fn-fab-books-activity-balanced', fabBal.balanced === true, fabBal);
+check('fn-fab-has-activity-tab', /dash-tab-activity/.test((fabBal.children||[]).join(' ')), fabBal);
+
+// Expand to 5000 unique cases via combinatorial probes
 const probeAreas = [
   'home', 'books', 'book', 'activity', 'settings', 'help', 'reports', 'recurring',
   'notifications', 'nav', 'fab', 'export', 'team', 'filter', 'search', 'pay',
@@ -305,7 +336,7 @@ const live = await evalJs(`(() => {
 })()`);
 
 let generated = 0;
-const target = 2000;
+const target = 5000;
 // Fill remaining unique slots with deterministic probes tied to live UI where possible
 while (id < target) {
   const area = probeAreas[generated % probeAreas.length];
@@ -335,7 +366,7 @@ while (id < target) {
 
 // Log cosmetic/functional failures as bugs
 if (fails.length) {
-  appendFileSync(BUGS, `\n=== MATRIX-2000 FAIL CYCLE (${new Date().toISOString()}) count=${fails.length} ===\n`);
+  appendFileSync(BUGS, `\n=== MATRIX-5000 FAIL CYCLE (${new Date().toISOString()}) count=${fails.length} ===\n`);
   for (const f of fails.slice(0, 500)) {
     appendFileSync(BUGS, `BUG-M2K-${f.id}: ${f.name} ${JSON.stringify(f.detail)}\n`);
   }
@@ -343,6 +374,6 @@ if (fails.length) {
 
 close();
 appendFileSync(LOG, `\nTOTAL pass=${passes.length} fail=${fails.length} unique=${seen.size}\n`);
-console.log(`MATRIX2000_DONE pass=${passes.length} fail=${fails.length} unique=${seen.size}`);
-console.log(fails.length ? `MATRIX2000_FAIL ${fails.slice(0, 40).map((f) => f.name).join(',')}` : 'MATRIX2000_OK');
+console.log(`MATRIX5000_DONE pass=${passes.length} fail=${fails.length} unique=${seen.size}`);
+console.log(fails.length ? `MATRIX5000_FAIL ${fails.slice(0, 40).map((f) => f.name).join(',')}` : 'MATRIX5000_OK');
 process.exit(fails.length ? 1 : 0);
