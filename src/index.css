@@ -5199,12 +5199,12 @@ html[data-radius="round"] { --ui-radius: 24px; --ui-btn-radius: 999px; }
 .dash-fab-slot.is-live .dash-fab-center {
   position: absolute;
   left: 50%;
-  /* Sit a bit above the bar so the + is fully visible and Books can stay centered beside it */
-  bottom: 6px;
+  /* Slight raise above the tab row so + clears the bar without floating too high */
+  bottom: 10px;
   width: 58px;
   height: 58px;
   margin: 0;
-  transform: translate(-50%, -36%);
+  transform: translate(-50%, -48%);
   border-radius: 50%;
   border: 4px solid #fff;
   background: linear-gradient(160deg, #2aebd8, #0ea396);
@@ -5220,10 +5220,10 @@ html[data-radius="round"] { --ui-radius: 24px; --ui-btn-radius: 999px; }
   z-index: 12;
 }
 .dash-fab-slot.is-live .dash-fab-center:active {
-  transform: translate(-50%, -36%) scale(0.92);
+  transform: translate(-50%, -48%) scale(0.92);
 }
 .dash-fab-slot.is-live .dash-fab-center[data-open="true"] {
-  transform: translate(-50%, -36%) rotate(45deg);
+  transform: translate(-50%, -48%) rotate(45deg);
 }
 .dash-fab-center {
   position: absolute;
