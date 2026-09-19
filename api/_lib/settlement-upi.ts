@@ -17,7 +17,7 @@ import {
   getLedgerSql,
 } from '../_pg-tables.js';
 
-const UPI_VPA_RE = /^[a-zA-Z0-9.\-_]{1,256}@[a-zA-Z]{2,64}$/;
+const UPI_VPA_RE = /^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z][a-zA-Z0-9.\-]{1,63}$/;
 
 function newId(prefix: string) {
   return `${prefix}_${Date.now().toString(36)}_${randomBytes(4).toString('hex')}`;
@@ -30,7 +30,11 @@ function normalizeVpa(raw: unknown) {
 function isValidVpa(raw: unknown) {
   const vpa = normalizeVpa(raw);
   if (!vpa || /^\d{10}$/.test(String(raw || '').trim())) return false;
-  return UPI_VPA_RE.test(vpa);
+  if (!UPI_VPA_RE.test(vpa)) return false;
+  const [local, handle] = vpa.split('@');
+  if (!local || !handle || local.length < 2 || handle.length < 2) return false;
+  if (/^test@|^asdf@|^xxx@/i.test(vpa)) return false;
+  return true;
 }
 
 function paiseToUpiAmount(paise: number) {
@@ -384,6 +388,10 @@ export async function saveMyUpiProfile(opts: {
   if (!isValidVpa(vpa)) {
     throw new ApiError(400, 'Enter a valid UPI ID like name@oksbi — not a phone number alone.');
   }
+  const displayName = String(opts.upiDisplayName || '').trim();
+  if (!displayName) {
+    throw new ApiError(400, 'Enter the name shown on your UPI app for this ID.');
+  }
   if (!opts.confirm) {
     throw new ApiError(400, 'Confirm that this UPI ID belongs to you.');
   }
@@ -392,7 +400,7 @@ export async function saveMyUpiProfile(opts: {
     uid: opts.uid,
     email: opts.email,
     upiId: vpa,
-    upiDisplayName: String(opts.upiDisplayName || '').trim() || undefined,
+    upiDisplayName: displayName,
     upiStatus: 'SELF_CONFIRMED',
     upiConfirmedAt: now,
     updatedAt: now,

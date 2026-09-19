@@ -1576,16 +1576,20 @@ export default function BookView() {
     }
   };
 
-  const sendEmailNotification = async (toEmail: string, subject: string, message: string, meta?: { action?: string }) => {
+  const sendEmailNotification = async (toEmail: string, subject: string, message: string, meta?: { action?: string; kind?: string }) => {
     try {
       const { apiPost } = await import('../lib/api');
+      const kind = meta?.kind
+        || (meta?.action?.toLowerCase().includes('announcement') ? 'announcement'
+          : meta?.action?.toLowerCase().includes('invite') ? 'invite'
+            : 'notice');
       await apiPost('/api/email/send', {
         to: toEmail,
         subject,
         message,
         bookId: bookId || undefined,
         ledgerMail: inboundAddress || bookInboundAddress(book),
-        kind: meta?.action?.toLowerCase().includes('announcement') ? 'announcement' : 'notice',
+        kind,
       });
       if (bookId) {
         await addLedgerMailEvent(bookId, {
@@ -1652,7 +1656,8 @@ export default function BookView() {
           ],
           note: 'Open the invitation while signed in as the invited email. Sign out first if another account is already open on this device.',
           extraHtml: openInviteButtonHtml(inviteId),
-        })
+        }),
+        { action: 'Invite', kind: 'invite' },
       );
       if (sent) {
         addToast(`Email sent to ${email}. They will also see it on Home after signing in with that address.`, 'success');
@@ -1897,6 +1902,11 @@ export default function BookView() {
               </DropdownMenu.Trigger>
               <DropdownMenu.Portal>
                 <DropdownMenu.Content className="book-overflow-menu" align="end" sideOffset={6}>
+                  {canManageUsers && (
+                    <DropdownMenu.Item className="book-overflow-item" onSelect={() => setIsMembersModalOpen(true)}>
+                      <UserPlus className="w-4 h-4" /> Invite people
+                    </DropdownMenu.Item>
+                  )}
                   {hasFeature('money_recurring') && (
                     <DropdownMenu.Item className="book-overflow-item" onSelect={() => navigate('/regular-payments')}>
                       <CalendarClock className="w-4 h-4" /> Upcoming

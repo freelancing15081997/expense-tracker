@@ -7,7 +7,7 @@ import AuthScene from '../components/AuthScene';
 import OnboardingSlides from '../components/OnboardingSlides';
 import { consumeReturnTo } from '../lib/return-to';
 import { consumeAuthNotice } from '../lib/support';
-import { EMAIL_NOTIFY_HINT, isValidNotifyEmail, normalizeEmail } from '../lib/email';
+import { EMAIL_NOTIFY_HINT, emailValidationMessage, normalizeEmail } from '../lib/email';
 import { toUserMessage } from '../lib/user-message';
 
 const ONBOARD_KEY = 'byjan.onboard.v1';
@@ -68,8 +68,13 @@ export default function Login() {
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleaned = normalizeEmail(email);
-    if (!isValidNotifyEmail(cleaned)) {
-      setError('Enter a real email address you can open for invitations and alerts.');
+    const emailErr = emailValidationMessage(cleaned);
+    if (emailErr) {
+      setError(emailErr);
+      return;
+    }
+    if (!String(password || '').trim()) {
+      setError('Enter your password.');
       return;
     }
     try {

@@ -1,6 +1,48 @@
 /** Real UPI URI helpers + VPA validation. Never marks payment success. */
 
-export const UPI_VPA_RE = /^[a-zA-Z0-9.\-_]{1,256}@[a-zA-Z]{2,64}$/;
+export const UPI_VPA_RE = /^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z][a-zA-Z0-9.\-]{1,63}$/;
+
+/** Common Indian UPI PSP / bank handles (not exhaustive — unknown handles still allowed if format is valid). */
+export const KNOWN_UPI_HANDLES: Record<string, string> = {
+  oksbi: 'State Bank of India (Google Pay)',
+  okhdfcbank: 'HDFC Bank (Google Pay)',
+  okicici: 'ICICI Bank (Google Pay)',
+  okaxis: 'Axis Bank (Google Pay)',
+  okbizaxis: 'Axis Bank business (Google Pay)',
+  ybl: 'PhonePe / Yes Bank',
+  ibl: 'PhonePe / IndusInd',
+  axl: 'PhonePe / Axis',
+  paytm: 'Paytm',
+  ptyes: 'Paytm',
+  ptsbi: 'Paytm / SBI',
+  pthdfc: 'Paytm / HDFC',
+  apl: 'Amazon Pay',
+  amazonpay: 'Amazon Pay',
+  bhim: 'BHIM',
+  freecharge: 'Freecharge',
+  mobikwik: 'MobiKwik',
+  jkbank: 'J&K Bank',
+  federal: 'Federal Bank',
+  kotak: 'Kotak',
+  barodampay: 'Bank of Baroda',
+  UPI: 'UPI',
+  upi: 'UPI',
+  okidfcbank: 'IDFC First (Google Pay)',
+  okyesbank: 'Yes Bank (Google Pay)',
+  okbob: 'Bank of Baroda (Google Pay)',
+  naviaxis: 'Navi / Axis',
+  sliceaxis: 'Slice / Axis',
+  pingpay: 'Samsung Pay',
+  rbl: 'RBL Bank',
+  idbi: 'IDBI Bank',
+  cnrb: 'Canara Bank',
+  kbl: 'Karnataka Bank',
+  tjsb: 'TJSB',
+  dbsc: 'DBS',
+  hsbc: 'HSBC',
+  indus: 'IndusInd',
+  yesbankltd: 'Yes Bank',
+};
 
 export const PAYMENT_LIFECYCLE = [
   'UNPAID',
@@ -32,14 +74,58 @@ export function normalizeVpa(raw: string) {
   return String(raw || '').trim().toLowerCase().replace(/\s+/g, '');
 }
 
+export function upiHandleOf(raw: string) {
+  const vpa = normalizeVpa(raw);
+  const at = vpa.lastIndexOf('@');
+  if (at < 1) return '';
+  return vpa.slice(at + 1);
+}
+
+export function describeUpiHandle(raw: string): string | null {
+  const handle = upiHandleOf(raw);
+  if (!handle) return null;
+  return KNOWN_UPI_HANDLES[handle] || null;
+}
+
 export function isValidVpa(raw: string) {
   const vpa = normalizeVpa(raw);
   if (!vpa || vpa.includes(' ')) return false;
   if (!UPI_VPA_RE.test(vpa)) return false;
   // Phone numbers alone are not UPI IDs.
-  if (/^\d{10}@/.test(vpa) === false && /^\d{10}$/.test(vpa)) return false;
   if (/^\d{10}$/.test(String(raw || '').trim())) return false;
+  const [local, handle] = vpa.split('@');
+  if (!local || !handle) return false;
+  if (local.length < 2) return false;
+  // Reject obvious junk
+  if (/^test@|^asdf@|^xxx@/i.test(vpa)) return false;
+  if (handle.length < 2 || handle.length > 64) return false;
   return true;
+}
+
+/** Format + known-handle check. Does NOT call NPCI — bank-registered name needs a PSP API. */
+export function validateUpiId(raw: string): { ok: boolean; message: string; handleLabel?: string; knownHandle: boolean } {
+  const vpa = normalizeVpa(raw);
+  if (!vpa) return { ok: false, message: 'Enter your UPI ID.', knownHandle: false };
+  if (/^\d{10}$/.test(String(raw || '').trim())) {
+    return { ok: false, message: 'Enter a full UPI ID like name@oksbi — a phone number alone is not enough.', knownHandle: false };
+  }
+  if (!isValidVpa(vpa)) {
+    return { ok: false, message: 'UPI ID must look like name@bank (for example you@oksbi or you@ybl).', knownHandle: false };
+  }
+  const label = describeUpiHandle(vpa);
+  if (label) {
+    return {
+      ok: true,
+      message: `Looks like a ${label} payment ID. Confirm the name matches your UPI app.`,
+      handleLabel: label,
+      knownHandle: true,
+    };
+  }
+  return {
+    ok: true,
+    message: 'Format looks valid. We cannot look up the bank-registered name without a payment-provider API — confirm it in your UPI app.',
+    knownHandle: false,
+  };
 }
 
 export function paiseToUpiAmount(paise: number) {
@@ -60,6 +146,7 @@ export function buildUpiPayUri(params: UpiPayParams) {
   if (params.tr) q.set('tr', String(params.tr).slice(0, 35));
   return `upi://pay?${q.toString()}`;
 }
+
 
 export type UpiAppId = 'generic' | 'gpay' | 'phonepe' | 'paytm' | 'bhim' | 'cred' | 'whatsapp' | 'amazonpay' | 'mobikwik';
 

@@ -38,12 +38,19 @@ async function requireUser(req: VercelRequest) {
   };
 }
 
-async function recipientAllowed(opts: { uid: string; email: string; to: string; bookId: string }) {
+async function recipientAllowed(opts: {
+  uid: string;
+  email: string;
+  to: string;
+  bookId: string;
+  kind?: string;
+}) {
   const to = opts.to.trim().toLowerCase();
   if (!to) return false;
   if (opts.email && to === opts.email) return true;
   const bookId = String(opts.bookId || '').trim();
   if (!bookId) return false;
+  const kind = String(opts.kind || '').toLowerCase();
   try {
     const { ledgerGet, ledgerRequireMember } = await import('../_pg-tables.js');
     await ledgerRequireMember(bookId, opts.uid);
@@ -57,6 +64,16 @@ async function recipientAllowed(opts: { uid: string; email: string; to: string; 
       const row = roles[uid];
       const em = String(row?.email || row?.mail || '').trim().toLowerCase();
       if (em && em === to) return true;
+    }
+    // Invite mail goes to people who are not members yet.
+    if (kind === 'invite' || kind === 'invitation') {
+      const myRole = String(roles?.[opts.uid]?.role || ((book as any)?.ownerId === opts.uid ? 'owner' : ''));
+      if (myRole === 'owner' || myRole === 'admin') {
+        const invite = await ledgerGet(`invites/${bookId}_${to}`);
+        if (invite && invite.deleted !== true && String(invite.status || 'pending') === 'pending') {
+          return true;
+        }
+      }
     }
     return false;
   } catch {
@@ -87,12 +104,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const subject = String(body.subject || '').trim();
     const message = String(body.message || '');
     const bookId = String(body.bookId || '').trim();
+    const kind = String(body.kind || '').trim().toLowerCase();
     if (!to || !subject || !message) {
       json(res, 400, { error: 'Missing required fields' });
       return;
     }
-    if (!(await recipientAllowed({ uid, email: user.email, to, bookId }))) {
-      json(res, 403, { error: 'You can only email yourself or members of a book you belong to' });
+    if (!(await recipientAllowed({ uid, email: user.email, to, bookId, kind }))) {
+      json(res, 403, { error: 'You can only email yourself, book members, or someone you just invited to this book.' });
       return;
     }
 

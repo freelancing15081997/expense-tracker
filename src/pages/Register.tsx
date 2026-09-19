@@ -5,7 +5,8 @@ import { createUserWithEmailAndPassword, signInWithGoogle, auth, handoffGoogleTo
 import { Mail, Lock, AlertCircle } from 'lucide-react';
 import AuthScene from '../components/AuthScene';
 import { consumeReturnTo } from '../lib/return-to';
-import { EMAIL_NOTIFY_HINT, isValidNotifyEmail, normalizeEmail } from '../lib/email';
+import { EMAIL_NOTIFY_HINT, emailValidationMessage, normalizeEmail } from '../lib/email';
+import { checkNewPassword, PASSWORD_HINT } from '../lib/password';
 import { toUserMessage } from '../lib/user-message';
 
 export default function Register() {
@@ -19,8 +20,14 @@ export default function Register() {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleaned = normalizeEmail(email);
-    if (!isValidNotifyEmail(cleaned)) {
-      setError('Enter a real email address you can open for invitations and alerts.');
+    const emailErr = emailValidationMessage(cleaned);
+    if (emailErr) {
+      setError(emailErr);
+      return;
+    }
+    const pwd = checkNewPassword(password);
+    if (!pwd.ok) {
+      setError(pwd.message);
       return;
     }
     try {
@@ -105,11 +112,12 @@ export default function Register() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="At least 6 characters"
+              placeholder="Create a strong password"
               autoComplete="new-password"
-              minLength={6}
+              minLength={8}
             />
           </label>
+          <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500 text-center">{PASSWORD_HINT}</p>
         </div>
         <button type="submit" disabled={loading} className="byjan-btn w-full h-10">
           {busy === 'email' && <span className="app-loader-ring app-loader-ring-sm" />}

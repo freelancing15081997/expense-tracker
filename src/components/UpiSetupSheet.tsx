@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Check, Shield, X } from 'lucide-react';
 import { saveMyUpi } from '../lib/money-api';
-import { isValidVpa, normalizeVpa } from '../lib/upi';
+import { normalizeVpa, validateUpiId } from '../lib/upi';
 import './split-premium.css';
 
 type Props = {
@@ -37,12 +37,17 @@ export default function UpiSetupSheet({
 
   if (!open) return null;
 
-  const valid = isValidVpa(upiId);
+  const check = validateUpiId(upiId);
+  const valid = check.ok;
 
   const save = async () => {
     setError('');
     if (!valid) {
-      setError('Enter a valid UPI ID like name@oksbi — not a phone number alone.');
+      setError(check.message || 'Enter a valid UPI ID like name@oksbi — not a phone number alone.');
+      return;
+    }
+    if (!String(name || '').trim()) {
+      setError('Enter the name shown on your UPI app for this ID.');
       return;
     }
     if (!confirm) {
@@ -53,7 +58,7 @@ export default function UpiSetupSheet({
     try {
       const res = await saveMyUpi({
         upiId: normalizeVpa(upiId),
-        upiDisplayName: name.trim() || undefined,
+        upiDisplayName: name.trim(),
         confirm: true,
       });
       const profile = res.profile || {
@@ -106,11 +111,17 @@ export default function UpiSetupSheet({
             spellCheck={false}
           />
         </label>
+        {upiId.trim() ? (
+          <p className={`text-[11px] leading-relaxed mb-2 px-1 ${valid ? 'text-teal-800' : 'text-rose-600'}`}>
+            {check.message}
+          </p>
+        ) : null}
         <label className="sp-search" style={{ marginBottom: 12 }}>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Display name on UPI (optional)"
+            placeholder="Name on your UPI app (required)"
+            required
           />
         </label>
 
@@ -122,18 +133,15 @@ export default function UpiSetupSheet({
         >
           <span className="sp-check">{confirm ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : null}</span>
           <span className="sp-meta" style={{ gridColumn: '2 / -1' }}>
-            <p className="sp-name">I confirm this UPI ID belongs to me</p>
-            <p className="sp-email">Format-checked only — Byjan does not verify with your bank</p>
+            <p className="sp-name">I confirm this UPI ID and name belong to me</p>
+            <p className="sp-email">Byjan checks format and bank handle — not live NPCI name lookup</p>
           </span>
         </button>
 
         {error ? <p className="sp-error">{error}</p> : null}
-        {!valid && upiId.trim() ? (
-          <p className="sp-error">UPI ID must look like name@bank — phone numbers alone are not accepted.</p>
-        ) : null}
 
         <div className="sp-footer">
-          <button type="button" className="sp-cta" disabled={busy || !valid || !confirm} onClick={() => void save()}>
+          <button type="button" className="sp-cta" disabled={busy || !valid || !confirm || !name.trim()} onClick={() => void save()}>
             {busy ? 'Saving…' : 'Save & confirm UPI'}
           </button>
         </div>
