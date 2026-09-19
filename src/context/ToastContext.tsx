@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { CheckCircle2, AlertCircle, X, Info } from 'lucide-react';
 import { getRuntimePrefs } from '../lib/app-prefs';
+import { toUserMessage } from '../lib/user-message';
 
 type ToastType = 'success' | 'error' | 'info';
 
@@ -25,8 +26,12 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const addToast = useCallback((message: string | { title?: string; description?: string }, type: ToastType = 'info') => {
     if (type !== 'error' && !getRuntimePrefs().showToasts) return;
-    const title = typeof message === 'string' ? message : (message?.title || message?.description || 'Done');
-    const description = typeof message === 'string' ? undefined : (message?.title ? message.description : undefined);
+    let title = typeof message === 'string' ? message : (message?.title || message?.description || 'Done');
+    let description = typeof message === 'string' ? undefined : (message?.title ? message.description : undefined);
+    if (type === 'error') {
+      title = toUserMessage(title, 'Something went wrong. Please try again.');
+      if (description) description = toUserMessage(description, description);
+    }
     const id = Math.random().toString(36).substring(2, 9);
     setToasts((prev) => [...prev.slice(-3), { id, title, description, type }]);
     window.setTimeout(() => {

@@ -5096,16 +5096,25 @@ html[data-radius="round"] { --ui-radius: 24px; --ui-btn-radius: 999px; }
   min-height: 78px;
 }
 .dash-tabbar.has-fab {
+  display: grid !important;
+  grid-auto-flow: unset !important;
+  grid-auto-columns: unset !important;
+  /* Equal side columns so Home/Books and Activity/More stay balanced around centered + */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 80px minmax(0, 1fr) minmax(0, 1fr) !important;
   min-height: 82px;
   padding-top: 18px;
   padding-bottom: 14px;
-  /* 5 equal columns: L L ·FAB· R R — works for 3 or 4 visible tabs */
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 76px minmax(0, 1fr) minmax(0, 1fr);
-  grid-auto-columns: unset;
+  align-items: center;
+  justify-items: stretch;
 }
+.dash-tabbar.has-fab > *:nth-child(1) { grid-column: 1 !important; justify-self: stretch; }
+.dash-tabbar.has-fab > *:nth-child(2) { grid-column: 2 !important; justify-self: stretch; }
+.dash-tabbar.has-fab > *:nth-child(3) { grid-column: 3 !important; justify-self: center; }
+.dash-tabbar.has-fab > *:nth-child(4) { grid-column: 4 !important; justify-self: stretch; }
+.dash-tabbar.has-fab > *:nth-child(5) { grid-column: 5 !important; justify-self: stretch; }
 .dash-fab-slot {
-  width: 76px;
-  min-width: 76px;
+  width: 80px;
+  min-width: 80px;
   height: 1px;
   pointer-events: none;
   justify-self: center;
@@ -5121,6 +5130,9 @@ html[data-radius="round"] { --ui-radius: 24px; --ui-btn-radius: 999px; }
   min-width: 0;
   align-self: center;
   justify-self: stretch;
+  text-align: center;
+  align-items: center;
+  justify-content: center;
 }
 .dash-tab {
   position: relative;
@@ -7450,18 +7462,21 @@ section[aria-label="To pay"] {
   z-index: 6;
 }
 .dash-tabbar.has-fab {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 76px minmax(0, 1fr) minmax(0, 1fr);
+  display: grid !important;
+  grid-auto-flow: unset !important;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 80px minmax(0, 1fr) minmax(0, 1fr) !important;
 }
 .dash-tabbar[data-tabs="3"].has-fab {
   padding-left: 4px;
   padding-right: 4px;
 }
 .dash-tabbar.has-fab .dash-fab-slot {
-  min-width: 76px;
-  width: 76px;
+  min-width: 80px;
+  width: 80px;
 }
 .dash-tabbar.has-fab .dash-tab {
   overflow: hidden;
+  text-align: center;
 }
 .dash-tabbar.has-fab .dash-tab-books,
 .dash-tabbar.has-fab .dash-tab-activity {
@@ -7564,6 +7579,25 @@ section[aria-label="To pay"] {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+.trace-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(11, 31, 58, 0.1);
+  background: rgba(255, 255, 255, 0.92);
+  color: #64748b;
+}
+.trace-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-size: 14px;
+  color: #0B1F3A;
 }
 .trace-head {
   display: flex;

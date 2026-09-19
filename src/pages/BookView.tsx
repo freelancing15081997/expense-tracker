@@ -42,8 +42,6 @@ import { EventMailTrack, emailStatusClass, emailStatusLabel, resolvedStatus } fr
 import { ListControls, ListPager, usePagedList } from '../components/ListControls';
 import AppLoader from '../components/AppLoader';
 import { MoneyBookScreenSkeleton } from '../components/money/MoneySkeletons';
-import LedgerTools from '../components/LedgerTools';
-import LedgerStudio from '../components/LedgerStudio';
 import {
   anomalyIds,
   dueRecurringPosts,
@@ -2248,25 +2246,6 @@ export default function BookView() {
         <div className="py-1.5">
         <Tabs.Content value="ledger" className="outline-none">
           <div className="tool-collapse-row tool-collapse-row-soft mb-1.5">
-          <LedgerTools
-            bookId={bookId!}
-            book={book}
-            canWrite={canWrite}
-            categories={categoryOptions}
-            merchants={Array.from<string>(new Set(expenses.map((exp) => String(exp.merchant || '').trim()).filter((name) => name.length > 0))).slice(0, 40)}
-            currencySymbol={getCurrencySymbol(book.currency)}
-            enteredBy={String(userProfile?.displayName || currentUser?.email || '')}
-            enteredByUid={currentUser?.uid || ''}
-            enteredByEmail={currentUser?.email || ''}
-            expenses={expenses}
-            onBook={(next) => setBook(next)}
-            onRefresh={refreshExpenses}
-            onAdded={applyExpenseLocal}
-            onRemoved={dropExpensesLocal}
-            onToast={(message, kind) => addToast(message, kind || 'success')}
-            onNotifyTeam={(action, detail) => void notifyTeamMembers(action, detail)}
-            onOpenFullForm={() => { void CapacitorService.hapticTick(); openNewExpense(); }}
-          />
           {bookId && currentUser?.uid ? (
             <SettlementsPanel
               bookId={bookId}
@@ -2284,85 +2263,28 @@ export default function BookView() {
               }}
             />
           ) : null}
-          <div className="flex flex-wrap items-center gap-2">
-            <LedgerStudio
-              bookId={bookId!}
-              book={book}
-              bookName={book.name}
-              canWrite={canWrite}
-              canManage={canManageUsers}
-              categories={categoryOptions}
-              currencySymbol={getCurrencySymbol(book.currency)}
-              expenses={expenses}
-              filtered={filteredExpenses}
-              selected={expenses.filter((exp) => selectedIds.includes(exp.id))}
-              enteredBy={String(userProfile?.displayName || currentUser?.email || '')}
-              enteredByUid={currentUser?.uid || ''}
-              enteredByEmail={currentUser?.email || ''}
-              onBook={(next) => setBook(next)}
-              onRefresh={refreshExpenses}
-              onAdded={applyExpenseLocal}
-              onRemoved={dropExpensesLocal}
-              onPatched={applyExpenseLocal}
-              onToast={(message, kind) => addToast(message, kind || 'success')}
-              amountMin={amountMin}
-              amountMax={amountMax}
-              onAmountMin={setAmountMin}
-              onAmountMax={setAmountMax}
-              hideTransfers={hideTransfers}
-              onHideTransfers={setHideTransfers}
-              flaggedOnly={flaggedOnly}
-              onFlaggedOnly={setFlaggedOnly}
-              hideDrafts={hideDrafts}
-              onHideDrafts={setHideDrafts}
-              staleOnly={staleOnly}
-              onStaleOnly={setStaleOnly}
-              anomalyOnly={anomalyOnly}
-              onAnomalyOnly={setAnomalyOnly}
-              missingOnly={missingOnly}
-              onMissingOnly={setMissingOnly}
-              privacy={privacy}
-              onPrivacy={setPrivacy}
-              onCopyFilterLink={() => {
-                const params = new URLSearchParams();
-                if (searchQuery) params.set('q', searchQuery);
-                if (dateFrom) params.set('from', dateFrom);
-                if (dateTo) params.set('to', dateTo);
-                if (amountMin) params.set('min', amountMin);
-                if (amountMax) params.set('max', amountMax);
-                if (typeFilter !== 'all') params.set('type', typeFilter);
-                const next = `${window.location.origin}${window.location.pathname}#/book/${bookId}${params.toString() ? `?${params}` : ''}`;
-                void navigator.clipboard.writeText(next);
-                addToast('Filter link copied.', 'success');
+          {lastDeleted && canWrite && (
+            <button
+              type="button"
+              data-undo-remove
+              className="byjan-chip"
+              onClick={async () => {
+                const restored = lastDeleted;
+                applyExpenseLocal(restored);
+                setLastDeleted(null);
+                try {
+                  await updateExpense(bookId!, String(restored.id), { deleted: false, deletedAt: null, status: restored.status || 'recorded' });
+                  addToast('Entry restored.', 'success');
+                } catch (err: any) {
+                  dropExpensesLocal([String(restored.id)]);
+                  setLastDeleted(restored);
+                  addToast(err?.message || 'Could not restore that entry', 'error');
+                }
               }}
-              onRepeatLast={() => {
-                const last = expenses[0];
-                if (last) void duplicateExpense(last);
-              }}
-            />
-            {lastDeleted && canWrite && (
-              <button
-                type="button"
-                data-undo-remove
-                className="byjan-chip"
-                onClick={async () => {
-                  const restored = lastDeleted;
-                  applyExpenseLocal(restored);
-                  setLastDeleted(null);
-                  try {
-                    await updateExpense(bookId!, String(restored.id), { deleted: false, deletedAt: null, status: restored.status || 'recorded' });
-                    addToast('Entry restored.', 'success');
-                  } catch (err: any) {
-                    dropExpensesLocal([String(restored.id)]);
-                    setLastDeleted(restored);
-                    addToast(err?.message || 'Could not restore that entry', 'error');
-                  }
-                }}
-              >
-                Undo
-              </button>
-            )}
-          </div>
+            >
+              Undo
+            </button>
+          )}
           </div>
           {selectedIds.length > 0 && canWrite && createPortal(
             <div className="byjan-select-dock">

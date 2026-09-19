@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Activity, AlertTriangle, CheckCircle2, Database, Mail, RefreshCw, Server, Shield } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Activity, AlertTriangle, CheckCircle2, Database, Mail, RefreshCw, Search, Server, Shield } from 'lucide-react';
 import { apiUrl } from '../lib/api';
 import { authHeaders } from '../lib/auth-client';
 
@@ -7,6 +7,8 @@ type TracePayload = {
   at?: string;
   health?: Record<string, { id: string; label: string; ok: boolean; hint: string } | undefined>;
   freeTiers?: Array<{ id: string; label: string; ok: boolean; hint: string }>;
+  quotaAlerts?: Array<Record<string, unknown>>;
+  byFeature?: Record<string, { ok: number; fail: number; quota: number }>;
   env?: Array<{ name: string; set: boolean; length: number }>;
   email?: {
     recentOk: number;
@@ -26,6 +28,8 @@ function fmtAt(raw: unknown) {
 
 function eventLine(ev: Record<string, unknown>) {
   const kind = String(ev.kind || 'event');
+  const feature = String(ev.feature || '');
+  const quota = String(ev.quota || '');
   const to = String(ev.to || '');
   const subject = String(ev.subject || '');
   const error = String(ev.error || '');
@@ -35,6 +39,8 @@ function eventLine(ev: Record<string, unknown>) {
   const note = String(ev.note || '');
   if (ev.ok === false) {
     return [
+      quota ? `[${quota}]` : '',
+      feature ? `feature:${feature}` : '',
       error || 'failed',
       to ? `to ${to}` : '',
       subject ? `“${subject}”` : '',
@@ -45,6 +51,7 @@ function eventLine(ev: Record<string, unknown>) {
   if (ev.ok === true) {
     return [
       'ok',
+      feature ? `feature:${feature}` : '',
       to ? `to ${to}` : '',
       subject ? `“${subject}”` : '',
       messageId ? `id ${messageId}` : '',
@@ -55,10 +62,19 @@ function eventLine(ev: Record<string, unknown>) {
   return JSON.stringify(ev).slice(0, 200);
 }
 
+function matchesQuery(ev: Record<string, unknown>, q: string) {
+  if (!q) return true;
+  const hay = [
+    ev.kind, ev.feature, ev.quota, ev.error, ev.to, ev.subject, ev.alertTitle, ev.note, ev.host, ev.messageId,
+  ].map((v) => String(v || '').toLowerCase()).join(' ');
+  return q.split(/\s+/).filter(Boolean).every((token) => hay.includes(token));
+}
+
 export default function TraceOps() {
   const [data, setData] = useState<TracePayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [query, setQuery] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -80,9 +96,19 @@ export default function TraceOps() {
 
   useEffect(() => { void load(); }, [load]);
 
-  const fails = data?.email?.fails || [];
-  const sent = data?.email?.sent || [];
-  const configFails = (data?.events || []).filter((e) => e.kind === 'email.config' && e.ok === false);
+  const q = query.trim().toLowerCase();
+  const fails = useMemo(() => (data?.email?.fails || []).filter((ev) => matchesQuery(ev, q)), [data, q]);
+  const sent = useMemo(() => (data?.email?.sent || []).filter((ev) => matchesQuery(ev, q)), [data, q]);
+  const configFails = useMemo(
+    () => (data?.events || []).filter((e) => e.kind === 'email.config' && e.ok === false && matchesQuery(e, q)),
+    [data, q],
+  );
+  const events = useMemo(() => (data?.events || []).filter((ev) => matchesQuery(ev, q)), [data, q]);
+  const quotaAlerts = useMemo(
+    () => (data?.quotaAlerts || []).filter((ev) => matchesQuery(ev, q)),
+    [data, q],
+  );
+  const featureRows = Object.entries(data?.byFeature || {});
 
   return (
     <div className="trace-shell ios-page">
@@ -90,13 +116,23 @@ export default function TraceOps() {
         <div>
           <p className="trace-kicker"><Shield className="w-3.5 h-3.5" /> Super admin only</p>
           <h1>Trace</h1>
-          <p className="trace-sub">Live ops log: SMTP health, each send/fail with recipient + subject + error, connections, free-tier readiness.</p>
+          <p className="trace-sub">Live ops log: SMTP, quota/free-tier hits, DB/storage/AI readiness — searchable by feature or error.</p>
         </div>
         <button type="button" className="byjan-btn" onClick={() => void load()} disabled={loading}>
           <RefreshCw className={`w-4 h-4${loading ? ' animate-spin' : ''}`} />
           Refresh
         </button>
       </header>
+
+      <label className="trace-search">
+        <Search className="w-4 h-4" />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search feature, quota, email, error…"
+          aria-label="Search trace"
+        />
+      </label>
 
       {error ? (
         <div className="trace-card is-warn">
@@ -118,6 +154,35 @@ export default function TraceOps() {
 
       {data ? (
         <>
+          {quotaAlerts.length ? (
+            <section className="trace-card is-warn">
+              <div className="trace-card-head">
+                <AlertTriangle className="w-4 h-4" />
+                <h2>Quota / free-tier alerts</h2>
+              </div>
+              <p className="trace-fail mb-2">
+                {quotaAlerts.length} capacity issue{quotaAlerts.length === 1 ? '' : 's'} detected (email daily quota, rate limits, DB/storage/AI limits).
+              </p>
+              <div className="trace-log">
+                {quotaAlerts.slice(0, 30).map((ev, i) => (
+                  <article key={String(ev.id || `qa-${i}`)} className="trace-log-row is-bad">
+                    <span className="trace-log-kind">{String(ev.feature || 'service')} · {String(ev.quota || 'limit')}</span>
+                    <span className="trace-log-at">{fmtAt(ev.at)}</span>
+                    <p>
+                      <strong>{String(ev.alertTitle || 'Capacity limit')}</strong>
+                      {ev.error ? ` — ${String(ev.error)}` : ''}
+                      {ev.to ? ` · to ${String(ev.to)}` : ''}
+                    </p>
+                  </article>
+                ))}
+              </div>
+            </section>
+          ) : (
+            <section className="trace-card">
+              <p className="trace-ok-line">No quota or free-tier exhaustion alerts in the recent Trace ledger.</p>
+            </section>
+          )}
+
           <section className="trace-grid">
             {(data.freeTiers || []).map((tier) => (
               <article key={tier.id} className={`trace-tile${tier.ok ? ' is-ok' : ' is-bad'}`}>
@@ -133,6 +198,25 @@ export default function TraceOps() {
             ))}
           </section>
 
+          {featureRows.length ? (
+            <section className="trace-card">
+              <div className="trace-card-head">
+                <Activity className="w-4 h-4" />
+                <h2>By feature</h2>
+              </div>
+              <div className="trace-stats">
+                {featureRows.map(([feature, stats]) => (
+                  <div key={feature}>
+                    <span>{feature}</span>
+                    <strong className={stats.quota || stats.fail ? 'is-bad' : ''}>
+                      {stats.ok} ok · {stats.fail} fail · {stats.quota} quota
+                    </strong>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
           <section className="trace-card">
             <div className="trace-card-head">
               <Mail className="w-4 h-4" />
@@ -145,6 +229,7 @@ export default function TraceOps() {
             {data.email?.lastFail ? (
               <p className="trace-fail">
                 Last fail: {String(data.email.lastFail.error || 'unknown')}
+                {data.email.lastFail.quota ? ` · quota ${String(data.email.lastFail.quota)}` : ''}
                 {data.email.lastFail.to ? ` · to ${String(data.email.lastFail.to)}` : ''}
                 {data.email.lastFail.subject ? ` · “${String(data.email.lastFail.subject)}”` : ''}
                 {data.email.lastFail.at ? ` · ${fmtAt(data.email.lastFail.at)}` : ''}
@@ -211,14 +296,14 @@ export default function TraceOps() {
               <h2>Recent events</h2>
             </div>
             <div className="trace-log">
-              {(data.events || []).slice(0, 60).map((ev, i) => (
+              {events.slice(0, 60).map((ev, i) => (
                 <article key={String(ev.id || i)} className={`trace-log-row${ev.ok === false ? ' is-bad' : ''}`}>
                   <span className="trace-log-kind">{String(ev.kind || 'event')}</span>
                   <span className="trace-log-at">{fmtAt(ev.at)}</span>
                   <p>{eventLine(ev)}</p>
                 </article>
               ))}
-              {!data.events?.length ? <p className="trace-ok-line">No ops events yet. Send a team email to populate.</p> : null}
+              {!events.length ? <p className="trace-ok-line">No matching ops events.</p> : null}
             </div>
           </section>
 

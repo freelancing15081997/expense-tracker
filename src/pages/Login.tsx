@@ -8,6 +8,7 @@ import OnboardingSlides from '../components/OnboardingSlides';
 import { consumeReturnTo } from '../lib/return-to';
 import { consumeAuthNotice } from '../lib/support';
 import { EMAIL_NOTIFY_HINT, isValidNotifyEmail, normalizeEmail } from '../lib/email';
+import { toUserMessage } from '../lib/user-message';
 
 const ONBOARD_KEY = 'byjan.onboard.v1';
 
@@ -68,7 +69,7 @@ export default function Login() {
     e.preventDefault();
     const cleaned = normalizeEmail(email);
     if (!isValidNotifyEmail(cleaned)) {
-      setError(EMAIL_NOTIFY_HINT);
+      setError('Enter a real email address you can open for invitations and alerts.');
       return;
     }
     try {
@@ -77,7 +78,7 @@ export default function Login() {
       await signInWithEmailAndPassword(auth, cleaned, password);
       navigate(consumeReturnTo());
     } catch (err: any) {
-      setError(err.message || 'Failed to sign in');
+      setError(toUserMessage(err, 'Could not sign in. Check your email and password.'));
     } finally {
       setBusy('');
     }
@@ -96,7 +97,7 @@ export default function Login() {
       if (result) navigate(consumeReturnTo());
     } catch (err: any) {
       try { sessionStorage.removeItem('byjan.nativeGoogleAuto'); } catch { /* ignore */ }
-      setError(err.message || 'Failed to sign in with Google');
+      setError(toUserMessage(err, 'Google sign-in did not finish. Please try again.'));
     } finally {
       setBusy('');
     }
@@ -157,7 +158,6 @@ export default function Login() {
               inputMode="email"
             />
           </label>
-          <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500 text-center">{EMAIL_NOTIFY_HINT}</p>
         </div>
         <div>
           <label className="block text-sm font-medium text-slate-700 text-center">Password</label>
@@ -177,6 +177,7 @@ export default function Login() {
           {busy === 'email' && <span className="app-loader-ring app-loader-ring-sm" />}
           {busy === 'email' ? 'Signing in' : 'Sign in'}
         </button>
+        <p className="mt-3 text-[11px] leading-relaxed text-slate-500 text-center">{EMAIL_NOTIFY_HINT}</p>
       </form>
     </AuthScene>
   );

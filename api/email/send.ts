@@ -102,8 +102,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
       settings = smtpConfig();
     } catch (cfgErr: any) {
-      await writeMailTrace('email.config', { ok: false, error: String(cfgErr?.message || cfgErr), uid });
-      json(res, 503, { error: String(cfgErr?.message || 'SMTP not configured') });
+      await writeMailTrace('email.config', { ok: false, error: String(cfgErr?.message || cfgErr), uid, feature: 'email' });
+      const { publicServiceError } = await import('../_lib/ops-classify.js');
+      json(res, 503, { error: publicServiceError(cfgErr, 'Email is temporarily unavailable. Please try again later.') });
       return;
     }
     let transporter = createTransport(settings);
@@ -209,6 +210,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       throw first;
     }
   } catch (err: any) {
-    json(res, 500, { error: err?.message || 'Failed to send email' });
+    const { publicServiceError } = await import('../_lib/ops-classify.js');
+    json(res, 500, { error: publicServiceError(err, 'Could not send that email. Please try again later.') });
   }
 }

@@ -22,7 +22,21 @@ export function apiUrl(path: string): string {
 }
 
 function failPayload(status: number, payload: Record<string, unknown>) {
-  const err: Error & { status?: number; extra?: unknown } = new Error(String(payload.error || `Request failed (${status})`));
+  const raw = String(payload.error || `Request failed (${status})`);
+  // Keep server-provided friendly copy; strip obvious technical leftovers.
+  const technical = /smtp|postgres|neon|firebase|resource-exhausted|ECONN|stack|TypeError|at\s+\S+\(/i.test(raw);
+  const message = technical
+    ? (status === 429
+      ? 'This service is temporarily at its limit. Please try again in a little while.'
+      : status >= 500
+        ? 'The service is busy right now. Please try again in a moment.'
+        : status === 403
+          ? 'You do not have permission to do that.'
+          : status === 401
+            ? 'Please sign in again to continue.'
+            : 'Something went wrong. Please try again.')
+    : raw;
+  const err: Error & { status?: number; extra?: unknown } = new Error(message);
   err.status = status;
   err.extra = payload;
   return err;

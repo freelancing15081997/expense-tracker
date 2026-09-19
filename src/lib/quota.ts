@@ -5,4 +5,4 @@ export function isFirestoreQuota(err: unknown) {
 }
 
 export const FIRESTORE_QUOTA_MESSAGE =
-  'The old Firebase database is out of free writes. This app now saves to Neon Postgres. Sign in again if your books have not copied yet.';
+  'Saving is temporarily limited. Please try again in a little while.';

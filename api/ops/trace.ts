@@ -91,11 +91,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const { ledgerList } = await import('../_pg-tables.js');
+    const { enrichOpsDetail } = await import('../_lib/ops-classify.js');
     const rows = await ledgerList('ops/trace/');
     const events = (Array.isArray(rows) ? rows : [])
       .map((row: any) => {
         const data = row?.data && typeof row.data === 'object' ? row.data : row;
-        return data && typeof data === 'object' ? { id: row.id || data.id, ...data } : null;
+        if (!(data && typeof data === 'object')) return null;
+        const base = { id: row.id || data.id, ...data };
+        const enriched = enrichOpsDetail(String(base.kind || 'event'), base);
+        return { ...base, ...enriched };
       })
       .filter(Boolean)
       .sort((a: any, b: any) => String(b.at || '').localeCompare(String(a.at || '')))
@@ -104,6 +108,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const tiers = freeTier();
     const emailFails = events.filter((e: any) => (e.kind === 'email.send' || e.kind === 'email.config') && e.ok === false).slice(0, 40);
     const emailOk = events.filter((e: any) => e.kind === 'email.send' && e.ok === true).slice(0, 20);
+    const quotaAlerts = events
+      .filter((e: any) => e.ok === false && (e.quota || e.alert))
+      .slice(0, 40)
+      .map((e: any) => ({
+        id: e.id,
+        at: e.at,
+        kind: e.kind,
+        feature: e.feature || 'other',
+        quota: e.quota || null,
+        alertTitle: e.alertTitle || `${e.feature || 'service'} limit`,
+        error: e.error || '',
+        to: e.to || '',
+        subject: e.subject || '',
+      }));
+    const byFeature: Record<string, { ok: number; fail: number; quota: number }> = {};
+    for (const e of events as any[]) {
+      const feature = String(e.feature || (String(e.kind || '').startsWith('email') ? 'email' : 'other'));
+      if (!byFeature[feature]) byFeature[feature] = { ok: 0, fail: 0, quota: 0 };
+      if (e.ok === false) byFeature[feature].fail += 1;
+      else if (e.ok === true) byFeature[feature].ok += 1;
+      if (e.quota) byFeature[feature].quota += 1;
+    }
 
     json(res, 200, {
       at: new Date().toISOString(),
@@ -116,6 +142,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         push: tiers.find((t) => t.id === 'fcm'),
       },
       freeTiers: tiers,
+      quotaAlerts,
+      byFeature,
       env: [
         envPresence('SMTP_HOST'),
         envPresence('SMTP_USER'),
@@ -134,7 +162,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         sent: emailOk,
       },
       events,
-      note: 'Super-admin only. No secrets are returned — only presence and lengths.',
+      note: 'Super-admin only. Search by feature or error. Quota/free-tier hits are listed under Alerts.',
     });
   } catch (err: any) {
     json(res, 500, { error: err?.message || 'Trace failed' });
