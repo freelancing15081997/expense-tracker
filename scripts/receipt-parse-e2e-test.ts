@@ -3,9 +3,11 @@
  * Covers UPI apps, GST invoices, fuel, food, utilities, bank SMS, medical, e‑commerce, etc.
  * Runs: amount-parse + PP-Structure (+ duplicate fingerprint checks).
  */
-import { extractMoneyAmount, reconcileVisionAmount } from '../src/lib/amount-parse.ts';
+import { extractMoneyAmount, extractReceiptDate, reconcileVisionAmount } from '../src/lib/amount-parse.ts';
 import { parsePpStructureText, needsPpStructure } from '../api/_lib/paddle-structure.ts';
 import { matchDuplicateExpenses } from '../src/lib/duplicate-match.ts';
+import { guessCategoryFromText, guessedMerchant } from '../src/lib/bridge-automations.ts';
+import { ensurePreviewCategory } from '../src/lib/money-capture.ts';
 
 type Case = {
   id: string;
@@ -618,6 +620,53 @@ console.log('\n• Mass corpus: 10,000 OCR-like receipts (UPI/GST/fuel/SMS/handw
     console.error('\nSample mass failures:');
     for (const s of sampleFails) console.error(`---\n${s}`);
   }
+}
+
+console.log('\n• Share review: category/date/pay filled from OCR (not PhonePe chrome)');
+{
+  const apollo = `Transaction Successful
+18 September 2026 at 9:04 PM
+Paid to
+APOLLO PHARMACY
+APOLLOPHARMACYOFFLINE@ybl
+₹164
+PhonePe Transaction ID T2609182104039831994632
+Debited from Badrinath
+₹164
+UTR 590641031504`;
+  assert(extractReceiptDate(apollo) === '2026-09-18', `apollo date ${extractReceiptDate(apollo)}`);
+  assert(guessCategoryFromText('', 'APOLLO PHARMACY', apollo) === 'Health', 'apollo → Health');
+  assert(guessedMerchant(apollo)?.merchant === 'Apollo Pharmacy', `apollo merchant ${guessedMerchant(apollo)?.merchant}`);
+  assert(guessedMerchant('APOLLO PHARMACY')?.merchant !== 'Ola', 'ola must not match apollo');
+  const parsed = extractMoneyAmount(apollo);
+  assert(parsed?.amount === 164, `apollo amount ${parsed?.amount}`);
+  assert(parsed?.paymentMethod === 'upi', `apollo pay ${parsed?.paymentMethod}`);
+  const preview = ensurePreviewCategory({
+    source: 'share',
+    direction: 'MONEY_OUT',
+    amountPaise: 16400,
+    description: 'APOLLO PHARMACY',
+    merchant: 'APOLLO PHARMACY',
+    category: 'Uncategorized',
+    paymentMethod: 'upi',
+    date: '',
+    processingStatus: 'READY',
+    financialStatus: 'DRAFT',
+    confidence: 'high',
+    reasons: [],
+    raw: apollo,
+  });
+  assert(preview.category === 'Health', `preview category ${preview.category}`);
+  assert(preview.date === '2026-09-18', `preview date ${preview.date}`);
+  assert(String(preview.upiRef || '') === '590641031504', `preview utr ${preview.upiRef}`);
+  assert(preview.category !== 'Transfers', 'PhonePe chrome must not force Transfers');
+
+  const fuel = `IndianOil\nAmount(Rs) : 590.00\nDate:06/05/26\nPetrol`;
+  assert(guessCategoryFromText('IndianOil', '', fuel) === 'Fuel', 'indianoil → Fuel');
+  assert(extractReceiptDate(fuel) === '2026-05-06', `fuel date ${extractReceiptDate(fuel)}`);
+
+  const medicals = `Paid to\nSharadha Medicals\n₹10\nPhonePe`;
+  assert(guessCategoryFromText('Sharadha Medicals', '', medicals) === 'Health', 'medicals → Health');
 }
 
 console.log(`\n=== Result: ${passed} passed, ${failed} failed ===`);

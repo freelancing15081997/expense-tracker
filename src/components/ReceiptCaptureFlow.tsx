@@ -13,8 +13,11 @@ import {
 import type { CapturePreview } from '../lib/money-core';
 import { newMoneyId } from '../lib/money-core';
 import { isoDay } from '../lib/ledger-advanced';
+import { extractReceiptDate } from '../lib/amount-parse';
+import { ENTRY_PAY_METHODS } from './UpiBrandMark';
 import type { MoneyContextOption } from '../lib/money-flow';
 import { ContextSelector } from './money/MoneyUi';
+import { confirmMismatchGold, reportParseMismatch } from '../lib/parse-feedback';
 import './share-reading.css';
 
 export type ReceiptLaunch = {
@@ -45,7 +48,30 @@ type Props = {
   booksSeed?: Array<{ id: string; name: string; currency?: string }>;
   onClose: () => void;
   onConfirmed: (expense: Record<string, unknown>, extras?: { count?: number; needsEdit?: boolean; duplicate?: boolean }) => void;
+  /** OCR couldn't read an amount inside the budget — open the normal Add form with receipt attached. */
+  onManualForm?: (draft: ManualFormDraft) => void;
 };
+
+export type ManualFormDraft = {
+  receiptPath?: string;
+  receiptName?: string;
+  merchant?: string;
+  description?: string;
+  amount?: number;
+  paymentMethod?: string;
+  category?: string;
+  date?: string;
+  ocrText?: string;
+};
+
+const REVIEW_CATEGORIES = [
+  'Food', 'Meals', 'Groceries', 'Fuel', 'Travel', 'Health', 'Utilities', 'Shopping',
+  'Housing', 'Education', 'Insurance', 'Bills', 'Entertainment',
+  'Software Subscriptions', 'Office Supplies', 'Transfers', 'Income', 'Uncategorized',
+];
+
+/** Upload started during parse; the manual-form fallback awaits it briefly so the entry keeps its receipt. */
+const pendingUploadRef: { current: Promise<{ receiptPath?: string; receiptName?: string } | null> | null } = { current: null };
 
 const STAGE_COPY: Array<{ min: number; title: string; detail: string }> = [
   { min: 0, title: 'Opening your share', detail: 'Getting the receipt ready…' },
@@ -256,6 +282,7 @@ async function parseReceiptNow(
             confidence: fromPdf.confidence,
             receiptPath,
             receiptName,
+            raw: pdfText.slice(0, 8000),
             reasons: [],
           }),
           id: newMoneyId('cap'),
@@ -314,8 +341,15 @@ async function parseReceiptNow(
     }
 
     onStatus(isPdf ? 'Reading PDF…' : 'Reading receipt…', 22);
+    const parseStarted = Date.now();
+    // Hard budget: native OCR self-limits to ~2.6s; past this we stop waiting and open the form.
+    const OCR_MS = 3200;
+    const elapsed = () => Date.now() - parseStarted;
+    const withTimeout = <T,>(p: Promise<T>, ms: number): Promise<T | null> => Promise.race([
+      p,
+      new Promise<null>((resolve) => { window.setTimeout(() => resolve(null), Math.max(0, ms)); }),
+    ]);
     // Pass original bytes to native OCR — avoid JS re-encode then native downscale (double lossy).
-    // prepareOcrImage only for web / oversized edge cases inside localParse when needed.
     const ocrPromise = localParseReceiptImage(
       String(launch.imageDataUrl || '').replace(/^data:[^;]+;base64,/i, '').replace(/\s+/g, ''),
       imageMime,
@@ -323,23 +357,39 @@ async function parseReceiptNow(
     ).catch(() => null);
     const preparedPromise = prepareReceiptImage(launch.imageDataUrl, imageMime, false);
 
-    const [local, prepared] = await Promise.all([ocrPromise, preparedPromise]);
+    const [local, prepared] = await Promise.all([withTimeout(ocrPromise, OCR_MS), preparedPromise]);
     imageMime = isPdf ? 'application/pdf' : (prepared.mime || 'image/jpeg');
     imageBase64 = String(prepared.dataUrl || '')
       .replace(/^data:[^;]+;base64,/i, '')
       .replace(/\s+/g, '');
 
+    // Upload runs in the background — the user never waits on network for an amount.
     const uploadPromise = uploadPreparedReceipt(bookId, {
       bytes: prepared.bytes,
       mime: imageMime,
       dataUrl: prepared.dataUrl,
       fileName: isPdf && !/\.pdf$/i.test(receiptName) ? `${receiptName.replace(/\.\w+$/, '')}.pdf` : receiptName,
     }).catch(() => null);
+    pendingUploadRef.current = uploadPromise;
 
     onStatus('Reading amount, merchant & date…', 48);
 
     const ocrText = [launch.text || '', local?.text || ''].filter(Boolean).join('\n');
-    const uploadedEarly = await uploadPromise;
+    const stamp = (extra: Partial<CapturePreview> = {}): Partial<CapturePreview> => ({
+      ...extra,
+      raw: extra.raw || ocrText.slice(0, 8000),
+      date: extra.date || extractReceiptDate(ocrText),
+    });
+    const withOcr = (out: { preview: CapturePreview; previews: CapturePreview[] }) => {
+      const raw = ocrText.slice(0, 8000);
+      if (!raw) return out;
+      const rows = (out.previews.length ? out.previews : [out.preview]).map((r) =>
+        scrubPreview({ ...r, raw: r.raw || raw }),
+      );
+      return { preview: rows[0], previews: rows };
+    };
+    // Give the upload whatever is left of the budget (min 400ms) so the preview has an attachment.
+    const uploadedEarly = await withTimeout(uploadPromise, Math.max(400, OCR_MS - elapsed()));
     if (uploadedEarly) {
       receiptPath = uploadedEarly.receiptPath || receiptPath;
       receiptName = uploadedEarly.receiptName || receiptName;
@@ -351,7 +401,7 @@ async function parseReceiptNow(
     if (entries.length >= 2) {
       onStatus(`Found ${entries.length} entries — confirm each…`, 78);
       const multi = entries.map((e, i) => scrubPreview({
-        ...draftPreview(launch, {
+        ...draftPreview(launch, stamp({
           amountPaise: Math.round(e.amount * 100),
           merchant: e.merchant || '',
           description: e.description || e.merchant || `Entry ${i + 1}`,
@@ -363,10 +413,10 @@ async function parseReceiptNow(
           receiptPath,
           receiptName,
           reasons: [],
-        }),
+        })),
         id: newMoneyId(`cap_${i}`),
       }));
-      return { preview: multi[0], previews: multi };
+      return withOcr({ preview: multi[0], previews: multi });
     }
 
     // Single payable from OCR text (CRED "amount ₹…", PhonePe Paid to ₹…, Grand Total).
@@ -375,7 +425,7 @@ async function parseReceiptNow(
       && (textHit.score >= 48 || textHit.confidence === 'high' || textHit.confidence === 'medium')
       && (!ocrText || amountGroundedInText(ocrText, textHit.amount) || textHit.score >= 60)) {
       preview = scrubPreview({
-        ...draftPreview(launch, {
+        ...draftPreview(launch, stamp({
           amountPaise: Math.round(textHit.amount * 100),
           merchant: textHit.merchant || '',
           description: textHit.description || textHit.merchant || receiptName,
@@ -387,7 +437,7 @@ async function parseReceiptNow(
           receiptPath,
           receiptName,
           reasons: [],
-        }),
+        })),
         id: newMoneyId('cap'),
       });
     }
@@ -403,7 +453,7 @@ async function parseReceiptNow(
 
     if (!(Number(preview.amountPaise || 0) > 0) && localStrong) {
       preview = scrubPreview({
-        ...draftPreview(launch, {
+        ...draftPreview(launch, stamp({
           amountPaise: Math.round(localAmt * 100),
           merchant: local?.merchant || '',
           description: local?.description || local?.merchant || receiptName,
@@ -415,15 +465,18 @@ async function parseReceiptNow(
           receiptPath,
           receiptName,
           reasons: [],
-        }),
+        })),
         id: newMoneyId('cap'),
       });
     }
 
     // Optional server text re-rank only (OCR text already extracted). No vision / no image.
-    if (!(Number(preview.amountPaise || 0) > 0) && ocrText.replace(/\s+/g, '').length >= 20) {
+    // Only when there is budget left — never make the user wait on network for a number.
+    if (!(Number(preview.amountPaise || 0) > 0)
+      && ocrText.replace(/\s+/g, '').length >= 20
+      && elapsed() < OCR_MS - 500) {
       onStatus('Checking amount from document…', 62);
-      const result = await safeProcess({
+      const result = await withTimeout(safeProcess({
         bookId,
         text: ocrText.slice(0, 8000),
         receiptPath,
@@ -433,10 +486,10 @@ async function parseReceiptNow(
         autoConfirm: true,
         imageMime,
         skipVision: true,
-      });
-      const serverPaise = Number(result.preview?.amountPaise || 0);
+      }), Math.min(900, OCR_MS - elapsed()));
+      const serverPaise = Number(result?.preview?.amountPaise || 0);
       const serverAmt = serverPaise / 100;
-      if (result.preview && serverPaise > 0 && amountGroundedInText(ocrText, serverAmt)) {
+      if (result?.preview && serverPaise > 0 && amountGroundedInText(ocrText, serverAmt)) {
         preview = scrubPreview({
           ...result.preview,
           id: result.preview.id || newMoneyId('cap'),
@@ -448,20 +501,20 @@ async function parseReceiptNow(
     }
 
     if (!(Number(preview.amountPaise || 0) > 0) && localAmt > 0 && ocrText && amountGroundedInText(ocrText, localAmt)) {
-      preview = scrubPreview({
-        ...draftPreview(launch, {
-          amountPaise: Math.round(localAmt * 100),
-          merchant: local?.merchant || '',
-          description: local?.description || local?.merchant || receiptName,
-          paymentMethod: local?.paymentMethod || 'upi',
-          direction: local?.entryType === 'in' ? 'MONEY_IN' : 'MONEY_OUT',
-          date: local?.date,
-          processingStatus: 'READY',
-          confidence: local?.confidence || 'medium',
-          receiptPath,
-          receiptName,
-          reasons: [],
-        }),
+        preview = scrubPreview({
+          ...draftPreview(launch, stamp({
+            amountPaise: Math.round(localAmt * 100),
+            merchant: local?.merchant || '',
+            description: local?.description || local?.merchant || receiptName,
+            paymentMethod: local?.paymentMethod || 'upi',
+            direction: local?.entryType === 'in' ? 'MONEY_IN' : 'MONEY_OUT',
+            date: local?.date,
+            processingStatus: 'READY',
+            confidence: local?.confidence || 'medium',
+            receiptPath,
+            receiptName,
+            reasons: [],
+          })),
         id: newMoneyId('cap'),
       });
     }
@@ -471,7 +524,7 @@ async function parseReceiptNow(
       if (fromText && fromText.amount > 0 && amountGroundedInText(ocrText, fromText.amount)
         && (fromText.score >= 48 || fromText.confidence === 'high' || fromText.confidence === 'medium')) {
         preview = scrubPreview({
-          ...draftPreview(launch, {
+          ...draftPreview(launch, stamp({
             amountPaise: Math.round(fromText.amount * 100),
             merchant: fromText.merchant || '',
             description: fromText.description || receiptName,
@@ -483,7 +536,7 @@ async function parseReceiptNow(
             receiptPath,
             receiptName,
             reasons: [],
-          }),
+          })),
           id: newMoneyId('cap'),
         });
       }
@@ -507,7 +560,7 @@ async function parseReceiptNow(
       });
     }
 
-    return { preview, previews: [preview] };
+    return withOcr({ preview, previews: [preview] });
   }
 
   // Text-only share (no image)
@@ -605,6 +658,7 @@ export default function ReceiptCaptureFlow({
   booksSeed,
   onClose,
   onConfirmed,
+  onManualForm,
 }: Props) {
   const [phase, setPhase] = useState<Phase>('working');
   const [contexts, setContexts] = useState<MoneyContextOption[]>([]);
@@ -620,6 +674,21 @@ export default function ReceiptCaptureFlow({
     receiptHash: string;
     needsEdit: boolean;
   } | null>(null);
+  const [thanksLine, setThanksLine] = useState('');
+  const [mismatchBusy, setMismatchBusy] = useState(false);
+
+  const patchReviewRow = (idx: number, patch: Partial<CapturePreview>) => {
+    setReview((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        rows: prev.rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)),
+      };
+    });
+  };
+  const mismatchIdRef = useRef('');
+  const predictedRef = useRef<Array<{ amount: number; merchant?: string; entryType?: string }>>([]);
+  const ocrTextRef = useRef('');
   const savingRef = useRef(false);
   const doneRef = useRef(false);
   const tickRef = useRef<number | null>(null);
@@ -880,6 +949,23 @@ export default function ReceiptCaptureFlow({
       setPct(100);
       doneRef.current = true;
       clearPendingCapture();
+      if (mismatchIdRef.current || ocrTextRef.current) {
+        const goldRows = rows.map((r) => ({
+          amount: Number(r.amountPaise || 0) / 100,
+          merchant: String(r.merchant || r.description || ''),
+          entryType: r.direction === 'MONEY_IN' ? 'in' : 'out',
+        }));
+        const gold = goldRows[0];
+        if (gold && gold.amount > 0) {
+          void confirmMismatchGold({
+            id: mismatchIdRef.current,
+            bookId: review.bookId,
+            ocrText: ocrTextRef.current,
+            gold: { ...gold, extras: goldRows.length > 1 ? goldRows : undefined },
+            saved: true,
+          });
+        }
+      }
       onConfirmed(savedRows[0], {
         count: savedRows.length,
         needsEdit: review.needsEdit,
@@ -975,13 +1061,45 @@ export default function ReceiptCaptureFlow({
           ? `Found ${rows.length} entries — review…`
           : anyAmount
             ? `Found ₹${(preview.amountPaise / 100).toFixed(2)} — checking…`
-            : 'Checking before save…',
+            : 'Opening entry form…',
         88,
       );
 
+      const isSheetImport = isSpreadsheet(launch.mimeType, launch.fileName);
+
+      // No readable amount → never park the user on a blank confirm screen. Open the normal
+      // Add form with whatever we did read (merchant/date) and the receipt attached.
+      if (!isSheetImport && !anyAmount && onManualForm) {
+        const row = rows[0] || preview;
+        if (!row.receiptPath && pendingUploadRef.current) {
+          const late = await Promise.race([
+            pendingUploadRef.current,
+            new Promise<null>((resolve) => { window.setTimeout(() => resolve(null), 1200); }),
+          ]).catch(() => null);
+          if (late?.receiptPath) {
+            row.receiptPath = late.receiptPath;
+            row.receiptName = late.receiptName || row.receiptName;
+          }
+        }
+        pendingUploadRef.current = null;
+        doneRef.current = true;
+        clearPendingCapture();
+        onManualForm({
+          receiptPath: row.receiptPath || launch.receiptPath,
+          receiptName: row.receiptName || launch.receiptName || launch.fileName,
+          merchant: String(row.merchant || ''),
+          description: String(row.description || '') === 'Shared receipt' ? '' : String(row.description || ''),
+          paymentMethod: String(row.paymentMethod || 'upi'),
+          category: String(row.category || ''),
+          date: String(row.date || ''),
+          ocrText: String(row.raw || ''),
+        });
+        onClose();
+        return;
+      }
+
       // Always review image/share parses (one or many) so user confirms before save.
       // Spreadsheet multi-import still auto-saves below when source is sheet-like.
-      const isSheetImport = isSpreadsheet(launch.mimeType, launch.fileName);
       if (!isSheetImport) {
         setReview({
           bookId,
@@ -989,6 +1107,12 @@ export default function ReceiptCaptureFlow({
           receiptHash,
           needsEdit,
         });
+        ocrTextRef.current = String(rows[0]?.raw || launch.text || '');
+        predictedRef.current = rows.map((r) => ({
+          amount: Number(r.amountPaise || 0) / 100,
+          merchant: String(r.merchant || ''),
+          entryType: r.direction === 'MONEY_IN' ? 'in' : 'out',
+        }));
         setPhase('review');
         setStatusLine(rows.length > 1 ? `Confirm ${rows.length} entries` : 'Confirm before saving');
         setPct(100);
@@ -1131,6 +1255,10 @@ export default function ReceiptCaptureFlow({
     setError('');
     setPendingDup(null);
     setReview(null);
+    setThanksLine('');
+    mismatchIdRef.current = '';
+    predictedRef.current = [];
+    ocrTextRef.current = '';
     setPct(6);
     setStatusLine('Opening your share…');
 
@@ -1259,6 +1387,40 @@ export default function ReceiptCaptureFlow({
     return () => { document.body.style.overflow = prev; };
   }, [open]);
 
+  const flagMismatch = async () => {
+    if (!review || mismatchBusy || thanksLine) return;
+    const ocrText = ocrTextRef.current || String(review.rows[0]?.raw || '');
+    if (!ocrText.trim()) {
+      setThanksLine('Sorry for the inconvenience — we will keep training Byjan. Thanks for your patience.');
+      return;
+    }
+    setMismatchBusy(true);
+    try {
+      const current = review.rows.map((r) => ({
+        amount: Number(r.amountPaise || 0) / 100,
+        merchant: String(r.merchant || r.description || ''),
+        entryType: r.direction === 'MONEY_IN' ? 'in' : 'out',
+      }));
+      const predicted = predictedRef.current.length ? predictedRef.current : current;
+      const predictedKey = predicted.map((p) => `${p.amount}|${p.merchant || ''}`).join(';');
+      const currentKey = current.map((p) => `${p.amount}|${p.merchant || ''}`).join(';');
+      const goldRow = current.find((r) => r.amount > 0);
+      const gold = goldRow && currentKey !== predictedKey
+        ? { ...goldRow, extras: current.filter((r) => r.amount > 0) }
+        : undefined;
+      const result = await reportParseMismatch({
+        bookId: review.bookId,
+        ocrText,
+        predicted,
+        gold,
+      });
+      if (result.id) mismatchIdRef.current = result.id;
+      setThanksLine(result.thanks);
+    } finally {
+      setMismatchBusy(false);
+    }
+  };
+
   if (!open || !launch) return null;
 
   const existing = pendingDup?.existing;
@@ -1314,10 +1476,17 @@ export default function ReceiptCaptureFlow({
             </h2>
             <p className="sr-detail" style={{ textAlign: 'left', maxWidth: 'none' }}>
               {review.rows.length > 1
-                ? 'Each line from the photo is listed below. Fix any amount or name, then save all.'
-                : 'Check amount and merchant. Uncertain reads stay here until you confirm.'}
+                ? 'Each line from the photo is listed below. Fix any field, then save all.'
+                : 'Check every field we could read. Uncertain reads stay here until you confirm.'}
             </p>
-            {review.rows.map((row, idx) => (
+            {review.rows.map((row, idx) => {
+              const cats = Array.from(new Set([
+                ...REVIEW_CATEGORIES,
+                ...(row.category ? [String(row.category)] : []),
+              ]));
+              const pay = String(row.paymentMethod || 'upi').toLowerCase();
+              const dir = row.direction === 'MONEY_IN' ? 'in' : 'out';
+              return (
               <div
                 key={row.id || `row_${idx}`}
                 style={{
@@ -1329,14 +1498,14 @@ export default function ReceiptCaptureFlow({
                 }}
               >
                 {review.rows.length > 1 ? (
-                  <p className="sr-detail" style={{ marginBottom: 8, fontWeight: 600 }}>
+                  <p className="sr-detail" style={{ marginBottom: 8, fontWeight: 600, color: '#0f172a' }}>
                     Entry {idx + 1}
                   </p>
                 ) : null}
                 {Number(row.amountPaise || 0) <= 0 ? (
                   <p className="sr-dup-warn">Amount was not read clearly — type it below.</p>
                 ) : null}
-                <label className="sr-detail" style={{ display: 'block' }}>
+                <label className="sr-field-label">
                   Amount
                   <input
                     className="byjan-input mt-1"
@@ -1345,35 +1514,124 @@ export default function ReceiptCaptureFlow({
                     value={row.amountPaise ? row.amountPaise / 100 : ''}
                     onChange={(e) => {
                       const n = Number(e.target.value || 0);
-                      setReview({
-                        ...review,
-                        rows: review.rows.map((r, i) => (
-                          i === idx
-                            ? { ...r, amountPaise: Math.round(n * 100) }
-                            : r
-                        )),
+                      patchReviewRow(idx, { amountPaise: Math.round(n * 100) });
+                    }}
+                  />
+                </label>
+                <label className="sr-field-label">
+                  Name / merchant
+                  <input
+                    className="byjan-input mt-1"
+                    value={String(row.merchant || '')}
+                    onChange={(e) => {
+                      const merchant = e.target.value;
+                      const next = { ...row, merchant, description: row.description === row.merchant ? merchant : row.description };
+                      const filled = String(row.category || '').toLowerCase() === 'uncategorized' || !row.category
+                        ? ensurePreviewCategory({ ...next, merchant })
+                        : next;
+                      patchReviewRow(idx, {
+                        merchant: filled.merchant,
+                        description: filled.description,
+                        category: filled.category,
                       });
                     }}
                   />
                 </label>
-                <label className="sr-detail" style={{ display: 'block', marginTop: 10 }}>
-                  Name / merchant
+                <label className="sr-field-label">
+                  Description
                   <input
                     className="byjan-input mt-1"
-                    value={String(row.merchant || row.description || '')}
-                    onChange={(e) => setReview({
-                      ...review,
-                      rows: review.rows.map((r, i) => (
-                        i === idx
-                          ? { ...r, merchant: e.target.value, description: e.target.value }
-                          : r
-                      )),
-                    })}
+                    value={String(row.description || '')}
+                    onChange={(e) => patchReviewRow(idx, { description: e.target.value })}
                   />
                 </label>
+                <label className="sr-field-label">
+                  Category
+                  <select
+                    className="byjan-input mt-1"
+                    value={String(row.category || 'Uncategorized')}
+                    onChange={(e) => patchReviewRow(idx, { category: e.target.value })}
+                  >
+                    {cats.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="sr-field-label">
+                  Date
+                  <input
+                    className="byjan-input mt-1"
+                    type="date"
+                    value={String(row.date || '').slice(0, 10)}
+                    onChange={(e) => patchReviewRow(idx, { date: e.target.value })}
+                  />
+                </label>
+                <p className="sr-field-label" style={{ marginBottom: 0 }}>Payment</p>
+                <div className="sr-chip-row">
+                  {ENTRY_PAY_METHODS.map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      className={`sr-chip${pay === m.id ? ' is-on' : ''}`}
+                      onClick={() => patchReviewRow(idx, { paymentMethod: m.id })}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="sr-field-label" style={{ marginBottom: 0 }}>Type</p>
+                <div className="sr-chip-row">
+                  <button
+                    type="button"
+                    className={`sr-chip${dir === 'out' ? ' is-on' : ''}`}
+                    onClick={() => patchReviewRow(idx, { direction: 'MONEY_OUT' })}
+                  >
+                    Money out
+                  </button>
+                  <button
+                    type="button"
+                    className={`sr-chip${dir === 'in' ? ' is-on' : ''}`}
+                    onClick={() => patchReviewRow(idx, { direction: 'MONEY_IN' })}
+                  >
+                    Money in
+                  </button>
+                </div>
+                {row.upiRef ? (
+                  <label className="sr-field-label">
+                    UPI / UTR
+                    <input
+                      className="byjan-input mt-1"
+                      value={String(row.upiRef || '')}
+                      onChange={(e) => patchReviewRow(idx, { upiRef: e.target.value })}
+                    />
+                  </label>
+                ) : null}
+                {row.vpa ? (
+                  <label className="sr-field-label">
+                    VPA
+                    <input
+                      className="byjan-input mt-1"
+                      value={String(row.vpa || '')}
+                      onChange={(e) => patchReviewRow(idx, { vpa: e.target.value })}
+                    />
+                  </label>
+                ) : null}
               </div>
-            ))}
+              );
+            })}
             {error ? <p className="sr-error">{error}</p> : null}
+            {thanksLine ? (
+              <p className="sr-thanks" role="status">{thanksLine}</p>
+            ) : (
+              <button
+                type="button"
+                className="sr-mismatch"
+                disabled={busy || mismatchBusy}
+                onClick={() => void flagMismatch()}
+              >
+                {mismatchBusy ? 'Sending…' : 'Is this a mismatch?'}
+              </button>
+            )}
             <div className="sr-actions" style={{ marginTop: 16 }}>
               <button type="button" className="sr-btn-ghost" disabled={busy} onClick={onClose}>Cancel</button>
               <button type="button" className="sr-btn" disabled={busy} onClick={() => void confirmReview()}>

@@ -1,5 +1,6 @@
 import { parseBankSms, enrichCapture } from './bridge-automations';
 import { parseQuickLine, isoDay } from './ledger-advanced';
+import { extractReceiptDate } from './amount-parse';
 import { classifyCapture } from './money-intelligence';
 import {
   type CapturePreview,
@@ -103,8 +104,6 @@ export function buildCapturePreview(
 }
 
 export function ensurePreviewCategory(preview: CapturePreview, history: ExpenseRow[] = [], bookRules: CategoryRule[] = [], userRules: UserMoneyRule[] = []): CapturePreview {
-  const cat = String(preview.category || '').toLowerCase();
-  if (cat && cat !== 'uncategorized') return preview;
   const draft: Record<string, unknown> = {
     amount: preview.amountPaise / 100,
     description: preview.description,
@@ -114,14 +113,27 @@ export function ensurePreviewCategory(preview: CapturePreview, history: ExpenseR
     paymentMethod: preview.paymentMethod,
     notes: preview.notes,
     raw: preview.raw,
+    date: preview.date,
+    upiRef: preview.upiRef,
+    vpa: preview.vpa,
   };
   const enriched = enrichCapture(draft, history as Array<Record<string, unknown>>);
-  const classified = classifyCapture(enriched, bookRules, userRules, history);
+  const needsCat = !String(preview.category || '').trim() || String(preview.category).toLowerCase() === 'uncategorized';
+  const classified = needsCat
+    ? classifyCapture(enriched, bookRules, userRules, history)
+    : { draft: enriched, reasons: [] as string[] };
+  const ocrDate = preview.raw ? extractReceiptDate(preview.raw) : '';
+  const currentDate = String(preview.date || classified.draft.date || '');
+  const date = (ocrDate && (!currentDate || currentDate === isoDay())) ? ocrDate : (currentDate || ocrDate || isoDay());
   return {
     ...preview,
     merchant: String(classified.draft.merchant || preview.merchant || ''),
     category: String(classified.draft.category || preview.category || 'Uncategorized'),
     paymentMethod: String(classified.draft.paymentMethod || preview.paymentMethod || 'cash'),
+    date,
+    upiRef: String(classified.draft.upiRef || preview.upiRef || ''),
+    vpa: String(classified.draft.vpa || preview.vpa || ''),
+    description: String(preview.description || classified.draft.description || preview.merchant || ''),
     reasons: [...(preview.reasons || []), ...classified.reasons].slice(0, 8),
   };
 }

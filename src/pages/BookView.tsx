@@ -62,7 +62,8 @@ import { buildEqualPersonSplits, formatSettlementLine, peopleFromBook, suggestSe
 import { enqueueOfflineExpense, flushOfflineQueue, isLikelyOfflineError, listOfflineQueue } from '../lib/money-offline';
 import { buildCapturePreview } from '../lib/money-capture';
 import CapturePreviewSheet from '../components/CapturePreviewSheet';
-import ReceiptCaptureFlow, { type ReceiptLaunch } from '../components/ReceiptCaptureFlow';
+import ReceiptCaptureFlow, { type ManualFormDraft, type ReceiptLaunch } from '../components/ReceiptCaptureFlow';
+import { confirmMismatchGold, reportParseMismatch } from '../lib/parse-feedback';
 import SplitExpenseSheet from '../components/SplitExpenseSheet';
 import SplitEntryPickSheet from '../components/SplitEntryPickSheet';
 import { ENTRY_PAY_METHODS, UpiBrandMark } from '../components/UpiBrandMark';
@@ -70,6 +71,7 @@ import '../components/split-premium.css';
 import SettlementsPanel from '../components/SettlementsPanel';
 import VoiceEntrySheet from '../components/VoiceEntrySheet';
 import { rememberMoneyBook } from '../components/ShareIntentListener';
+import { guessCategoryFromText } from '../lib/bridge-automations';
 import UpiSetupSheet from '../components/UpiSetupSheet';
 import { ExpenseSuccessCard, MoneySheet } from '../components/money/MoneyUi';
 import { readPendingCapture, clearPendingCapture } from '../components/ShareIntentListener';
@@ -94,7 +96,11 @@ function expenseMillis(value: any) {
   return 0;
 }
 
-const BASE_CATEGORIES = ['Office Supplies', 'Software Subscriptions', 'Travel', 'Meals', 'Fuel', 'Groceries', 'Utilities', 'Health', 'Shopping'];
+const BASE_CATEGORIES = [
+  'Office Supplies', 'Software Subscriptions', 'Travel', 'Meals', 'Food', 'Fuel',
+  'Groceries', 'Utilities', 'Health', 'Shopping', 'Housing', 'Education',
+  'Insurance', 'Bills', 'Entertainment', 'Transfers', 'Income',
+];
 
 function uniqueCategories(...lists: Array<string[] | undefined | null>) {
   const out: string[] = [];
@@ -235,6 +241,10 @@ export default function BookView() {
     add: () => undefined,
     voice: () => setVoiceOpen(true),
   });
+  // Quick action tapped while the book skeleton is still up — replay once handlers are live.
+  const pendingQuickRef = useRef<'scan' | 'add' | 'voice' | null>(null);
+  const loadingRef = useRef(true);
+  const scanBusyRef = useRef(false);
   
   // Modals state
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(() => Boolean((location.state as { openEntry?: boolean } | null)?.openEntry));
@@ -263,6 +273,9 @@ export default function BookView() {
   const [splitWithTeam, setSplitWithTeam] = useState(false);
   const [tags, setTags] = useState('');
   const [receiptMeta, setReceiptMeta] = useState<{ receiptPath?: string; receiptName?: string } | null>(null);
+  const [receiptOcrText, setReceiptOcrText] = useState('');
+  const [mismatchThanks, setMismatchThanks] = useState('');
+  const mismatchIdRef = useRef('');
   const [capturePreview, setCapturePreview] = useState<ReturnType<typeof buildCapturePreview> | null>(null);
   const [receiptLaunch, setReceiptLaunch] = useState<ReceiptLaunch | null>(null);
   const [successExpense, setSuccessExpense] = useState<Record<string, unknown> | null>(null);
@@ -659,13 +672,33 @@ export default function BookView() {
   useEffect(() => {
     const onQuick = (event: Event) => {
       const kind = (event as CustomEvent<string>).detail;
+      if (kind !== 'scan' && kind !== 'add' && kind !== 'voice') return;
+      // Book still loading → handlers below the early-return skeleton aren't bound yet. Queue it.
+      if (loadingRef.current) {
+        pendingQuickRef.current = kind;
+        return;
+      }
       if (kind === 'scan') void quickActionsRef.current.scan();
       else if (kind === 'add') quickActionsRef.current.add();
-      else if (kind === 'voice') quickActionsRef.current.voice();
+      else quickActionsRef.current.voice();
     };
     window.addEventListener('byjan-quick', onQuick);
     return () => window.removeEventListener('byjan-quick', onQuick);
   }, []);
+
+  useEffect(() => {
+    loadingRef.current = loading;
+    if (loading || !pendingQuickRef.current) return;
+    const kind = pendingQuickRef.current;
+    pendingQuickRef.current = null;
+    // Next tick so quickActionsRef has been re-assigned by the full render.
+    const t = window.setTimeout(() => {
+      if (kind === 'scan') void quickActionsRef.current.scan();
+      else if (kind === 'add') quickActionsRef.current.add();
+      else quickActionsRef.current.voice();
+    }, 0);
+    return () => window.clearTimeout(t);
+  }, [loading]);
 
   useEffect(() => {
     const density = localStorage.getItem('byjan.density') || '';
@@ -1013,6 +1046,9 @@ export default function BookView() {
     setSplitWithTeam(false);
     setTags('');
     setReceiptMeta(null);
+    setReceiptOcrText('');
+    setMismatchThanks('');
+    mismatchIdRef.current = '';
     setIsExpenseModalOpen(true);
   };
 
@@ -1390,12 +1426,24 @@ export default function BookView() {
           }
         }
         if (created) applyExpenseLocal(created);
+        if (receiptOcrText && Number(amount) > 0) {
+          void confirmMismatchGold({
+            id: mismatchIdRef.current,
+            bookId,
+            ocrText: receiptOcrText,
+            gold: { amount: Number(amount), merchant },
+            saved: true,
+          });
+        }
         setIsExpenseModalOpen(false);
         setAmount('');
         setDescription('');
         setCustomCatInput('');
         setCategory(finalCategory);
         setReceiptMeta(null);
+        setReceiptOcrText('');
+        setMismatchThanks('');
+        mismatchIdRef.current = '';
         setCurrentPage(1);
         setSuccessCount(1);
         setSuccessExpense(created || { ...payload, id: payload.idempotencyKey, bookId });
@@ -1415,6 +1463,10 @@ export default function BookView() {
       addToast(canWrite ? 'Scan is not enabled for this book' : 'You need write access to scan receipts', 'error');
       return;
     }
+    // Double-tap while the camera/picker is opening would stack two pickers.
+    if (scanBusyRef.current) return;
+    scanBusyRef.current = true;
+    window.setTimeout(() => { scanBusyRef.current = false; }, 1500);
     try {
       await CapacitorService.requestCameraPermission();
       let batch: Array<{ imageDataUrl: string; fileName: string; mimeType: string }> = [];
@@ -1440,7 +1492,32 @@ export default function BookView() {
       const msg = err instanceof Error ? err.message : 'Could not open camera or photos';
       if (/cancel/i.test(msg)) return;
       addToast(msg, 'error');
+    } finally {
+      scanBusyRef.current = false;
     }
+  };
+
+  /** OCR found no amount inside the budget — open the Add form pre-filled, receipt already attached. */
+  const openManualFromReceipt = (draft: ManualFormDraft) => {
+    if (!canWrite) {
+      addToast('You need write access to add entries', 'error');
+      return;
+    }
+    const guessed = String(draft.category || '').trim();
+    const category = guessed && guessed.toLowerCase() !== 'uncategorized'
+      ? guessed
+      : guessCategoryFromText(draft.merchant, draft.description, draft.ocrText) || undefined;
+    openNewExpense({
+      merchant: draft.merchant || '',
+      description: draft.description || draft.merchant || '',
+      category,
+    });
+    if (draft.amount && draft.amount > 0) setAmount(String(draft.amount));
+    if (draft.date && /^\d{4}-\d{2}-\d{2}$/.test(draft.date)) setEntryDate(draft.date);
+    if (draft.paymentMethod) setPaymentMethod(draft.paymentMethod);
+    if (draft.receiptPath) setReceiptMeta({ receiptPath: draft.receiptPath, receiptName: draft.receiptName });
+    setReceiptOcrText(String(draft.ocrText || ''));
+    addToast('Could not read the amount — type it in, receipt is attached', 'error');
   };
 
   // Keep FAB actions pointed at live handlers (hooks above run before book is ready).
@@ -3096,7 +3173,33 @@ export default function BookView() {
                 </label>
                 )}
               </div>
+              {mismatchThanks && (receiptOcrText || receiptMeta) && !editingExpense ? (
+                <p className="text-[13px] leading-snug text-slate-600 bg-teal-50 border border-teal-100 rounded-xl px-3 py-2">{mismatchThanks}</p>
+              ) : null}
               <div className="pt-2 flex justify-end gap-2">
+                {(receiptOcrText || receiptMeta) && !editingExpense && !mismatchThanks ? (
+                    <button
+                      type="button"
+                      className="byjan-btn-ghost !mr-auto"
+                      onClick={async () => {
+                        if (!receiptOcrText.trim()) {
+                          setMismatchThanks('Sorry for the inconvenience — we are aiming for 100% accuracy so your finances stay smart. Thanks for your patience.');
+                          return;
+                        }
+                        const goldAmt = Number(amount || 0);
+                        const result = await reportParseMismatch({
+                          bookId,
+                          ocrText: receiptOcrText,
+                          predicted: [{ amount: 0, merchant: merchant || description }],
+                          gold: goldAmt > 0 ? { amount: goldAmt, merchant: merchant || description } : undefined,
+                        });
+                        if (result.id) mismatchIdRef.current = result.id;
+                        setMismatchThanks(result.thanks);
+                      }}
+                    >
+                      Is this a mismatch?
+                    </button>
+                ) : null}
                 <Dialog.Close asChild>
                   <button type="button" className="byjan-btn-ghost">Cancel</button>
                 </Dialog.Close>
@@ -3389,6 +3492,7 @@ export default function BookView() {
           setReceiptLaunch(null);
           clearPendingCapture();
         }}
+        onManualForm={openManualFromReceipt}
         onConfirmed={(expense, extras) => {
           applyExpenseLocal(expense);
           setReceiptLaunch(null);

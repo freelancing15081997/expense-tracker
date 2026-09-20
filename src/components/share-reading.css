@@ -320,6 +320,30 @@
   color: #fde68a;
 }
 
+.sr-mismatch {
+  display: block;
+  width: 100%;
+  margin-top: 14px;
+  min-height: 42px;
+  border-radius: 12px;
+  border: 1px dashed rgba(244, 247, 251, 0.28);
+  background: transparent;
+  color: rgba(244, 247, 251, 0.82);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.sr-thanks {
+  margin: 14px 0 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(18, 184, 168, 0.14);
+  border: 1px solid rgba(18, 184, 168, 0.28);
+  color: rgba(244, 247, 251, 0.92);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .sr-btn,
 .sr-btn-ghost {
   flex: 1;
@@ -378,4 +402,35 @@
 @keyframes sr-card-in {
   from { opacity: 0; transform: translateY(12px) rotateX(8deg); }
   to { opacity: 1; transform: translateY(0) rotateX(0); }
+}
+
+.sr-field-label {
+  display: block;
+  margin-top: 10px;
+  font-size: 12px;
+  font-weight: 650;
+  color: #334155;
+}
+
+.sr-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.sr-chip {
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: #fff;
+  color: #0f172a;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.sr-chip.is-on {
+  border-color: #0f766e;
+  background: #ccfbf1;
+  color: #115e59;
 }

@@ -13,8 +13,8 @@ android {
         applicationId "com.byjanbooks.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 26
-        versionName "1.0.26"
+        versionCode 31
+        versionName "1.0.31"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Keep PP-OCR .nb models uncompressed so Paddle-Lite can mmap them reliably in release.

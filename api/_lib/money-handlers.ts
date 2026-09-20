@@ -29,7 +29,7 @@ import {
   saveMyUpiProfile,
   startUpiPayment,
 } from './settlement-upi.js';
-import { extractMoneyAmount, reconcileVisionAmount } from './amount-parse.js';
+import { extractMoneyAmount, ocrFingerprint, reconcileVisionAmount } from './amount-parse.js';
 import { validateSplitPayload } from './split-validate.js';
 
 async function ensureMoneySchema() {
@@ -60,6 +60,27 @@ async function ensureMoneySchema() {
   )`;
   await sql`ALTER TABLE capture_events ADD COLUMN IF NOT EXISTS flow_state TEXT`;
   await sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS split_data JSONB`;
+  await sql`CREATE TABLE IF NOT EXISTS parse_feedback (
+    id TEXT PRIMARY KEY,
+    uid TEXT NOT NULL,
+    book_id TEXT,
+    fingerprint TEXT NOT NULL,
+    ocr_text TEXT NOT NULL DEFAULT '',
+    predicted JSONB NOT NULL DEFAULT '[]'::jsonb,
+    gold JSONB,
+    saved BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`;
+  await sql`CREATE INDEX IF NOT EXISTS parse_feedback_fp_idx ON parse_feedback (fingerprint, created_at DESC)`;
+  await sql`CREATE TABLE IF NOT EXISTS parse_overrides (
+    fingerprint TEXT PRIMARY KEY,
+    amount DOUBLE PRECISION NOT NULL,
+    merchant TEXT NOT NULL DEFAULT '',
+    extras JSONB NOT NULL DEFAULT '[]'::jsonb,
+    sample_count INT NOT NULL DEFAULT 1,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`;
   await ensureSettlementSchema();
 }
 
@@ -125,7 +146,20 @@ async function putIdempotent(key: string, bookId: string, uid: string, response:
   `;
 }
 
-function parseAmountFromText(text: string) {
+async function parseAmountFromText(text: string) {
+  const learned = await lookupParseOverride(text);
+  if (learned && learned.amount > 0) {
+    return {
+      amount: learned.amount,
+      entryType: 'out' as const,
+      description: learned.merchant || 'Learned from mismatch',
+      merchant: learned.merchant,
+      paymentMethod: 'upi',
+      date: new Date().toISOString().slice(0, 10),
+      confidence: 'high' as const,
+      score: 99,
+    };
+  }
   const parsed = extractMoneyAmount(text);
   if (!parsed) return null;
   return {
@@ -140,6 +174,67 @@ function parseAmountFromText(text: string) {
   };
 }
 
+function sanitizeGold(raw: unknown): { amount: number; merchant: string; extras: Array<{ amount: number; merchant: string; entryType?: string }> } | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  const amount = Number(o.amount || 0);
+  if (!(amount > 0) || amount >= 100_000_000) return null;
+  const extrasIn = Array.isArray(o.extras) ? o.extras : [];
+  const extras = extrasIn
+    .map((row) => {
+      const e = row && typeof row === 'object' ? row as Record<string, unknown> : {};
+      const a = Number(e.amount || 0);
+      if (!(a > 0) || a >= 100_000_000) return null;
+      return {
+        amount: a,
+        merchant: String(e.merchant || '').slice(0, 80),
+        entryType: e.entryType === 'in' ? 'in' : 'out',
+      };
+    })
+    .filter((e): e is { amount: number; merchant: string; entryType: string } => Boolean(e));
+  return {
+    amount,
+    merchant: String(o.merchant || '').slice(0, 80),
+    extras,
+  };
+}
+
+async function upsertParseOverride(fingerprint: string, gold: NonNullable<ReturnType<typeof sanitizeGold>>) {
+  if (!fingerprint) return;
+  const sql = await getLedgerSql();
+  await sql`
+    INSERT INTO parse_overrides (fingerprint, amount, merchant, extras, sample_count, updated_at)
+    VALUES (
+      ${fingerprint}, ${gold.amount}, ${gold.merchant},
+      ${JSON.stringify(gold.extras)}::jsonb, 1, NOW()
+    )
+    ON CONFLICT (fingerprint) DO UPDATE SET
+      amount = EXCLUDED.amount,
+      merchant = EXCLUDED.merchant,
+      extras = EXCLUDED.extras,
+      sample_count = parse_overrides.sample_count + 1,
+      updated_at = NOW()
+  `;
+}
+
+async function lookupParseOverride(text: string) {
+  const fp = ocrFingerprint(text);
+  if (!fp) return null;
+  try {
+    const sql = await getLedgerSql();
+    const rows = await sql`SELECT amount, merchant, extras FROM parse_overrides WHERE fingerprint = ${fp} LIMIT 1`;
+    const row = Array.isArray(rows) ? rows[0] : null;
+    if (!row || !(Number(row.amount) > 0)) return null;
+    return {
+      amount: Number(row.amount),
+      merchant: String(row.merchant || ''),
+      extras: Array.isArray(row.extras) ? row.extras : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function handleMoney(req: VercelRequest, res: VercelResponse) {
   await withDomainApi(req, res, async (user, body) => {
     const op = String(body.op || '');
@@ -149,7 +244,7 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
       const text = String(body.text || '');
       if (!bookId) throw new ApiError(400, 'Missing ledger');
       await ledgerRequireMember(bookId, user.uid);
-      const parsed = parseAmountFromText(text);
+      const parsed = await parseAmountFromText(text);
       const preview = parsed ? {
         id: newId('cap'),
         source: String(body.source || 'sms'),
@@ -178,6 +273,53 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
         raw: text,
       };
       apiJson(res, 200, { preview });
+      return;
+    }
+
+    if (op === 'reportMismatch' || op === 'confirmMismatchGold') {
+      const ocrText = String(body.ocrText || '').slice(0, 8000);
+      const fingerprint = String(body.fingerprint || ocrFingerprint(ocrText)).slice(0, 160);
+      if (!ocrText.trim() || !fingerprint) throw new ApiError(400, 'Nothing to learn from');
+      await ensureMoneySchema();
+      const sql = await getLedgerSql();
+      const gold = sanitizeGold(body.gold);
+      const predicted = Array.isArray(body.predicted)
+        ? (body.predicted as unknown[]).slice(0, 12).map((row) => {
+          const e = row && typeof row === 'object' ? row as Record<string, unknown> : {};
+          return {
+            amount: Number(e.amount || 0),
+            merchant: String(e.merchant || '').slice(0, 80),
+          };
+        })
+        : [];
+      const bookId = String(body.bookId || '').trim();
+      let id = String(body.id || '').trim();
+      if (op === 'reportMismatch' || !id) {
+        id = id || newId('mm');
+        await sql`
+          INSERT INTO parse_feedback (id, uid, book_id, fingerprint, ocr_text, predicted, gold, saved, created_at, updated_at)
+          VALUES (
+            ${id}, ${user.uid}, ${bookId || null}, ${fingerprint}, ${ocrText},
+            ${JSON.stringify(predicted)}::jsonb, ${gold ? JSON.stringify(gold) : null}::jsonb,
+            false, NOW(), NOW()
+          )
+          ON CONFLICT (id) DO UPDATE SET
+            ocr_text = EXCLUDED.ocr_text,
+            predicted = EXCLUDED.predicted,
+            gold = COALESCE(EXCLUDED.gold, parse_feedback.gold),
+            updated_at = NOW()
+        `;
+      } else {
+        await sql`
+          UPDATE parse_feedback SET
+            gold = ${gold ? JSON.stringify(gold) : null}::jsonb,
+            saved = ${Boolean(body.saved)},
+            updated_at = NOW()
+          WHERE id = ${id} AND uid = ${user.uid}
+        `;
+      }
+      if (gold) await upsertParseOverride(fingerprint, gold);
+      apiJson(res, 200, { id, learned: Boolean(gold) });
       return;
     }
 
@@ -401,7 +543,7 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
         }
       }
       if (pdfLayer) {
-        const pdfParsed = parseAmountFromText(pdfLayer);
+        const pdfParsed = await parseAmountFromText(pdfLayer);
         if (pdfParsed && pdfParsed.amount > 0) {
           // CRED / invoices: PDF text layer is the amount source of truth. OCR of ₹ → 4 must not mix in.
           docText = pdfLayer;
@@ -538,7 +680,7 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
         vision = { ...vision, amount: 0, notes: [vision.notes, 'ungrounded_amount'].filter(Boolean).join('; ') };
       }
 
-      const textParsed = parseAmountFromText(docText || '');
+      const textParsed = await parseAmountFromText(docText || '');
       const { enrichWithPpStructure, needsPpStructure, parsePpStructureText } = await import('./paddle-structure.js');
 
       // PP-Structure on share/OCR text (and optional remote PaddleOCR for complex docs).

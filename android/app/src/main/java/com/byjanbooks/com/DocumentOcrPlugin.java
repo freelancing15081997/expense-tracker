@@ -55,18 +55,31 @@ public class DocumentOcrPlugin extends Plugin {
     private static final int MAX_DECODE_BYTES = 5 * 1024 * 1024;
     private static final int MAX_PDF_PAGES = 3;
 
+    /** Wall-clock budget per document — the UI opens the manual form past ~2s, so never block longer. */
+    private static final long BUDGET_MS = 2600;
+
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
     private final AtomicBoolean paddleReady = new AtomicBoolean(false);
     private final AtomicBoolean paddleTried = new AtomicBoolean(false);
+    private final AtomicBoolean paddleBusy = new AtomicBoolean(false);
+    private volatile CountDownLatch paddleInitLatch;
     private OCR paddle;
     private TextRecognizer mlkit;
 
-    private TextRecognizer mlkitClient() {
+    private synchronized TextRecognizer mlkitClient() {
         if (mlkit == null) {
             mlkit = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
         }
         return mlkit;
+    }
+
+    @Override
+    public void load() {
+        super.load();
+        // Warm both engines at app start so the first share/scan doesn't pay model-load time.
+        startPaddleInit();
+        try { mlkitClient(); } catch (Throwable ignored) { /* lazy later */ }
     }
 
     private OcrConfig buildConfig() {
@@ -85,15 +98,12 @@ public class DocumentOcrPlugin extends Plugin {
         return config;
     }
 
-    private boolean ensurePaddle() {
-        if (paddleReady.get()) return true;
-        // In-progress or recently failed init — skip this call (ML Kit). Failures clear the flag for retry.
-        if (paddleTried.get()) return false;
-        paddleTried.set(true);
-
-        CountDownLatch latch = new CountDownLatch(1);
-        AtomicBoolean ok = new AtomicBoolean(false);
-
+    /** Kick off PP-OCRv4 model load without blocking. Safe to call repeatedly. */
+    private void startPaddleInit() {
+        if (paddleReady.get()) return;
+        if (!paddleTried.compareAndSet(false, true)) return;
+        final CountDownLatch latch = new CountDownLatch(1);
+        paddleInitLatch = latch;
         main.post(() -> {
             try {
                 if (paddle == null) {
@@ -103,7 +113,6 @@ public class DocumentOcrPlugin extends Plugin {
                     @Override
                     public void onSuccess() {
                         paddleReady.set(true);
-                        ok.set(true);
                         Log.i(TAG, "PP-OCRv4 models loaded");
                         latch.countDown();
                     }
@@ -121,22 +130,27 @@ public class DocumentOcrPlugin extends Plugin {
                 latch.countDown();
             }
         });
-
-        try {
-            if (!latch.await(90, TimeUnit.SECONDS)) {
-                Log.e(TAG, "PP-OCRv4 init timed out — will retry next OCR");
-                paddleTried.set(false);
-                return false;
-            }
-        } catch (InterruptedException ie) {
-            Thread.currentThread().interrupt();
-            paddleTried.set(false);
-            return false;
-        }
-        return ok.get();
     }
 
-    private OcrResult runPaddle(Bitmap bitmap) {
+    /** Wait at most {@code ms} for the model to be ready; never blocks a scan for model load. */
+    private boolean awaitPaddle(long ms) {
+        if (paddleReady.get()) return true;
+        startPaddleInit();
+        CountDownLatch latch = paddleInitLatch;
+        if (latch == null || ms <= 0) return paddleReady.get();
+        try {
+            latch.await(ms, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
+        return paddleReady.get();
+    }
+
+    /** Run PP-OCRv4 with a hard deadline. Returns null when busy, failed, or past deadline. */
+    private OcrResult runPaddle(Bitmap bitmap, long timeoutMs) {
+        if (timeoutMs <= 0 || !paddleReady.get()) return null;
+        // A previous run that outlived its deadline may still be inferring — don't stack another.
+        if (!paddleBusy.compareAndSet(false, true)) return null;
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<OcrResult> resultRef = new AtomicReference<>();
         AtomicReference<Throwable> errRef = new AtomicReference<>();
@@ -147,24 +161,27 @@ public class DocumentOcrPlugin extends Plugin {
                     @Override
                     public void onSuccess(OcrResult result) {
                         resultRef.set(result);
+                        paddleBusy.set(false);
                         latch.countDown();
                     }
 
                     @Override
                     public void onFail(Throwable e) {
                         errRef.set(e);
+                        paddleBusy.set(false);
                         latch.countDown();
                     }
                 });
             } catch (Throwable t) {
                 errRef.set(t);
+                paddleBusy.set(false);
                 latch.countDown();
             }
         });
 
         try {
-            if (!latch.await(60, TimeUnit.SECONDS)) {
-                Log.w(TAG, "PP-OCRv4 run timed out");
+            if (!latch.await(timeoutMs, TimeUnit.MILLISECONDS)) {
+                Log.w(TAG, "PP-OCRv4 run past deadline (" + timeoutMs + "ms) — using ML Kit text");
                 return null;
             }
         } catch (InterruptedException ie) {
@@ -177,6 +194,91 @@ public class DocumentOcrPlugin extends Plugin {
         }
         return resultRef.get();
     }
+
+    /** ML Kit started asynchronously so it overlaps with PP-OCRv4. */
+    private static final class MlJob {
+        final CountDownLatch latch = new CountDownLatch(1);
+        final AtomicReference<String> text = new AtomicReference<>("");
+    }
+
+    private MlJob startMlkit(Bitmap bitmap) {
+        MlJob job = new MlJob();
+        try {
+            InputImage image = InputImage.fromBitmap(bitmap, 0);
+            mlkitClient().process(image)
+                .addOnSuccessListener(vision -> {
+                    job.text.set(vision.getText() != null ? vision.getText() : "");
+                    job.latch.countDown();
+                })
+                .addOnFailureListener(err -> {
+                    Log.w(TAG, "ML Kit page failed", err);
+                    job.latch.countDown();
+                });
+        } catch (Throwable t) {
+            Log.w(TAG, "ML Kit start failed", t);
+            job.latch.countDown();
+        }
+        return job;
+    }
+
+    private String awaitMlkit(MlJob job, long timeoutMs) {
+        try {
+            job.latch.await(Math.max(50, timeoutMs), TimeUnit.MILLISECONDS);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
+        return job.text.get();
+    }
+
+    /**
+     * One page → {primary, secondary} texts. If the upright pass reads nothing with digits
+     * (sideways handwritten chit, landscape photo of a portrait bill) retry rotated 90° / 270°
+     * inside a short grace window — a blank result is never "fast", it just moves the work to the user.
+     */
+    private String[] ocrPage(Bitmap bitmap, long deadlineAt) {
+        String[] first = ocrPageOnce(bitmap, deadlineAt);
+        if (hasUsefulText(first[0]) || hasUsefulText(first[1])) return first;
+        long now = android.os.SystemClock.elapsedRealtime();
+        for (int degrees : new int[] { 90, 270 }) {
+            long grace = Math.min(now + 1300, deadlineAt + 1800);
+            if (grace - android.os.SystemClock.elapsedRealtime() < 500) break;
+            Bitmap turned = rotate(bitmap.copy(bitmap.getConfig() != null ? bitmap.getConfig() : Bitmap.Config.ARGB_8888, false), degrees);
+            try {
+                String[] again = ocrPageOnce(turned, grace);
+                if (hasUsefulText(again[0]) || hasUsefulText(again[1])) {
+                    Log.i(TAG, "OCR succeeded after rotating " + degrees + "°");
+                    return again;
+                }
+            } finally {
+                if (turned != null && !turned.isRecycled() && !paddleBusy.get()) turned.recycle();
+            }
+            now = android.os.SystemClock.elapsedRealtime();
+        }
+        return first;
+    }
+
+    private String[] ocrPageOnce(Bitmap bitmap, long deadlineAt) {
+        MlJob ml = startMlkit(bitmap);
+        String paddleText = "";
+        float inferMs = 0;
+        long remaining = deadlineAt - android.os.SystemClock.elapsedRealtime();
+        if (remaining > 500 && awaitPaddle(Math.min(remaining - 400, 1200))) {
+            remaining = deadlineAt - android.os.SystemClock.elapsedRealtime();
+            OcrResult result = runPaddle(bitmap, remaining);
+            if (result != null && result.getSimpleText() != null) {
+                paddleText = result.getSimpleText().trim();
+                inferMs = result.getInferenceTime();
+            }
+        }
+        // ML Kit is fast (~0.3–1s); give it the remainder of the budget plus a small grace window.
+        long mlWait = Math.max(700, deadlineAt + 900 - android.os.SystemClock.elapsedRealtime());
+        String mlText = awaitMlkit(ml, mlWait).trim();
+        lastInferMs = inferMs;
+        if (!paddleText.isEmpty()) return new String[] { paddleText, mlText };
+        return new String[] { mlText, "" };
+    }
+
+    private volatile float lastInferMs = 0;
 
     private static boolean looksLikePdf(byte[] bytes, String mimeHint) {
         if (mimeHint != null && mimeHint.toLowerCase().contains("pdf")) return true;
@@ -335,37 +437,47 @@ public class DocumentOcrPlugin extends Plugin {
         BitmapFactory.Options opts = new BitmapFactory.Options();
         opts.inPreferredConfig = Bitmap.Config.ARGB_8888;
         opts.inSampleSize = sample;
-        return BitmapFactory.decodeByteArray(bytes, 0, bytes.length, opts);
+        Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, opts);
+        if (bmp == null) return null;
+        // Camera / gallery JPEGs carry orientation in EXIF; decodeByteArray ignores it and the
+        // text comes out sideways — both engines then read nothing.
+        int degrees = exifRotation(bytes);
+        return degrees == 0 ? bmp : rotate(bmp, degrees);
     }
 
-    private String ocrBitmap(Bitmap bitmap) {
-        if (bitmap == null) return "";
+    private static int exifRotation(byte[] bytes) {
         try {
-            if (ensurePaddle()) {
-                OcrResult result = runPaddle(bitmap);
-                if (result != null && result.getSimpleText() != null) {
-                    return result.getSimpleText();
-                }
-            }
-        } catch (Throwable t) {
-            Log.w(TAG, "PP-OCRv4 page failed", t);
-        }
+            android.media.ExifInterface exif = new android.media.ExifInterface(new java.io.ByteArrayInputStream(bytes));
+            int o = exif.getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, android.media.ExifInterface.ORIENTATION_NORMAL);
+            if (o == android.media.ExifInterface.ORIENTATION_ROTATE_90) return 90;
+            if (o == android.media.ExifInterface.ORIENTATION_ROTATE_180) return 180;
+            if (o == android.media.ExifInterface.ORIENTATION_ROTATE_270) return 270;
+        } catch (Throwable ignored) { /* PNG / no EXIF */ }
+        return 0;
+    }
+
+    private static Bitmap rotate(Bitmap src, int degrees) {
+        if (src == null || degrees % 360 == 0) return src;
+        android.graphics.Matrix m = new android.graphics.Matrix();
+        m.postRotate(degrees);
         try {
-            CountDownLatch latch = new CountDownLatch(1);
-            AtomicReference<String> textRef = new AtomicReference<>("");
-            InputImage image = InputImage.fromBitmap(bitmap, 0);
-            mlkitClient().process(image)
-                .addOnSuccessListener(vision -> {
-                    textRef.set(vision.getText() != null ? vision.getText() : "");
-                    latch.countDown();
-                })
-                .addOnFailureListener(err -> latch.countDown());
-            latch.await(45, TimeUnit.SECONDS);
-            return textRef.get();
+            Bitmap out = Bitmap.createBitmap(src, 0, 0, src.getWidth(), src.getHeight(), m, true);
+            if (out != src) src.recycle();
+            return out;
         } catch (Throwable t) {
-            Log.w(TAG, "ML Kit page failed", t);
-            return "";
+            return src;
         }
+    }
+
+    /** "Read something useful": at least one line with a digit run (amount / date / id). */
+    private static boolean hasUsefulText(String text) {
+        if (text == null) return false;
+        int digitLines = 0;
+        for (String line : text.split("\n")) {
+            if (line.matches(".*\\d{2,}.*")) digitLines++;
+            if (digitLines >= 1) return true;
+        }
+        return false;
     }
 
     @Override
@@ -403,6 +515,8 @@ public class DocumentOcrPlugin extends Plugin {
 
         final String b64 = raw;
         final String mime = mimeHint != null ? mimeHint : "";
+        final long startedAt = android.os.SystemClock.elapsedRealtime();
+        startPaddleInit();
         worker.execute(() -> {
             byte[] bytes;
             try {
@@ -450,37 +564,42 @@ public class DocumentOcrPlugin extends Plugin {
 
             try {
                 StringBuilder all = new StringBuilder();
+                StringBuilder alt = new StringBuilder();
                 if (embedded.length() > 0) all.append(embedded);
                 float ms = 0;
-                boolean usedPaddle = !bitmaps.isEmpty() && ensurePaddle();
+                boolean anyPaddle = false;
+                boolean anyMlkit = false;
+                // Whole document shares one deadline; multi-page PDFs split what's left per page.
+                final long deadlineAt = startedAt + BUDGET_MS;
                 for (int i = 0; i < bitmaps.size(); i++) {
                     Bitmap bmp = bitmaps.get(i);
-                    String pageText;
-                    if (usedPaddle) {
-                        OcrResult result = runPaddle(bmp);
-                        if (result != null) {
-                            pageText = result.getSimpleText() != null ? result.getSimpleText() : "";
-                            ms += result.getInferenceTime();
-                        } else {
-                            pageText = ocrBitmap(bmp);
-                            engine = engine.contains("pdf") ? "mlkit-pdf" : "mlkit";
-                        }
-                    } else if (!bitmaps.isEmpty()) {
-                        pageText = ocrBitmap(bmp);
-                        engine = engine.contains("pdf") ? "mlkit-pdf" : "mlkit";
-                    } else {
-                        pageText = "";
-                    }
-                    if (pageText != null && !pageText.isEmpty()) {
+                    long now = android.os.SystemClock.elapsedRealtime();
+                    long pagesLeft = bitmaps.size() - i;
+                    long pageDeadline = pagesLeft > 1 ? now + Math.max(600, (deadlineAt - now) / pagesLeft) : deadlineAt;
+                    String[] texts = ocrPage(bmp, pageDeadline);
+                    if (lastInferMs > 0) { anyPaddle = true; ms += lastInferMs; } else if (!texts[0].isEmpty()) { anyMlkit = true; }
+                    if (!texts[0].isEmpty()) {
                         if (all.length() > 0) all.append('\n');
-                        all.append(pageText.trim());
+                        all.append(texts[0]);
                     }
+                    if (!texts[1].isEmpty()) {
+                        if (alt.length() > 0) alt.append('\n');
+                        alt.append(texts[1]);
+                    }
+                }
+                if (!bitmaps.isEmpty()) {
+                    boolean pdf = engine.contains("pdf");
+                    if (anyPaddle) engine = pdf ? "ppocrv4-pdf" : "ppocrv4";
+                    else if (anyMlkit) engine = pdf ? "mlkit-pdf" : "mlkit";
+                    if (embedded.length() > 20) engine = "pdf-text";
                 }
 
                 JSObject out = new JSObject();
                 out.put("text", all.toString());
+                out.put("altText", alt.toString());
                 out.put("engine", engine);
                 out.put("ms", ms);
+                out.put("wallMs", android.os.SystemClock.elapsedRealtime() - startedAt);
                 out.put("pages", bitmaps.size());
                 main.post(() -> call.resolve(out));
             } catch (Throwable t) {
@@ -488,7 +607,8 @@ public class DocumentOcrPlugin extends Plugin {
                 main.post(() -> call.reject(t.getMessage() != null ? t.getMessage() : "OCR failed"));
             } finally {
                 for (Bitmap bmp : bitmaps) {
-                    if (bmp != null && !bmp.isRecycled()) bmp.recycle();
+                    // A deadline-exceeded PP-OCR run may still hold the bitmap — leave it to GC then.
+                    if (bmp != null && !bmp.isRecycled() && !paddleBusy.get()) bmp.recycle();
                 }
             }
         });

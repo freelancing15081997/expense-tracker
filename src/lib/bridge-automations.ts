@@ -26,10 +26,14 @@ export const INDIA_MERCHANTS: Array<{ match: string; merchant: string; category:
   { match: 'amazon', merchant: 'Amazon', category: 'Shopping' },
   { match: 'flipkart', merchant: 'Flipkart', category: 'Shopping' },
   { match: 'myntra', merchant: 'Myntra', category: 'Shopping' },
-  { match: 'phonepe', merchant: 'PhonePe', category: 'Transfers', method: 'upi' },
-  { match: 'gpay', merchant: 'Google Pay', category: 'Transfers', method: 'upi' },
-  { match: 'paytm', merchant: 'Paytm', category: 'Transfers', method: 'upi' },
-  { match: 'cred', merchant: 'CRED', category: 'Bills', method: 'upi' },
+  { match: 'apollo', merchant: 'Apollo Pharmacy', category: 'Health', method: 'upi' },
+  { match: 'indianoil', merchant: 'IndianOil', category: 'Fuel' },
+  { match: 'indian oil', merchant: 'IndianOil', category: 'Fuel' },
+  { match: 'hpcl', merchant: 'HPCL', category: 'Fuel' },
+  { match: 'bpcl', merchant: 'BPCL', category: 'Fuel' },
+  { match: 'breadfast', merchant: 'Breadfast', category: 'Groceries' },
+  { match: 'tvscredit', merchant: 'TVS Credit', category: 'Bills' },
+  { match: 'tvs credit', merchant: 'TVS Credit', category: 'Bills' },
   { match: 'lic', merchant: 'LIC', category: 'Insurance' },
   { match: 'policybazaar', merchant: 'Policybazaar', category: 'Insurance' },
   { match: 'school', merchant: 'School', category: 'Education' },
@@ -74,9 +78,23 @@ export function parseCaptureLines(text: string) {
     .filter((row): row is NonNullable<ReturnType<typeof parseBankSms>> => Boolean(row));
 }
 
+function merchantNeedleHits(hay: string, needle: string) {
+  const n = String(needle || '').toLowerCase();
+  if (!n) return false;
+  if (n.includes(' ')) return hay.includes(n);
+  // Word boundary so "ola" does not steal APOLLO, "jio" does not match "region".
+  const escaped = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?:^|[^a-z0-9])${escaped}(?:$|[^a-z0-9])`).test(hay);
+}
+
 export function guessedMerchant(text: string) {
   const hay = text.toLowerCase();
-  return INDIA_MERCHANTS.find((row) => hay.includes(row.match)) || null;
+  // UPI success chrome always contains PhonePe/GPay/Paytm/CRED — that is the app, not the payee.
+  const payeeScreen = /\b(?:paid\s+to|transaction\s+successful|payment\s+successful|debited\s+from)\b/i.test(hay);
+  return INDIA_MERCHANTS.find((row) => {
+    if (payeeScreen && /^(phonepe|gpay|paytm|cred)$/.test(row.match)) return false;
+    return merchantNeedleHits(hay, row.match);
+  }) || null;
 }
 
 /** Keyword / description → category when merchant map misses (receipts, snap, share). */
@@ -84,8 +102,8 @@ export const DESCRIPTION_CATEGORY_RULES: Array<{ match: RegExp; category: string
   { match: /\b(swiggy|zomato|restaurant|cafe|meal|food|lunch|dinner|breakfast|biryani|dominos|mcdonald|starbucks|barista|dining|catering|pizza|burger|kfc|subway)\b/i, category: 'Food' },
   { match: /\b(blinkit|zepto|bigbasket|dmart|grocer|kirana|supermarket|reliance fresh|more supermarket|instamart|nature.?s basket)\b/i, category: 'Groceries' },
   { match: /\b(uber|ola|rapido|irctc|makemytrip|indigo|flight|railway|metro|travel|taxi|cab|hotel|airbnb|booking\.com|goibibo|cleartrip)\b/i, category: 'Travel' },
-  { match: /\b(fuel|petrol|diesel|hpcl|iocl|bpcl|shell|indian oil|fastag|toll)\b/i, category: 'Travel' },
-  { match: /\b(apollo|pharma|hospital|clinic|medical|1mg|netmeds|pharmacy|doctor|health|dental|lab test)\b/i, category: 'Health' },
+  { match: /\b(fuel|petrol|diesel|hpcl|iocl|bpcl|shell|indian oil|indianoil|fastag|toll)\b/i, category: 'Fuel' },
+  { match: /\b(apollo|pharma|hospital|clinic|medicals?|1mg|netmeds|pharmacy|doctor|health|dental|lab test)\b/i, category: 'Health' },
   { match: /\b(bescom|electricity|broadband|airtel|jio|vodafone|\bvi\b|water board|gas cylinder|utility|utilities|recharge|wifi|fiber)\b/i, category: 'Utilities' },
   { match: /\b(amazon|flipkart|myntra|ajio|shopping|mall|nykaa|meesho|tatacliq)\b/i, category: 'Shopping' },
   { match: /\b(netflix|spotify|prime|subscription|saas|software|chatgpt|notion|youtube|hotstar|disney)\b/i, category: 'Software Subscriptions' },
@@ -93,7 +111,7 @@ export const DESCRIPTION_CATEGORY_RULES: Array<{ match: RegExp; category: string
   { match: /\b(school|tuition|college|course|byju|education|fees|udemy|coursera)\b/i, category: 'Education' },
   { match: /\b(lic|policybazaar|insurance|premium|hdfc life|max life)\b/i, category: 'Insurance' },
   { match: /\b(salary|payroll|stipend|income|credited|refund|freelance|invoice paid)\b/i, category: 'Income' },
-  { match: /\b(transfer|sent to|paid to|neft|imps|rtgs|upi to|gpay|phonepe|paytm)\b/i, category: 'Transfers' },
+  { match: /\b(neft|imps|rtgs|bank transfer|internal fund transfer)\b/i, category: 'Transfers' },
   { match: /\b(movie|pvr|inox|bookmyshow|entertainment|concert)\b/i, category: 'Entertainment' },
   { match: /\b(gym|cult\.?fit|fitness|yoga|sports)\b/i, category: 'Health' },
 ];

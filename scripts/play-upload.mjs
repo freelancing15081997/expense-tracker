@@ -89,11 +89,14 @@ async function main() {
     },
   });
 
-  const commit = await play.edits.commit({
-    packageName: PKG,
-    editId,
-    changesNotSentForReview: true,
-  });
+  // Play rejects changesNotSentForReview once the app is past initial review; fall back to a plain commit.
+  let commit;
+  try {
+    commit = await play.edits.commit({ packageName: PKG, editId, changesNotSentForReview: true });
+  } catch (e) {
+    if (!/changesNotSentForReview/i.test(String(e.errors?.[0]?.message || e.message))) throw e;
+    commit = await play.edits.commit({ packageName: PKG, editId });
+  }
   console.log('PLAY_UPLOAD_OK', JSON.stringify(commit.data));
 }
 
