@@ -82,9 +82,10 @@ export function toUserMessage(err: unknown, fallback = 'Something went wrong. Pl
   if (/popup-closed|cancelled|canceled/i.test(lower)) {
     return 'Sign-in was cancelled.';
   }
+  // Prefer already-friendly copy (e.g. from googleSignInError) over a generic Google fallback.
+  if (text && !looksTechnical(text)) return text;
   if (/google/i.test(lower) && /sign.?in|auth/i.test(lower)) {
     return 'Google sign-in did not finish. Please try again.';
   }
-  if (text && !looksTechnical(text)) return text;
   return fallback;
 }

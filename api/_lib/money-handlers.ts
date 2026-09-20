@@ -459,9 +459,10 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
       let vision: Awaited<ReturnType<typeof import('./receipt-vision.js').parseReceiptImage>> | null = null;
       const { parseReceiptImage } = await import('./receipt-vision.js');
       const { amountGroundedInText } = await import('./amount-parse.js');
-      const shareLocalOnly = source === 'share' || source === 'sms' || Boolean(body.skipVision);
+      const shareLocalOnly = Boolean(body.skipVision);
+      // When client sends imageBase64 with skipVision:false (scan or share cloud assist), run Gemini.
+      // Old rule blocked ALL share/sms even when the client asked for vision — Play shares got amount 0.
 
-      // Share/SMS: on-device OCR + rules only. Gemini invents amounts that are not on the receipt.
       if (!shareLocalOnly && imageBase64 && imageBase64.length > 64 && imageBase64.length < 1.8 * 1024 * 1024) {
         try {
           vision = await parseReceiptImage({
@@ -476,7 +477,7 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
         }
       }
 
-      // Fallback: read stored receipt from R2 (email-compatible path). Never on share — local OCR already ran.
+      // Fallback: read stored receipt from R2 (email-compatible path).
       if (!shareLocalOnly && (!vision || vision.amount <= 0) && receiptPath) {
         try {
           const { r2FileKey, r2GetBytes } = await import('./r2.js');
@@ -533,8 +534,18 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
         }
       }
 
-      if (vision && vision.amount > 0 && docText && !amountGroundedInText(docText, vision.amount)) {
-        vision = { ...vision, amount: 0, notes: [vision.notes, 'ungrounded_amount'].filter(Boolean).join('; ') };
+      // Drop ungrounded vision only when the client opted out of vision AND OCR text is strong.
+      // When vision was requested (skipVision:false), keep Gemini amount even if OCR is garbled.
+      const ocrStrong = Boolean(docText) && docText.replace(/\s+/g, '').length >= 40;
+      if (vision && vision.amount > 0 && ocrStrong && !amountGroundedInText(docText, vision.amount)) {
+        if (shareLocalOnly) {
+          vision = { ...vision, amount: 0, notes: [vision.notes, 'ungrounded_amount'].filter(Boolean).join('; ') };
+        } else {
+          vision = {
+            ...vision,
+            notes: [vision.notes, 'amount_not_in_ocr_kept'].filter(Boolean).join('; '),
+          };
+        }
       }
 
       const textParsed = parseAmountFromText(docText || '');

@@ -89,7 +89,7 @@ export async function prepareOcrImage(dataUrl: string, mimeType = 'image/jpeg'):
       el.onerror = () => reject(new Error('ocr image'));
       el.src = src;
     });
-    const maxEdge = 1600;
+    const maxEdge = 2400;
     const scale = Math.min(1, maxEdge / Math.max(img.width, img.height, 1));
     const w = Math.max(1, Math.round(img.width * scale));
     const h = Math.max(1, Math.round(img.height * scale));
@@ -99,7 +99,7 @@ export async function prepareOcrImage(dataUrl: string, mimeType = 'image/jpeg'):
     const ctx = canvas.getContext('2d');
     if (!ctx) return fallback();
     ctx.drawImage(img, 0, 0, w, h);
-    const next = canvas.toDataURL('image/jpeg', 0.9);
+    const next = canvas.toDataURL('image/jpeg', 0.95);
     return {
       base64: next.replace(/^data:[^;]+;base64,/i, ''),
       mime: 'image/jpeg',

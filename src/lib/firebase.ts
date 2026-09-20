@@ -47,14 +47,16 @@ function googleSignInError(err: unknown) {
   const code = String(anyErr?.code || '');
   const message = String(anyErr?.message || '');
   const blob = `${code} ${message}`;
+  // Play Store / release builds: missing App Signing fingerprint in Firebase → ApiException 10
   if (/10\b|DEVELOPER_ERROR|ApiException:\s*10/i.test(blob)) {
     return new Error(
-      'Google sign-in setup for this app build is out of date in Firebase. In Firebase Console → Project settings → Your apps → com.byjanbooks.app, add SHA-1 0D:7A:B9:91:F6:2D:8E:02:50:C1:91:86:96:F4:FB:62:FE:FE:01:28, download a fresh google-services.json, then reinstall the app.',
+      'Google sign-in is not ready for this Play Store install yet. Please update the app after the next release, or use email sign-in for now.',
     );
   }
-  if (/\[16\]|Account reauth failed|BAD_AUTHENTICATION|Long live credential/i.test(blob)) {
+  // Misconfigured OAuth / Credential Manager often surfaces as BAD_AUTHENTICATION — not the user's fault
+  if (/\[16\]|Account reauth failed|BAD_AUTHENTICATION|Long live credential|CommonStatusCodes\.SIGN_IN_REQUIRED/i.test(blob)) {
     return new Error(
-      'This phone’s Google account needs a refresh. Open Settings → Passwords & accounts → Google → your account → Remove account, add it again, then retry Continue with Google once.',
+      'Google could not complete sign-in on this install. Please try again once, or use email sign-in. You do not need to remove your Google account from the phone.',
     );
   }
   if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request' || /12501|canceled|cancelled|Authorization canceled/i.test(message)) {
@@ -127,12 +129,12 @@ export async function signInWithGoogle() {
     bindNativeGoogleAuthBridge();
     const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
 
-    // One in-app Google account sheet only — no browser, no second picker, no extra scopes.
-    // Credential Manager + idToken is enough for Firebase (skipNativeAuth).
     try {
+      // Classic Google Sign-In only. Credential Manager + auto-retry opened the
+      // account chooser twice and still failed on Play builds missing OAuth SHA.
       const result = await FirebaseAuthentication.signInWithGoogle({
         skipNativeAuth: true,
-        useCredentialManager: true,
+        useCredentialManager: false,
       });
       const idToken = result.credential?.idToken;
       const accessToken = result.credential?.accessToken;
@@ -140,7 +142,7 @@ export async function signInWithGoogle() {
         console.error('Native Google sign-in missing idToken', JSON.stringify(result));
         throw new Error('Google sign-in returned no id token');
       }
-      return await signInWithCredential(auth, GoogleAuthProvider.credential(idToken, accessToken || undefined));
+      return signInWithCredential(auth, GoogleAuthProvider.credential(idToken, accessToken || undefined));
     } catch (err) {
       console.error('Native Google sign-in failed', err);
       throw googleSignInError(err);

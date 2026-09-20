@@ -133,9 +133,9 @@ async function parseReceiptNow(
   const isPdf = imageMime === 'application/pdf'
     || /\.pdf$/i.test(receiptName)
     || /^JVBER/i.test(rawB64.slice(0, 16));
-  const rawLen = String(launch.imageDataUrl || '').length;
-  // Spreadsheets / huge blobs → server. Images + PDFs → on-device PP-OCRv4 (PdfRenderer for PDF).
-  const useStructuredPath = sheet || rawLen > 2_400_000;
+  // Spreadsheets → structured server import. Large camera photos still go through
+  // on-device OCR + compressed vision (Play full-res used to skip OCR entirely).
+  const useStructuredPath = sheet;
 
   const scrubPreview = (preview: CapturePreview): CapturePreview => ensurePreviewCategory({
     ...preview,
@@ -320,9 +320,13 @@ async function parseReceiptNow(
 
     const [local, prepared] = await Promise.all([ocrPromise, preparedPromise]);
     imageMime = isPdf ? 'application/pdf' : (prepared.mime || 'image/jpeg');
+    // Vision must use compressed upload bytes (~420KB). Full OCR-prep (~2400px) often
+    // exceeds the server 1.8M base64 gate and silently skips Gemini.
     imageBase64 = String(prepared.dataUrl || '')
       .replace(/^data:[^;]+;base64,/i, '')
       .replace(/\s+/g, '');
+    const visionB64 = imageBase64
+      || String(ocrPrepared.base64 || '').replace(/\s+/g, '');
 
     const uploadPromise = uploadPreparedReceipt(bookId, {
       bytes: prepared.bytes,
@@ -334,16 +338,19 @@ async function parseReceiptNow(
     onStatus('Reading amount, merchant & date…', 48);
 
     const ocrText = [launch.text || '', local?.text || ''].filter(Boolean).join('\n');
+    const weakOcr = !ocrText || ocrText.replace(/\s+/g, '').length < 40;
 
-    // Images (and PDF fallback): ask the server when local OCR has no amount.
-    const shouldAskServer = !(Number(local?.amount || 0) > 0) && Boolean(ocrText);
+    // When on-device OCR misses the amount, send compressed image for server vision.
+    const localAmt = Number(local?.amount || 0);
+    const shouldAskServer = !(localAmt > 0);
+    const allowVision = shouldAskServer && Boolean(visionB64);
     if (shouldAskServer) {
       const uploaded = await uploadPromise;
       if (uploaded) {
         receiptPath = uploaded.receiptPath || receiptPath;
         receiptName = uploaded.receiptName || receiptName;
       }
-      onStatus('Checking amount from document…', 62);
+      onStatus(allowVision ? 'Reading receipt with cloud assist…' : 'Checking amount from document…', 62);
       const result = await safeProcess({
         bookId,
         text: ocrText.slice(0, 8000),
@@ -353,12 +360,14 @@ async function parseReceiptNow(
         idempotencyKey: `parse_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
         autoConfirm: true,
         imageMime,
-        skipVision: true,
+        imageBase64: allowVision ? visionB64 : undefined,
+        skipVision: !allowVision,
       });
       const serverPaise = Number(result.preview?.amountPaise || 0);
       const serverAmt = serverPaise / 100;
       const groundText = [ocrText, String(result.preview?.raw || '')].filter(Boolean).join('\n');
-      if (result.preview && serverPaise > 0 && (!groundText || amountGroundedInText(groundText, serverAmt))) {
+      // Keep server amount when we asked for vision, or OCR text is too weak to ground against.
+      if (result.preview && serverPaise > 0 && (allowVision || weakOcr || !groundText || amountGroundedInText(groundText, serverAmt))) {
         preview = scrubPreview({
           ...result.preview,
           id: result.preview.id || newMoneyId('cap'),
@@ -370,7 +379,7 @@ async function parseReceiptNow(
     }
 
     if (!(Number(preview.amountPaise || 0) > 0) && local && Number(local.amount || 0) > 0
-      && (!ocrText || amountGroundedInText(ocrText, local.amount))) {
+      && (!ocrText || weakOcr || amountGroundedInText(ocrText, local.amount))) {
       preview = scrubPreview({
         ...draftPreview(launch, {
           amountPaise: Math.round(local.amount * 100),
@@ -391,7 +400,7 @@ async function parseReceiptNow(
 
     if (!(Number(preview.amountPaise || 0) > 0) && ocrText) {
       const fromText = extractMoneyAmount(ocrText);
-      if (fromText && fromText.amount > 0 && amountGroundedInText(ocrText, fromText.amount)) {
+      if (fromText && fromText.amount > 0 && (weakOcr || amountGroundedInText(ocrText, fromText.amount))) {
         preview = scrubPreview({
           ...draftPreview(launch, {
             amountPaise: Math.round(fromText.amount * 100),

@@ -1419,19 +1419,16 @@ export default function BookView() {
       await CapacitorService.requestCameraPermission();
       let batch: Array<{ imageDataUrl: string; fileName: string; mimeType: string }> = [];
       try {
-        batch = await CapacitorService.pickReceiptBatch({ limit: 24, quality: 82 });
+        batch = await CapacitorService.captureScanReceipts({ limit: 24, quality: 88 });
       } catch (err) {
         const msg = err instanceof Error ? err.message : '';
         if (/cancel/i.test(msg)) return;
-        const photo = await CapacitorService.takePicture({ source: CameraSource.Prompt, quality: 85 });
-        const dataUrl = photo.dataUrl || (photo.base64String ? `data:image/jpeg;base64,${photo.base64String}` : '');
-        if (!dataUrl) throw new Error('No photo data');
-        batch = [{ imageDataUrl: dataUrl, fileName: `receipt-${Date.now()}.jpg`, mimeType: 'image/jpeg' }];
+        throw err;
       }
       if (!batch.length) return;
       if (batch.length === 1) {
         setReceiptLaunch({
-          source: 'gallery',
+          source: 'camera',
           imageDataUrl: batch[0].imageDataUrl,
           fileName: batch[0].fileName,
           mimeType: batch[0].mimeType,
@@ -1440,7 +1437,7 @@ export default function BookView() {
       }
       setReceiptLaunch({ source: 'batch', batch });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Could not open documents';
+      const msg = err instanceof Error ? err.message : 'Could not open camera or photos';
       if (/cancel/i.test(msg)) return;
       addToast(msg, 'error');
     }

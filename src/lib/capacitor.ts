@@ -221,18 +221,66 @@ export class CapacitorService {
     });
   }
 
+  /**
+   * Scan entry point: ask Camera or Photo Library (system Prompt), then optional multi-gallery.
+   * Never open gallery-only first — Play users expect to capture with the camera.
+   */
+  static async captureScanReceipts(options: { limit?: number; quality?: number; preferBatch?: boolean } = {}): Promise<Array<{
+    imageDataUrl: string;
+    fileName: string;
+    mimeType: string;
+  }>> {
+    const quality = Math.max(80, Math.min(92, Number(options.quality) || 88));
+    const limit = Math.max(2, Math.min(40, Number(options.limit) || 24));
+
+    // If caller wants batch multi-select explicitly
+    if (options.preferBatch) {
+      return this.pickReceiptBatch({ limit, quality });
+    }
+
+    // System sheet: Camera | Photos (and Cancel). Matches user expectation on Play builds.
+    try {
+      const photo = await this.takePicture({
+        source: CameraSource.Prompt,
+        quality,
+        width: 1600,
+        height: 1600,
+        resultType: CameraResultType.DataUrl,
+      });
+      const dataUrl = photo.dataUrl || (photo.base64String ? `data:image/jpeg;base64,${photo.base64String}` : '');
+      if (!dataUrl) throw new Error('No photo data');
+      const format = String(photo.format || 'jpeg').toLowerCase();
+      const mime = format === 'png' ? 'image/png' : 'image/jpeg';
+      return [{
+        imageDataUrl: dataUrl,
+        fileName: `receipt-${Date.now()}.${format === 'png' ? 'png' : 'jpg'}`,
+        mimeType: mime,
+      }];
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err || '');
+      if (/cancel/i.test(msg)) throw err;
+      // Last resort: multi gallery picker
+      return this.pickReceiptBatch({ limit, quality });
+    }
+  }
+
   static async takePicture(options: {
     quality?: number;
     allowEditing?: boolean;
     resultType?: CameraResultType;
     source?: CameraSource;
+    width?: number;
+    height?: number;
   } = {}) {
     try {
       const image = await Camera.getPhoto({
-        quality: options.quality || 90,
+        quality: options.quality || 88,
         allowEditing: options.allowEditing || false,
         resultType: options.resultType || CameraResultType.DataUrl,
         source: options.source || CameraSource.Prompt,
+        width: options.width || 1600,
+        height: options.height || 1600,
+        correctOrientation: true,
       });
 
       return image;
