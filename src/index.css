@@ -5102,32 +5102,34 @@ html[data-radius="round"] { --ui-radius: 24px; --ui-btn-radius: 999px; }
   display: grid !important;
   grid-auto-flow: row !important;
   grid-auto-columns: unset !important;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 76px minmax(0, 1fr) minmax(0, 1fr) !important;
+  /* Always 5 equal tracks when + is present — never squeeze into 4 cols */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 72px minmax(0, 1fr) minmax(0, 1fr) !important;
   grid-template-areas: "home books fab activity more" !important;
   min-height: 86px;
-  padding-top: 22px;
-  padding-bottom: 12px;
+  padding-top: 18px;
+  padding-bottom: max(10px, env(safe-area-inset-bottom));
   align-items: end;
   justify-items: center;
   overflow: visible !important;
   -webkit-mask-image: none !important;
   mask-image: none !important;
 }
-.dash-tabbar.has-fab[data-tabs="3"] {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 76px minmax(0, 1fr) !important;
-  grid-template-areas: "home books fab more" !important;
+/* Do not collapse FAB bars to 4 columns — that puts 2 tabs left of + and 1 right */
+.dash-tabbar.has-fab[data-tabs="3"],
+.dash-tabbar.has-fab[data-tabs="4"] {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 72px minmax(0, 1fr) minmax(0, 1fr) !important;
+  grid-template-areas: "home books fab activity more" !important;
 }
 .dash-tabbar.has-fab .dash-tab-home { grid-area: home !important; }
 .dash-tabbar.has-fab .dash-tab-books { grid-area: books !important; }
 .dash-tabbar.has-fab .dash-fab-slot { grid-area: fab !important; }
 .dash-tabbar.has-fab .dash-tab-activity { grid-area: activity !important; }
 .dash-tabbar.has-fab .dash-tab-more { grid-area: more !important; }
-.dash-tabbar.has-fab[data-tabs="3"] .dash-tab-more { grid-area: more !important; }
 .dash-fab-slot {
   position: relative;
-  width: 76px;
-  min-width: 76px;
-  height: 48px;
+  width: 72px;
+  min-width: 72px;
+  height: 56px;
   pointer-events: none;
   justify-self: center;
   align-self: end;
@@ -5137,8 +5139,12 @@ html[data-radius="round"] { --ui-radius: 24px; --ui-btn-radius: 999px; }
 .dash-fab-slot.is-live {
   pointer-events: none;
 }
-.dash-tab-spacer {
-  display: none !important;
+/* Spacer must occupy the Activity column (display:none broke Books↔+ balance) */
+.dash-tab.dash-tab-spacer {
+  display: flex !important;
+  visibility: hidden;
+  pointer-events: none;
+  min-height: 56px;
 }
 .dash-tabbar .dash-tab {
   width: 100%;
@@ -5202,12 +5208,16 @@ html[data-radius="round"] { --ui-radius: 24px; --ui-btn-radius: 999px; }
 .dash-fab-slot.is-live .dash-fab-center {
   position: absolute;
   left: 50%;
-  /* Slight raise above the tab row so + clears the bar without floating too high */
-  bottom: 10px;
-  width: 58px;
-  height: 58px;
+  right: auto;
+  top: auto;
+  /* Raise above tab icons — clear inset:0 from .dash-fab-center */
+  inset: auto;
+  left: 50%;
+  bottom: 52px;
+  width: 56px;
+  height: 56px;
   margin: 0;
-  transform: translate(-50%, -48%);
+  transform: translateX(-50%);
   border-radius: 50%;
   border: 4px solid #fff;
   background: linear-gradient(160deg, #2aebd8, #0ea396);
@@ -5223,16 +5233,20 @@ html[data-radius="round"] { --ui-radius: 24px; --ui-btn-radius: 999px; }
   z-index: 12;
 }
 .dash-fab-slot.is-live .dash-fab-center:active {
-  transform: translate(-50%, -48%) scale(0.92);
+  transform: translateX(-50%) scale(0.92);
 }
 .dash-fab-slot.is-live .dash-fab-center[data-open="true"] {
-  transform: translate(-50%, -48%) rotate(45deg);
+  transform: translateX(-50%) rotate(45deg);
 }
 .dash-fab-center {
   position: absolute;
-  inset: 0;
-  width: 58px;
-  height: 58px;
+  /* Do not use inset:0 — it pins the + into the slot and fights raise offset */
+  left: 50%;
+  bottom: 8px;
+  width: 56px;
+  height: 56px;
+  margin: 0;
+  transform: translateX(-50%);
   border-radius: 50%;
   border: 4px solid #fff;
   background: linear-gradient(160deg, #2aebd8, #0ea396);
@@ -7449,6 +7463,17 @@ section[aria-label="To pay"] {
   overflow: visible !important;
   -webkit-mask-image: none !important;
   mask-image: none !important;
+  display: grid !important;
+  grid-auto-flow: row !important;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 72px minmax(0, 1fr) minmax(0, 1fr) !important;
+  grid-template-areas: "home books fab activity more" !important;
+}
+.dash-tabbar.has-fab[data-tabs="3"],
+.dash-tabbar.has-fab[data-tabs="4"] {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 72px minmax(0, 1fr) minmax(0, 1fr) !important;
+  grid-template-areas: "home books fab activity more" !important;
+  padding-left: 0;
+  padding-right: 0;
 }
 .dash-tabbar.has-fab::before {
   display: none !important;
@@ -7456,6 +7481,8 @@ section[aria-label="To pay"] {
 .dash-tabbar.has-fab .dash-tab {
   position: relative;
   z-index: 1;
+  overflow: visible;
+  text-align: center;
 }
 .dash-fab-anchor {
   display: none !important;
@@ -7464,30 +7491,14 @@ section[aria-label="To pay"] {
   border: 4px solid #fff;
   z-index: 12;
 }
-.dash-tabbar.has-fab {
-  display: grid !important;
-  grid-auto-flow: row !important;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 76px minmax(0, 1fr) minmax(0, 1fr) !important;
-  grid-template-areas: "home books fab activity more" !important;
-}
-.dash-tabbar.has-fab[data-tabs="3"] {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 76px minmax(0, 1fr) !important;
-  grid-template-areas: "home books fab more" !important;
-  padding-left: 4px;
-  padding-right: 4px;
-}
 .dash-tabbar.has-fab .dash-fab-slot {
-  min-width: 76px;
-  width: 76px;
-}
-.dash-tabbar.has-fab .dash-tab {
-  overflow: visible;
-  text-align: center;
+  min-width: 72px;
+  width: 72px;
 }
 .dash-tabbar.has-fab .dash-tab-books,
 .dash-tabbar.has-fab .dash-tab-activity {
-  padding-left: 2px;
-  padding-right: 2px;
+  padding-left: 0;
+  padding-right: 0;
 }
 
 .book-dash-compact .md3-stats {
@@ -7577,8 +7588,10 @@ section[aria-label="To pay"] {
   display: block;
 }
 .dash-tab.dash-tab-spacer {
+  display: flex !important;
   pointer-events: none;
   visibility: hidden;
+  min-height: 56px;
 }
 @keyframes byjan-skel {
   0% { background-position: 100% 0; }

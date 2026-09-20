@@ -182,9 +182,12 @@ export default function Layout() {
   const showBooksTab = hasFeature('money');
   // Activity tab only when money_activity is on (not for default free users).
   const showActivityTab = hasFeature('money_activity');
-  // Invisible spacer keeps Books ↔ + balance when Activity is off but FAB is on.
+  // When FAB is on, always keep a 5-slot bar (Home · Books · + · Activity/spacer · More)
+  // so Books and the right-of-+ slot stay equal distance from center.
   const showActivitySpacer = showFab && !showActivityTab;
-  const tabCount = 1 + (showBooksTab ? 1 : 0) + ((showActivityTab || showActivitySpacer) ? 1 : 0) + 1;
+  const tabCount = showFab
+    ? 5
+    : 1 + (showBooksTab ? 1 : 0) + (showActivityTab ? 1 : 0) + 1;
 
   const handleMarkAsRead = async (id: string) => {
     try {

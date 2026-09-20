@@ -96,23 +96,38 @@ const go = async (hash) => {
   await sleep(700);
 };
 
-// —— Auth ——
+// —— Auth: logout any existing session via UI, then login with credentials ——
+const alreadyIn = await evalJs(`!/#\\/?login/i.test(location.hash||'') && !/sign in to byjan/i.test((document.body.innerText||'').toLowerCase())`);
+if (alreadyIn) {
+  await evalJs(`(() => {
+    const avatar = document.querySelector('button.account-avatar,[title*="Account"],[aria-haspopup="dialog"].account-avatar');
+    (avatar || [...document.querySelectorAll('button')].find(b => /account|sign out/i.test(b.getAttribute('title')||'')))?.click();
+  })()`);
+  await sleep(700);
+  await evalJs(`(() => {
+    const btn = [...document.querySelectorAll('button')].find(b => /^sign out$/i.test((b.textContent||'').trim()));
+    btn?.click();
+    return Boolean(btn);
+  })()`);
+  await sleep(2500);
+}
 await go('#/login');
-await sleep(600);
-await evalJs(`(() => {
-  try { localStorage.clear(); sessionStorage.clear(); } catch {}
-  return true;
-})()`);
-await evalJs(`location.hash='#/login'`);
 await sleep(900);
+await evalJs(`try { localStorage.setItem('byjan.onboard.v1','1'); } catch {}`);
 await evalJs(`(() => {
-  const set = (el, v) => { if (!el) return; el.focus(); el.value = v; el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); };
+  const set = (el, v) => {
+    if (!el) return;
+    const desc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+    desc?.set?.call(el, v);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  };
   set(document.querySelector('input[type="email"],input[name="email"]'), ${JSON.stringify(EMAIL)});
   set(document.querySelector('input[type="password"],input[name="password"]'), ${JSON.stringify(PASS)});
   const btn = [...document.querySelectorAll('button')].find(b => /sign in|log in/i.test(b.textContent||'') && !/google/i.test(b.textContent||''));
   (btn || document.querySelector('form button[type="submit"]'))?.click();
 })()`);
-await sleep(4500);
+await sleep(5000);
 const authState = await evalJs(`(() => {
   const hash = location.hash || '';
   const body = (document.body.innerText || '').toLowerCase();
