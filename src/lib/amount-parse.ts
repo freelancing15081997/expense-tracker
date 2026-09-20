@@ -264,12 +264,14 @@ export function extractMoneyAmount(text: string): ParsedMoneyAmount | null {
     const after = raw.slice(index + token.length, Math.min(raw.length, index + token.length + 12));
     const ctx = `${before}${token}${after}`;
     if (/\b(?:avl|available|closing|opening)\s*bal/i.test(ctx)) s -= 40;
-    if (/\b(?:debited|credited|paid|sent|you\s+paid)\b/i.test(ctx)) s += 8;
+    if (/\b(?:debited|credited|paid|sent|you\s+paid|paid\s+to)\b/i.test(ctx)) s += 8;
     if (hasDecimals && hasCurrency) s += 4;
     if (hasIndianGrouping(token)) s += 10;
+    // Cashback / reward chrome must lose to the real payment.
+    if (/\b(?:cashback|reward|claim|expires?|unlocked)\b/i.test(ctx)) s -= 35;
     // Penalize only when the closest label before the number is tax/qty — not when Grand Total is closer.
     const taxAt = lastMatchIndex(/\b(?:sub\s*total|subtotal|cgst|sgst|igst|gst|taxable|discount|qty|quantity|rate|mrp|unit\s*price|items?\s*total)\b/gi, before);
-    const totalAt = lastMatchIndex(/\b(?:grand\s*total|net\s*payable|amount\s*payable|you\s+paid|amount\s*paid|total\s*due|total\s*amount|bill\s*amount|amount\s*due|balance\s*due|net\s*amount)\b/gi, before);
+    const totalAt = lastMatchIndex(/\b(?:grand\s*total|net\s*payable|amount\s*payable|you\s+paid|amount\s*paid|total\s*due|total\s*amount|bill\s*amount|amount\s*due|balance\s*due|net\s*amount|(?:^|[^\w])amount)\b/gi, before);
     if (taxAt >= 0 && taxAt > totalAt) s -= 28;
     hits.push({ amount: n, score: s, index, labeled, hasCurrency });
   };
@@ -290,13 +292,18 @@ export function extractMoneyAmount(text: string): ParsedMoneyAmount | null {
   walk(new RegExp(String.raw`${RUPEE_TOKEN}\s*([\d,]+(?:\.\d{1,2})?)\s*(?:paid|sent|debited)`, 'gi'), 60, true);
   walk(new RegExp(String.raw`(?:debited\s+(?:by|from)|credited\s+(?:by|to|from)|payment\s+of)\s*${RUPEE_TOKEN}\s*([\d,]+(?:\.\d{1,2})?)`, 'gi'), 58, true);
   walk(new RegExp(String.raw`(?:payment\s+successful)\s*[:\-]?\s*${RUPEE_TOKEN}\s*([\d,]+(?:\.\d{1,2})?)`, 'gi'), 54, true);
+  // CRED / bill apps: explicit "amount ₹…" is the payable (not Customer ID / order ID).
+  walk(new RegExp(String.raw`(?:^|[^\w])amount\s*[:\-]?\s*${RUPEE_TOKEN}\s*([\d,]+(?:\.\d{1,2})?)`, 'gi'), 66, true);
+  walk(/(?:^|[^\w])amount\s*[:\-]?\s*([\d,]+(?:\.\d{1,2})?)/gi, 52, true);
+  // PhonePe / GPay hero: Paid to … ₹N
+  walk(new RegExp(String.raw`paid\s+to[\s\S]{0,80}?${RUPEE_TOKEN}\s*([\d,]+(?:\.\d{1,2})?)`, 'gi'), 62, true);
   // True invoice footer totals (with ₹) — highest labeled invoice class.
   walk(new RegExp(String.raw`(?:grand\s*total|net\s*payable|amount\s*payable|total\s*due|invoice\s*value|total\s*amount|bill\s*amount|balance\s*due|amount\s*due)\s*[:\-]?\s*${RUPEE_TOKEN}\s*([\d,]+(?:\.\d{1,2})?)`, 'gi'), 64, true);
 
   // Same footer labels when OCR drops ₹.
   walk(/(?:grand\s*total|net\s*payable|amount\s*payable|total\s*due|invoice\s*value|total\s*amount|bill\s*amount|balance\s*due|amount\s*due|net\s*amount|amount\s*paid|total\s*paid)\s*[:\-]?\s*([\d,]+(?:\.\d{1,2})?)/gi, 50, true);
-  // Bare "Total" / "Amount" is weak — often line-item or tax. Keep low so footer labels win.
-  walk(/(?:^|[^\w])(?:amount|total)\s*[:\-]?\s*([\d,]+(?:\.\d{1,2})?)/gi, 22, true);
+  // Bare "Total" is weak — often line-item. Keep below CRED "amount".
+  walk(/(?:^|[^\w])total\s*[:\-]?\s*([\d,]+(?:\.\d{1,2})?)/gi, 22, true);
 
   // Any currency-marked amount (hero ₹ on UPI screens).
   walk(new RegExp(String.raw`${RUPEE_TOKEN}\s*([\d,]+(?:\.\d{1,2})?)`, 'gi'), 28, false);
@@ -382,6 +389,74 @@ export function extractMoneyAmount(text: string): ParsedMoneyAmount | null {
     confidence,
     score: best.score,
   };
+}
+
+const SKIP_NAME_RE = /^(?:amount|total|grand|net|paid|date|order|payment|biller|category|customer|transaction|reference|debited|credited|balance|qty|quantity|items?|subtotal|cgst|sgst|igst)$/i;
+
+/**
+ * Multi-entry notes: "Seenu - Rs 1016" / "Raghu - Rs 5016" → one row each.
+ * Returns 2+ only when several named Rs lines exist; otherwise [] so caller uses single-total parse.
+ */
+export function extractNamedMoneyLines(text: string): ParsedMoneyAmount[] {
+  const raw = normalizeOcrMoneyText(text);
+  if (!raw) return [];
+  const found: ParsedMoneyAmount[] = [];
+  const seen = new Set<string>();
+
+  const pushNamed = (nameRaw: string, amountRaw: string) => {
+    const name = String(nameRaw || '').replace(/\s+/g, ' ').trim();
+    const amount = toNum(amountRaw);
+    if (!(amount > 0) || amount >= 5_000_000) return;
+    if (!name || name.length > 48) return;
+    if (SKIP_NAME_RE.test(name)) return;
+    if (/^\d+$/.test(name)) return;
+    const key = `${name.toLowerCase()}|${amount}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    found.push({
+      amount,
+      entryType: 'out',
+      description: name,
+      merchant: name,
+      paymentMethod: 'cash',
+      date: todayIso(),
+      confidence: 'high',
+      score: 55,
+    });
+  };
+
+  // Per line: "Seenu - Rs 1016 /-" or "Raghu Rs 5016"
+  for (const line of String(text || '').split(/\r?\n/)) {
+    const t = line.replace(/\s+/g, ' ').trim();
+    if (!t) continue;
+    const m = t.match(
+      /^([A-Za-z][A-Za-z0-9 .']{0,40}?)\s*[-–—:]\s*(?:₹|₨|rs\.?|inr)\s*([\d,]+(?:\.\d{1,2})?)/i,
+    ) || t.match(
+      /^([A-Za-z][A-Za-z0-9 .']{1,40}?)\s+(?:₹|₨|rs\.?|inr)\s*([\d,]+(?:\.\d{1,2})?)/i,
+    );
+    if (m) pushNamed(m[1], m[2]);
+  }
+
+  // Same image, OCR flattened to one line: "Seenu - Rs 1016 /- Raghu - Rs 5016 /-"
+  if (found.length < 2) {
+    const globalRe = /([A-Za-z][A-Za-z0-9 .']{0,40}?)\s*[-–—:]\s*(?:₹|₨|rs\.?|inr)\s*([\d,]+(?:\.\d{1,2})?)/gi;
+    let m: RegExpExecArray | null;
+    while ((m = globalRe.exec(raw)) !== null) {
+      pushNamed(m[1], m[2]);
+    }
+  }
+
+  return found.length >= 2 ? found : [];
+}
+
+/**
+ * Prefer multi named lines when present; else one payable total (CRED / PhonePe / invoice).
+ */
+export function extractMoneyEntries(text: string): ParsedMoneyAmount[] {
+  const multi = extractNamedMoneyLines(text);
+  if (multi.length >= 2) return multi;
+  const one = extractMoneyAmount(text);
+  return one ? [one] : [];
 }
 
 /**
