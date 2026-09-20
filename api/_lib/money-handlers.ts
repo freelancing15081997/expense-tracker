@@ -459,9 +459,8 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
       let vision: Awaited<ReturnType<typeof import('./receipt-vision.js').parseReceiptImage>> | null = null;
       const { parseReceiptImage } = await import('./receipt-vision.js');
       const { amountGroundedInText } = await import('./amount-parse.js');
-      const shareLocalOnly = Boolean(body.skipVision);
-      // When client sends imageBase64 with skipVision:false (scan or share cloud assist), run Gemini.
-      // Old rule blocked ALL share/sms even when the client asked for vision — Play shares got amount 0.
+      const shareLocalOnly = source === 'share' || source === 'sms' || Boolean(body.skipVision);
+      // Mobile scan/share must stay OCR+rules. Gemini invents non-total numbers on noisy Play OCR.
 
       if (!shareLocalOnly && imageBase64 && imageBase64.length > 64 && imageBase64.length < 1.8 * 1024 * 1024) {
         try {
@@ -477,7 +476,7 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
         }
       }
 
-      // Fallback: read stored receipt from R2 (email-compatible path).
+      // Fallback: read stored receipt from R2 (email / web path only — never when shareLocalOnly).
       if (!shareLocalOnly && (!vision || vision.amount <= 0) && receiptPath) {
         try {
           const { r2FileKey, r2GetBytes } = await import('./r2.js');
@@ -534,18 +533,9 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
         }
       }
 
-      // Drop ungrounded vision only when the client opted out of vision AND OCR text is strong.
-      // When vision was requested (skipVision:false), keep Gemini amount even if OCR is garbled.
-      const ocrStrong = Boolean(docText) && docText.replace(/\s+/g, '').length >= 40;
-      if (vision && vision.amount > 0 && ocrStrong && !amountGroundedInText(docText, vision.amount)) {
-        if (shareLocalOnly) {
-          vision = { ...vision, amount: 0, notes: [vision.notes, 'ungrounded_amount'].filter(Boolean).join('; ') };
-        } else {
-          vision = {
-            ...vision,
-            notes: [vision.notes, 'amount_not_in_ocr_kept'].filter(Boolean).join('; '),
-          };
-        }
+      // Vision amounts must appear on the OCR text — never keep invented totals.
+      if (vision && vision.amount > 0 && docText && !amountGroundedInText(docText, vision.amount)) {
+        vision = { ...vision, amount: 0, notes: [vision.notes, 'ungrounded_amount'].filter(Boolean).join('; ') };
       }
 
       const textParsed = parseAmountFromText(docText || '');

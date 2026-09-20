@@ -87,7 +87,8 @@ public class DocumentOcrPlugin extends Plugin {
 
     private boolean ensurePaddle() {
         if (paddleReady.get()) return true;
-        if (paddleTried.get() && !paddleReady.get()) return false;
+        // In-progress or recently failed init — skip this call (ML Kit). Failures clear the flag for retry.
+        if (paddleTried.get()) return false;
         paddleTried.set(true);
 
         CountDownLatch latch = new CountDownLatch(1);
@@ -110,22 +111,26 @@ public class DocumentOcrPlugin extends Plugin {
                     @Override
                     public void onFail(Throwable e) {
                         Log.e(TAG, "PP-OCRv4 init failed", e);
+                        paddleTried.set(false);
                         latch.countDown();
                     }
                 });
             } catch (Throwable t) {
                 Log.e(TAG, "PP-OCRv4 init exception", t);
+                paddleTried.set(false);
                 latch.countDown();
             }
         });
 
         try {
             if (!latch.await(90, TimeUnit.SECONDS)) {
-                Log.e(TAG, "PP-OCRv4 init timed out");
+                Log.e(TAG, "PP-OCRv4 init timed out — will retry next OCR");
+                paddleTried.set(false);
                 return false;
             }
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
+            paddleTried.set(false);
             return false;
         }
         return ok.get();
@@ -324,8 +329,8 @@ public class DocumentOcrPlugin extends Plugin {
         BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
         int sample = 1;
         int maxEdge = Math.max(bounds.outWidth, bounds.outHeight);
-        while (maxEdge / sample > 1600) sample *= 2;
-        if (bytes.length > 2_400_000 && sample < 2) sample = 2;
+        // Prefer sharp digits for receipt totals — 1920 long edge (was 1600 + forced sample on large shares).
+        while (maxEdge / sample > 1920) sample *= 2;
 
         BitmapFactory.Options opts = new BitmapFactory.Options();
         opts.inPreferredConfig = Bitmap.Config.ARGB_8888;

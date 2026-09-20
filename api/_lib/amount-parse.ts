@@ -159,9 +159,11 @@ export function isDecoyAmountContext(raw: string, index: number, token: string):
     return true;
   }
 
-  // Qty / items / page / GSTIN / invoice-no fragments without currency
-  if (/\b(?:qty|quantity|pcs?|items?|page|pg|gstin|hsn|sac|invoice\s*(?:no|number|#)|bill\s*(?:no|number|#))\b/i.test(before)
-    && !currRe.test(around)) {
+  // Qty / items / page / GSTIN / invoice-no fragments without currency — only when that
+  // label is closer than a real money total label (otherwise "Item … Grand Total 177" dies).
+  const decoyAt = lastMatchIndex(/\b(?:qty|quantity|pcs?|items?|page|pg|gstin|hsn|sac|invoice\s*(?:no|number|#)|bill\s*(?:no|number|#))\b/gi, before);
+  const moneyAt = lastMatchIndex(MONEY_LABEL_RE, before);
+  if (decoyAt >= 0 && decoyAt > moneyAt && !currRe.test(around)) {
     return true;
   }
   // Bare "Bill 334455" receipt numbers (not "Retail bill … Amount 400")
@@ -214,8 +216,14 @@ function normalizeOcrMoneyText(text: string) {
   // OCR often emits ₹ as a lone “2” or “4” between Amount and the digits (₹ → 4).
   s = s.replace(/\bamount\s+[24]\s+(?=[\d,])/gi, 'amount ₹ ');
   s = s.replace(/\bamount\s+[24](1,?00,?000|[\d,]{5,7})(?!\d)/gi, 'amount ₹ $1');
-  // Indian grouping with spaces: 1 00 000 → 1,00,000
-  s = s.replace(/\b(\d{1,2})\s+(\d{2})\s+(\d{3})(?!\d)/g, '$1,$2,$3');
+  // Indian lac grouping with spaces: "1 00 000" → "1,00,000".
+  // NEVER join arbitrary neighbors (e.g. "50 CGST 27 Grand Total 177" must not become 50,27,177).
+  s = s.replace(/\b(\d{1,2})\s+(00)\s+(\d{3})(?!\d)/g, '$1,$2,$3');
+  s = s.replace(new RegExp(`${RUPEE_TOKEN}\\s*(\\d{1,2})\\s+(\\d{2})\\s+(\\d{3})(?!\\d)`, 'gi'), (m) => {
+    const parts = m.match(/(\d{1,2})\s+(\d{2})\s+(\d{3})/);
+    if (!parts) return m;
+    return m.replace(parts[0], `${parts[1]},${parts[2]},${parts[3]}`);
+  });
   return s.replace(/\s+/g, ' ').trim();
 }
 
@@ -252,15 +260,17 @@ export function extractMoneyAmount(text: string): ParsedMoneyAmount | null {
     if (hasCurrency) s += 18;
     if (hasDecimals) s += 6;
     if (!labeled && !hasCurrency && Number.isInteger(n) && n <= 9) s -= 18;
-    const ctx = raw.slice(Math.max(0, index - 28), Math.min(raw.length, index + token.length + 8));
+    const before = raw.slice(Math.max(0, index - 40), index);
+    const after = raw.slice(index + token.length, Math.min(raw.length, index + token.length + 12));
+    const ctx = `${before}${token}${after}`;
     if (/\b(?:avl|available|closing|opening)\s*bal/i.test(ctx)) s -= 40;
     if (/\b(?:debited|credited|paid|sent|you\s+paid)\b/i.test(ctx)) s += 8;
     if (hasDecimals && hasCurrency) s += 4;
     if (hasIndianGrouping(token)) s += 10;
-    // Subtotal / tax lines lose to grand total / you paid.
-    if (/\b(?:sub\s*total|subtotal|cgst|sgst|igst|taxable|discount|qty)\b/i.test(ctx) && !/\b(?:grand\s*total|net\s*payable|you\s+paid|amount\s*paid)\b/i.test(ctx)) {
-      s -= 12;
-    }
+    // Penalize only when the closest label before the number is tax/qty — not when Grand Total is closer.
+    const taxAt = lastMatchIndex(/\b(?:sub\s*total|subtotal|cgst|sgst|igst|gst|taxable|discount|qty|quantity|rate|mrp|unit\s*price|items?\s*total)\b/gi, before);
+    const totalAt = lastMatchIndex(/\b(?:grand\s*total|net\s*payable|amount\s*payable|you\s+paid|amount\s*paid|total\s*due|total\s*amount|bill\s*amount|amount\s*due|balance\s*due|net\s*amount)\b/gi, before);
+    if (taxAt >= 0 && taxAt > totalAt) s -= 28;
     hits.push({ amount: n, score: s, index, labeled, hasCurrency });
   };
 
@@ -280,11 +290,13 @@ export function extractMoneyAmount(text: string): ParsedMoneyAmount | null {
   walk(new RegExp(String.raw`${RUPEE_TOKEN}\s*([\d,]+(?:\.\d{1,2})?)\s*(?:paid|sent|debited)`, 'gi'), 60, true);
   walk(new RegExp(String.raw`(?:debited\s+(?:by|from)|credited\s+(?:by|to|from)|payment\s+of)\s*${RUPEE_TOKEN}\s*([\d,]+(?:\.\d{1,2})?)`, 'gi'), 58, true);
   walk(new RegExp(String.raw`(?:payment\s+successful)\s*[:\-]?\s*${RUPEE_TOKEN}\s*([\d,]+(?:\.\d{1,2})?)`, 'gi'), 54, true);
-  walk(new RegExp(String.raw`(?:grand\s*total|net\s*payable|amount\s*payable|total\s*due|invoice\s*value|total\s*amount|bill\s*amount)\s*[:\-]?\s*${RUPEE_TOKEN}\s*([\d,]+(?:\.\d{1,2})?)`, 'gi'), 52, true);
+  // True invoice footer totals (with ₹) — highest labeled invoice class.
+  walk(new RegExp(String.raw`(?:grand\s*total|net\s*payable|amount\s*payable|total\s*due|invoice\s*value|total\s*amount|bill\s*amount|balance\s*due|amount\s*due)\s*[:\-]?\s*${RUPEE_TOKEN}\s*([\d,]+(?:\.\d{1,2})?)`, 'gi'), 64, true);
 
-  // Labeled invoice totals without currency (PDF/OCR often drops ₹ or the colon).
-  walk(/(?:grand\s*total|net\s*payable|amount\s*payable|total\s*due|invoice\s*value|total\s*amount|bill\s*amount|balance\s*due|amount\s*due|net\s*amount|amount\s*paid|total\s*paid)\s*[:\-]?\s*([\d,]+(?:\.\d{1,2})?)/gi, 40, true);
-  walk(/(?:^|[^\w])(?:amount|total)\s*[:\-]?\s*([\d,]+(?:\.\d{1,2})?)/gi, 36, true);
+  // Same footer labels when OCR drops ₹.
+  walk(/(?:grand\s*total|net\s*payable|amount\s*payable|total\s*due|invoice\s*value|total\s*amount|bill\s*amount|balance\s*due|amount\s*due|net\s*amount|amount\s*paid|total\s*paid)\s*[:\-]?\s*([\d,]+(?:\.\d{1,2})?)/gi, 50, true);
+  // Bare "Total" / "Amount" is weak — often line-item or tax. Keep low so footer labels win.
+  walk(/(?:^|[^\w])(?:amount|total)\s*[:\-]?\s*([\d,]+(?:\.\d{1,2})?)/gi, 22, true);
 
   // Any currency-marked amount (hero ₹ on UPI screens).
   walk(new RegExp(String.raw`${RUPEE_TOKEN}\s*([\d,]+(?:\.\d{1,2})?)`, 'gi'), 28, false);
@@ -303,8 +315,9 @@ export function extractMoneyAmount(text: string): ParsedMoneyAmount | null {
 
   if (!hits.length) return null;
 
-  // Labeled totals (Grand Total, Net Payable, …) beat random currency hits and bare digits.
-  const labeledHits = hits.filter((h) => h.labeled);
+  // Prefer strong labeled totals; never let weak "Total" beat Grand Total / Net Payable.
+  const strongLabeled = hits.filter((h) => h.labeled && h.score >= 48);
+  const labeledHits = strongLabeled.length ? strongLabeled : hits.filter((h) => h.labeled && h.score >= 30);
   const currencyHits = hits.filter((h) => h.hasCurrency);
   let pool: AmountHit[];
   if (labeledHits.length) {
@@ -314,12 +327,23 @@ export function extractMoneyAmount(text: string): ParsedMoneyAmount | null {
   } else if (!docHasRupee) {
     pool = hits;
   } else {
-    return null;
+    // Only weak "Total N" hits left with ₹ elsewhere — refuse rather than guess a line item.
+    const weakOnly = hits.filter((h) => h.labeled);
+    if (weakOnly.length && !currencyHits.length) {
+      // Still allow best weak labeled if nothing else — but require score floor via sort below.
+      pool = weakOnly.filter((h) => h.score >= 20);
+      if (!pool.length) return null;
+    } else {
+      return null;
+    }
   }
 
-  // Highest score wins; ties → earlier on screen (hero amount), NEVER larger amount.
-  pool.sort((a, b) => b.score - a.score || a.index - b.index);
+  // Highest score wins. Ties: labeled → later on page (footer payable); currency → earlier (UPI hero).
+  const labeledPool = pool.every((h) => h.labeled);
+  pool.sort((a, b) => b.score - a.score || (labeledPool ? b.index - a.index : a.index - b.index));
   const best = pool[0];
+  // Refuse posting a weak unlabeled/bare "total" when confidence would be garbage.
+  if (best.labeled && best.score < 30 && !best.hasCurrency) return null;
 
   const inMatch = /\b(?:credited|received|refund|money in|salary)\b/i.test(raw);
   const outMatch = /\b(?:debited|paid|spent|sent to|money out|payment successful)\b/i.test(raw);

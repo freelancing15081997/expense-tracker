@@ -214,7 +214,7 @@ async function parseReceiptNow(
 
     // Image or PDF → on-device PP-OCRv4 (PDF pages rendered via PdfRenderer) + ₹ rules.
     const { prepareReceiptImage, uploadPreparedReceipt } = await import('../lib/money-receipts');
-    const { localParseReceiptImage, prepareOcrImage } = await import('../lib/document-ocr');
+    const { localParseReceiptImage } = await import('../lib/document-ocr');
     const { amountGroundedInText, extractMoneyAmount } = await import('../lib/amount-parse');
 
     let preview = scrubPreview(draftPreview(launch, {
@@ -314,19 +314,20 @@ async function parseReceiptNow(
     }
 
     onStatus(isPdf ? 'Reading PDF…' : 'Reading receipt…', 22);
-    const ocrPrepared = await prepareOcrImage(launch.imageDataUrl, imageMime);
-    const ocrPromise = localParseReceiptImage(ocrPrepared.base64, ocrPrepared.mime, launch.text || '').catch(() => null);
+    // Pass original bytes to native OCR — avoid JS re-encode then native downscale (double lossy).
+    // prepareOcrImage only for web / oversized edge cases inside localParse when needed.
+    const ocrPromise = localParseReceiptImage(
+      String(launch.imageDataUrl || '').replace(/^data:[^;]+;base64,/i, '').replace(/\s+/g, ''),
+      imageMime,
+      launch.text || '',
+    ).catch(() => null);
     const preparedPromise = prepareReceiptImage(launch.imageDataUrl, imageMime, false);
 
     const [local, prepared] = await Promise.all([ocrPromise, preparedPromise]);
     imageMime = isPdf ? 'application/pdf' : (prepared.mime || 'image/jpeg');
-    // Vision must use compressed upload bytes (~420KB). Full OCR-prep (~2400px) often
-    // exceeds the server 1.8M base64 gate and silently skips Gemini.
     imageBase64 = String(prepared.dataUrl || '')
       .replace(/^data:[^;]+;base64,/i, '')
       .replace(/\s+/g, '');
-    const visionB64 = imageBase64
-      || String(ocrPrepared.base64 || '').replace(/\s+/g, '');
 
     const uploadPromise = uploadPreparedReceipt(bookId, {
       bytes: prepared.bytes,
@@ -338,19 +339,43 @@ async function parseReceiptNow(
     onStatus('Reading amount, merchant & date…', 48);
 
     const ocrText = [launch.text || '', local?.text || ''].filter(Boolean).join('\n');
-    const weakOcr = !ocrText || ocrText.replace(/\s+/g, '').length < 40;
 
-    // When on-device OCR misses the amount, send compressed image for server vision.
+    // Local-first: on-device PP-OCR + deterministic TOTAL/Net Payable rules.
+    // Never send Gemini for mobile scan/share — that path invents non-total numbers on Play.
     const localAmt = Number(local?.amount || 0);
-    const shouldAskServer = !(localAmt > 0);
-    const allowVision = shouldAskServer && Boolean(visionB64);
-    if (shouldAskServer) {
+    const localStrong = localAmt > 0 && (
+      local?.confidence === 'high'
+      || Number(local?.score || 0) >= 48
+      || (ocrText && amountGroundedInText(ocrText, localAmt))
+    );
+
+    if (localStrong) {
+      preview = scrubPreview({
+        ...draftPreview(launch, {
+          amountPaise: Math.round(localAmt * 100),
+          merchant: local?.merchant || '',
+          description: local?.description || local?.merchant || receiptName,
+          paymentMethod: local?.paymentMethod || 'upi',
+          direction: local?.entryType === 'in' ? 'MONEY_IN' : 'MONEY_OUT',
+          date: local?.date,
+          processingStatus: 'READY',
+          confidence: local?.confidence || 'high',
+          receiptPath,
+          receiptName,
+          reasons: [],
+        }),
+        id: newMoneyId('cap'),
+      });
+    }
+
+    // Optional server text re-rank only (OCR text already extracted). No vision / no image.
+    if (!(Number(preview.amountPaise || 0) > 0) && ocrText.replace(/\s+/g, '').length >= 20) {
       const uploaded = await uploadPromise;
       if (uploaded) {
         receiptPath = uploaded.receiptPath || receiptPath;
         receiptName = uploaded.receiptName || receiptName;
       }
-      onStatus(allowVision ? 'Reading receipt with cloud assist…' : 'Checking amount from document…', 62);
+      onStatus('Checking amount from document…', 62);
       const result = await safeProcess({
         bookId,
         text: ocrText.slice(0, 8000),
@@ -360,14 +385,11 @@ async function parseReceiptNow(
         idempotencyKey: `parse_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
         autoConfirm: true,
         imageMime,
-        imageBase64: allowVision ? visionB64 : undefined,
-        skipVision: !allowVision,
+        skipVision: true,
       });
       const serverPaise = Number(result.preview?.amountPaise || 0);
       const serverAmt = serverPaise / 100;
-      const groundText = [ocrText, String(result.preview?.raw || '')].filter(Boolean).join('\n');
-      // Keep server amount when we asked for vision, or OCR text is too weak to ground against.
-      if (result.preview && serverPaise > 0 && (allowVision || weakOcr || !groundText || amountGroundedInText(groundText, serverAmt))) {
+      if (result.preview && serverPaise > 0 && amountGroundedInText(ocrText, serverAmt)) {
         preview = scrubPreview({
           ...result.preview,
           id: result.preview.id || newMoneyId('cap'),
@@ -378,18 +400,17 @@ async function parseReceiptNow(
       }
     }
 
-    if (!(Number(preview.amountPaise || 0) > 0) && local && Number(local.amount || 0) > 0
-      && (!ocrText || weakOcr || amountGroundedInText(ocrText, local.amount))) {
+    if (!(Number(preview.amountPaise || 0) > 0) && localAmt > 0 && ocrText && amountGroundedInText(ocrText, localAmt)) {
       preview = scrubPreview({
         ...draftPreview(launch, {
-          amountPaise: Math.round(local.amount * 100),
-          merchant: local.merchant || '',
-          description: local.description || local.merchant || receiptName,
-          paymentMethod: local.paymentMethod || 'upi',
-          direction: local.entryType === 'in' ? 'MONEY_IN' : 'MONEY_OUT',
-          date: local.date,
+          amountPaise: Math.round(localAmt * 100),
+          merchant: local?.merchant || '',
+          description: local?.description || local?.merchant || receiptName,
+          paymentMethod: local?.paymentMethod || 'upi',
+          direction: local?.entryType === 'in' ? 'MONEY_IN' : 'MONEY_OUT',
+          date: local?.date,
           processingStatus: 'READY',
-          confidence: local.confidence || 'high',
+          confidence: local?.confidence || 'medium',
           receiptPath,
           receiptName,
           reasons: [],
@@ -400,7 +421,8 @@ async function parseReceiptNow(
 
     if (!(Number(preview.amountPaise || 0) > 0) && ocrText) {
       const fromText = extractMoneyAmount(ocrText);
-      if (fromText && fromText.amount > 0 && (weakOcr || amountGroundedInText(ocrText, fromText.amount))) {
+      if (fromText && fromText.amount > 0 && amountGroundedInText(ocrText, fromText.amount)
+        && (fromText.score >= 48 || fromText.confidence === 'high' || fromText.confidence === 'medium')) {
         preview = scrubPreview({
           ...draftPreview(launch, {
             amountPaise: Math.round(fromText.amount * 100),
@@ -421,32 +443,28 @@ async function parseReceiptNow(
     }
 
     if (!(Number(preview.amountPaise || 0) > 0)) {
+      const uploadedLate = await uploadPromise;
       preview = scrubPreview({
         ...preview,
         processingStatus: 'REVIEW_REQUIRED',
         financialStatus: 'DRAFT',
         confidence: 'low',
+        receiptPath: uploadedLate?.receiptPath || receiptPath,
+        receiptName: uploadedLate?.receiptName || receiptName,
         reasons: [],
       });
+    } else {
+      const uploadedDone = await uploadPromise;
+      if (uploadedDone) {
+        preview = scrubPreview({
+          ...preview,
+          receiptPath: uploadedDone.receiptPath || preview.receiptPath || receiptPath,
+          receiptName: uploadedDone.receiptName || preview.receiptName || receiptName,
+        });
+      }
     }
 
-    onStatus('Almost ready…', 78);
-    const uploaded = await uploadPromise;
-    if (uploaded) {
-      receiptPath = uploaded.receiptPath || receiptPath;
-      receiptName = uploaded.receiptName || receiptName;
-    }
-    preview = scrubPreview({
-      ...preview,
-      receiptPath: preview.receiptPath || receiptPath,
-      receiptName: preview.receiptName || receiptName,
-      reasons: [],
-    });
-
-    return {
-      preview,
-      previews: [preview],
-    };
+    return { preview, previews: [preview] };
   }
 
   // Text-only share (no image)

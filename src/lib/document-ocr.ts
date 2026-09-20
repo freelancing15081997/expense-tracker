@@ -69,44 +69,17 @@ export async function recognizeDocumentText(base64: string, mimeType = 'image/jp
   return { text: '', engine: 'web-skip' };
 }
 
-/** Light resize for OCR only — keep digits sharp (separate from upload compress). PDFs pass through untouched. */
+/** Pass original bytes to native OCR (native decoder sizes to ~1920). No JS re-JPEG. */
 export async function prepareOcrImage(dataUrl: string, mimeType = 'image/jpeg'): Promise<{ base64: string; mime: string }> {
   const clean = String(dataUrl || '').replace(/^data:[^;]+;base64,/i, '').replace(/\s+/g, '');
   const isPdf = mimeType === 'application/pdf' || /^JVBER/i.test(clean.slice(0, 16));
   if (isPdf || !mimeType.startsWith('image/')) {
     return { base64: clean, mime: isPdf ? 'application/pdf' : mimeType };
   }
-  const fallback = () => ({
+  return {
     base64: clean,
     mime: mimeType.startsWith('image/') ? mimeType : 'image/jpeg',
-  });
-  if (typeof document === 'undefined') return fallback();
-  try {
-    const src = dataUrl.startsWith('data:') ? dataUrl : `data:${mimeType};base64,${dataUrl}`;
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const el = new Image();
-      el.onload = () => resolve(el);
-      el.onerror = () => reject(new Error('ocr image'));
-      el.src = src;
-    });
-    const maxEdge = 2400;
-    const scale = Math.min(1, maxEdge / Math.max(img.width, img.height, 1));
-    const w = Math.max(1, Math.round(img.width * scale));
-    const h = Math.max(1, Math.round(img.height * scale));
-    const canvas = document.createElement('canvas');
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return fallback();
-    ctx.drawImage(img, 0, 0, w, h);
-    const next = canvas.toDataURL('image/jpeg', 0.95);
-    return {
-      base64: next.replace(/^data:[^;]+;base64,/i, ''),
-      mime: 'image/jpeg',
-    };
-  } catch {
-    return fallback();
-  }
+  };
 }
 
 /** OCR image then deterministically parse amount / merchant. */

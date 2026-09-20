@@ -15,11 +15,19 @@
       },
       "oauth_client": [
         {
-          "client_id": "450686107760-hrthl5n6de0oh3nvrhep53u2d85k7epr.apps.googleusercontent.com",
+          "client_id": "450686107760-as32brl2eeb9s1d0botfc3p49ns8infc.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.byjanbooks.app",
-            "certificate_hash": "0d7ab991f62d8e0250c1918696f4fb62fefe0128"
+            "certificate_hash": "a666f7e163371e40f9b615dacd52218972f09564"
+          }
+        },
+        {
+          "client_id": "450686107760-kc2734dlvcum1qvpkkmvi4a79na0ik3l.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.byjanbooks.app",
+            "certificate_hash": "f40dcbcf4a4cd1eb33f5b7a22f560b2f2b4f02c4"
           }
         },
         {
