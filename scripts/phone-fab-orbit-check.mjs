@@ -1,5 +1,5 @@
 /**
- * Spec: Home · Books · More equal; + floats on top-center of nav (not a 4th column).
+ * Open FAB and assert Voice/Add/Scan surround the + (not clustered in the tab bar).
  */
 import http from 'http';
 import WebSocket from 'ws';
@@ -106,57 +106,61 @@ await evalJs(`(() => {
 })()`);
 await sleep(2200);
 
+// Dismiss pay sheet if open so FAB is free
+await evalJs(`(() => {
+  document.querySelector('.dash-fab-scrim')?.click();
+  const close = [...document.querySelectorAll('button')].find(b => /close|cancel|✕|×/i.test(b.getAttribute('aria-label')||'') || b.textContent?.trim() === '×');
+  close?.click();
+  return true;
+})()`);
+await sleep(600);
+
+await evalJs(`document.querySelector('.dash-fab-center')?.click()`);
+await sleep(900);
+
 const m = await evalJs(`(() => {
-  const bar = document.querySelector('.dash-tabbar');
-  const menus = document.querySelector('.dash-tabbar-menus');
   const fab = document.querySelector('.dash-fab-center');
-  const slot = document.querySelector('.dash-fab-slot');
-  const home = document.querySelector('.dash-tab-home');
-  const books = document.querySelector('.dash-tab-books');
-  const more = document.querySelector('.dash-tab-more');
-  const mid = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return (r.left + r.right) / 2; };
-  const box = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return { t:r.top,b:r.bottom,l:r.left,r:r.right,w:r.width,h:r.height }; };
-  const barBox = box(bar), fabBox = box(fab);
-  const barMid = barBox ? (barBox.l + barBox.r) / 2 : null;
-  const hm = mid(home), bm = mid(books), mm = mid(more), fm = mid(fab);
-  const homeBooks = hm != null && bm != null ? Math.round(bm - hm) : null;
-  const booksMore = bm != null && mm != null ? Math.round(mm - bm) : null;
-  const fabOff = fm != null && barMid != null ? Math.round(Math.abs(fm - barMid)) : null;
-  const overlapBelowTop = fabBox && barBox ? Math.round(fabBox.b - barBox.t) : null;
-  const overlapPct = fabBox && overlapBelowTop != null ? Math.round((overlapBelowTop / fabBox.h) * 100) : null;
-  const labels = [...document.querySelectorAll('a.dash-tab')].map(t => (t.textContent||'').trim().replace(/\\s+/g,' '));
-  const menuChildCount = menus ? menus.children.length : 0;
-  const slotPos = slot ? getComputedStyle(slot).position : null;
+  const lift = document.querySelector('.dash-fab-lift');
+  const orbit = document.querySelector('.dash-fab-orbit');
+  const items = [...document.querySelectorAll('.dash-fab-item')];
+  const mid = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return { x:(r.left+r.right)/2, y:(r.top+r.bottom)/2, t:r.top, b:r.bottom }; };
+  const fm = mid(fab);
+  const pts = items.map((el) => {
+    const btn = el.querySelector('.dash-fab-btn') || el;
+    const p = mid(btn);
+    const label = (el.querySelector('.dash-fab-label')?.textContent || el.textContent || '').trim();
+    return {
+      label,
+      x: Math.round(p.x),
+      y: Math.round(p.y),
+      dx: Math.round(p.x - fm.x),
+      dy: Math.round(p.y - fm.y),
+      aboveFab: p.y < fm.y - 20,
+      dist: Math.round(Math.hypot(p.x - fm.x, p.y - fm.y)),
+    };
+  });
+  const allAbove = pts.length >= 1 && pts.every((p) => p.aboveFab);
+  const spreadX = pts.length >= 2 ? Math.max(...pts.map((p) => p.dx)) - Math.min(...pts.map((p) => p.dx)) : 0;
+  const fanned = spreadX >= 100; // left and right wings
+  const around = allAbove && fanned && pts.every((p) => p.dist >= 55 && p.dist <= 140);
   return {
-    hash: location.hash,
-    hasFab: bar?.classList.contains('has-fab'),
-    dataTabs: bar?.getAttribute('data-tabs'),
-    labels,
-    menuChildCount,
-    menusCols: menus ? getComputedStyle(menus).gridTemplateColumns : null,
-    homeMid: hm != null ? Math.round(hm) : null,
-    booksMid: bm != null ? Math.round(bm) : null,
-    moreMid: mm != null ? Math.round(mm) : null,
-    fabMid: fm != null ? Math.round(fm) : null,
-    barMid: barMid != null ? Math.round(barMid) : null,
-    homeBooks,
-    booksMore,
-    menusEqual: homeBooks != null && booksMore != null && Math.abs(homeBooks - booksMore) <= 8,
-    fabOnBarCenter: fabOff != null && fabOff <= 6,
-    fabNotMenuColumn: slotPos === 'absolute' && menuChildCount === labels.length,
-    overlapPct,
-    fabTouchesNavTop: overlapPct != null && overlapPct >= 5 && overlapPct <= 18,
-    fabMostlyAbove: fabBox && barBox ? fabBox.t < barBox.t - 16 : false,
+    open: fab?.getAttribute('data-open') === 'true',
+    hasLift: !!lift,
+    hasOrbit: !!orbit,
+    fab: fm ? { x: Math.round(fm.x), y: Math.round(fm.y) } : null,
+    items: pts,
+    allAbove,
+    fanned,
+    around,
   };
 })()`);
 
 console.log(JSON.stringify(m, null, 2));
-const ok = m && m.hasFab && m.labels?.length === 3 && m.menusEqual && m.fabOnBarCenter
-  && m.fabNotMenuColumn && m.fabTouchesNavTop && m.fabMostlyAbove;
-console.log(ok ? 'FAB_NAV_SPEC_OK' : 'FAB_NAV_SPEC_FAIL');
+const ok = m && m.open && m.hasLift && m.hasOrbit && m.around;
+console.log(ok ? 'FAB_ORBIT_OK' : 'FAB_ORBIT_FAIL');
 
-adb(`shell screencap -p /sdcard/byjan-fab-touch.png`);
-spawnSync(ADB, ['-s', SERIAL, 'pull', '/sdcard/byjan-fab-touch.png', join(process.cwd(), 'byjan-fab-touch.png')], { encoding: 'utf8' });
+adb(`shell screencap -p /sdcard/byjan-fab-orbit.png`);
+spawnSync(ADB, ['-s', SERIAL, 'pull', '/sdcard/byjan-fab-orbit.png', join(process.cwd(), 'byjan-fab-orbit.png')], { encoding: 'utf8' });
 
 close();
 process.exit(ok ? 0 : 1);

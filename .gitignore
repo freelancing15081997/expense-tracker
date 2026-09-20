@@ -37,3 +37,8 @@ ios/App/Podfile.lock
 ios/App/Pods/
 ios/App/build/
 ios/App/GoogleService-Info.plist
+
+# Play Console API (never commit)
+android/play-service-account.json
+gen-lang-client-*.json
+
