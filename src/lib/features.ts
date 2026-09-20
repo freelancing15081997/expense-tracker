@@ -297,9 +297,9 @@ export function normalizeFeatures(raw: unknown, fallback: FeatureMap = DEFAULT_F
 }
 
 export function featureOn(map: Partial<FeatureMap> | undefined, key: FeatureKey): boolean {
-  if (!map || map[key] === undefined) {
-    return Boolean(MEMBER_FEATURES[key]);
-  }
+  // Profile not loaded yet — deny gated UI until /api/me effective features arrive.
+  if (!map) return false;
+  if (map[key] === undefined) return false;
   return Boolean(map[key]);
 }
 
@@ -419,8 +419,10 @@ export function resolveFeatures(
   rolePermissions?: Record<string, Partial<FeatureMap>>,
 ): FeatureMap {
   if (isSuperUser) return { ...DEFAULT_FEATURES };
-  /* Effective: USER OVERRIDE > book role > DEFAULT_USER > secure default.
-     Book featureAccess must NOT beat an explicit Access & roles person override. */
+  /* Prefer person Access override as absolute. Book grants are legacy only. */
+  if (hasExplicitFeatureOverride(profileFeatures)) {
+    return normalizeFeatures(profileFeatures, MEMBER_FEATURES);
+  }
   let features = { ...MEMBER_FEATURES };
   const roles = rolePermissions || {};
   if (roles.DEFAULT_USER) {
@@ -430,10 +432,6 @@ export function resolveFeatures(
   if (specificKey && roles[specificKey]) {
     features = normalizeFeatures(roles[specificKey], features);
   }
-  if (hasExplicitFeatureOverride(profileFeatures)) {
-    return normalizeFeatures(profileFeatures, features);
-  }
-
   for (let i = books.length - 1; i >= 0; i -= 1) {
     const grant = bookGrantRaw(books[i].featureAccess, uid);
     if (grant !== undefined) {

@@ -1,11 +1,8 @@
 import { apiPost } from './api';
 import {
-  appRoleFromBooks,
   grantsOnBook,
-  hasExplicitFeatureOverride,
   MEMBER_FEATURES,
   normalizeFeatures,
-  resolveFeatures,
   type FeatureMap,
 } from './features';
 import { listLedgers, updateLedger, type LedgerBook } from './ledgers';
@@ -22,10 +19,11 @@ export type MeProfile = {
   appPrefs?: Record<string, unknown>;
   orgUiDefaults?: Record<string, unknown> | null;
   features?: FeatureMap;
+  featureOverride?: FeatureMap | null;
   hasFeatureOverride?: boolean;
   isSuperUser?: boolean;
-  createdAt?: unknown;
   status?: string;
+  rolePermissions?: Record<string, Partial<FeatureMap>>;
   [key: string]: unknown;
 };
 
@@ -35,6 +33,7 @@ export type AccessPerson = {
   displayName: string;
   features: FeatureMap;
   hasFeatureOverride?: boolean;
+  featureOverride?: FeatureMap | null;
 };
 
 let rolePermCache: { at: number; roles: Record<string, Partial<FeatureMap>> } | null = null;
@@ -43,7 +42,7 @@ export function invalidateRolePermissionCache() {
   rolePermCache = null;
 }
 
-async function loadRolePermissionMap(): Promise<Record<string, Partial<FeatureMap>>> {
+async function loadRolePermissionMap() {
   if (rolePermCache && Date.now() - rolePermCache.at < 20_000) return rolePermCache.roles;
   try {
     const roles = await getRolePermissions();
@@ -54,27 +53,20 @@ async function loadRolePermissionMap(): Promise<Record<string, Partial<FeatureMa
   }
 }
 
-function profileOverride(user: { features?: unknown; hasFeatureOverride?: boolean } | null | undefined, hasRoles = false) {
-  if (!user) return undefined;
-  if (user.hasFeatureOverride === true) return user.features;
-  if (user.hasFeatureOverride === false) return undefined;
-  if (hasRoles) return undefined;
-  return hasExplicitFeatureOverride(user.features) ? user.features : undefined;
-}
-
 function managesBook(book: LedgerBook, uid: string) {
   const role = String(book.roles?.[uid]?.role || '');
   return role === 'owner' || book.ownerId === uid;
-}
-
-function isAppSuperUser(email?: string | null) {
-  return emailIsSuperUser(email);
 }
 
 function personOnBook(book: LedgerBook, uid: string) {
   return Boolean(book.roles?.[uid] || book.ownerId === uid);
 }
 
+/**
+ * Profile for the signed-in user.
+ * Server returns effective `features` — do not re-resolve on the client
+ * (that was overwriting Access & roles saves).
+ */
 export async function getMe() {
   const payload = await apiPost<{
     user?: MeProfile | null;
@@ -84,36 +76,31 @@ export async function getMe() {
   const user = payload.user || null;
   if (!user) return null;
   if (payload.orgUiDefaults && !user.orgUiDefaults) user.orgUiDefaults = payload.orgUiDefaults;
+  if (payload.rolePermissions) {
+    rolePermCache = { at: Date.now(), roles: payload.rolePermissions };
+    user.rolePermissions = payload.rolePermissions;
+  }
   const accountStatus = String(user.status || '').toLowerCase();
   if (accountStatus === 'deleted' || accountStatus === 'deactivated') {
-    return { ...user, features: MEMBER_FEATURES, isSuperUser: false };
+    return { ...user, features: { ...MEMBER_FEATURES }, isSuperUser: false };
   }
-  const uid = String(user.uid || '');
-  const isSuperUser = isAppSuperUser(user.email);
-  let rolePermissions = payload.rolePermissions
-    || (user.rolePermissions && typeof user.rolePermissions === 'object'
-      ? user.rolePermissions as Record<string, Partial<FeatureMap>>
-      : undefined);
-  if (!rolePermissions || !Object.keys(rolePermissions).length) {
-    rolePermissions = await loadRolePermissionMap();
-  } else {
-    rolePermCache = { at: Date.now(), roles: rolePermissions };
-  }
-  const hasRoles = Boolean(rolePermissions && Object.keys(rolePermissions).length);
-  const override = profileOverride(user, hasRoles);
-  let features = resolveFeatures(uid, isSuperUser, [], override, 'DEFAULT_USER', rolePermissions);
-  try {
-    const books = await listLedgers();
-    const roleKey = appRoleFromBooks(uid, books);
-    features = resolveFeatures(uid, isSuperUser, books, override, roleKey, rolePermissions);
-  } catch {
-    /* keep profile defaults */
-  }
-  return { ...user, features, isSuperUser };
+  const isSuperUser = emailIsSuperUser(user.email) || user.isSuperUser === true;
+  const features = user.features && typeof user.features === 'object'
+    ? normalizeFeatures(user.features, MEMBER_FEATURES)
+    : { ...MEMBER_FEATURES };
+  return {
+    ...user,
+    features,
+    hasFeatureOverride: user.hasFeatureOverride === true,
+    featureOverride: user.featureOverride && typeof user.featureOverride === 'object'
+      ? user.featureOverride as FeatureMap
+      : null,
+    isSuperUser,
+  };
 }
 
 export async function upsertMe(patch: Record<string, unknown>) {
-  const { isSuperUser: _super, features: _features, ...safe } = patch;
+  const { isSuperUser: _super, features: _features, featureOverride: _fo, hasFeatureOverride: _hfo, ...safe } = patch;
   const payload = await apiPost<{ user: MeProfile }>('/api/me', { op: 'upsert', patch: safe });
   return payload.user;
 }
@@ -131,56 +118,58 @@ function personFromRole(uid: string, email: string): AccessPerson {
     uid,
     email,
     displayName: email.split('@')[0] || 'Person',
-    features: {},
+    features: { ...MEMBER_FEATURES },
     hasFeatureOverride: false,
+    featureOverride: null,
   };
 }
 
+/** People list for Access & roles — editor uses stored override when present. */
 export async function listAccessPeople(actorEmail?: string): Promise<AccessPerson[]> {
   if (!emailIsSuperUser(actorEmail)) return [];
-  const books = await listLedgers();
   const map = new Map<string, AccessPerson>();
-  for (const book of books) {
-    for (const [uid, row] of Object.entries(book.roles || {})) {
-      if (map.has(uid)) continue;
-      map.set(uid, personFromRole(uid, String(row.email || '')));
+  try {
+    const books = await listLedgers();
+    for (const book of books) {
+      for (const [uid, row] of Object.entries(book.roles || {})) {
+        if (map.has(uid)) continue;
+        map.set(uid, personFromRole(uid, String(row.email || '')));
+      }
     }
+  } catch {
+    /* books optional */
   }
-  const rolePermissions = await loadRolePermissionMap();
   try {
     const payload = await apiPost<{ people?: AccessPerson[] }>('/api/me', { op: 'people' });
     if (Array.isArray(payload.people)) {
       for (const row of payload.people) {
         const uid = String(row.uid || '');
         if (!uid) continue;
-        const current = map.get(uid);
+        const override = row.hasFeatureOverride === true && row.features && typeof row.features === 'object'
+          ? normalizeFeatures(row.featureOverride || row.features, MEMBER_FEATURES)
+          : row.featureOverride && typeof row.featureOverride === 'object'
+            ? normalizeFeatures(row.featureOverride, MEMBER_FEATURES)
+            : null;
+        const features = override
+          || (row.features && typeof row.features === 'object'
+            ? normalizeFeatures(row.features, MEMBER_FEATURES)
+            : { ...MEMBER_FEATURES });
         map.set(uid, {
           uid,
-          email: String(row.email || current?.email || ''),
-          displayName: String(row.displayName || current?.displayName || row.email || 'Person'),
-          hasFeatureOverride: row.hasFeatureOverride === true,
-          features: row.hasFeatureOverride === true && row.features && typeof row.features === 'object'
-            ? row.features as FeatureMap
-            : {},
+          email: String(row.email || map.get(uid)?.email || ''),
+          displayName: String(row.displayName || map.get(uid)?.displayName || row.email || 'Person'),
+          hasFeatureOverride: Boolean(override) || row.hasFeatureOverride === true,
+          featureOverride: override,
+          features,
         });
       }
     }
   } catch {
-    /* older API: people already gathered from books */
+    /* older API */
   }
-  return [...map.values()].map((person) => {
-    const roleKey = appRoleFromBooks(person.uid, books);
-    const override = profileOverride(person, Boolean(rolePermissions && Object.keys(rolePermissions).length));
-    // Access editor must show the saved person override (if any), not effective access after book grants.
-    const stored = person.hasFeatureOverride && hasExplicitFeatureOverride(person.features)
-      ? normalizeFeatures(person.features, MEMBER_FEATURES)
-      : null;
-    return {
-      ...person,
-      hasFeatureOverride: Boolean(stored),
-      features: stored || resolveFeatures(person.uid, emailIsSuperUser(person.email), books, override, roleKey, rolePermissions),
-    };
-  }).sort((a, b) => a.displayName.localeCompare(b.displayName) || a.email.localeCompare(b.email));
+  return [...map.values()].sort(
+    (a, b) => a.displayName.localeCompare(b.displayName) || a.email.localeCompare(b.email),
+  );
 }
 
 export async function setPersonFeatures(userId: string, features: FeatureMap, actorUid: string, actorEmail?: string) {
@@ -198,6 +187,7 @@ export async function setPersonFeatures(userId: string, features: FeatureMap, ac
     if (message && !/unknown profile operation/i.test(message)) throw err;
   }
 
+  // Legacy fallback only if API does not support setFeatures.
   const books = await listLedgers();
   const targets = books.filter((book) => personOnBook(book, userId) && (managesBook(book, actorUid) || emailIsSuperUser(actorEmail)));
   if (!targets.length) throw new Error('That person is not on a money book you can update yet.');
@@ -205,5 +195,5 @@ export async function setPersonFeatures(userId: string, features: FeatureMap, ac
     const current = grantsOnBook(book.featureAccess);
     await updateLedger(book.id, { featureAccess: { ...current, [userId]: features } });
   }
-  return { uid: userId, features };
+  return { uid: userId, features, hasFeatureOverride: true };
 }

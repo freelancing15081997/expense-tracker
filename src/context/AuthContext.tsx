@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { User, onAuthStateChanged } from 'firebase/auth';
 import { auth, googleRedirectReady, logout, bindNativeGoogleAuthBridge, handoffGoogleToNativeApp } from '../lib/firebase';
 import { getMe, upsertMe } from '../lib/me';
-import { MEMBER_FEATURES, type FeatureMap } from '../lib/features';
+import { type FeatureMap } from '../lib/features';
 import { emailIsSuperUser } from '../lib/super-users';
 import { setStoreUser } from '../lib/store';
 import { apiUrl } from '../lib/api';
@@ -59,11 +59,15 @@ function profileFromSnap(user: User, data: Record<string, unknown> | null | unde
     email: user.email || '',
     displayName: user.displayName || user.email?.split('@')[0] || 'User',
     defaultCurrency: 'INR',
-    features: MEMBER_FEATURES,
+    // Undefined until /api/me returns effective features — avoids showing wrong gates.
+    features: undefined,
     isSuperUser: emailIsSuperUser(user.email),
   };
   if (!data) return base;
   const upiId = String(data.upiId || '').trim();
+  const features = data.features && typeof data.features === 'object'
+    ? data.features as FeatureMap
+    : undefined;
   return {
     ...base,
     displayName: String(data.displayName || base.displayName),
@@ -72,8 +76,8 @@ function profileFromSnap(user: User, data: Record<string, unknown> | null | unde
     createdAt: data.createdAt,
     photoURL: data.photoURL ? String(data.photoURL) : undefined,
     appPrefs: data.appPrefs && typeof data.appPrefs === 'object' ? data.appPrefs as Record<string, unknown> : undefined,
-    features: data.features && typeof data.features === 'object' ? data.features as FeatureMap : MEMBER_FEATURES,
-    isSuperUser: emailIsSuperUser(String(data.email || user.email || '')),
+    features,
+    isSuperUser: emailIsSuperUser(String(data.email || user.email || '')) || data.isSuperUser === true,
     upiId: upiId || undefined,
     upiDisplayName: String(data.upiDisplayName || '').trim() || undefined,
     upiStatus: String(data.upiStatus || '').trim() || undefined,

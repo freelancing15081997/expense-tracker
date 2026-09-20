@@ -747,6 +747,46 @@ function sanitizeAccessFeatures(raw: unknown, superUser = false) {
   return next;
 }
 
+/** Effective map for a signed-in user. Person override is absolute when present. */
+function effectiveAccessFeatures(input: {
+  email?: string | null;
+  stored?: Record<string, boolean>;
+  rolePermissions?: Record<string, Record<string, boolean>>;
+  roleKey?: string;
+}) {
+  if (emailIsSuperUser(input.email)) {
+    return sanitizeAccessFeatures({}, true);
+  }
+  if (input.stored && Object.keys(input.stored).length) {
+    // Absolute person override from Access & roles — do not merge role/book grants.
+    return sanitizeAccessFeatures(input.stored, false);
+  }
+  const roles = input.rolePermissions || {};
+  const roleKey = String(input.roleKey || 'DEFAULT_USER');
+  const fromRole = roles[roleKey] || roles.DEFAULT_USER || MEMBER_FEATURE_DEFAULTS;
+  return sanitizeAccessFeatures(fromRole, false);
+}
+
+async function clearBookFeatureGrantsForUser(targetUid: string) {
+  const id = String(targetUid || '').trim();
+  if (!id) return;
+  try {
+    const sql = await getLedgerSql();
+    await sql`
+      UPDATE books
+      SET data = jsonb_set(
+        COALESCE(data, '{}'::jsonb),
+        '{featureAccess}',
+        COALESCE(data->'featureAccess', '{}'::jsonb) - ${id}
+      ),
+      updated_at = NOW()
+      WHERE (data->'featureAccess') ? ${id}
+    `;
+  } catch {
+    /* best-effort cleanup of legacy per-book grants */
+  }
+}
+
 function storedAccessFeatures(raw: unknown): Record<string, boolean> | undefined {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
   const rec = raw as Record<string, unknown>;
@@ -818,6 +858,12 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
       const stored = storedAccessFeatures(profile?.features);
       const rolePermissions = await loadRolePermissionsMap();
       const orgUiDefaults = await ledgerGet('org/ui-defaults');
+      const features = effectiveAccessFeatures({
+        email: user.email,
+        stored,
+        rolePermissions,
+        roleKey: 'DEFAULT_USER',
+      });
       apiJson(res, 200, {
         rolePermissions,
         orgUiDefaults,
@@ -826,7 +872,10 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
           orgUiDefaults,
           isSuperUser: superUser,
           hasFeatureOverride: Boolean(stored),
-          features: stored,
+          // Effective features for the app UI — client must not re-resolve.
+          features,
+          // Raw override for Access & roles editor (null when using role defaults).
+          featureOverride: stored || null,
         },
       });
       return;
@@ -882,16 +931,25 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
         }
         if (book.ownerId) ids.add(String(book.ownerId));
       }
+      const rolePermissions = await loadRolePermissionsMap();
       const people = await Promise.all([...ids].map(async (uid) => {
         const profile = await ledgerGetUser(uid);
         const email = String(profile?.email || emails[uid] || '');
         const stored = storedAccessFeatures(profile?.features);
+        const features = effectiveAccessFeatures({
+          email,
+          stored,
+          rolePermissions,
+          roleKey: 'DEFAULT_USER',
+        });
         return {
           uid,
           email,
           displayName: String(profile?.displayName || names[uid] || email.split('@')[0] || 'Person'),
           hasFeatureOverride: Boolean(stored),
-          features: stored,
+          featureOverride: stored ? sanitizeAccessFeatures(stored, false) : null,
+          // Editor shows absolute override when set; otherwise role defaults.
+          features: stored ? sanitizeAccessFeatures(stored, false) : features,
         };
       }));
       people.sort((a, b) => a.displayName.localeCompare(b.displayName) || a.email.localeCompare(b.email));
@@ -911,20 +969,7 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
         features,
         updatedAt: new Date().toISOString(),
       }, true);
-      // Drop stale book-level grants so Access & roles person override is the source of truth.
-      try {
-        const books = await ledgerListBooksForUser(user.uid);
-        for (const book of books) {
-          const access = book.featureAccess && typeof book.featureAccess === 'object' && !Array.isArray(book.featureAccess)
-            ? { ...(book.featureAccess as Record<string, unknown>) }
-            : null;
-          if (!access || !Object.prototype.hasOwnProperty.call(access, targetUid)) continue;
-          delete access[targetUid];
-          await ledgerUpdateBook(String(book.id), user.uid, { featureAccess: access });
-        }
-      } catch {
-        /* book grant cleanup best-effort */
-      }
+      await clearBookFeatureGrantsForUser(targetUid);
       await ledgerAudit({
         actorUid: user.uid,
         actorEmail: user.email,
@@ -932,7 +977,14 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
         entityType: 'user',
         entityId: targetUid,
       });
-      apiJson(res, 200, { user: { ...saved, features, hasFeatureOverride: true } });
+      apiJson(res, 200, {
+        user: {
+          ...saved,
+          features,
+          featureOverride: features,
+          hasFeatureOverride: true,
+        },
+      });
       return;
     }
 
