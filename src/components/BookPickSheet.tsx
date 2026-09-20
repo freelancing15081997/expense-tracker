@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { BookText, X } from 'lucide-react';
 import { initials } from '../lib/ledger-advanced';
 import { roleLabel } from '../lib/plain-language';
+import { MoneyBookListSkeleton } from './money/MoneySkeletons';
 
 export type BookPickItem = {
   id: string;
@@ -40,7 +41,7 @@ export default function BookPickSheet({ open, title, subtitle, books, loading, o
         </div>
         <div className="book-pick-list">
           {loading ? (
-            <p className="book-pick-empty">Loading your books…</p>
+            <div className="px-1 py-2"><MoneyBookListSkeleton rows={3} /></div>
           ) : books.length === 0 ? (
             <p className="book-pick-empty">No money books yet. Create one first.</p>
           ) : (

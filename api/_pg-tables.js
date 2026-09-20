@@ -1584,6 +1584,30 @@ async function ledgerMarkAllNotificationsRead(userId) {
 async function ledgerGetUser(uid) {
   return asObject(await ledgerGet(`users/${uid}`));
 }
+/** Super-user Access & roles: every Neon user row (not only co-members of the admin’s books). */
+async function ledgerListAllUsers(limit = 2000) {
+  const sql = await getLedgerSql();
+  const cap = Math.max(1, Math.min(Number(limit) || 2000, 5000));
+  const rows = asRows(
+    await sql`
+      SELECT id, email, data
+      FROM users
+      ORDER BY updated_at DESC NULLS LAST
+      LIMIT ${cap}
+    `,
+  );
+  return rows.map((row) => {
+    const data = asObject(row.data) || {};
+    const email = text(row.email || data.email || "");
+    return {
+      uid: text(row.id),
+      email,
+      displayName: text(data.displayName || data.name || email.split("@")[0] || "Person"),
+      features: data.features,
+      updatedAt: text(data.updatedAt || ""),
+    };
+  }).filter((row) => row.uid);
+}
 async function ledgerUpsertUser(uid, patch, merge = true) {
   const current = await ledgerGetUser(uid) || {};
   const next = merge ? { ...current, ...patch, uid } : { ...patch, uid };
@@ -1805,6 +1829,7 @@ export {
   ledgerGetBookForUser,
   ledgerGetExpense,
   ledgerGetUser,
+  ledgerListAllUsers,
   ledgerHasBookListRow,
   ledgerHasPendingInvite,
   ledgerInsertIfNew,

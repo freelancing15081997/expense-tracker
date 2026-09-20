@@ -182,7 +182,6 @@ const MEMBER_ON = new Set([
   'money_history',
   'money_export',
   'money_live',
-  'money_activity',
   'money_inbox',
   'money_recurring',
   'money_setup',

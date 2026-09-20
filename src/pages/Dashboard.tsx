@@ -30,6 +30,7 @@ import { CapacitorService } from '../lib/capacitor';
 import { CameraSource } from '@capacitor/camera';
 import BookPickSheet from '../components/BookPickSheet';
 import FinancialInbox from '../components/FinancialInbox';
+import { MoneyAttentionSkeleton, MoneyBookListSkeleton, MoneyFeedSkeleton } from '../components/money/MoneySkeletons';
 import {
   RECOMMENDED_PURPOSES,
   detectPurposeFromName,
@@ -1229,10 +1230,7 @@ export default function Dashboard() {
         {hasFeature('money') && (hasFeature('money_inbox') || hasFeature('money_recurring')) ? (
           <section className="home-attention" aria-label="Attention">
             {loading || !statsReady ? (
-              <div className="home-attention-skel">
-                <span className="byjan-skel h-20 rounded-2xl w-full" />
-                <span className="byjan-skel h-20 rounded-2xl w-full" />
-              </div>
+              <MoneyAttentionSkeleton />
             ) : (
               <>
                 {hasFeature('money_inbox') ? <FinancialInbox items={attentionItems} /> : null}
@@ -1285,7 +1283,7 @@ export default function Dashboard() {
               {hasFeature('money_activity') ? <Link to="/activity">See all</Link> : <span />}
             </div>
             {loading && recentEntries.length === 0 ? (
-              <p className="text-sm text-slate-500 px-1 py-3">Loading recent entries…</p>
+              <MoneyFeedSkeleton rows={4} />
             ) : (
               recentEntries.map((row) => {
                 const isOut = row.entryType !== 'in' && row.entryType !== 'transfer';
@@ -1482,7 +1480,7 @@ export default function Dashboard() {
             </div>
           </div>
           {loading ? (
-            <p className="text-sm text-slate-500 px-1 py-4">Loading money books…</p>
+            <MoneyBookListSkeleton rows={4} />
           ) : loadError && books.length === 0 ? (
             <div className="dash-empty">
               <p className="font-semibold text-[#0B0F1F]">Could not load your money books</p>

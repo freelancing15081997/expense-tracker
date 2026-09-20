@@ -161,7 +161,7 @@ export const ROLE_FEATURE_DEFAULTS: RolePermissionMap = {
     money_export: true,
     money_delete: true,
     money_reports: true,
-    money_activity: true,
+    money_activity: false,
     money_inbox: true,
     money_recurring: true,
     money_purpose: true,

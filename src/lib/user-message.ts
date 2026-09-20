@@ -71,7 +71,7 @@ export function toUserMessage(err: unknown, fallback = 'Something went wrong. Pl
     return 'Check your internet connection and try again.';
   }
   if (/wrong-password|invalid-credential|user-not-found|invalid.?email/i.test(lower) || code.includes('wrong-password') || code.includes('invalid-credential')) {
-    return 'Email or password is incorrect.';
+    return 'Email or password is incorrect. If you usually use Google, tap Continue with Google — or use Forgot password to set an email password.';
   }
   if (/email-already|already.?in.?use/i.test(lower) || code.includes('email-already')) {
     return 'An account with this email already exists. Try signing in.';

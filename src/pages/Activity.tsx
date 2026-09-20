@@ -7,6 +7,7 @@ import { listNotifications, markNotificationRead, notificationPath, type AppNoti
 import { getCurrencySymbol } from '../lib/currency';
 import { formatIndianAmount } from '../lib/bridge-automations';
 import { ListPager, usePagedList } from '../components/ListControls';
+import { MoneyFeedSkeleton } from '../components/money/MoneySkeletons';
 
 function dayHeading(iso: string) {
   const t = Date.parse(iso);
@@ -85,7 +86,7 @@ export default function Activity() {
         {hasFeature('money_reports') && <Link to="/reports" className="byjan-chip text-xs">Reports</Link>}
       </div>
       {loading ? (
-        <p className="mt-6 text-sm text-slate-500">Loading activity…</p>
+        <div className="mt-6"><MoneyFeedSkeleton rows={6} /></div>
       ) : null}
       {!loading && items.length === 0 ? <p className="mt-6 text-sm text-slate-500">No activity yet.</p> : null}
       <div className="mt-4 space-y-4">

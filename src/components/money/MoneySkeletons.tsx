@@ -57,3 +57,29 @@ export function MoneyBookScreenSkeleton() {
     </div>
   );
 }
+
+export function MoneyFeedSkeleton({ rows = 5 }: { rows?: number }) {
+  return (
+    <div className="space-y-3" aria-busy="true" aria-label="Loading">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="rounded-2xl border border-slate-200/80 bg-white px-4 py-3 flex items-center gap-3">
+          <Skel className="w-10 h-10 rounded-xl shrink-0" />
+          <div className="flex-1 space-y-2 min-w-0">
+            <Skel className="h-3.5 w-3/5 rounded-md" />
+            <Skel className="h-3 w-2/5 rounded-md" />
+          </div>
+          <Skel className="h-4 w-16 rounded-md shrink-0" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function MoneyAttentionSkeleton() {
+  return (
+    <div className="home-attention-skel" aria-busy="true" aria-label="Loading attention">
+      <div className="byjan-skel byjan-skel-block h-20 rounded-2xl w-full" />
+      <div className="byjan-skel byjan-skel-block h-20 rounded-2xl w-full" />
+    </div>
+  );
+}

@@ -11,6 +11,7 @@ import {
   ledgerGetBookForUser,
   ledgerGetExpense,
   ledgerGetUser,
+  ledgerListAllUsers,
   ledgerListBooksForUser,
   ledgerListExpensesByBooks,
   ledgerListLiveExpenses,
@@ -685,7 +686,7 @@ const MEMBER_FEATURE_DEFAULTS: Record<string, boolean> = {
   money_book_analytics: true,
   money_history: true,
   money_live: true,
-  money_activity: true,
+  money_activity: false,
   money_inbox: true,
   money_recurring: true,
   money_setup: true,
@@ -858,9 +859,21 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
 
     if (op === 'people') {
       if (!emailIsSuperUser(user.email)) throw new ApiError(403, 'Only a super user can view access people.');
-      const books = await ledgerListBooksForUser(user.uid);
       const ids = new Set<string>();
       const emails: Record<string, string> = {};
+      const names: Record<string, string> = {};
+      try {
+        const all = await ledgerListAllUsers(3000);
+        for (const row of all) {
+          if (!row.uid) continue;
+          ids.add(row.uid);
+          if (row.email) emails[row.uid] = String(row.email);
+          if (row.displayName) names[row.uid] = String(row.displayName);
+        }
+      } catch {
+        /* fall through to book-member merge */
+      }
+      const books = await ledgerListBooksForUser(user.uid);
       for (const book of books) {
         const roles = bookRoles(book);
         for (const [uid, row] of Object.entries(roles)) {
@@ -876,7 +889,7 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
         return {
           uid,
           email,
-          displayName: String(profile?.displayName || email.split('@')[0] || 'Person'),
+          displayName: String(profile?.displayName || names[uid] || email.split('@')[0] || 'Person'),
           hasFeatureOverride: Boolean(stored),
           features: stored,
         };

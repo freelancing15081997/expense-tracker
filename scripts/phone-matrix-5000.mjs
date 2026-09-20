@@ -97,21 +97,31 @@ const go = async (hash) => {
 };
 
 // —— Auth ——
-let signedIn = await evalJs(`!/#\\/(login|register)/i.test(location.hash) && !/sign in to byjan/i.test(document.body.innerText||'')`);
-if (!signedIn) {
-  await go('#/login');
-  await sleep(800);
-  await evalJs(`(() => {
-    const set = (el, v) => { if (!el) return; el.focus(); el.value = v; el.dispatchEvent(new Event('input',{bubbles:true})); };
-    set(document.querySelector('input[type="email"],input[name="email"]'), ${JSON.stringify(EMAIL)});
-    set(document.querySelector('input[type="password"],input[name="password"]'), ${JSON.stringify(PASS)});
-    const btn = [...document.querySelectorAll('button')].find(b => /sign in|log in|continue/i.test(b.textContent||'') && !/google/i.test(b.textContent||''));
-    (btn || document.querySelector('form button[type="submit"]'))?.click();
-  })()`);
-  await sleep(3500);
-  signedIn = await evalJs(`!/#\\/(login|register)/i.test(location.hash)`);
-}
-check('auth-email-login-signed-in', signedIn === true, { signedIn });
+await go('#/login');
+await sleep(600);
+await evalJs(`(() => {
+  try { localStorage.clear(); sessionStorage.clear(); } catch {}
+  return true;
+})()`);
+await evalJs(`location.hash='#/login'`);
+await sleep(900);
+await evalJs(`(() => {
+  const set = (el, v) => { if (!el) return; el.focus(); el.value = v; el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); };
+  set(document.querySelector('input[type="email"],input[name="email"]'), ${JSON.stringify(EMAIL)});
+  set(document.querySelector('input[type="password"],input[name="password"]'), ${JSON.stringify(PASS)});
+  const btn = [...document.querySelectorAll('button')].find(b => /sign in|log in/i.test(b.textContent||'') && !/google/i.test(b.textContent||''));
+  (btn || document.querySelector('form button[type="submit"]'))?.click();
+})()`);
+await sleep(4500);
+const authState = await evalJs(`(() => {
+  const hash = location.hash || '';
+  const body = (document.body.innerText || '').toLowerCase();
+  const incorrect = /email or password is incorrect|could not sign in|invalid/.test(body);
+  const onLogin = /#\\/?login/i.test(hash);
+  return { hash, incorrect, onLogin, emailField: !!document.querySelector('input[type="email"]') };
+})()`);
+const signedIn = authState && authState.onLogin !== true && authState.incorrect !== true;
+check('auth-email-login-signed-in', signedIn === true, authState);
 if (!signedIn) {
   close();
   appendFileSync(LOG, 'ABORT not signed in\n');

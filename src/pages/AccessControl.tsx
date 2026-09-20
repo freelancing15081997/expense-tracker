@@ -294,7 +294,7 @@ export default function AccessControl() {
           <Shield className="w-8 h-8 text-slate-300 mb-2" />
           <p className="font-semibold text-[#0B1F3A]">No people to search yet</p>
           <p className="text-sm text-slate-500 mt-1">
-            Invite someone from a money book’s People button. After they join, they show up here so you can control what they can use.
+            People appear after they sign in at least once. Invite someone from a money book’s People button if they are not listed yet.
           </p>
         </div>
       ) : (
