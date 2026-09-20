@@ -4,6 +4,7 @@ import {
   grantsOnBook,
   hasExplicitFeatureOverride,
   MEMBER_FEATURES,
+  normalizeFeatures,
   resolveFeatures,
   type FeatureMap,
 } from './features';
@@ -170,9 +171,14 @@ export async function listAccessPeople(actorEmail?: string): Promise<AccessPerso
   return [...map.values()].map((person) => {
     const roleKey = appRoleFromBooks(person.uid, books);
     const override = profileOverride(person, Boolean(rolePermissions && Object.keys(rolePermissions).length));
+    // Access editor must show the saved person override (if any), not effective access after book grants.
+    const stored = person.hasFeatureOverride && hasExplicitFeatureOverride(person.features)
+      ? normalizeFeatures(person.features, MEMBER_FEATURES)
+      : null;
     return {
       ...person,
-      features: resolveFeatures(person.uid, emailIsSuperUser(person.email), books, override, roleKey, rolePermissions),
+      hasFeatureOverride: Boolean(stored),
+      features: stored || resolveFeatures(person.uid, emailIsSuperUser(person.email), books, override, roleKey, rolePermissions),
     };
   }).sort((a, b) => a.displayName.localeCompare(b.displayName) || a.email.localeCompare(b.email));
 }

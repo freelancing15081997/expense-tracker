@@ -911,6 +911,20 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
         features,
         updatedAt: new Date().toISOString(),
       }, true);
+      // Drop stale book-level grants so Access & roles person override is the source of truth.
+      try {
+        const books = await ledgerListBooksForUser(user.uid);
+        for (const book of books) {
+          const access = book.featureAccess && typeof book.featureAccess === 'object' && !Array.isArray(book.featureAccess)
+            ? { ...(book.featureAccess as Record<string, unknown>) }
+            : null;
+          if (!access || !Object.prototype.hasOwnProperty.call(access, targetUid)) continue;
+          delete access[targetUid];
+          await ledgerUpdateBook(String(book.id), user.uid, { featureAccess: access });
+        }
+      } catch {
+        /* book grant cleanup best-effort */
+      }
       await ledgerAudit({
         actorUid: user.uid,
         actorEmail: user.email,
@@ -918,7 +932,7 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
         entityType: 'user',
         entityId: targetUid,
       });
-      apiJson(res, 200, { user: { ...saved, features } });
+      apiJson(res, 200, { user: { ...saved, features, hasFeatureOverride: true } });
       return;
     }
 

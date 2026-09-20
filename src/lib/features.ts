@@ -419,7 +419,8 @@ export function resolveFeatures(
   rolePermissions?: Record<string, Partial<FeatureMap>>,
 ): FeatureMap {
   if (isSuperUser) return { ...DEFAULT_FEATURES };
-  /* Effective: USER OVERRIDE > book role > DEFAULT_USER > secure default */
+  /* Effective: USER OVERRIDE > book role > DEFAULT_USER > secure default.
+     Book featureAccess must NOT beat an explicit Access & roles person override. */
   let features = { ...MEMBER_FEATURES };
   const roles = rolePermissions || {};
   if (roles.DEFAULT_USER) {
@@ -430,14 +431,13 @@ export function resolveFeatures(
     features = normalizeFeatures(roles[specificKey], features);
   }
   if (hasExplicitFeatureOverride(profileFeatures)) {
-    features = normalizeFeatures(profileFeatures, features);
+    return normalizeFeatures(profileFeatures, features);
   }
 
   for (let i = books.length - 1; i >= 0; i -= 1) {
     const grant = bookGrantRaw(books[i].featureAccess, uid);
     if (grant !== undefined) {
-      features = normalizeFeatures(grant, features);
-      return features;
+      return normalizeFeatures(grant, features);
     }
   }
   return features;

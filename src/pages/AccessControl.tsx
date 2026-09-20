@@ -244,14 +244,25 @@ export default function AccessControl() {
 
   const save = async () => {
     if (!selected || !draft || isYou) return;
+    const savedUid = selected.uid;
     setSaving(true);
     try {
-      await setPersonFeatures(selected.uid, draft, uid, userProfile?.email || currentUser?.email || '');
-      setPeople((curr) => curr.map((person) => (
-        person.uid === selected.uid ? { ...person, features: { ...draft } } : person
-      )));
+      await setPersonFeatures(savedUid, draft, uid, userProfile?.email || currentUser?.email || '');
       addToast(`Access updated for ${selected.displayName || selected.email}`, 'success');
       void CapacitorService.hapticImpact();
+      setLoading(true);
+      try {
+        const next = await listAccessPeople(userProfile?.email || currentUser?.email || '');
+        setPeople(next);
+        const person = next.find((row) => row.uid === savedUid);
+        if (person) openPerson(person);
+        else {
+          setSelectedId(savedUid);
+          setDraft({ ...draft });
+        }
+      } finally {
+        setLoading(false);
+      }
     } catch (err) {
       addToast(err instanceof Error ? err.message : 'Could not save access', 'error');
     } finally {

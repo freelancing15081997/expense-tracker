@@ -889,11 +889,13 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
 
       const profile = await ledgerGetUser(user.uid);
       const email = String(user.email || profile?.email || '').toLowerCase();
-      const superEmails = String(process.env.SUPER_USER_EMAILS || process.env.VITE_SUPER_USER_EMAILS || 'pujaribadrinath@gmail.com,byjanbooks@gmail.com')
-        .split(',')
+      const builtin = ['pujaribadrinath@gmail.com', 'byjanbooks@gmail.com'];
+      const superEmails = String(process.env.SUPER_USER_EMAILS || process.env.VITE_SUPER_USER_EMAILS || builtin.join(','))
+        .split(/[,;\s]+/)
         .map((s) => s.trim().toLowerCase())
         .filter(Boolean);
-      if (!superEmails.includes(email)) throw new ApiError(403, 'Super user required');
+      const allowed = new Set([...builtin, ...superEmails]);
+      if (!allowed.has(email)) throw new ApiError(403, 'Super user required');
 
       const roleKey = String(body.roleKey || '').trim();
       const features = body.features && typeof body.features === 'object' ? body.features : {};
