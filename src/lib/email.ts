@@ -38,5 +38,16 @@ export function emailValidationMessage(raw: string): string | null {
   return null;
 }
 
+/** Mask for confirmation screens — never show the full address after send. */
+export function maskEmail(raw: string) {
+  const email = normalizeEmail(raw);
+  const at = email.indexOf('@');
+  if (at < 1) return email;
+  const local = email.slice(0, at);
+  const domain = email.slice(at + 1);
+  const shown = local.slice(0, 1);
+  return `${shown}***@${domain}`;
+}
+
 export const EMAIL_NOTIFY_HINT =
   'Use a real inbox you can open. Invitations, payment alerts, and book updates are emailed there — a fake or mistyped address means you will not see those notifications.';

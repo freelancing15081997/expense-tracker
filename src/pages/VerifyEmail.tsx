@@ -4,7 +4,8 @@ import { AlertCircle, ShieldCheck } from 'lucide-react';
 import AuthScene from '../components/AuthScene';
 import { apiPost } from '../lib/api';
 import { createUserWithEmailAndPassword, auth } from '../lib/firebase';
-import { normalizeEmail } from '../lib/email';
+import { maskEmail, normalizeEmail } from '../lib/email';
+import { sendPasswordResetEmail } from 'firebase/auth';
 import { checkNewPassword } from '../lib/password';
 import { consumeReturnTo } from '../lib/return-to';
 import { toUserMessage } from '../lib/user-message';
@@ -28,7 +29,7 @@ export default function VerifyEmail() {
   const purpose = (state.purpose === 'reset' ? 'reset' : 'register') as 'register' | 'reset';
   const [digits, setDigits] = useState(['', '', '', '', '', '']);
   const [error, setError] = useState('');
-  const [info, setInfo] = useState(() => (state.otpSent && state.email ? `We sent a 6-digit code to ${normalizeEmail(state.email)}.` : ''));
+  const [info, setInfo] = useState(() => (state.otpSent && state.email ? `We sent a 6-digit code to ${maskEmail(state.email)}.` : ''));
   const [busy, setBusy] = useState(false);
   const [resendIn, setResendIn] = useState(() => (state.otpSent ? 45 : 0));
   const inputs = useRef<Array<HTMLInputElement | null>>([]);
@@ -73,7 +74,7 @@ export default function VerifyEmail() {
       if (!silent) setInfo('');
       await apiPost('/api/auth/otp', { op: 'send', purpose, email });
       setResendIn(45);
-      setInfo(`We sent a 6-digit code to ${email}.`);
+      setInfo(`We sent a 6-digit code to ${maskEmail(email)}.`);
     } catch (err: any) {
       setError(toUserMessage(err, 'Could not send the code. Try again in a moment.'));
     } finally {
@@ -119,8 +120,9 @@ export default function VerifyEmail() {
         navigate(consumeReturnTo(), { replace: true });
         return;
       }
-      // reset purpose: hand off to forgot-password confirm step
-      navigate('/forgot-password', { replace: true, state: { email, verified: true } });
+      await sendPasswordResetEmail(auth, email, { url: 'https://www.easypado.com/#/login', handleCodeInApp: false });
+      try { sessionStorage.removeItem(PENDING_KEY); } catch { /* ignore */ }
+      navigate('/forgot-password', { replace: true, state: { email, resetSent: true } });
     } catch (err: any) {
       setError(toUserMessage(err, 'Could not verify that code.'));
     } finally {
@@ -140,9 +142,9 @@ export default function VerifyEmail() {
   return (
     <AuthScene
       title="Enter verification code"
-      subtitle={`We emailed a code to ${email}`}
+      subtitle={`We emailed a code to ${maskEmail(email)}`}
       switchPrompt="Wrong email?"
-      switchHref="/register"
+      switchHref={purpose === 'reset' ? '/forgot-password' : '/register'}
       switchLabel="Go back"
     >
       {error ? (

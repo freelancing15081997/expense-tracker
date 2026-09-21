@@ -48,7 +48,7 @@ const CORE_FEATURES: FeatureRow[] = [
 
   { key: 'money_live', group: 'Money', parent: 'money', kind: 'module', label: 'Live', hint: 'Activity, inbox, and upcoming pay' },
   { key: 'money_activity', group: 'Money', parent: 'money_live', kind: 'action', label: 'Activity feed', hint: 'Activity tab and what is happening' },
-  { key: 'money_inbox', group: 'Money', parent: 'money_live', kind: 'action', label: 'Financial inbox', hint: 'Attention strip on Home' },
+  { key: 'money_inbox', group: 'Money', parent: 'money_live', kind: 'action', label: 'Financial inbox', hint: 'Actionable receipts, duplicates, and upcoming pay', href: '/financial-inbox' },
   { key: 'money_recurring', group: 'Money', parent: 'money_live', kind: 'action', label: 'Regular payments', hint: 'Detected bills, EMI, and upcoming pay' },
 
   { key: 'money_setup', group: 'Money', parent: 'money', kind: 'module', label: 'Book setup', hint: 'Create books, purpose, pin, budget, search' },
@@ -315,6 +315,7 @@ export function hrefFeature(href: string): FeatureKey | null {
   if (path === '/expenses' || path.startsWith('/book/')) return 'money';
   if (path === '/reports' || path.startsWith('/insights')) return 'money_reports';
   if (path === '/activity') return 'money_activity';
+  if (path === '/financial-inbox') return 'money_inbox';
   if (path.startsWith('/regular-payments')) return 'money_recurring';
   if (!path.startsWith('/books')) return null;
   return booksHrefParent(path);
@@ -326,7 +327,7 @@ export function allowsHref(map: Partial<FeatureMap> | undefined, href: string): 
   if (href.startsWith('/books') && !featureOn(map, 'business')) return false;
   if (
     (href === '/expenses' || href.startsWith('/book/') || href === '/reports' || href === '/activity'
-      || href.startsWith('/regular-payments') || href.startsWith('/insights'))
+      || href === '/financial-inbox' || href.startsWith('/regular-payments') || href.startsWith('/insights'))
     && !featureOn(map, 'money')
   ) return false;
   return featureOn(map, key);

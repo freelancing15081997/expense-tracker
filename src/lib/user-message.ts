@@ -70,6 +70,9 @@ export function toUserMessage(err: unknown, fallback = 'Something went wrong. Pl
   if (/network|offline|failed to fetch|load failed|internet/i.test(lower)) {
     return 'Check your internet connection and try again.';
   }
+  if (/not configured|admin has not|neon auth|postgres is not/i.test(lower)) {
+    return 'Byjan is still opening your workspace. Please try again in a moment.';
+  }
   if (/wrong-password|invalid-credential|user-not-found|invalid.?email/i.test(lower) || code.includes('wrong-password') || code.includes('invalid-credential')) {
     return 'Email or password is incorrect. If you usually use Google, tap Continue with Google — or use Forgot password to set an email password.';
   }

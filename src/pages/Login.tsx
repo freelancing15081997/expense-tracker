@@ -57,7 +57,7 @@ export default function Login() {
           if (result) navigate(consumeReturnTo());
         } catch (err: any) {
           try { sessionStorage.removeItem(autoKey); } catch { /* ignore */ }
-          setError(err?.message || 'Failed to sign in with Google');
+          setError(toUserMessage(err, 'Google sign-in did not finish. Please try again.'));
         } finally {
           setBusy('');
         }

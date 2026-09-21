@@ -147,8 +147,25 @@ check('help', /help/i.test(help.hash) && help.ok && !help.crashed, help);
 
 await evalJs(send, `location.hash = '#/reports'`);
 await sleep(1500);
-const reports = await evalJs(send, `({ hash: location.hash, ok: /Reports|insights|Period snapshot/i.test(document.body.innerText || '') })`);
-check('reports', /reports/i.test(reports.hash) && reports.ok, reports);
+const reports = await evalJs(send, `({ hash: location.hash, ok: /Reports|insights|Period snapshot/i.test(document.body.innerText || ''), week: /Week/i.test(document.body.innerText || ''), exportCsv: /Export CSV/i.test(document.body.innerText || ''), crashed: /This screen could not open|Minified React error/i.test(document.body.innerText || '') })`);
+check('reports', /reports/i.test(reports.hash) && reports.ok && reports.week && reports.exportCsv && !reports.crashed, reports);
+await evalJs(send, `[...document.querySelectorAll('button')].find((b) => /^Week$/i.test((b.textContent||'').trim()))?.click()`);
+await sleep(800);
+const week = await evalJs(send, `({ on: [...document.querySelectorAll('.byjan-chip')].some((b) => /^Week$/i.test((b.textContent||'').trim()) && b.getAttribute('data-on') === 'true') })`);
+check('reports-week', week.on, week);
+
+await evalJs(send, `location.hash = '#/financial-inbox'`);
+await sleep(1500);
+const inbox = await evalJs(send, `(() => {
+  const text = document.body.innerText || '';
+  return {
+    hash: location.hash,
+    heading: /Financial inbox/i.test(text),
+    notActivity: !/^Activity$/m.test(text.split('\\n')[0] || ''),
+    crashed: /This screen could not open|Minified React error/i.test(text),
+  };
+})()`);
+check('financial-inbox', /financial-inbox/i.test(inbox.hash) && inbox.heading && !inbox.crashed, inbox);
 
 await evalJs(send, `location.hash = '#/expenses'`);
 await sleep(1400);

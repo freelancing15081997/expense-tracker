@@ -1,21 +1,28 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { sendPasswordResetEmail } from 'firebase/auth';
-import { AlertCircle, Mail } from 'lucide-react';
+import { AlertCircle, Mail, ShieldCheck } from 'lucide-react';
 import AuthScene from '../components/AuthScene';
 import { auth } from '../lib/firebase';
 import { apiPost } from '../lib/api';
-import { EMAIL_NOTIFY_HINT, emailValidationMessage, normalizeEmail } from '../lib/email';
+import { EMAIL_NOTIFY_HINT, emailValidationMessage, maskEmail, normalizeEmail } from '../lib/email';
 import { toUserMessage } from '../lib/user-message';
 
 export default function ForgotPassword() {
   const navigate = useNavigate();
   const location = useLocation();
-  const verified = Boolean((location.state as { verified?: boolean; email?: string } | null)?.verified);
-  const [email, setEmail] = useState(() => normalizeEmail(String((location.state as { email?: string } | null)?.email || '')));
+  const loc = (location.state as { resetSent?: boolean; email?: string } | null) || {};
+  const [email, setEmail] = useState(() => normalizeEmail(String(loc.email || '')));
   const [error, setError] = useState('');
-  const [done, setDone] = useState(false);
+  const [done, setDone] = useState(() => Boolean(loc.resetSent && loc.email));
   const [busy, setBusy] = useState(false);
+  const [resendIn, setResendIn] = useState(() => (loc.resetSent ? 45 : 0));
+
+  useEffect(() => {
+    if (resendIn <= 0) return;
+    const t = window.setTimeout(() => setResendIn((v) => Math.max(0, v - 1)), 1000);
+    return () => window.clearTimeout(t);
+  }, [resendIn]);
 
   const start = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,13 +44,14 @@ export default function ForgotPassword() {
     }
   };
 
-  const sendResetLink = async () => {
+  const resendReset = async () => {
     const cleaned = normalizeEmail(email);
     try {
       setBusy(true);
       setError('');
-      await sendPasswordResetEmail(auth, cleaned);
+      await sendPasswordResetEmail(auth, cleaned, { url: 'https://www.easypado.com/#/login', handleCodeInApp: false });
       setDone(true);
+      setResendIn(45);
     } catch (err: any) {
       setError(toUserMessage(err, 'Could not send the reset link. Try again.'));
     } finally {
@@ -51,11 +59,11 @@ export default function ForgotPassword() {
     }
   };
 
-  if (verified && email) {
+  if (done && email) {
     return (
       <AuthScene
-        title="Reset link ready"
-        subtitle="We confirmed your email. Send a secure reset link next."
+        title="Reset instructions sent"
+        subtitle={`Check your email at ${maskEmail(email)}`}
         switchPrompt="Remembered it?"
         switchHref="/login"
         switchLabel="Sign in"
@@ -64,16 +72,15 @@ export default function ForgotPassword() {
           <div className="mb-4 bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-xl flex items-center gap-2 text-sm">
             <AlertCircle className="w-4 h-4" /><span>{error}</span>
           </div>
-        ) : null}
-        {done ? (
-          <div className="rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-900 text-center">
-            Check <strong>{email}</strong> for a password reset link from Byjan. Open it on this device, then sign in.
-          </div>
         ) : (
-          <button type="button" className="byjan-btn w-full h-10" disabled={busy} onClick={() => void sendResetLink()}>
-            {busy ? 'Sending…' : 'Email me a reset link'}
-          </button>
+          <div className="rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-900 text-center flex items-start gap-2">
+            <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>Open the Reset Password button in that email, set a new password, then sign in. The link expires shortly.</span>
+          </div>
         )}
+        <button type="button" className="byjan-btn w-full h-10 mt-4" disabled={busy || resendIn > 0} onClick={() => void resendReset()}>
+          {busy ? 'Sending…' : resendIn > 0 ? `Resend in ${resendIn}s` : 'Resend reset email'}
+        </button>
         <Link to="/login" className="mt-4 block text-center text-sm font-semibold text-teal-700">Back to sign in</Link>
       </AuthScene>
     );
@@ -82,7 +89,7 @@ export default function ForgotPassword() {
   return (
     <AuthScene
       title="Forgot password"
-      subtitle="Verify your email with a code, then we will send a reset link."
+      subtitle="We’ll email a code, then send reset instructions automatically."
       switchPrompt="Remembered it?"
       switchHref="/login"
       switchLabel="Sign in"

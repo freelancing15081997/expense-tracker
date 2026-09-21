@@ -7,7 +7,7 @@ import { listAllExpenses } from '../lib/expenses';
 import { listNotifications, markNotificationRead, notificationPath, type AppNotification } from '../lib/notifications';
 import { getCurrencySymbol } from '../lib/currency';
 import { formatIndianAmount } from '../lib/bridge-automations';
-import { ListPager, usePagedList } from '../components/ListControls';
+import { ListPager, ListSearch, usePagedList } from '../components/ListControls';
 import { MoneyFeedSkeleton } from '../components/money/MoneySkeletons';
 
 function dayHeading(iso: string) {
@@ -88,6 +88,10 @@ export default function Activity() {
       <div className="mt-3 flex flex-wrap gap-2">
         {hasFeature('money_recurring') && <Link to="/regular-payments" className="byjan-chip text-xs">Regular payments</Link>}
         {hasFeature('money_reports') && <Link to="/reports" className="byjan-chip text-xs">Reports</Link>}
+        {hasFeature('money_inbox') && <Link to="/financial-inbox" className="byjan-chip text-xs">Financial inbox</Link>}
+      </div>
+      <div className="mt-3">
+        <ListSearch query={list.query} onQuery={list.setQuery} placeholder="Search activity" />
       </div>
       {loading ? (
         <div className="mt-6"><MoneyFeedSkeleton rows={6} /></div>

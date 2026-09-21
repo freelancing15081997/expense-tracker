@@ -5,6 +5,8 @@ import { useParams, Link, useNavigate, useLocation, useSearchParams } from 'reac
 import { useAuth } from '../context/AuthContext';
 import { useFeatures } from '../lib/use-features';
 import { useToast } from '../context/ToastContext';
+import { toUserMessage } from '../lib/user-message';
+import { toUserMessage } from '../lib/user-message';
 import {
   addLedgerMailEvent,
   ensureLedgerMailbox,
@@ -311,6 +313,7 @@ export default function BookView() {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteSentTo, setInviteSentTo] = useState('');
   const [inviteRole, setInviteRole] = useState('contributor');
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [isEditBookOpen, setIsEditBookOpen] = useState(false);
   const [editBookName, setEditBookName] = useState('');
   const [savingBook, setSavingBook] = useState(false);
@@ -652,12 +655,17 @@ export default function BookView() {
   useEffect(() => {
     const st = location.state as {
       openPeople?: boolean;
+      openEdit?: boolean;
       openEntry?: boolean;
       openVoice?: boolean;
       openScan?: boolean;
       openSplitPick?: boolean;
     } | null;
     if (st?.openPeople) setIsMembersModalOpen(true);
+    if (st?.openEdit) {
+      setEditBookName(String(book?.name || ''));
+      setIsEditBookOpen(true);
+    }
     if (st?.openEntry) setIsExpenseModalOpen(true);
     if (st?.openVoice) setVoiceOpen(true);
     if (st?.openScan) void scanReceiptEntry();
@@ -1792,16 +1800,21 @@ export default function BookView() {
 
   const handleDeleteLedger = async () => {
     if (!currentUser || !bookId || !book) return;
-    if (!confirm(`Delete ledger “${book.name}”?`)) return;
+    setConfirmDelete(true);
+  };
+
+  const confirmDeleteLedger = async () => {
+    if (!currentUser || !bookId || !book) return;
     setDeletingLedger(true);
     try {
       await softDeleteLedger(bookId);
       addToast('Ledger deleted.', 'success');
       navigate('/expenses');
     } catch (err: any) {
-      addToast(err?.message || 'Could not delete this ledger', 'error');
+      addToast(toUserMessage(err, 'Could not delete this ledger'), 'error');
     } finally {
       setDeletingLedger(false);
+      setConfirmDelete(false);
     }
   };
 
@@ -3282,6 +3295,22 @@ export default function BookView() {
                 </button>
               </div>
             </form>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      <Dialog.Root open={confirmDelete} onOpenChange={(open) => { if (!deletingLedger) setConfirmDelete(open); }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 z-[90]" />
+          <Dialog.Content className="fixed left-[50%] top-[50%] z-[100] w-[min(100%-1.5rem,24rem)] translate-x-[-50%] translate-y-[-50%] rounded-[22px] bg-white border border-slate-200 p-5 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)]">
+            <Dialog.Title className="text-base font-bold text-slate-900">Delete this book?</Dialog.Title>
+            <p className="text-sm text-slate-600 mt-2">“{book?.name}” and its entries will be removed for the team. This cannot be undone from the app.</p>
+            <div className="flex justify-end gap-2 mt-4">
+              <button type="button" className="byjan-btn-ghost" onClick={() => setConfirmDelete(false)}>Cancel</button>
+              <button type="button" className="byjan-btn !bg-rose-600" disabled={deletingLedger} onClick={() => void confirmDeleteLedger()}>
+                {deletingLedger ? 'Deleting…' : 'Delete book'}
+              </button>
+            </div>
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>

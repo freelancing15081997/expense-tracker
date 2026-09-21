@@ -74,24 +74,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         attempts: 0,
         verified: false,
       });
-      const title = purpose === 'reset' ? 'Reset your Byjan password' : 'Verify your Byjan email';
-      const intro = purpose === 'reset'
-        ? 'Use this code to confirm it is you before resetting your password.'
-        : 'Use this code to verify your email and activate your Byjan account.';
+      const mail = (await import('../_lib/email-templates.js')).otpEmail({
+        code,
+        purpose: purpose === 'reset' ? 'reset' : 'register',
+      });
       try {
         await sendTracedMail({
           to: email,
-          subject: `${code} is your Byjan verification code`,
+          subject: mail.subject,
           kind: 'email.otp',
-          text: `${title}\n\nYour code is ${code}. It expires in 10 minutes.\n\nIf you did not request this, ignore this email.`,
-          html: `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;background:#eef2f6;padding:24px">
-            <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:16px;padding:28px;border:1px solid #dbe3ea">
-              <p style="margin:0 0 8px;letter-spacing:.18em;text-transform:uppercase;font-size:11px;color:#12B8A8">Byjan</p>
-              <h1 style="margin:0 0 12px;font-size:22px;color:#0B1F3A">${title}</h1>
-              <p style="margin:0 0 18px;color:#475569;line-height:1.5">${intro}</p>
-              <p style="margin:0;font-size:32px;letter-spacing:.28em;font-weight:700;color:#0B1F3A">${code}</p>
-              <p style="margin:18px 0 0;font-size:12px;color:#94a3b8">Expires in 10 minutes. Check Spam if you do not see it.</p>
-            </div></body></html>`,
+          text: mail.text,
+          html: mail.html,
         });
       } catch (err: any) {
         try {

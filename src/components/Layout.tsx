@@ -181,7 +181,7 @@ export default function Layout() {
   const onSettings = location.pathname === '/settings' || location.pathname === '/help' || location.pathname.startsWith('/access');
   const onLedger = location.pathname.startsWith('/book/');
   const onLedgers = location.pathname === '/expenses' || onLedger;
-  const onActivity = location.pathname === '/activity' || location.pathname === '/regular-payments' || location.pathname === '/reports';
+  const onActivity = location.pathname === '/activity';
   const canAdd = hasFeature('money_add');
   const canScan = hasFeature('money_scan');
   const canVoice = hasFeature('money_voice');

@@ -2,7 +2,7 @@
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { createLedger, forgetLedger, listLedgers, updateLedger } from '../lib/ledgers';
+import { createLedger, forgetLedger, listLedgers, updateLedger, softDeleteLedger } from '../lib/ledgers';
 import { CurrencyMark } from '../lib/currency-mark';
 import PullToRefresh from '../components/money/PullToRefresh';
 import UpcomingHomeStrip from '../components/UpcomingHomeStrip';
@@ -12,7 +12,7 @@ import { useBooksTenantMeta } from '../lib/tenant';
 import { getCurrencySymbol } from '../lib/currency';
 import { initials, sparkDays } from '../lib/ledger-advanced';
 import { formatIndianAmount, workspaceBridges } from '../lib/bridge-automations';
-import { Plus, Check, X, Users, ArrowUpRight, ArrowDownRight, RefreshCw, Wallet, Receipt, Shield, ScanLine, PenLine, BookText, BarChart3, Split, ArrowLeftRight, Mic, LayoutGrid, List, Rows3, Pin, PinOff, MoreHorizontal } from 'lucide-react';
+import { Plus, Check, X, Users, ArrowUpRight, ArrowDownRight, RefreshCw, Wallet, Receipt, Shield, ScanLine, PenLine, BookText, BarChart3, Split, ArrowLeftRight, Mic, LayoutGrid, List, Rows3, Pin, PinOff, MoreHorizontal, Pencil, Trash2, UserPlus } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 import { ListControls, ListPager, usePagedList } from '../components/ListControls';
@@ -40,6 +40,7 @@ import {
 } from '../lib/purpose-templates';
 import { buildAttentionInbox } from '../lib/financial-memory';
 import { detectAnomalies, detectCommitments } from '../lib/money-intelligence';
+import { toUserMessage } from '../lib/user-message';
 
 function AutoFitAmount({ children, className }: { children: React.ReactNode; className?: string }) {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -155,6 +156,11 @@ export default function Dashboard() {
   const [bridges, setBridges] = useState<ReturnType<typeof workspaceBridges> | null>(null);
   const [upcoming, setUpcoming] = useState<RegularPayment[]>([]);
   const [booksView, setBooksView] = useState<BooksView>(readBooksView);
+  const [editBook, setEditBook] = useState<BookItem | null>(null);
+  const [editBookName, setEditBookName] = useState('');
+  const [savingBook, setSavingBook] = useState(false);
+  const [deleteBook, setDeleteBook] = useState<BookItem | null>(null);
+  const [deletingBook, setDeletingBook] = useState(false);
 
   const emptyStats = {
     totalIn: 0,
@@ -355,7 +361,7 @@ export default function Dashboard() {
       }
     } catch (err) {
       console.error('Fetch API error:', err);
-      setLoadError(err instanceof Error ? err.message : 'Could not load your workspace.');
+      setLoadError(toUserMessage(err, 'Could not load your workspace.'));
     } finally {
       setLoading(false);
       setStatsReady(true);
@@ -843,7 +849,7 @@ export default function Dashboard() {
       await updateLedger(book.id, { pinned });
       setBooks((curr) => curr.map((row) => (row.id === book.id ? { ...row, pinned } : row)).sort(sortBooks));
     } catch (err) {
-      addToast(err instanceof Error ? err.message : 'Could not update pin', 'error');
+      addToast(toUserMessage(err, 'Could not update pin'), 'error');
     }
   };
 
@@ -900,6 +906,26 @@ export default function Dashboard() {
           ) : null}
         </div>
         <div className="md3-book-actions" role="group" aria-label={`${book.name} actions`}>
+          {canManage && (
+            <button type="button" title="Edit book" onClick={(event) => { event.preventDefault(); event.stopPropagation(); setEditBook(book); setEditBookName(book.name); }}>
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {canManage && hasFeature('money_people') && (
+            <button type="button" title="Invite members" onClick={(event) => openPeople(book.id, event)}>
+              <UserPlus className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {hasFeature('money_pin') && member && (
+            <button type="button" title={book.pinned ? 'Unpin' : 'Pin'} onClick={(event) => { void toggleBookPin(book, event); }}>
+              {book.pinned ? <Pin className="w-3.5 h-3.5" /> : <PinOff className="w-3.5 h-3.5" />}
+            </button>
+          )}
+          {canManage && hasFeature('money_delete_book') && (
+            <button type="button" title="Delete book" onClick={(event) => { event.preventDefault(); event.stopPropagation(); setDeleteBook(book); }}>
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
           {canAddHere && (
             <button type="button" title="Add entry" onClick={(event) => { event.preventDefault(); event.stopPropagation(); addHomeEntry(book.id); }}>
               <PenLine className="w-3.5 h-3.5" />
@@ -908,16 +934,6 @@ export default function Dashboard() {
           {canScanHere && (
             <button type="button" title="Scan receipt" onClick={(event) => { event.preventDefault(); event.stopPropagation(); void scanHomeReceipt(book.id); }}>
               <ScanLine className="w-3.5 h-3.5" />
-            </button>
-          )}
-          {canManage && hasFeature('money_people') && (
-            <button type="button" title="People" onClick={(event) => openPeople(book.id, event)}>
-              <Users className="w-3.5 h-3.5" />
-            </button>
-          )}
-          {hasFeature('money_pin') && member && (
-            <button type="button" title={book.pinned ? 'Unpin' : 'Pin'} onClick={(event) => { void toggleBookPin(book, event); }}>
-              {book.pinned ? <Pin className="w-3.5 h-3.5" /> : <PinOff className="w-3.5 h-3.5" />}
             </button>
           )}
           {!member && (
@@ -1110,6 +1126,84 @@ export default function Dashboard() {
       </Dialog.Root>
   );
 
+  const bookManageDialogs = (
+    <>
+      <Dialog.Root open={Boolean(editBook)} onOpenChange={(open) => { if (!savingBook && !open) setEditBook(null); }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 z-[90]" />
+          <Dialog.Content className="fixed left-[50%] top-[50%] z-[100] w-[min(100%-1.5rem,24rem)] translate-x-[-50%] translate-y-[-50%] rounded-[22px] bg-white border border-slate-200 p-5 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)]">
+            <Dialog.Title className="text-base font-bold text-slate-900">Edit book</Dialog.Title>
+            <form
+              className="space-y-3 mt-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const name = editBookName.trim();
+                if (!name || !editBook) return;
+                void (async () => {
+                  try {
+                    setSavingBook(true);
+                    await updateLedger(editBook.id, { name });
+                    setBooks((curr) => curr.map((row) => (row.id === editBook.id ? { ...row, name } : row)));
+                    addToast('Book updated', 'success');
+                    setEditBook(null);
+                  } catch (err) {
+                    addToast(toUserMessage(err, 'Could not update book'), 'error');
+                  } finally {
+                    setSavingBook(false);
+                  }
+                })();
+              }}
+            >
+              <label className="block text-sm font-medium text-slate-700">Book name</label>
+              <input className="byjan-input" value={editBookName} onChange={(e) => setEditBookName(e.target.value)} autoFocus />
+              <div className="flex justify-end gap-2">
+                <button type="button" className="byjan-btn-ghost" onClick={() => setEditBook(null)}>Cancel</button>
+                <button type="submit" className="byjan-btn" disabled={savingBook || !editBookName.trim()}>{savingBook ? 'Saving…' : 'Save'}</button>
+              </div>
+            </form>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+      <Dialog.Root open={Boolean(deleteBook)} onOpenChange={(open) => { if (!deletingBook && !open) setDeleteBook(null); }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 z-[90]" />
+          <Dialog.Content className="fixed left-[50%] top-[50%] z-[100] w-[min(100%-1.5rem,24rem)] translate-x-[-50%] translate-y-[-50%] rounded-[22px] bg-white border border-slate-200 p-5 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)]">
+            <Dialog.Title className="text-base font-bold text-slate-900">Delete this book?</Dialog.Title>
+            <p className="text-sm text-slate-600 mt-2">
+              “{deleteBook?.name}” and its entries will be removed for the team. This cannot be undone from the app.
+            </p>
+            <div className="flex justify-end gap-2 mt-4">
+              <button type="button" className="byjan-btn-ghost" onClick={() => setDeleteBook(null)}>Cancel</button>
+              <button
+                type="button"
+                className="byjan-btn !bg-rose-600"
+                disabled={deletingBook}
+                onClick={() => {
+                  if (!deleteBook) return;
+                  void (async () => {
+                    try {
+                      setDeletingBook(true);
+                      await softDeleteLedger(deleteBook.id);
+                      setBooks((curr) => curr.filter((row) => row.id !== deleteBook.id));
+                      addToast('Book deleted', 'success');
+                      setDeleteBook(null);
+                    } catch (err) {
+                      addToast(toUserMessage(err, 'Could not delete this book'), 'error');
+                    } finally {
+                      setDeletingBook(false);
+                    }
+                  })();
+                }}
+              >
+                {deletingBook ? 'Deleting…' : 'Delete book'}
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+    </>
+  );
+
   const inviteBlock = canSeeMoney && invites.length > 0 && (
         <section className="home-invite-rail" aria-label="Invitations">
           <div className="home-invite-head">
@@ -1148,6 +1242,7 @@ export default function Dashboard() {
     return (
       <PullToRefresh onRefresh={async () => { await refreshUserProfile(); await fetchData({ silent: true }); }} className="home-shell ios-page">
         {createDialog}
+        {bookManageDialogs}
         <div className="home-desk">
         <section className="home-hero">
           <div className="home-hero-top">
@@ -1404,6 +1499,7 @@ export default function Dashboard() {
   return (
     <PullToRefresh onRefresh={async () => { await refreshUserProfile(); await fetchData({ silent: true }); }} className="dash-shell ios-page">
       {createDialog}
+      {bookManageDialogs}
       <section className="dash-hero dash-hero-money dash-hero-compact">
         <div className="dash-hero-compact-row">
           <div className="min-w-0">

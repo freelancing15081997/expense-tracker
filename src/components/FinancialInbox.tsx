@@ -8,7 +8,7 @@ import HomeSwipeDeck from './HomeSwipeDeck';
 
 export default function FinancialInbox({ items }: { items: AttentionItem[] }) {
   const { on: hasFeature } = useFeatures();
-  const inboxHref = hasFeature('money_activity') ? '/activity' : hasFeature('app_notifications') ? '/notifications' : '/';
+  const inboxHref = hasFeature('money_inbox') ? '/financial-inbox' : '/';
   const rows = items.slice(0, 8);
   const count = rows.length;
   const [index, setIndex] = useState(0);
@@ -27,7 +27,7 @@ export default function FinancialInbox({ items }: { items: AttentionItem[] }) {
       </div>
       {!count ? (
         <Link to={inboxHref} className="home-upcoming-empty">
-          {hasFeature('money_activity') ? 'Nothing waiting — tap to open activity' : 'Nothing waiting'}
+          {hasFeature('money_activity') ? 'Nothing waiting' : 'Nothing waiting'}
         </Link>
       ) : (
         <HomeSwipeDeck

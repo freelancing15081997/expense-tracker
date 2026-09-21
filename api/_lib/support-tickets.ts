@@ -224,18 +224,13 @@ async function mailSupportTicket(input: {
     kind: 'email.support_ticket',
   });
   if (input.email) {
+    const { supportAckEmail } = await import('./email-templates.js');
+    const ack = supportAckEmail({ ticketId: input.id, topic });
     await sendTracedMail({
       to: input.email,
-      subject: `We received your Byjan request (${input.id})`,
-      text: [
-        'Thanks for writing to Byjan Books.',
-        '',
-        `Ticket: ${input.id}`,
-        `Topic: ${topic}`,
-        '',
-        'You can see this ticket any time in the app under Help.',
-        'We read every message at byjanbooks@gmail.com.',
-      ].join('\n'),
+      subject: ack.subject,
+      text: ack.text,
+      html: ack.html,
       fromName: 'Byjan Help',
       kind: 'email.support_ack',
     }).catch((err: unknown) => {

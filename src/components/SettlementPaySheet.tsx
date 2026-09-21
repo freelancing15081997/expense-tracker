@@ -31,7 +31,7 @@ type Props = {
   requireSwipe?: boolean;
   onClose: () => void;
   onChanged: () => void;
-  onToast: (msg: string, kind?: 'success' | 'error') => void;
+  onToast: (msg: string, kind?: 'success' | 'error' | 'info') => void;
   onNeedReceiverUpi?: (toUid: string) => void;
   /** Called when payment succeeds so parent can clear ?pay= and not reopen. */
   onPaid?: () => void;
@@ -217,7 +217,7 @@ export default function SettlementPaySheet({
       } else {
         setPhase('unclear');
         setStatusMsg('Finish in your UPI app. If the result isn’t read automatically, use the options below.');
-        onToast('Opened UPI app — complete the payment there', 'success');
+        onToast('Opened UPI app — complete the payment there. Status is pending until confirmed.', 'info');
       }
       onChanged();
     } catch (err: any) {

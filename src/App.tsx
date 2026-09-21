@@ -20,6 +20,7 @@ import Activity from './pages/Activity';
 import RegularPayments from './pages/RegularPayments';
 import Layout from './components/Layout';
 import NotificationsPage from './pages/NotificationsPage';
+import FinancialInboxPage from './pages/FinancialInboxPage';
 import FeatureGate, { SuperUserGate } from './components/FeatureGate';
 import ShareIntentListener from './components/ShareIntentListener';
 import AppLockGate from './components/AppLockGate';
@@ -69,6 +70,7 @@ export default function App() {
                 <Route path="trace" element={<SuperUserGate><TraceOps /></SuperUserGate>} />
                 <Route path="expenses" element={<FeatureGate feature="money"><Dashboard /></FeatureGate>} />
                 <Route path="activity" element={<FeatureGate feature="money_activity"><Activity /></FeatureGate>} />
+                <Route path="financial-inbox" element={<FeatureGate feature="money_inbox"><FinancialInboxPage /></FeatureGate>} />
                 <Route path="notifications" element={<FeatureGate feature="app_notifications"><NotificationsPage /></FeatureGate>} />
                 <Route path="regular-payments" element={<FeatureGate feature="money_recurring"><RegularPayments /></FeatureGate>} />
                 <Route path="book/:bookId" element={<FeatureGate feature="money"><BookView /></FeatureGate>} />

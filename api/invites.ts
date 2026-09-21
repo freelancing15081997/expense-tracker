@@ -322,13 +322,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (notifyEmails.length) {
         try {
           const { sendTracedMail } = await import('./_lib/smtp-mail.js');
-          const openLink = `https://www.easypado.com/#/book/${encodeURIComponent(bookId)}`;
+          const { inviteAcceptedEmail } = await import('./_lib/email-templates.js');
+          const mail = inviteAcceptedEmail({ who: user.email, bookName });
           await Promise.all(notifyEmails.map((to) => sendTracedMail({
             to,
-            subject: `${user.email} joined ${bookName}`,
+            subject: mail.subject,
             kind: 'email.invite_accepted',
-            html: `<p><b>${user.email}</b> accepted your invitation and joined <b>${bookName}</b>.</p><p><a href="${openLink}">Open ledger</a></p>`,
-            text: `${user.email} accepted your invitation and joined ${bookName}. Open: ${openLink}`,
+            html: mail.html,
+            text: mail.text,
           }).catch(() => undefined)));
         } catch { /* never block accept */ }
       }

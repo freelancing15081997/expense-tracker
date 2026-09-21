@@ -64,7 +64,7 @@ export const ConfirmationDialog: React.FC<Props> = ({ state }) => {
             </div>
             <div>
               <h3 className="font-bold text-lg leading-snug">{state.title}</h3>
-              <p className="text-xs opacity-80">Google Sheet In-Cell Action Confirmation</p>
+              <p className="text-xs opacity-80">Please confirm before continuing</p>
             </div>
           </div>
           <button
@@ -123,7 +123,7 @@ export const ConfirmationDialog: React.FC<Props> = ({ state }) => {
           <div className="flex items-start gap-2.5 bg-orange-50/70 border border-orange-100 rounded-lg p-3 text-xs text-blue-800">
             <Mail className="w-4 h-4 text-orange-500 shrink-0 mt-0.5" />
             <div>
-              <span className="font-semibold">Automatic Mail Broadcast:</span> Upon your confirmation, an instant notification alert will be dispatched to all configured emails in the spreadsheet list.
+              <span className="font-semibold">Team notice:</span> People with access to this book may see this change in Byjan.
             </div>
           </div>
         </div>
@@ -144,7 +144,7 @@ export const ConfirmationDialog: React.FC<Props> = ({ state }) => {
             onClick={state.onConfirm}
             className={`px-5 py-2 text-sm font-bold rounded-lg shadow-sm transition-all transform active:scale-95 ${getConfirmButtonClass()}`}
           >
-            {state.actionType === 'DELETE' ? 'Yes, Delete Record' : state.actionType === 'EDIT' ? 'Save & Notify Team' : 'Confirm & Add Entry'}
+            {state.actionType === 'DELETE' ? 'Yes, delete' : state.actionType === 'EDIT' ? 'Save' : 'Confirm'}
           </button>
         </div>
       </div>
