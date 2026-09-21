@@ -2,6 +2,7 @@
   "installCommand": "npm install --include=dev",
   "buildCommand": "npx vite build",
   "outputDirectory": "dist",
+  "ignoreCommand": "node -e \"process.exit((process.env.VERCEL_PROJECT_NAME||'')==='android'?0:1)\"",
   "functions": {
     "api/kv.ts": { "maxDuration": 30, "includeFiles": "api/_pg-tables.js" },
     "api/invites.ts": { "maxDuration": 15, "includeFiles": "api/_pg-tables.js" },
@@ -33,6 +34,7 @@
   ],
   "rewrites": [
     { "source": "/api/email/send-report", "destination": "/api/email/send" },
+    { "source": "/api/email/unsubscribe", "destination": "/api/email/send?op=unsubscribe" },
     { "source": "/api/ledgers", "destination": "/api/tracker?domain=ledgers" },
     { "source": "/api/expenses", "destination": "/api/tracker?domain=expenses" },
     { "source": "/api/notifications", "destination": "/api/tracker?domain=notifications" },

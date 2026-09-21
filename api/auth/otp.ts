@@ -94,6 +94,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             </div></body></html>`,
         });
       } catch (err: any) {
+        try {
+          await ledgerSet(key, {
+            email,
+            purpose,
+            hash: hashCode(email, purpose, code),
+            expiresAt,
+            sentAtMs: 0,
+            attempts: 0,
+            verified: false,
+          });
+        } catch {
+          /* retry should not stay locked if mail never left */
+        }
         const { publicServiceError } = await import('../_lib/ops-classify.js');
         json(res, 503, { error: publicServiceError(err, 'Could not send the verification email. Please try again shortly.') });
         return;

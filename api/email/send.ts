@@ -82,12 +82,30 @@ async function recipientAllowed(opts: {
   }
 }
 
+function wantsUnsubscribe(req: VercelRequest) {
+  const url = String(req.url || '');
+  const op = String((req.query as { op?: string } | undefined)?.op || '').toLowerCase();
+  return op === 'unsubscribe' || /[?&]op=unsubscribe(?:&|$)/i.test(url) || /\/email\/unsubscribe(?:\?|$)/i.test(url);
+}
+
+function unsubscribeOk(res: VercelResponse) {
+  res.statusCode = 200;
+  res.setHeader('content-type', 'text/plain; charset=utf-8');
+  res.setHeader('cache-control', 'no-store');
+  res.end('Unsubscribed');
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     applyCors(req as any, res as any);
     if (req.method === 'OPTIONS') {
       res.statusCode = 204;
       res.end();
+      return;
+    }
+    // Stay under Vercel Hobby's 12-function cap: this is also /api/email/unsubscribe.
+    if (wantsUnsubscribe(req)) {
+      unsubscribeOk(res);
       return;
     }
     if (req.method !== 'POST') {
