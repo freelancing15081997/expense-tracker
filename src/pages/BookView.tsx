@@ -21,7 +21,7 @@ import { notifyLedgerMembers } from '../lib/notify-team';
 import { CapacitorService, isWeb } from '../lib/capacitor';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send, Copy, CopyPlus, Paperclip, Mail, Megaphone, Shield, Pin, PinOff, SlidersHorizontal, ArrowUpDown, Star, Wallet, ArrowUpRight, TrendingUp, Receipt, History, PieChart, Split, MoreHorizontal, CalendarClock, Check } from 'lucide-react';
+import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send, Copy, CopyPlus, Paperclip, Mail, Megaphone, Shield, Pin, PinOff, SlidersHorizontal, ArrowUpDown, Star, Wallet, ArrowUpRight, ArrowDownRight, Receipt, History, PieChart, Split, MoreHorizontal, CalendarClock, Check } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Tabs from '@radix-ui/react-tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
@@ -70,6 +70,7 @@ import SplitEntryPickSheet from '../components/SplitEntryPickSheet';
 import { ENTRY_PAY_METHODS, UpiBrandMark } from '../components/UpiBrandMark';
 import '../components/split-premium.css';
 import SettlementsPanel from '../components/SettlementsPanel';
+import PullToRefresh from '../components/money/PullToRefresh';
 import VoiceEntrySheet from '../components/VoiceEntrySheet';
 import { rememberMoneyBook } from '../components/ShareIntentListener';
 import { guessCategoryFromText } from '../lib/bridge-automations';
@@ -287,6 +288,7 @@ export default function BookView() {
   const [uploadingReceipt, setUploadingReceipt] = useState(false);
   const [offlineCount, setOfflineCount] = useState(0);
   const [typeFilter, setTypeFilter] = useState('all');
+  const [personFilter, setPersonFilter] = useState('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [methodFilter, setMethodFilter] = useState('all');
@@ -520,7 +522,7 @@ export default function BookView() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, itemsPerPage, typeFilter, dateFrom, dateTo, methodFilter, categoryFilter, period, reimbursableOnly, uncategorizedOnly, hideTransfers, flaggedOnly, amountMin, amountMax, hideDrafts, staleOnly, anomalyOnly, missingOnly]);
+  }, [searchQuery, itemsPerPage, typeFilter, personFilter, dateFrom, dateTo, methodFilter, categoryFilter, period, reimbursableOnly, uncategorizedOnly, hideTransfers, flaggedOnly, amountMin, amountMax, hideDrafts, staleOnly, anomalyOnly, missingOnly]);
 
   useEffect(() => {
     if (bookId) rememberMoneyBook(bookId);
@@ -542,6 +544,7 @@ export default function BookView() {
       const saved = JSON.parse(raw) as Record<string, unknown>;
       if (typeof saved.searchQuery === 'string') setSearchQuery(saved.searchQuery);
       if (typeof saved.typeFilter === 'string') setTypeFilter(saved.typeFilter);
+      if (typeof saved.personFilter === 'string') setPersonFilter(saved.personFilter);
       if (typeof saved.methodFilter === 'string') setMethodFilter(saved.methodFilter);
       if (typeof saved.categoryFilter === 'string') setCategoryFilter(saved.categoryFilter);
       if (typeof saved.dateFrom === 'string') setDateFrom(saved.dateFrom);
@@ -579,11 +582,11 @@ export default function BookView() {
     }
     try {
       sessionStorage.setItem(`byjan.ledger.filters.${bookId}`, JSON.stringify({
-        searchQuery, typeFilter, methodFilter, categoryFilter, dateFrom, dateTo, period, reimbursableOnly, uncategorizedOnly, sortKey, sortDir,
+        searchQuery, typeFilter, personFilter, methodFilter, categoryFilter, dateFrom, dateTo, period, reimbursableOnly, uncategorizedOnly, sortKey, sortDir,
         hideTransfers, flaggedOnly, hideDrafts, staleOnly, anomalyOnly, missingOnly, amountMin, amountMax,
       }));
     } catch { /* ignore */ }
-  }, [bookId, searchQuery, typeFilter, methodFilter, categoryFilter, dateFrom, dateTo, period, reimbursableOnly, uncategorizedOnly, sortKey, sortDir, hideTransfers, flaggedOnly, hideDrafts, staleOnly, anomalyOnly, missingOnly, amountMin, amountMax]);
+  }, [bookId, searchQuery, typeFilter, personFilter, methodFilter, categoryFilter, dateFrom, dateTo, period, reimbursableOnly, uncategorizedOnly, sortKey, sortDir, hideTransfers, flaggedOnly, hideDrafts, staleOnly, anomalyOnly, missingOnly, amountMin, amountMax]);
 
   useEffect(() => {
     if (bookId) touchRecentLedger(bookId);
@@ -1268,7 +1271,7 @@ export default function BookView() {
       
       for (const email of emails) {
         // This hits our reliable Express backend which doesn't lose credentials
-        sendEmailNotification(email, subject, message, { action }).catch(console.error);
+        sendEmailNotification(email, subject, message, { action, silent: !htmlOverride }).catch(console.error);
       }
     }
   };
@@ -1663,7 +1666,7 @@ export default function BookView() {
     }
   };
 
-  const sendEmailNotification = async (toEmail: string, subject: string, message: string, meta?: { action?: string; kind?: string }) => {
+  const sendEmailNotification = async (toEmail: string, subject: string, message: string, meta?: { action?: string; kind?: string; silent?: boolean }) => {
     try {
       const { apiPost } = await import('../lib/api');
       const kind = meta?.kind
@@ -1703,7 +1706,9 @@ export default function BookView() {
           createdAt: new Date().toISOString(),
         }).catch(() => undefined);
       }
-      addToast(err?.message || 'Email sending failed on the server.', 'error');
+      if (!meta?.silent) {
+        addToast(err?.message || 'Email sending failed on the server.', 'error');
+      }
       return false;
     }
   };
@@ -1821,11 +1826,20 @@ export default function BookView() {
   const missingSet = missingReceiptIds(expenses);
   const watchSet = new Set(readWatchMerchants(book).map((name) => name.toLowerCase()));
   const q = searchQuery.trim().toLowerCase();
+  const peopleOptions = [...new Set(
+    expenses
+      .map((exp) => String(exp.enteredBy || exp.paidByName || '').trim())
+      .filter(Boolean),
+  )].sort((a, b) => a.localeCompare(b));
   const filteredExpenses = expenses.filter((exp) => {
     const hay = [exp.description, exp.category, exp.paidByName, exp.enteredBy, exp.merchant, exp.notes, exp.tags, exp.paymentMethod]
       .some((value) => String(value || '').toLowerCase().includes(q));
     if (q && !hay) return false;
     if (typeFilter !== 'all' && String(exp.entryType || 'out') !== typeFilter) return false;
+    if (personFilter !== 'all') {
+      const who = String(exp.enteredBy || exp.paidByName || '').trim();
+      if (who !== personFilter) return false;
+    }
     if (methodFilter !== 'all' && String(exp.paymentMethod || 'cash') !== methodFilter) return false;
     if (categoryFilter !== 'all') {
       const cat = String(exp.category || '').trim() || 'Uncategorized';
@@ -1882,6 +1896,7 @@ export default function BookView() {
   const activeFilterCount = [
     searchQuery.trim(),
     typeFilter !== 'all',
+    personFilter !== 'all',
     methodFilter !== 'all',
     categoryFilter !== 'all',
     dateFrom,
@@ -1914,6 +1929,7 @@ export default function BookView() {
   const clearFilters = () => {
     setSearchQuery('');
     setTypeFilter('all');
+    setPersonFilter('all');
     setMethodFilter('all');
     setCategoryFilter('all');
     setDateFrom('');
@@ -1935,7 +1951,10 @@ export default function BookView() {
     <>
       <div className="h-full min-h-0 flex flex-col" data-purpose-id={purposeId}>
       <Tabs.Root value={shownTab} onValueChange={onLedgerTabChange} className="h-full min-h-0 flex flex-col">
-        <div className="flex-1 min-h-0 overflow-y-auto book-scroll pb-[calc(7.5rem+env(safe-area-inset-bottom,0px))] md:pb-8">
+        <PullToRefresh
+          className="flex-1 min-h-0 overflow-y-auto book-scroll pb-[calc(7.5rem+env(safe-area-inset-bottom,0px))] md:pb-8"
+          onRefresh={async () => { await refreshExpenses(); }}
+        >
         <div className="px-4 md:px-6 lg:px-8 pt-2 pb-0 bg-white">
         <div className="max-w-6xl mx-auto">
       <div className="book-head mb-1">
@@ -2121,7 +2140,7 @@ export default function BookView() {
                 </strong>
               </div>
               <div className="md3-stat tone-in">
-                <span className="md3-stat-icon" aria-hidden><TrendingUp className="w-3.5 h-3.5" /></span>
+                <span className="md3-stat-icon" aria-hidden><ArrowDownRight className="w-3.5 h-3.5" /></span>
                 <span className="md3-stat-label">Money in</span>
                 <strong className="md3-stat-value byjan-money">
                   {getCurrencySymbol(book.currency)}{totalIn.toLocaleString(undefined, { minimumFractionDigits: 2 })}
@@ -2279,6 +2298,12 @@ export default function BookView() {
                     <option key={cat} value={cat}>{cat}</option>
                   ))}
                 </select>
+                <select value={personFilter} onChange={(e) => setPersonFilter(e.target.value)} className="byjan-filter w-full col-span-2">
+                  <option value="all">All people</option>
+                  {peopleOptions.map((name) => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                </select>
                 <input type="date" value={dateFrom} onChange={(e) => { setPeriod(''); setDateFrom(e.target.value); }} className="byjan-filter w-full" title="From date" />
                 <input type="date" value={dateTo} onChange={(e) => { setPeriod(''); setDateTo(e.target.value); }} className="byjan-filter w-full" title="To date" />
               </div>
@@ -2357,12 +2382,6 @@ export default function BookView() {
               myUpiName={String((userProfile as any)?.upiDisplayName || userProfile?.displayName || '')}
               onToast={addToast}
               onProfileRefresh={() => void refreshUserProfile()}
-              initialPayId={searchParams.get('pay') || ''}
-              onPayConsumed={() => {
-                const next = new URLSearchParams(searchParams);
-                next.delete('pay');
-                setSearchParams(next, { replace: true });
-              }}
             />
           ) : null}
           {lastDeleted && canWrite && (
@@ -2639,12 +2658,11 @@ export default function BookView() {
                       {exp.merchant ? ` · ${exp.merchant}` : ''}
                       {exp.paymentMethod ? ` · ${exp.paymentMethod}` : ''}
                     </p>
+                    <p className="entry-card-by">Added by {exp.enteredBy || exp.paidByName || 'Unknown'}</p>
                     <div className="mt-1">
                       <CategoryBadge name={exp.category || 'Uncategorized'} size="md" />
                     </div>
-                    {why ? <p className="entry-card-why">{why}{exp.enteredBy || exp.paidByName ? ` · ${exp.enteredBy || exp.paidByName}` : ''}</p> : (
-                      <p className="entry-card-why">{exp.enteredBy || exp.paidByName}</p>
-                    )}
+                    {why ? <p className="entry-card-why">{why}</p> : null}
                     {canWrite && (
                       <div className="entry-card-actions">
                         {exp.receiptPath && (
@@ -2690,7 +2708,7 @@ export default function BookView() {
                             })}
                           >
                             <Users className="w-3.5 h-3.5" />
-                            {Array.isArray(exp.personSplits) && exp.personSplits.length ? 'Edit' : 'Split'}
+                            {Array.isArray(exp.personSplits) && exp.personSplits.length ? 'Edit split' : 'Split'}
                           </button>
                         ) : null}
                         {canDelete && (
@@ -2919,7 +2937,7 @@ export default function BookView() {
         </div>
         </div>
         </div>
-        </div>
+        </PullToRefresh>
       </Tabs.Root>
 
       {/* Expense Edit/Add Modal */}

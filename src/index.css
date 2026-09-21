@@ -4326,6 +4326,12 @@ html[data-radius="round"] { --ui-radius: 24px; --ui-btn-radius: 999px; }
 .entry-card-why {
   color: #475569;
 }
+.entry-card-by {
+  font-size: 11px;
+  font-weight: 600;
+  color: #475569;
+  margin-top: 2px;
+}
 .entry-card-actions {
   display: flex;
   align-items: center;
@@ -7521,8 +7527,14 @@ section[aria-label="To pay"] {
     gap: 4px;
     padding: 9px 10px;
   }
-  .mb-entry-icon { width: 52px; height: 52px; }
-  .entry-card-why { display: none; }
+  .mb-entry-icon { width: 40px; height: 40px; }
+  .entry-card-by {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    color: #475569;
+    margin-top: 2px;
+  }
 }
 
 .book-head-action {

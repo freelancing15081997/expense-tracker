@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ArrowLeft,
   Bell,
   BookText,
   ChevronRight,
@@ -21,6 +22,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { Link } from 'react-router-dom';
 import {
   createSupportTicket,
   helpGroups,
@@ -130,6 +132,9 @@ export default function HelpPage() {
 
   return (
     <div className="help-page web-page">
+      <Link to="/" className="inline-flex items-center gap-1 text-sm font-semibold text-slate-500 hover:text-[#0B1F3A] mb-3">
+        <ArrowLeft className="w-4 h-4" /> Back
+      </Link>
       <header className="help-hero">
         <span className="help-hero-mark"><LifeBuoy /></span>
         <div>

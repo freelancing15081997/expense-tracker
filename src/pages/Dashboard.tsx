@@ -12,7 +12,7 @@ import { useBooksTenantMeta } from '../lib/tenant';
 import { getCurrencySymbol } from '../lib/currency';
 import { initials, sparkDays } from '../lib/ledger-advanced';
 import { formatIndianAmount, workspaceBridges } from '../lib/bridge-automations';
-import { Plus, Check, X, Users, ArrowUpRight, RefreshCw, Wallet, TrendingUp, Receipt, Shield, ScanLine, PenLine, BookText, BarChart3, Split, ArrowLeftRight, Mic, LayoutGrid, List, Rows3, Pin, PinOff, MoreHorizontal } from 'lucide-react';
+import { Plus, Check, X, Users, ArrowUpRight, ArrowDownRight, RefreshCw, Wallet, Receipt, Shield, ScanLine, PenLine, BookText, BarChart3, Split, ArrowLeftRight, Mic, LayoutGrid, List, Rows3, Pin, PinOff, MoreHorizontal } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 import { ListControls, ListPager, usePagedList } from '../components/ListControls';
@@ -1444,8 +1444,8 @@ export default function Dashboard() {
             {[
               { label: 'Uncategorized', value: String(globalStats.uncategorized), tone: 'warn', Icon: Receipt },
               { label: 'This month out', value: formatIndianAmount(globalStats.monthOut, currency), tone: 'out', Icon: ArrowUpRight },
-              { label: 'Money in', value: formatIndianAmount(globalStats.totalIn, currency), tone: 'in', Icon: TrendingUp },
-              { label: 'Money out', value: formatIndianAmount(globalStats.totalOut, currency), tone: 'out', Icon: Wallet },
+              { label: 'Money in', value: formatIndianAmount(globalStats.totalIn, currency), tone: 'in', Icon: ArrowDownRight },
+              { label: 'Money out', value: formatIndianAmount(globalStats.totalOut, currency), tone: 'out', Icon: ArrowUpRight },
             ].map((item) => (
               <div key={item.label} className={`md3-stat tone-${item.tone}`}>
                 <span className="md3-stat-icon" aria-hidden>

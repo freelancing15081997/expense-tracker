@@ -186,16 +186,21 @@ export function isDecoyAmountContext(raw: string, index: number, token: string):
 
   if (isInsideCardNumber(raw, index, token)) return true;
 
-  // Closest label wins: "Customer ID 8821" is an ID; "Amount 400" is money.
-  if (closestLabelIsId(before) && !currRe.test(around.slice(-24))) return true;
+  // Closest label wins: "Customer ID 8821" is an ID even if a stray ₹ is nearby.
+  if (closestLabelIsId(before)) return true;
 
   // VPA: 112@oksbi / xx112@ybl / user112@paytm
   if (/^\s*@[a-z0-9.\-]{2,}/i.test(after)) return true;
   if (/[a-z0-9]\s*$/i.test(before) && /^\s*@[a-z]/i.test(after) && !currRe.test(around)) return true;
 
-  // Masked digits: XXXXX112, ******112, xx112
+  // Masked digits: XXXXX112, ******112, xx112, XXXX-6173
   if (/[x*]{2,}\s*$/i.test(before)) return true;
+  if (/[x*]{2,}[\s-]*$/i.test(before)) return true;
   if (/[x*]{2,}\d*$/i.test(`${before}${token}`)) return true;
+
+  // Play-store / PhonePe stub URLs ("phon.pe/download2025") — never rupees.
+  if (/\b(?:download|phon\.?pe|play\.google|app\.link)\b/i.test(before) && Number(digits) >= 1900 && Number(digits) <= 2100) return true;
+  if (/\/\s*$/.test(before) && Number(digits) >= 1900 && Number(digits) <= 2100) return true;
 
   // Account / card-number / UPI ending fragments — not “CREDIT CARD” as a biller category.
   if (/\b(?:ending(?:\s+in|\s+with)?|ends?\s+with|a\/c|a\.c\.|account|acc(?:ount)?\.?|card\s*(?:no|number|#|ending)|upi\s*id|vpa|mobile|phone)\b/i.test(before)
@@ -359,6 +364,11 @@ export function repairOcrText(text: string): string {
   let s = String(text || '').replace(/\u00a0/g, ' ').replace(/\r\n?/g, '\n');
   if (!s.trim()) return '';
 
+  // Drop app-store / share stub URLs so years like download2025 never become ₹.
+  s = s.replace(/https?:\/\/\S+/gi, ' ');
+  s = s.replace(/\b[\w.-]*phon\.pe\/\S*/gi, ' ');
+  s = s.replace(/\bdownload20\d{2}\b/gi, ' ');
+
   // --- 1. De-glue labels PP-OCR runs together. The char after the phrase must not be lowercase
   // ("PaidtoWinZO" → "paid to WinZO", but "paid total" stays). Done via callback because a
   // case-insensitive regex cannot express "not a lowercase letter".
@@ -405,7 +415,7 @@ export function repairOcrText(text: string): string {
   if (UPI_SCREEN_RE.test(s)) {
     const lines = s.split('\n');
     const numLine = /^\s*([+-])?\s*(\d[\d,]*(?:\.\d{1,2})?)\s*$/;
-    type NumLine = { i: number; sign: string; tok: string; int: string; inBlock: boolean };
+    type NumLine = { i: number; sign: string; tok: string; int: string; inBlock: boolean; afterName: boolean };
     const nums: NumLine[] = [];
     for (let i = 0; i < lines.length; i += 1) {
       const m = lines[i].match(numLine);
@@ -413,9 +423,12 @@ export function repairOcrText(text: string): string {
       const prev1 = (lines[i - 1] || '').trim();
       const prev2 = (lines[i - 2] || '').trim();
       // "Paid to ¶ NAME ¶ 71000"  or  "Money sent to NAME ¶ -7195"  or  "amount ¶ 7182961"
+      const prevIsName = /^[A-Za-z][A-Za-z .&'-]{2,40}$/.test(prev1)
+        && (/\s/.test(prev1) || prev1.length >= 8)
+        && !/\b(?:id|transaction|upi|reference|order|receipt)\b/i.test(prev1);
       const inBlock = BLOCK_HEADER_RE.test(prev1)
         || (BLOCK_HEADER_RE.test(prev2) && /^[A-Za-z][A-Za-z0-9 .&'_-]*$/.test(prev1));
-      nums.push({ i, sign: m[1] || '', tok: m[2], int: m[2].replace(/,/g, '').split('.')[0], inBlock });
+      nums.push({ i, sign: m[1] || '', tok: m[2], int: m[2].replace(/,/g, '').split('.')[0], inBlock, afterName: prevIsName });
     }
     const unmarkedBlock = nums.filter((n) => n.inBlock || n.sign).length;
     const rupeeMarks = (s.match(/₹|\brs\.?\s*\d|\binr\b/gi) || []).length;
@@ -442,7 +455,14 @@ export function repairOcrText(text: string): string {
         }
       }
       for (const n of nums) {
+        if (n.afterName && !n.inBlock && !n.sign) {
+          if (/^7\d/.test(n.int) && n.int.length <= 7 && !asIs.has(n.i) && !/^70/.test(n.int) && !/,/.test(n.tok)) {
+            lines[n.i] = `₹${n.tok.slice(1)}`;
+          }
+          continue;
+        }
         if (!n.inBlock && !n.sign) continue;
+        if (n.int.length >= 10) continue;
         const prefix = n.sign ? `${n.sign} ` : '';
         if (fixed.has(n.i)) {
           lines[n.i] = `${prefix}₹${fixed.get(n.i)}`;
@@ -456,6 +476,27 @@ export function repairOcrText(text: string): string {
       s = lines.join('\n');
     }
   }
+  // Name then 7xxx even when UPI keywords are missing (GPay contact share).
+  {
+    const lines = s.split('\n');
+    let changed = false;
+    for (let i = 1; i < lines.length; i += 1) {
+      const prev = (lines[i - 1] || '').trim();
+      const m = lines[i].match(/^\s*([27])(\d{2,6}(?:\.\d{1,2})?)\s*$/);
+      if (!m) continue;
+      if (!/^[A-Za-z][A-Za-z .&'-]{2,40}$/.test(prev)) continue;
+      if (!(/\s/.test(prev) || prev.length >= 8)) continue;
+      if (m[1] !== '7') continue;
+      if (/^0/.test(m[2])) continue;
+      if (m[2].replace(/\D/g, '').length >= 10) continue;
+      if (/\b(?:total|amount|payment|paid|receipt|bill|fee|emi|charges?|id|transaction|upi|reference|order)\b/i.test(prev)) continue;
+      lines[i] = `₹${m[2]}`;
+      changed = true;
+    }
+    if (changed) s = lines.join('\n');
+  }
+  // History lists: ₹ OCR'd as a lone "7" on the line above the rupees.
+  s = s.replace(/^\s*[27]\s*\n\s*([\d,]+(?:\.\d{1,2})?)\s*$/gm, '₹$1');
   return s;
 }
 
@@ -508,7 +549,7 @@ export function extractMoneyAmount(text: string): ParsedMoneyAmount | null {
       && !hasCurrency) {
       return;
     }
-    // Skip clock times (18:42).
+    // Skip clock times (18:42). Minutes glued as "₹42" next to am/pm still sit in "10:42".
     const around = raw.slice(Math.max(0, index - 4), Math.min(raw.length, index + token.length + 4));
     if (/\d{1,2}:\d{2}/.test(around)) return;
 
@@ -541,6 +582,11 @@ export function extractMoneyAmount(text: string): ParsedMoneyAmount | null {
     if (/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+\d{2,4}\b/i.test(before)
       && !/\bpaid\s+to\b/i.test(before.slice(-30))) {
       s -= 55;
+    }
+    if (/\bcred\b/i.test(raw)) {
+      if (/\b(?:cashback|reward|points)\b/i.test(ctx)) s -= 40;
+      if (hasIndianGrouping(token) || (hasDecimals && (hasCurrency || labeled))) s += 14;
+      if (Number.isInteger(n) && n < 1000 && !labeled) s -= 18;
     }
     // Penalize only when the closest label before the number is tax/qty — not when Grand Total is closer.
     const taxAt = lastMatchIndex(/\b(?:sub\s*total|subtotal|cgst|sgst|igst|gst|iva|vat|taxable|discount|qty|quantity|rate|mrp|unit\s*price|items?\s*total|concession)\b/gi, before);
@@ -583,6 +629,8 @@ export function extractMoneyAmount(text: string): ParsedMoneyAmount | null {
   // PhonePe / GPay hero: Paid to NAME [vpa] ₹N (₹ optional when OCR drops it)
   walk(new RegExp(String.raw`paid\s+to\s+[A-Za-z0-9][A-Za-z0-9 .&'_-]{0,48}?(?:\s+[A-Za-z0-9._-]+@[A-Za-z0-9._-]+)?\s*${RUPEE_TOKEN}\s*([\d,]+(?:\.\d{1,2})?)`, 'gi'), 64, true);
   walk(/paid\s+to\s+[A-Za-z0-9][A-Za-z0-9 .&'_-]{0,48}?(?:\s+[A-Za-z0-9._-]+@[A-Za-z0-9._-]+)?\s+([\d,]+(?:\.\d{1,2})?)(?!\d)/gi, 56, true);
+  // "Paid to ¶ 1,007 ¶ MERCHANT" — amount sits where the name usually is.
+  walk(/paid\s+to\s+([\d,]+(?:\.\d{1,2})?)/gi, 62, true);
   // Debited from … ₹N (second amount on PhonePe success screen)
   walk(new RegExp(String.raw`debited\s+from[\s\S]{0,60}?${RUPEE_TOKEN}\s*([\d,]+(?:\.\d{1,2})?)`, 'gi'), 58, true);
   // True invoice footer totals (with ₹) — highest labeled invoice class.
@@ -660,16 +708,39 @@ export function extractMoneyAmount(text: string): ParsedMoneyAmount | null {
     .map((l) => l.replace(/\s+/g, ' ').trim())
     .filter(Boolean);
   let lineMerchant = '';
+  const isAmountishLine = (l: string) => (
+    /^(?:[27₹]|rs\.?)$/i.test(l)
+    || /^[+-]?\s*(?:₹|₨|rs\.?)?\s*[\d,]+(?:\.\d{1,2})?\s*$/i.test(l)
+  );
+  const isNameishLine = (l: string) => (
+    /^[A-Za-z][A-Za-z0-9 .&'-]{1,40}$/.test(l)
+    && !SKIP_NAME_RE.test(l)
+    && !MERCHANT_CHROME_RE.test(l)
+    && !/^[A-Za-z0-9._-]+@/.test(l)
+  );
   for (let i = 0; i < ocrLines.length; i += 1) {
     const l = ocrLines[i];
     if (/^paid\s+to\s+\S+/i.test(l)) {
-      lineMerchant = cleanMerchantName(l.replace(/^paid\s+to\s+/i, ''));
-      break;
+      const rest = l.replace(/^paid\s+to\s+/i, '').trim();
+      if (!isAmountishLine(rest) && isNameishLine(rest.split(/\s+[A-Za-z0-9._-]+@/)[0] || rest)) {
+        lineMerchant = cleanMerchantName(rest);
+        break;
+      }
     }
-    // "Paid to" alone, merchant on the next line (PhonePe success layout)
-    if (/^paid\s+to$/i.test(l) && ocrLines[i + 1]) {
-      lineMerchant = cleanMerchantName(ocrLines[i + 1]);
-      break;
+    // "Paid to" alone, or "Paid to 1,007" then merchant on following lines
+    if (/^paid\s+to$/i.test(l) || (/^paid\s+to\s+/i.test(l) && isAmountishLine(l.replace(/^paid\s+to\s+/i, '')))) {
+      const parts: string[] = [];
+      for (let j = i + 1; j < ocrLines.length && j <= i + 8; j += 1) {
+        const n = ocrLines[j];
+        if (/^(?:debited|transaction|upi|utr|phonepe|gpay|paid\s+to|today|yesterday|received)/i.test(n)) break;
+        if (isAmountishLine(n) || /^[A-Za-z0-9._-]+@/.test(n) || /^\+?\d{8,}$/.test(n.replace(/\s/g, ''))) continue;
+        if (isNameishLine(n)) parts.push(n);
+        if (parts.length >= 2) break;
+      }
+      if (parts.length) {
+        lineMerchant = cleanMerchantName(parts.length >= 2 && parts[0].length < 22 ? `${parts[0]} ${parts[1]}` : parts[0]);
+        break;
+      }
     }
   }
   // GPay contact list: "RONTE VENKANNA ¶ ₹400" — payee is the name line right above the ₹ line.
@@ -751,9 +822,9 @@ export function extractMoneyAmount(text: string): ParsedMoneyAmount | null {
   };
 }
 
-const SKIP_NAME_RE = /^(?:amount|total|grand|net|paid|date|order|payment|biller|category|customer|transaction|reference|debited|credited|balance|qty|quantity|items?|subtotal|cgst|sgst|igst|history|search|statements?|am|pm|failed|received|sent|today|yesterday)$/i;
+const SKIP_NAME_RE = /^(?:amount|total|grand|net|paid|date|order|payment|biller|category|customer|transaction|reference(?:id)?|debited|credited|balance|qty|quantity|items?|subtotal|cgst|sgst|igst|history|search|statements?|am|pm|failed|received|sent|today|yesterday|contact|info)$/i;
 /** App chrome / receipt boilerplate that is never a payee name (substring match — OCR glues words). */
-const MERCHANT_CHROME_RE = /(?:receipt|invoice|memo|bill|duplicate|welcome|payment|transaction|estimate|history|successful|statement|balance|search|tax|gstin|cell|tel\b|mob\b|date|time|total|amount|details|order|thank|collected|name|student|customer|registration|branch|semester|particulars|description|product|price|rate\b|qty|home|alerts?|view|check|claim|reward|expires?|share|done|pay\b|debited|credited|from\b|powered|need help|composit|dealer)/i;
+const MERCHANT_CHROME_RE = /(?:receipt|invoice|memo|bill|duplicate|welcome|payment|transaction|estimate|history|successful|statement|balance|search|tax|gstin|cell|tel\b|mob\b|date|time|total|amount|details|order|thank|collected|name|student|customer|registration|branch|semester|particulars|description|product|price|rate\b|qty|home|alerts?|view|check|claim|reward|expires?|share|done|pay\b|debited|credited|from\b|powered|need help|composit|dealer|contact|reference)/i;
 
 /** Strip UPI VPA / trailing junk from a Paid-to merchant string. */
 export function cleanMerchantName(raw: string): string {
@@ -779,6 +850,8 @@ export function cleanMerchantName(raw: string): string {
   s = s.replace(/^(?:mr\.?\s*)/i, '').replace(/\s+\d{1,2}:\d{2}\s*(?:am|pm)?$/i, '').trim();
   if (SKIP_NAME_RE.test(s) || s.length < 2) return '';
   if (/^(?:am|pm)$/i.test(s)) return '';
+  if (/\.(?:jpe?g|png|webp|heic|pdf)$/i.test(s)) return '';
+  if (/^(?:img[-_\s]?\d|image|screenshot|whatsapp)/i.test(s)) return '';
   return s.slice(0, 48);
 }
 
@@ -795,6 +868,7 @@ export function extractUpiHistoryEntries(text: string): ParsedMoneyAmount[] {
     const name = cleanMerchantName(nameRaw);
     const amount = toNum(amountRaw);
     if (!(amount > 0) || amount >= 100_000_000) return;
+    if (Number.isInteger(amount) && amount >= 1900 && amount <= 2100) return;
     if (!name || name.length < 2) return;
     if (SKIP_NAME_RE.test(name)) return;
     if (/^(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+\d{2,4}$/i.test(name)) return;
@@ -842,8 +916,53 @@ export function extractUpiHistoryEntries(text: string): ParsedMoneyAmount[] {
     }
   }
 
+  const lines = repairOcrText(text)
+    .split(/\r?\n/)
+    .map((l) => l.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  const verbRe = /^(paid\s+to|pald\s+to|money\s+sent\s+to|received\s+from)\b/i;
+  for (let i = 0; i < lines.length; i += 1) {
+    const vm = lines[i].match(verbRe);
+    if (!vm) continue;
+    const type: 'in' | 'out' = /received/i.test(vm[1]) ? 'in' : 'out';
+    const rest = lines[i].slice(vm[0].length).trim();
+    let name = '';
+    let amt = '';
+    const restAmt = rest.match(/^([A-Za-z][A-Za-z0-9 .&']{1,40}?)(?:\s+[A-Za-z0-9._-]+@[A-Za-z0-9._-]+)?(?:\s+(?:today|yesterday))?\s*[-+]?\s*(?:₹|₨|rs\.?)?\s*([\d,]+(?:\.\d{1,2})?)\s*$/i);
+    if (restAmt) {
+      name = restAmt[1];
+      amt = restAmt[2];
+    } else if (rest && /^[A-Za-z]/.test(rest) && !/^[\d₹]/.test(rest)) {
+      name = rest.replace(/[A-Za-z0-9._-]+@\S+$/, '').trim();
+    }
+    for (let j = i + 1; j < lines.length && j <= i + 8; j += 1) {
+      const row = lines[j];
+      if (verbRe.test(row) || /^(?:home|search|history|statements?)$/i.test(row)) break;
+      if (/\bfailed\b/i.test(row)) break;
+      if (/^(?:debited|deblted|payment\s+details|banking\s+name|send\s+again|split\s+expense|share\s+receipt|paid\s+from|sent\s+from|received\s+in|view\s+history|contact|powered)/i.test(row)) break;
+      if (/^(?:[27₹]|rs\.?)$/i.test(row)) continue;
+      if (/\b(?:hours?|mins?|minutes?)\s+ago\b/i.test(row) || /^z?hours/i.test(row)) continue;
+      if (/^(?:today|yesterday|\d{1,2}\s*[A-Za-z]{3}(?:\s+\d{4})?)/i.test(row)) continue;
+      if (/^[A-Z]{1,2}$/.test(row)) continue;
+      const am = row.match(/^[+-]?\s*(?:₹|₨|rs\.?)?\s*([\d,]+(?:\.\d{1,2})?)\s*$/i);
+      if (am) {
+        const n = toNum(am[1]);
+        if (n >= 100_000) continue;
+        amt = am[1];
+        continue;
+      }
+      if (/^[A-Za-z][A-Za-z0-9 .&'-]{1,40}$/.test(row) && !SKIP_NAME_RE.test(row) && !MERCHANT_CHROME_RE.test(row)) {
+        if (!name) name = row;
+        else if (name.split(/\s+/).length < 3 && row.length <= 22) name = `${name} ${row}`;
+      }
+    }
+    if (name && amt) push(name, amt, type, i);
+  }
+
   found.sort((a, b) => a._i - b._i);
-  return found.length >= 2
+  const verbHits = (repairOcrText(text).match(/\b(?:paid\s+to|money\s+sent\s+to|received\s+from)\b/gi) || []).length;
+  const looksLikeHistory = /\bhistory\b/i.test(text) || verbHits >= 2;
+  return found.length >= 2 && looksLikeHistory
     ? found.map(({ _i, ...rest }) => rest)
     : [];
 }

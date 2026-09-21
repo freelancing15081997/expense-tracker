@@ -56,6 +56,52 @@ biller ICICI`, 18685.04],
 payment method UPI`, 18685.04],
   ['Customer ID trap', `Customer ID XXXX-7452
 amount ₹100000`, 100000],
+  ['Rapido not download2025', `PhonePe
+Transaction Successful
+Paid to
+Rapido
+₹150
+phon.pe/download2025`, 150],
+  ['Medical paid-to amount then name', `Transaction Successful
+Paid to
+1,007
+SREEVEERABHADRA SWAMY MEDICAL
+balakumari
+Debited from
+₹1,007`, 1007],
+  ['CRED Axis payable not customer id', `CRED
+bill payment
+amount ₹484.25
+biller name Axis Bank
+Customer ID XXXX-6173`, 484.25],
+  ['GPay 7400 is 400', `GPay
+RONTE VENKANNA
+7400
+12 Sept, 10:42 pm
+claim ₹10 cashback`, 400],
+  ['Seenapujari 1000', `Transaction Successful
+Paid to
+Seenapujari
+1,000
+Debited from
+₹1,000`, 1000],
+  ['PhonePe history rows', `History
+Paid to
+S CHAND BASHA
+30
+Paid to
+Nunna Mahesh Car
+10
+Paid to
+Rapido
+80
+Paid to
+Foo Bar
+150
+Paid to
+Baz Qux
+1000
+Sep 2026 ₹1,54,010.75`, [30, 10, 80, 150, 1000]],
 ];
 
 let fail = 0;

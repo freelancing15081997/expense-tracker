@@ -1,5 +1,6 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { ArrowLeft } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useFeatures } from '../lib/use-features';
 import { listAllExpenses } from '../lib/expenses';
@@ -79,6 +80,9 @@ export default function Activity() {
 
   return (
     <div className="premium-list-page web-page max-w-xl md:max-w-4xl mx-auto pb-28 md:pb-8">
+      <Link to="/" className="inline-flex items-center gap-1 text-sm font-semibold text-slate-500 hover:text-[#0B1F3A] mb-2">
+        <ArrowLeft className="w-4 h-4" /> Back
+      </Link>
       <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Activity</p>
       <h1 className="font-display text-[26px] font-semibold text-[#0B1F3A] tracking-tight">What’s happening</h1>
       <div className="mt-3 flex flex-wrap gap-2">

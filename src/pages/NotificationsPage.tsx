@@ -1,6 +1,6 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Bell, BookOpen, CheckCheck, Lock, Split, Wallet } from 'lucide-react';
+import { ArrowLeft, Bell, BookOpen, CheckCheck, Lock, Split, Wallet } from 'lucide-react';
 import { listNotifications, markAllNotificationsRead, markNotificationRead, notificationPath, notifyTimeAgo } from '../lib/notifications';
 import { useAuth } from '../context/AuthContext';
 import { BRAND_LOGO_SRC } from '../lib/brand';
@@ -45,6 +45,9 @@ export default function NotificationsPage() {
 
   return (
     <div className="notify-page web-page">
+      <Link to="/" className="inline-flex items-center gap-1 text-sm font-semibold text-slate-500 hover:text-[#0B1F3A] mb-2">
+        <ArrowLeft className="w-4 h-4" /> Back
+      </Link>
       <div className="notify-page-head">
         <div className="notify-page-brand">
           <img src={BRAND_LOGO_SRC} alt="" className="notify-byjan-mark" />

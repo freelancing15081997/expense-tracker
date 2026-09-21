@@ -40,7 +40,7 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, []);
 
   const stack = (
-    <div className="fixed bottom-4 right-4 z-[80] flex flex-col items-end gap-2 pointer-events-none w-[min(100%-2rem,24rem)]">
+    <div className="fixed bottom-4 right-4 z-[120] flex flex-col items-end gap-2 pointer-events-none w-[min(100%-2rem,24rem)]">
       {toasts.map((toast) => (
         <div
           key={toast.id}

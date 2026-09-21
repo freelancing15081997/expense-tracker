@@ -122,8 +122,8 @@ export function CategoryIconMark({
 }
 
 export const MONEY_KIND_VISUAL: Record<string, { icon: LucideIcon; tone: string }> = {
-  EXPENSE: { icon: ArrowDownRight, tone: 'coral' },
-  INCOME: { icon: ArrowUpRight, tone: 'emerald' },
+  EXPENSE: { icon: ArrowUpRight, tone: 'coral' },
+  INCOME: { icon: ArrowDownRight, tone: 'emerald' },
   TRANSFER: { icon: ArrowLeftRight, tone: 'sky' },
   REFUND: { icon: RotateCcw, tone: 'teal' },
   REVERSAL: { icon: Undo2, tone: 'amber' },

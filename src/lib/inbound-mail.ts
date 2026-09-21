@@ -39,11 +39,18 @@ export function inboundAliasPath(slug: string) {
   return `inbound_aliases/${inboundMailboxSlug(slug)}`;
 }
 
+/** Web origin for emails/SMS. Capacitor WebView is `https://localhost` and must never go in a link. */
+export const PUBLIC_WEB_ORIGIN = 'https://www.easypado.com';
+
+export function publicAppOrigin() {
+  if (typeof window === 'undefined' || !window.location?.origin) return PUBLIC_WEB_ORIGIN;
+  const origin = String(window.location.origin || '').replace(/\/+$/, '');
+  if (!origin || /localhost|127\.0\.0\.1|capacitor|ionic/i.test(origin)) return PUBLIC_WEB_ORIGIN;
+  return origin;
+}
+
 export function inviteAppLink(inviteId: string) {
-  const origin = typeof window !== 'undefined' && window.location?.origin
-    ? window.location.origin
-    : 'https://www.easypado.com';
-  return `${origin}/#/invite/${String(inviteId || '').trim()}`;
+  return `${publicAppOrigin()}/#/invite/${String(inviteId || '').trim()}`;
 }
 
 export function openInviteButtonHtml(inviteId: string, label = 'Open invitation in Byjan') {
@@ -57,10 +64,7 @@ export function openInviteButtonHtml(inviteId: string, label = 'Open invitation 
 }
 
 export function ledgerAppLink(bookId: string) {
-  const origin = typeof window !== 'undefined' && window.location?.origin
-    ? window.location.origin
-    : 'https://www.easypado.com';
-  return `${origin}/#/book/${String(bookId || '').trim()}`;
+  return `${publicAppOrigin()}/#/book/${String(bookId || '').trim()}`;
 }
 
 export function openLedgerButtonHtml(bookId: string, label = 'Open ledger in Byjan') {

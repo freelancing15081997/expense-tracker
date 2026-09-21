@@ -22,6 +22,13 @@ export default function PullToRefresh({ onRefresh, children, className, disabled
   const scroller = () => {
     const el = rootRef.current;
     if (!el) return null;
+    if (el.scrollHeight > el.clientHeight + 4) return el;
+    let node: HTMLElement | null = el.parentElement;
+    while (node) {
+      const oy = window.getComputedStyle(node).overflowY;
+      if ((oy === 'auto' || oy === 'scroll') && node.scrollHeight > node.clientHeight + 4) return node;
+      node = node.parentElement;
+    }
     const main = el.closest('main');
     return main instanceof HTMLElement ? main : el;
   };

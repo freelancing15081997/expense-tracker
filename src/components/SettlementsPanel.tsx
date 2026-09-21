@@ -104,6 +104,7 @@ export default function SettlementsPanel({
       onPayConsumed?.();
       return;
     }
+    consumedPay.current = initialPayId;
     if (!savedUpi) {
       setUpiOpen(true);
       onToast('Add your UPI ID before paying this settlement.', 'error');

@@ -125,13 +125,15 @@ function draftPreview(launch: ReceiptLaunch, extra?: Partial<CapturePreview>): C
     };
   }
   const name = String(launch.fileName || '').replace(/\.[a-z0-9]+$/i, '').replace(/[_-]+/g, ' ').trim();
+  const looksLikeFile = /\.(jpe?g|png|webp|heic|pdf)$/i.test(String(launch.fileName || ''))
+    || /^(?:img[-_\s]?\d|image|screenshot|receipt[-_\s]?\d|download|whatsapp|file)/i.test(name);
   return {
     id: newMoneyId('cap'),
     source: (launch.source === 'share' ? 'share' : 'receipt') as CapturePreview['source'],
     direction: 'MONEY_OUT',
     amountPaise: 0,
-    description: name || 'Shared receipt',
-    merchant: name || '',
+    description: looksLikeFile || !name ? 'Shared receipt' : name,
+    merchant: '',
     category: 'Uncategorized',
     paymentMethod: 'cash',
     date: isoDay(),

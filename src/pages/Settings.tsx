@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { useAppPrefs } from '../context/AppPrefsContext';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { upsertMe } from '../lib/me';
-import { Save, AlertCircle, CheckCircle2, Shield, BellRing, CircleHelp, UserX, Trash2, Settings as SettingsIcon } from 'lucide-react';
+import { Save, AlertCircle, CheckCircle2, Shield, BellRing, CircleHelp, UserX, Trash2, Settings as SettingsIcon, ArrowLeft } from 'lucide-react';
 import { disableLock, lockConfig, lockIsEnabledFor, setLockPin, updateLockOptions } from '../lib/app-lock';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 import { useBooksTenantMeta } from '../lib/tenant';
@@ -187,6 +187,9 @@ export default function Settings() {
         </div>
       ) : null}
       <div>
+        <Link to="/" className="inline-flex items-center gap-1 text-sm font-semibold text-slate-500 hover:text-[#0B1F3A] mb-2 -ml-0.5">
+          <ArrowLeft className="w-4 h-4" /> Back
+        </Link>
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Preferences</p>
         <h1 className="font-display text-[28px] font-semibold tracking-[-0.04em] text-[#0B1F3A]">Settings</h1>
         <p className="text-sm text-slate-500 mt-1">These options apply everywhere. Sign out is on your photo in the top-right.{appVersion ? ` App ${appVersion}.` : ''}</p>
