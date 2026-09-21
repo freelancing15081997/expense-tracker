@@ -284,6 +284,37 @@ export function ocrFingerprint(text: string): string {
   return `${head}_${(h >>> 0).toString(16)}_${s.length}_${tail}`;
 }
 
+/** Cheap file id — same shared bytes match across devices; the photo itself is not stored. */
+export function bytesFingerprint(raw: string): string {
+  const s = String(raw || '').replace(/^data:[^;]+;base64,/i, '').replace(/\s+/g, '');
+  if (s.length < 120) return '';
+  let h = 5381;
+  const step = Math.max(1, Math.floor(s.length / 1536));
+  for (let i = 0; i < s.length; i += step) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return `img:${s.length}_${(h >>> 0).toString(16)}`;
+}
+
+/**
+ * Cross-device learn keys. Exact OCR dumps differ by phone; UTR / UPI txn id / same-file hash do not.
+ */
+export function learnKeysFromText(text: string): string[] {
+  const raw = String(text || '');
+  const keys: string[] = [];
+  const fp = ocrFingerprint(raw);
+  if (fp) {
+    keys.push(fp);
+    keys.push(`ocr:${fp}`);
+  }
+  const repaired = repairOcrText(raw);
+  const utr = repaired.match(/\b(?:utr|upi(?:\s*ref(?:erence)?)?(?:\s*no\.?)?)\s*[:#-]?\s*([a-z0-9]{8,22})\b/i);
+  if (utr?.[1]) keys.push(`utr:${utr[1].toUpperCase()}`);
+  const txn = repaired.match(
+    /\b(?:phonepe\s+transaction\s+id|g(?:oogle)?\s*pay\s+transaction\s+id|upi\s+transaction\s+id|transaction\s+id)\s*[:#-]?\s*([a-z0-9]{10,36})\b/i,
+  );
+  if (txn?.[1]) keys.push(`txn:${txn[1].toUpperCase()}`);
+  return [...new Set(keys.filter(Boolean))];
+}
+
 export type LearnedParseHit = {
   amount: number;
   merchant?: string;
@@ -300,9 +331,12 @@ export function setLearnedParseLookup(fn: ((fp: string) => LearnedParseHit | nul
 
 function fromLearned(text: string): ParsedMoneyAmount[] | null {
   if (!learnedLookup) return null;
-  const fp = ocrFingerprint(text);
-  if (!fp) return null;
-  const hit = learnedLookup(fp);
+  let hit: LearnedParseHit | null = null;
+  for (const k of learnKeysFromText(text)) {
+    hit = learnedLookup(k);
+    if (hit && Number(hit.amount) > 0) break;
+    hit = null;
+  }
   if (!hit || !(Number(hit.amount) > 0)) return null;
   const row = (amount: number, merchant?: string, entryType?: string): ParsedMoneyAmount => ({
     amount,

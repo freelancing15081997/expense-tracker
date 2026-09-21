@@ -3,9 +3,12 @@ import { Link } from 'react-router-dom';
 import { ChevronRight, Inbox } from 'lucide-react';
 import type { AttentionItem } from '../lib/financial-memory';
 import { formatIndianAmount } from '../lib/bridge-automations';
+import { useFeatures } from '../lib/use-features';
 import HomeSwipeDeck from './HomeSwipeDeck';
 
 export default function FinancialInbox({ items }: { items: AttentionItem[] }) {
+  const { on: hasFeature } = useFeatures();
+  const inboxHref = hasFeature('money_activity') ? '/activity' : hasFeature('app_notifications') ? '/notifications' : '/';
   const rows = items.slice(0, 8);
   const count = rows.length;
   const [index, setIndex] = useState(0);
@@ -18,13 +21,13 @@ export default function FinancialInbox({ items }: { items: AttentionItem[] }) {
           <Inbox className="w-4 h-4" strokeWidth={2.2} />
           Financial inbox
         </span>
-        <Link to="/activity">
+        <Link to={inboxHref}>
           See all <ChevronRight className="w-3.5 h-3.5" />
         </Link>
       </div>
       {!count ? (
-        <Link to="/activity" className="home-upcoming-empty">
-          Nothing waiting — tap to open activity
+        <Link to={inboxHref} className="home-upcoming-empty">
+          {hasFeature('money_activity') ? 'Nothing waiting — tap to open activity' : 'Nothing waiting'}
         </Link>
       ) : (
         <HomeSwipeDeck
@@ -36,7 +39,7 @@ export default function FinancialInbox({ items }: { items: AttentionItem[] }) {
           {rows.map((row) => (
             <Link
               key={row.id}
-              to={row.href || '/activity'}
+              to={row.href || inboxHref}
               className="home-swipe-slide home-quad-card"
             >
               <span className="home-quad-kind" data-kind={row.kind}>

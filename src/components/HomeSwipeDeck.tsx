@@ -24,9 +24,18 @@ export default function HomeSwipeDeck({
   const swiping = useRef(false);
   const [drag, setDrag] = useState(0);
   const [isSwiping, setIsSwiping] = useState(false);
+  const [stack, setStack] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches);
 
   useEffect(() => {
-    if (count <= 1) return undefined;
+    const mq = window.matchMedia('(min-width: 768px)');
+    const sync = () => setStack(mq.matches);
+    sync();
+    mq.addEventListener('change', sync);
+    return () => mq.removeEventListener('change', sync);
+  }, []);
+
+  useEffect(() => {
+    if (stack || count <= 1) return undefined;
     const tick = () => {
       if (paused.current || document.visibilityState !== 'visible') return;
       onIndex((index + 1) % count);
@@ -38,9 +47,10 @@ export default function HomeSwipeDeck({
       window.clearInterval(id);
       document.removeEventListener('visibilitychange', onVis);
     };
-  }, [count, index, intervalMs, onIndex]);
+  }, [stack, count, index, intervalMs, onIndex]);
 
   const endPointer = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (stack) return;
     try {
       if (event.currentTarget.hasPointerCapture(event.pointerId)) {
         event.currentTarget.releasePointerCapture(event.pointerId);
@@ -60,11 +70,11 @@ export default function HomeSwipeDeck({
   };
 
   return (
-    <div className={`home-swipe ${className}`.trim()} aria-label={label} aria-roledescription="carousel">
+    <div className={`home-swipe${stack ? ' is-stack' : ''}${className ? ` ${className}` : ''}`} aria-label={label} aria-roledescription={stack ? 'list' : 'carousel'}>
       <div
         className="home-swipe-viewport"
         onPointerDown={(event) => {
-          if (count <= 1) return;
+          if (stack || count <= 1) return;
           paused.current = true;
           swiping.current = false;
           setIsSwiping(false);
@@ -72,7 +82,7 @@ export default function HomeSwipeDeck({
           event.currentTarget.setPointerCapture(event.pointerId);
         }}
         onPointerMove={(event) => {
-          if (count <= 1 || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
+          if (stack || count <= 1 || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
           const dx = event.clientX - startX.current;
           if (Math.abs(dx) > 8) {
             swiping.current = true;
@@ -93,7 +103,7 @@ export default function HomeSwipeDeck({
         <div
           className="home-swipe-track"
           data-swiping={isSwiping ? '1' : undefined}
-          style={{
+          style={stack ? undefined : {
             transform: `translateX(calc(${-index * 100}% + ${drag}px))`,
             transition: drag ? 'none' : undefined,
           }}
@@ -101,7 +111,7 @@ export default function HomeSwipeDeck({
           {children}
         </div>
       </div>
-      {count > 1 ? (
+      {!stack && count > 1 ? (
         <div className="home-swipe-dots" role="tablist" aria-label={`${label} pages`}>
           {Array.from({ length: count }, (_, i) => (
             <button

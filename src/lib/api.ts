@@ -102,14 +102,36 @@ async function nativePost(url: string, headers: Record<string, string>, body: Re
   return fromHttp(res.status, res.data);
 }
 
-async function webPost(url: string, headers: Record<string, string>, body: Record<string, unknown>) {
-  const res = await fetch(url, {
-    method: 'POST',
-    credentials: isNativeApp() ? 'omit' : 'include',
-    headers,
-    body: JSON.stringify(body || {}),
-  });
-  return fromHttp(res.status, await res.text());
+async function withTimeout<T>(work: (signal: AbortSignal) => Promise<T>, timeoutMs: number) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await work(ctrl.signal);
+  } catch (err) {
+    if (err && typeof err === 'object' && (err as { name?: string }).name === 'AbortError') {
+      throw failPayload(504, { error: 'This is taking longer than expected. Please try again.' });
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function requestTimeoutMs(path: string) {
+  return path.includes('/email/') ? 60000 : 30000;
+}
+
+async function webPost(url: string, headers: Record<string, string>, body: Record<string, unknown>, timeoutMs = 30000) {
+  return withTimeout(async (signal) => {
+    const res = await fetch(url, {
+      method: 'POST',
+      credentials: isNativeApp() ? 'omit' : 'include',
+      headers,
+      body: JSON.stringify(body || {}),
+      signal,
+    });
+    return fromHttp(res.status, await res.text());
+  }, timeoutMs);
 }
 
 let authHeaderCache: { value: string; at: number } | null = null;
@@ -145,8 +167,8 @@ export async function apiPost<T>(path: string, body: Record<string, unknown> = {
   const headers = await headersWithAuth({ 'Content-Type': 'application/json' });
   const url = apiUrl(path);
 
+  const timeout = requestTimeoutMs(path);
   if (isNativeApp()) {
-    const timeout = path.includes('/email/') ? 60000 : 30000;
     try {
       const res = await CapacitorHttp.post({
         url,
@@ -158,23 +180,26 @@ export async function apiPost<T>(path: string, body: Record<string, unknown> = {
       return fromHttp(res.status, res.data) as T;
     } catch (err) {
       try {
-        return await webPost(url, headers, body) as T;
+        return await webPost(url, headers, body, timeout) as T;
       } catch {
         throw err;
       }
     }
   }
 
-  return webPost(url, headers, body) as Promise<T>;
+  return webPost(url, headers, body, timeout) as Promise<T>;
 }
 
 export async function apiGet<T>(path: string): Promise<T> {
   const headers = await headersWithAuth();
   const url = apiUrl(path);
+  const timeout = requestTimeoutMs(path);
   if (isNativeApp()) {
-    const res = await CapacitorHttp.get({ url, headers, connectTimeout: 30000, readTimeout: 30000 });
+    const res = await CapacitorHttp.get({ url, headers, connectTimeout: timeout, readTimeout: timeout });
     return fromHttp(res.status, res.data) as T;
   }
-  const res = await fetch(url, { credentials: 'include', headers });
-  return fromHttp(res.status, await res.text()) as T;
+  return withTimeout(async (signal) => {
+    const res = await fetch(url, { credentials: 'include', headers, signal });
+    return fromHttp(res.status, await res.text()) as T;
+  }, timeout);
 }

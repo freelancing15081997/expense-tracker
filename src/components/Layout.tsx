@@ -15,7 +15,7 @@ import AccountMenu from './AccountMenu';
 import WorkspaceSwitcher from './WorkspaceSwitcher';
 import FeatureTour from './FeatureTour';
 import { useBooksTenantMeta } from '../lib/tenant';
-import { CapacitorService } from '../lib/capacitor';
+import { CapacitorService, isMobile } from '../lib/capacitor';
 import { useFeatures } from '../lib/use-features';
 import { BRAND_LOGO_SRC } from '../lib/brand';
 
@@ -79,6 +79,15 @@ export default function Layout() {
   const [railPinned, setRailPinned] = useState(() => {
     try { return localStorage.getItem('byjan.rail.pin') === '1'; } catch { return false; }
   });
+  const [phoneWidth, setPhoneWidth] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    const sync = () => setPhoneWidth(mq.matches);
+    sync();
+    mq.addEventListener('change', sync);
+    return () => mq.removeEventListener('change', sync);
+  }, []);
+  const showPhoneChrome = isMobile || phoneWidth;
   const isExpanded = mobileMenuOpen || isSidebarHovered || railPinned;
   const toggleRailPin = () => {
     setRailPinned((curr) => {
@@ -196,6 +205,7 @@ export default function Layout() {
     <div className="h-full w-full flex flex-col md:flex-row font-sans text-[#0F172A] overflow-hidden bg-transparent">
       <GlobalSearch />
 
+      {showPhoneChrome ? (
       <div className="md:hidden bg-white border-b border-slate-200/80 flex items-center justify-between px-3 py-2.5 z-[80] pt-[max(0.6rem,env(safe-area-inset-top))]">
         <Link to="/" className="flex items-center gap-2.5" title="Home">
           <BrandLogo size="sm" className="!w-10 !h-10" />
@@ -218,6 +228,7 @@ export default function Layout() {
           <AccountMenu />
         </div>
       </div>
+      ) : null}
 
       {mobileMenuOpen && (
         <div className="md:hidden fixed inset-0 z-40 bg-slate-900/40" onClick={() => setMobileMenuOpen(false)} />
@@ -267,7 +278,7 @@ export default function Layout() {
           'flex-1 min-h-0 ios-page',
           location.pathname.startsWith('/book')
             ? 'overflow-hidden flex flex-col pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-0'
-            : 'overflow-y-auto p-3 md:p-6 lg:p-8 pb-[calc(8.5rem+env(safe-area-inset-bottom))] md:pb-8'
+            : 'overflow-y-auto p-3 md:p-5 lg:p-6 pb-[calc(8.5rem+env(safe-area-inset-bottom))] md:pb-6'
         )}>
           <div
             key={`${location.pathname}:${navPulse}`}
@@ -352,6 +363,8 @@ export default function Layout() {
         </>
       )}
 
+      {showPhoneChrome ? (
+      <>
       <AnimatePresence>
         {fabOpen && showFab && (
           <motion.div
@@ -462,6 +475,8 @@ export default function Layout() {
           </div>
         ) : null}
       </nav>
+      </>
+      ) : null}
     </div>
   );
 }

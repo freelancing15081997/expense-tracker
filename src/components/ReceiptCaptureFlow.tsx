@@ -13,11 +13,11 @@ import {
 import type { CapturePreview } from '../lib/money-core';
 import { newMoneyId } from '../lib/money-core';
 import { isoDay } from '../lib/ledger-advanced';
-import { extractReceiptDate } from '../lib/amount-parse';
+import { extractReceiptDate, bytesFingerprint, learnKeysFromText } from '../lib/amount-parse';
 import { ENTRY_PAY_METHODS } from './UpiBrandMark';
 import type { MoneyContextOption } from '../lib/money-flow';
 import { ContextSelector } from './money/MoneyUi';
-import { confirmMismatchGold, reportParseMismatch } from '../lib/parse-feedback';
+import { confirmMismatchGold, lookupLearnedParse, reportParseMismatch } from '../lib/parse-feedback';
 import './share-reading.css';
 
 export type ReceiptLaunch = {
@@ -72,6 +72,7 @@ const REVIEW_CATEGORIES = [
 
 /** Upload started during parse; the manual-form fallback awaits it briefly so the entry keeps its receipt. */
 const pendingUploadRef: { current: Promise<{ receiptPath?: string; receiptName?: string } | null> | null } = { current: null };
+const pendingLearnKeysRef: { current: string[] } = { current: [] };
 
 const STAGE_COPY: Array<{ min: number; title: string; detail: string }> = [
   { min: 0, title: 'Opening your share', detail: 'Getting the receipt ready…' },
@@ -162,6 +163,11 @@ async function parseReceiptNow(
   // Spreadsheets → structured server import. Large camera photos still go through
   // on-device OCR + compressed vision (Play full-res used to skip OCR entirely).
   const useStructuredPath = sheet;
+
+  const withTimeout = <T,>(p: Promise<T>, ms: number): Promise<T | null> => Promise.race([
+    p,
+    new Promise<null>((resolve) => { window.setTimeout(() => resolve(null), Math.max(0, ms)); }),
+  ]);
 
   const scrubPreview = (preview: CapturePreview): CapturePreview => ensurePreviewCategory({
     ...preview,
@@ -257,6 +263,9 @@ async function parseReceiptNow(
       const pdfName = /\.pdf$/i.test(receiptName) ? receiptName : `${String(receiptName || 'receipt').replace(/\.\w+$/, '')}.pdf`;
       const { extractPdfTextClient } = await import('../lib/pdf-text-client');
       const pdfText = await extractPdfTextClient(imageBase64);
+      const pdfKeys = [...learnKeysFromText(pdfText || ''), bytesFingerprint(imageBase64)];
+      pendingLearnKeysRef.current = pdfKeys;
+      await withTimeout(lookupLearnedParse({ keys: pdfKeys, ocrText: pdfText || '' }).catch(() => null), 400);
       const fromPdf = pdfText ? extractMoneyAmount(pdfText) : null;
       const uploadPromisePdf = uploadLedgerReceipt(bookId, {
         dataUrl: launch.imageDataUrl?.startsWith('data:') ? launch.imageDataUrl : `data:application/pdf;base64,${imageBase64}`,
@@ -345,10 +354,6 @@ async function parseReceiptNow(
     // Hard budget: native OCR self-limits to ~2.6s; past this we stop waiting and open the form.
     const OCR_MS = 3200;
     const elapsed = () => Date.now() - parseStarted;
-    const withTimeout = <T,>(p: Promise<T>, ms: number): Promise<T | null> => Promise.race([
-      p,
-      new Promise<null>((resolve) => { window.setTimeout(() => resolve(null), Math.max(0, ms)); }),
-    ]);
     // Pass original bytes to native OCR — avoid JS re-encode then native downscale (double lossy).
     const ocrPromise = localParseReceiptImage(
       String(launch.imageDataUrl || '').replace(/^data:[^;]+;base64,/i, '').replace(/\s+/g, ''),
@@ -375,6 +380,9 @@ async function parseReceiptNow(
     onStatus('Reading amount, merchant & date…', 48);
 
     const ocrText = [launch.text || '', local?.text || ''].filter(Boolean).join('\n');
+    const learnKeys = [...learnKeysFromText(ocrText), ...(imageBase64 ? [bytesFingerprint(imageBase64)] : [])];
+    pendingLearnKeysRef.current = learnKeys;
+    const remoteLearnP = lookupLearnedParse({ keys: learnKeys, ocrText }).catch(() => null);
     const stamp = (extra: Partial<CapturePreview> = {}): Partial<CapturePreview> => ({
       ...extra,
       raw: extra.raw || ocrText.slice(0, 8000),
@@ -395,9 +403,15 @@ async function parseReceiptNow(
       receiptName = uploadedEarly.receiptName || receiptName;
     }
 
+    const hydrateFromCloud = async (entries: ReturnType<typeof extractMoneyEntries>) => {
+      if (entries[0]?.score === 99) return entries;
+      await withTimeout(remoteLearnP, Math.min(500, Math.max(80, OCR_MS - elapsed() + 250)));
+      return extractMoneyEntries(ocrText);
+    };
+
     // Handwritten / multi-line notes: "Seenu - Rs 1016" + "Raghu - Rs 5016" → many entries.
     // CRED / PhonePe / single UPI: one payable total only.
-    const entries = extractMoneyEntries(ocrText);
+    const entries = await hydrateFromCloud(extractMoneyEntries(ocrText));
     if (entries.length >= 2) {
       onStatus(`Found ${entries.length} entries — confirm each…`, 78);
       const multi = entries.map((e, i) => scrubPreview({
@@ -963,6 +977,7 @@ export default function ReceiptCaptureFlow({
             ocrText: ocrTextRef.current,
             gold: { ...gold, extras: goldRows.length > 1 ? goldRows : undefined },
             saved: true,
+            extraKeys: pendingLearnKeysRef.current,
           });
         }
       }
@@ -1413,6 +1428,7 @@ export default function ReceiptCaptureFlow({
         ocrText,
         predicted,
         gold,
+        extraKeys: pendingLearnKeysRef.current,
       });
       if (result.id) mismatchIdRef.current = result.id;
       setThanksLine(result.thanks);

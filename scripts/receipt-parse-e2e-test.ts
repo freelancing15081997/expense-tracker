@@ -3,7 +3,7 @@
  * Covers UPI apps, GST invoices, fuel, food, utilities, bank SMS, medical, e‑commerce, etc.
  * Runs: amount-parse + PP-Structure (+ duplicate fingerprint checks).
  */
-import { extractMoneyAmount, extractReceiptDate, reconcileVisionAmount } from '../src/lib/amount-parse.ts';
+import { extractMoneyAmount, extractReceiptDate, learnKeysFromText, reconcileVisionAmount, setLearnedParseLookup } from '../src/lib/amount-parse.ts';
 import { parsePpStructureText, needsPpStructure } from '../api/_lib/paddle-structure.ts';
 import { matchDuplicateExpenses } from '../src/lib/duplicate-match.ts';
 import { guessCategoryFromText, guessedMerchant } from '../src/lib/bridge-automations.ts';
@@ -667,6 +667,14 @@ UTR 590641031504`;
 
   const medicals = `Paid to\nSharadha Medicals\n₹10\nPhonePe`;
   assert(guessCategoryFromText('Sharadha Medicals', '', medicals) === 'Health', 'medicals → Health');
+
+  const keys = learnKeysFromText(apollo);
+  assert(keys.some((k) => k === 'utr:590641031504'), `apollo learn keys include UTR, got ${keys.join(',')}`);
+  assert(keys.some((k) => k.startsWith('txn:T260918')), `apollo learn keys include txn, got ${keys.join(',')}`);
+  setLearnedParseLookup((k) => (k === 'utr:590641031504' ? { amount: 164, merchant: 'APOLLO PHARMACY' } : null));
+  const drifted = extractMoneyAmount('Paid to APOLLO garbled 71000 PhonePe UTR 590641031504');
+  assert(drifted?.amount === 164, `UTR learn replay ${drifted?.amount}`);
+  setLearnedParseLookup(null);
 }
 
 console.log(`\n=== Result: ${passed} passed, ${failed} failed ===`);

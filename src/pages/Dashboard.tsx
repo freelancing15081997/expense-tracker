@@ -26,9 +26,10 @@ import { cacheMoneyBooks, readPendingCapture, clearPendingCapture, rememberMoney
 import { readUserJson, writeUserJson } from '../lib/user-cache';
 import PendingPayStrip from '../components/PendingPayStrip';
 import HomeFeatureReel from '../components/HomeFeatureReel';
-import { CapacitorService } from '../lib/capacitor';
+import { CapacitorService, isWeb } from '../lib/capacitor';
 import BookPickSheet from '../components/BookPickSheet';
 import FinancialInbox from '../components/FinancialInbox';
+import WebScanSheet, { type WebScanFile } from '../components/WebScanSheet';
 import { MoneyAttentionSkeleton, MoneyBookListSkeleton, MoneyFeedSkeleton } from '../components/money/MoneySkeletons';
 import {
   RECOMMENDED_PURPOSES,
@@ -514,6 +515,7 @@ export default function Dashboard() {
 
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [receiptLaunch, setReceiptLaunch] = useState<ReceiptLaunch | null>(null);
+  const [webScan, setWebScan] = useState<{ bookId?: string } | null>(null);
   const [bookPickKind, setBookPickKind] = useState<'add' | 'scan' | 'voice' | 'share' | 'split' | null>(null);
   const [sharePending, setSharePending] = useState<PendingCapture | null>(null);
   const [sharePickBooks, setSharePickBooks] = useState<Array<{ id: string; name: string }>>([]);
@@ -680,9 +682,13 @@ export default function Dashboard() {
     navigate(`/book/${bookId}`, { state: { openPeople: true } });
   };
   const scanHomeReceipt = async (bookId?: string) => {
+    const preferred = bookId || (visibleBooks.length === 1 ? visibleBooks[0].id : '');
+    if (isWeb) {
+      setWebScan({ bookId: preferred || undefined });
+      return;
+    }
     try {
       await CapacitorService.requestCameraPermission();
-      const preferred = bookId || (visibleBooks.length === 1 ? visibleBooks[0].id : '');
       let batch: Array<{ imageDataUrl: string; fileName: string; mimeType: string }> = [];
       try {
         batch = await CapacitorService.captureScanReceipts({ limit: 24, quality: 88 });
@@ -691,29 +697,34 @@ export default function Dashboard() {
         if (/cancel/i.test(msg)) return;
         throw err;
       }
-      if (!batch.length) return;
-      if (batch.length === 1) {
-        setReceiptLaunch({
-          source: 'camera',
-          imageDataUrl: batch[0].imageDataUrl,
-          fileName: batch[0].fileName,
-          mimeType: batch[0].mimeType,
-          preferredBookId: preferred || undefined,
-          requireBookPick: !preferred,
-        });
-        return;
-      }
-      setReceiptLaunch({
-        source: 'batch',
-        batch,
-        preferredBookId: preferred || undefined,
-        requireBookPick: !preferred,
-      });
+      launchScanBatch(batch, preferred);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Could not open camera or photos';
       if (/cancel/i.test(msg)) return;
       addToast(msg, 'error');
     }
+  };
+
+  const launchScanBatch = (batch: WebScanFile[], bookId?: string) => {
+    const preferred = bookId || (visibleBooks.length === 1 ? visibleBooks[0].id : '');
+    if (!batch.length) return;
+    if (batch.length === 1) {
+      setReceiptLaunch({
+        source: 'camera',
+        imageDataUrl: batch[0].imageDataUrl,
+        fileName: batch[0].fileName,
+        mimeType: batch[0].mimeType,
+        preferredBookId: preferred || undefined,
+        requireBookPick: !preferred,
+      });
+      return;
+    }
+    setReceiptLaunch({
+      source: 'batch',
+      batch,
+      preferredBookId: preferred || undefined,
+      requireBookPick: !preferred,
+    });
   };
 
   const addHomeEntry = (bookId?: string) => {
@@ -1137,6 +1148,7 @@ export default function Dashboard() {
     return (
       <PullToRefresh onRefresh={async () => { await refreshUserProfile(); await fetchData({ silent: true }); }} className="home-shell ios-page">
         {createDialog}
+        <div className="home-desk">
         <section className="home-hero">
           <div className="home-hero-top">
             {canSeeMoney ? <HomeFeatureReel /> : null}
@@ -1222,6 +1234,7 @@ export default function Dashboard() {
           </section>
         )}
 
+        <div className="home-desk-primary">
         {hasFeature('money') && (hasFeature('money_inbox') || hasFeature('money_recurring')) ? (
           <section className="home-attention" aria-label="Attention">
             {loading || !statsReady ? (
@@ -1270,7 +1283,9 @@ export default function Dashboard() {
             </div>
           </section>
         )}
+        </div>
 
+        <div className="home-desk-feed">
         {hasFeature('money') && (loading || recentEntries.length > 0) && (
           <section className="home-recent" aria-label="Recent transactions">
             <div className="home-zone-head">
@@ -1301,6 +1316,7 @@ export default function Dashboard() {
             )}
           </section>
         )}
+        </div>
 
         {hasFeature('business') && businessTree.length > 0 && (
           <section className="home-qa" aria-label="Business">
@@ -1318,6 +1334,17 @@ export default function Dashboard() {
             </div>
           </section>
         )}
+        </div>
+
+        <WebScanSheet
+          open={Boolean(webScan)}
+          onClose={() => setWebScan(null)}
+          onCaptured={(files) => {
+            const bookId = webScan?.bookId;
+            setWebScan(null);
+            launchScanBatch(files, bookId);
+          }}
+        />
 
         <ReceiptCaptureFlow
           open={Boolean(receiptLaunch)}
@@ -1522,6 +1549,15 @@ export default function Dashboard() {
       </section>
       )}
 
+      <WebScanSheet
+        open={Boolean(webScan)}
+        onClose={() => setWebScan(null)}
+        onCaptured={(files) => {
+          const bookId = webScan?.bookId;
+          setWebScan(null);
+          launchScanBatch(files, bookId);
+        }}
+      />
       <ReceiptCaptureFlow
         open={Boolean(receiptLaunch)}
         launch={receiptLaunch}

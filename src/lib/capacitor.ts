@@ -239,6 +239,9 @@ export class CapacitorService {
     }
 
     // System sheet: Camera | Photos (and Cancel). Matches user expectation on Play builds.
+    if (isWeb) {
+      return this.pickReceiptBatch({ limit, quality });
+    }
     try {
       const photo = await this.takePicture({
         source: CameraSource.Prompt,
@@ -379,7 +382,7 @@ export class CapacitorService {
       input.type = 'file';
       input.multiple = true;
       input.accept = 'image/*,application/pdf,.pdf,.csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-      input.style.display = 'none';
+      input.style.cssText = 'position:fixed;left:0;top:0;opacity:0;width:1px;height:1px;';
       const cleanup = () => { try { input.remove(); } catch { /* */ } };
       input.onchange = () => {
         const files = Array.from(input.files || []).slice(0, limit);

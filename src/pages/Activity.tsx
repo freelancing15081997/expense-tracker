@@ -78,7 +78,7 @@ export default function Activity() {
   }, [list.pageRows]);
 
   return (
-    <div className="premium-list-page max-w-xl mx-auto pb-28 md:pb-8">
+    <div className="premium-list-page web-page max-w-xl md:max-w-4xl mx-auto pb-28 md:pb-8">
       <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Activity</p>
       <h1 className="font-display text-[26px] font-semibold text-[#0B1F3A] tracking-tight">What’s happening</h1>
       <div className="mt-3 flex flex-wrap gap-2">

@@ -5,12 +5,34 @@ import path from "path";
 import { handleBlobDeleteRequest, handleBlobUploadRequest } from "./api/_lib/blob-store";
 import { handleAuthRequest } from "./api/_lib/auth-handler";
 import { applyCors, requireUser } from "./api/_lib/helpers";
-import { sendTracedMail } from "./api/_lib/smtp-mail";
+import { sendTracedMail, smtpConfigured } from "./api/_lib/smtp-mail";
+import { publicServiceError } from "./api/_lib/ops-classify";
 
 dns.setDefaultResultOrder('ipv4first');
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
+const PRODUCTION_API = String(process.env.VITE_API_URL || 'https://www.easypado.com').replace(/\/+$/, '');
+
+async function proxyEmailToProduction(req: express.Request, res: express.Response, path: string) {
+  if (/localhost|127\.0\.0\.1/i.test(PRODUCTION_API)) {
+    res.status(503).json({ error: publicServiceError(new Error('SMTP'), 'Email is temporarily unavailable. Please try again later.') });
+    return;
+  }
+  const auth = String(req.headers.authorization || '');
+  const r = await fetch(`${PRODUCTION_API}${path}`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      ...(auth ? { authorization: auth } : {}),
+    },
+    body: JSON.stringify(req.body || {}),
+  });
+  const text = await r.text();
+  res.status(r.status);
+  res.setHeader('content-type', r.headers.get('content-type') || 'application/json');
+  res.send(text);
+}
 
 app.use("/api", (req, res, next) => {
   applyCors(req, res);
@@ -71,6 +93,14 @@ app.post("/api/migrate", async (req, res) => {
 });
 
 app.post("/api/email/send-report", async (req, res) => {
+  if (!process.env.VERCEL && !smtpConfigured()) {
+    try {
+      await proxyEmailToProduction(req, res, "/api/email/send-report");
+    } catch (error: any) {
+      res.status(502).json({ error: publicServiceError(error, "Could not send the report email. Please try again.") });
+    }
+    return;
+  }
   const uid = await requireUser(req, res);
   if (!uid) return;
   const { to, subject, message, pdfBase64, filename } = req.body;
@@ -100,11 +130,19 @@ app.post("/api/email/send-report", async (req, res) => {
     res.json({ success: true, messageId: info.messageId });
   } catch (error: any) {
     console.error("Error sending report:", error);
-    res.status(500).json({ error: error?.message || "Failed to send report" });
+    res.status(500).json({ error: publicServiceError(error, "Could not send the report email. Please try again.") });
   }
 });
 
 app.post("/api/email/send", async (req, res) => {
+  if (!process.env.VERCEL && !smtpConfigured()) {
+    try {
+      await proxyEmailToProduction(req, res, "/api/email/send");
+    } catch (error: any) {
+      res.status(502).json({ error: publicServiceError(error, "Could not send this email. Please try again.") });
+    }
+    return;
+  }
   const uid = await requireUser(req, res);
   if (!uid) return;
   const { to, subject, message } = req.body;
@@ -125,7 +163,7 @@ app.post("/api/email/send", async (req, res) => {
     res.json({ success: true, messageId: info.messageId });
   } catch (error: any) {
     console.error("Error sending email:", error);
-    res.status(500).json({ error: error?.message || "Failed to send email" });
+    res.status(500).json({ error: publicServiceError(error, "Could not send this email. Please try again.") });
   }
 });
 

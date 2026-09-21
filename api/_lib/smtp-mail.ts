@@ -8,9 +8,19 @@ export function mailFromAddress(fallback = 'byjanbooks@easypado.com') {
   return raw;
 }
 
+export function smtpAuth() {
+  const user = String(process.env.SMTP_USER || process.env.BREVO_SMTP_USER || process.env.SMTP_LOGIN || '').trim();
+  const pass = String(process.env.SMTP_PASS || process.env.BREVO_SMTP_KEY || process.env.BREVO_SMTP_PASS || '').trim();
+  return { user, pass };
+}
+
+export function smtpConfigured() {
+  const { user, pass } = smtpAuth();
+  return Boolean(user && pass);
+}
+
 export function smtpSettings() {
-  const user = String(process.env.SMTP_USER || '').trim();
-  const pass = String(process.env.SMTP_PASS || '').trim();
+  const { user, pass } = smtpAuth();
   if (!user || !pass) {
     throw new Error('SMTP is not configured. Set SMTP_USER and SMTP_PASS in the server environment.');
   }
@@ -48,7 +58,11 @@ export async function createSmtpTransport(): Promise<{
   try {
     settings = smtpSettings();
   } catch (err: any) {
-    await writeOpsTrace('email.config', { ok: false, error: String(err?.message || err) });
+    // Local `npm run dev` has no Vercel SMTP secrets — do not write email.config
+    // into the shared ops ledger or Trace looks like production mail is down.
+    if (process.env.VERCEL) {
+      await writeOpsTrace('email.config', { ok: false, error: String(err?.message || err) });
+    }
     throw err;
   }
   return { transporter: createTransport(settings), settings };

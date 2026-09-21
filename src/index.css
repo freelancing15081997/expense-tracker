@@ -7462,12 +7462,14 @@ section[aria-label="To pay"] {
   margin-bottom: 4px;
 }
 
-/* FAB layer — menus row + absolute centered + ; never put + in the grid */
-.dash-tabbar.has-fab {
-  overflow: visible !important;
-  -webkit-mask-image: none !important;
-  mask-image: none !important;
-  display: block !important;
+/* FAB layer — phone only. Never force the tab bar on desktop web. */
+@media (max-width: 767px) {
+  .dash-tabbar.has-fab {
+    overflow: visible !important;
+    -webkit-mask-image: none !important;
+    mask-image: none !important;
+    display: block !important;
+  }
 }
 .dash-tabbar.has-fab::before {
   display: none !important;
@@ -7737,4 +7739,337 @@ section[aria-label="To pay"] {
   .home-shell {
     padding-bottom: 156px;
   }
+}
+
+.home-desk,
+.home-desk-primary,
+.home-desk-feed {
+  display: flex;
+  flex-direction: column;
+  gap: inherit;
+  min-width: 0;
+}
+
+/* —— Desktop / web: professional density, no phone-shell —— */
+@media (min-width: 768px) {
+  /* Win over later .dash-tabbar.has-fab { display: block !important } — phone bar stays in the max-width: 767 block. */
+  .dash-tabbar,
+  .dash-tabbar.has-fab,
+  .dash-fab-center,
+  .dash-fab-anchor,
+  .dash-fab-menu,
+  .dash-fab-orbit,
+  .dash-fab-scrim,
+  .dash-fab-slot,
+  .dash-fab-lift {
+    display: none !important;
+  }
+  .home-shell {
+    max-width: 80rem;
+    width: 100%;
+    margin: 0 auto;
+    padding: 0 0 28px;
+    gap: 18px;
+  }
+  .dash-shell {
+    max-width: 80rem;
+    width: 100%;
+    gap: 16px;
+  }
+  .web-page,
+  .notify-page,
+  .help-page,
+  .access-shell,
+  .premium-list-page {
+    max-width: 72rem;
+  }
+  .help-page { padding-bottom: 2rem; }
+  .notify-page { max-width: 56rem; padding-bottom: 1.5rem; }
+
+  .home-desk {
+    display: grid;
+    grid-template-columns: minmax(0, 1.55fr) minmax(280px, 0.92fr);
+    gap: 18px 22px;
+    align-items: start;
+  }
+  .home-desk > .home-hero,
+  .home-desk > .home-pay-dock,
+  .home-desk > .home-upcoming,
+  .home-desk > .home-invite-rail,
+  .home-desk > .home-pills {
+    grid-column: 1 / -1;
+  }
+  .home-desk-primary { grid-column: 1; gap: 16px; }
+  .home-desk-feed {
+    grid-column: 2;
+    gap: 10px;
+    position: sticky;
+    top: 8px;
+  }
+  .home-desk:not(:has(.home-recent)) { grid-template-columns: 1fr; }
+  .home-desk-feed:not(:has(.home-recent)) { display: none; }
+  .home-desk > .home-qa[aria-label="Business"] {
+    grid-column: 1;
+  }
+
+  .home-hero {
+    background: #fff;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 14px;
+    padding: 18px 22px 16px;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  }
+  .home-hero-top { overflow: visible; }
+  .home-feature-reel { display: none; }
+  .home-greet { font-size: 12px; color: #64748b; }
+  .home-name { font-size: 22px !important; letter-spacing: -0.04em; }
+  .home-amount {
+    font-size: 32px !important;
+    margin-top: 4px;
+  }
+  .home-hero-chips { margin-top: 10px; gap: 8px; }
+  .home-hero-chip {
+    height: 26px;
+    padding: 0 10px;
+    border-radius: 999px;
+    font-size: 12px;
+  }
+
+  .home-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .home-pill {
+    flex-direction: row;
+    min-height: 40px;
+    min-width: 104px;
+    padding: 0 14px;
+    gap: 8px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 650;
+    background: #fff !important;
+    border: 1px solid rgba(15, 23, 42, 0.1);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .home-pill:hover {
+    border-color: rgba(18, 184, 168, 0.45);
+    background: #f8fffe !important;
+  }
+  .home-pill:active { transform: none; }
+
+  .home-qa { background: #fff; border: 1px solid rgba(15, 23, 42, 0.08); border-radius: 14px; padding: 14px 16px 16px; }
+  .home-qa-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .home-qa-tile {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px 6px 6px;
+    min-height: 40px;
+    border-radius: 10px;
+    background: #f8fafc;
+    border: 1px solid rgba(15, 23, 42, 0.06);
+    font-size: 13px;
+    color: #0f172a;
+  }
+  .home-qa-tile:hover { background: #fff; border-color: rgba(18, 184, 168, 0.35); }
+  .home-qa-icon {
+    width: 28px !important;
+    height: 28px !important;
+    border-radius: 8px;
+    background: #fff !important;
+    box-shadow: none;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .home-qa-icon svg { width: 14px; height: 14px; }
+  .home-section-label,
+  .home-qa .home-section-label,
+  .home-recent .home-zone-head h2 { font-size: 14px; margin-bottom: 10px; }
+
+  .home-recent {
+    background: #fff;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 14px;
+    padding: 14px 14px 10px;
+    gap: 6px;
+  }
+  .home-recent-card {
+    padding: 10px 10px;
+    border-radius: 10px;
+    gap: 10px;
+    background: #f8fafc !important;
+    border: 1px solid transparent;
+    box-shadow: none;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .home-recent-card:hover { background: #fff !important; border-color: rgba(15, 23, 42, 0.08); }
+  .home-recent-amt { font-size: 14px; }
+  .home-recent-meta { font-size: 12px; margin-top: 1px; }
+  .home-recent-avatar { width: 30px; height: 30px; font-size: 10px; }
+
+  .home-upcoming,
+  .home-invite-rail,
+  .home-attention > .home-upcoming {
+    background: #fff !important;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 14px;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    padding: 12px 14px 10px;
+  }
+  .home-attention { gap: 12px; }
+  .home-quad-card {
+    min-height: 48px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: #f8fafc !important;
+    border: 1px solid rgba(15, 23, 42, 0.06);
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  .home-swipe.is-stack .home-swipe-viewport {
+    overflow: visible;
+    height: auto;
+  }
+  .home-swipe.is-stack .home-swipe-track {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    transform: none !important;
+    will-change: auto;
+    height: auto;
+    max-height: 300px;
+    overflow-y: auto;
+  }
+  .home-swipe.is-stack .home-swipe-slide {
+    flex: 0 0 auto !important;
+    min-width: 0 !important;
+    min-height: auto !important;
+    width: 100% !important;
+    height: auto !important;
+  }
+
+  .md3-panel,
+  .md3-panel-books {
+    padding: 16px 18px;
+    border-radius: 14px;
+    background: #fff !important;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .md3-book-list { gap: 8px; }
+  .md3-book-list.is-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .md3-book {
+    min-height: 56px;
+    padding: 10px 12px;
+    gap: 10px;
+    border-radius: 12px;
+    background: #fff !important;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .md3-book:hover {
+    border-color: rgba(18, 184, 168, 0.4);
+    box-shadow: 0 8px 20px -16px rgba(11, 31, 58, 0.35);
+    transform: none;
+  }
+  .md3-book:active { transform: none; }
+  .md3-book-icon { width: 36px !important; height: 36px !important; }
+  .md3-book-icon-face { border-radius: 10px; font-size: 12px !important; }
+  .md3-book-amt { font-size: 14px; }
+  .md3-book-main h3,
+  .md3-book-main .md3-book-title { font-size: 14px; font-weight: 650; }
+  .md3-book.is-grid { min-height: 108px; padding: 12px; }
+  .md3-book.is-grid .md3-book-icon { width: 32px !important; height: 32px !important; }
+  .md3-book.is-compact { min-height: 48px; padding: 8px 10px; }
+
+  .activity-card {
+    padding: 10px 12px !important;
+    border-radius: 10px;
+    background: #fff !important;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    box-shadow: none;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .activity-card:hover { border-color: rgba(18, 184, 168, 0.35); background: #f8fffe !important; }
+  .premium-list-page .activity-card { border-radius: 10px; box-shadow: none; }
+
+  .entry-card-mobile {
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: #fff !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .mb-entry-icon { width: 36px; height: 36px; border-radius: 10px; }
+  .entry-card-action { width: 32px; height: 32px; }
+
+  .byjan-card { border-radius: 12px; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
+  .dash-hero, .dash-hero-compact { border-radius: 14px !important; }
+
+  .ios-notify-sheet {
+    background: #fff;
+    border: 1px solid rgba(15, 23, 42, 0.1);
+    box-shadow: 0 24px 48px -28px rgba(11, 31, 58, 0.45);
+  }
+  .ios-notify-title { font-size: 18px; }
+
+  .home-pill,
+  .home-recent-card,
+  .md3-book,
+  .entry-card-mobile,
+  .activity-card,
+  .home-qa-icon,
+  .md3-panel,
+  .home-upcoming,
+  .home-quad-card {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .pulse-attn,
+  .home-quad-card.is-late,
+  .home-quad-kind[data-kind="pay"],
+  .home-quad-kind[data-kind="review"],
+  .home-quad-kind[data-kind="reminder"],
+  .home-pay-dock .home-upcoming-kicker {
+    animation: none !important;
+  }
+  .ios-page { animation: none !important; }
+  .md3-book,
+  .home-recent-card,
+  .activity-card {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 64px;
+  }
+}
+
+@media (min-width: 1100px) {
+  .md3-book-list.is-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .home-desk {
+    grid-template-columns: minmax(0, 1.65fr) minmax(320px, 0.85fr);
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .md3-book,
+  .home-recent-card,
+  .activity-card,
+  .home-qa-tile,
+  .home-pill { cursor: pointer; }
 }

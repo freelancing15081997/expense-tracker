@@ -12,6 +12,8 @@ type ExpenseRow = Record<string, unknown>;
 
 export default function RegularPayments() {
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [reloadTick, setReloadTick] = useState(0);
   const [expenses, setExpenses] = useState<ExpenseRow[]>([]);
   const [currency, setCurrency] = useState('INR');
 
@@ -19,17 +21,21 @@ export default function RegularPayments() {
     let alive = true;
     void (async () => {
       setLoading(true);
+      setLoadError('');
       try {
         const data = await listAllExpenses();
         if (!alive) return;
         setExpenses(data.expenses || []);
         setCurrency(String(data.books?.[0]?.currency || 'INR'));
+      } catch (err) {
+        if (!alive) return;
+        setLoadError(err instanceof Error ? err.message : 'Could not load regular payments. Please try again.');
       } finally {
         if (alive) setLoading(false);
       }
     })();
     return () => { alive = false; };
-  }, []);
+  }, [reloadTick]);
 
   const rows = useMemo(() => expenses, [expenses]);
   const patterns = useMemo(() => detectRegularPayments(rows.map((e) => ({
@@ -48,8 +54,21 @@ export default function RegularPayments() {
 
   if (loading) return <AppLoader title="Regular payments" message="Looking for patterns in your books." />;
 
+  if (loadError) {
+    return (
+      <div className="dash-shell ios-page web-page max-w-xl md:max-w-4xl mx-auto pb-28 md:pb-8">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Autopilot</p>
+        <h1 className="font-display text-[26px] font-semibold tracking-[-0.04em] text-[#0B1F3A]">Regular payments</h1>
+        <p className="text-[13px] text-slate-500 mt-3 mb-4">{loadError}</p>
+        <button type="button" className="byjan-btn-ghost !h-9 text-xs" onClick={() => setReloadTick((n) => n + 1)}>
+          Try again
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="dash-shell ios-page max-w-xl mx-auto pb-28 md:pb-8">
+    <div className="dash-shell ios-page web-page max-w-xl md:max-w-4xl mx-auto pb-28 md:pb-8">
       <div className="flex items-center gap-2 mb-1">
         <Link to="/" className="p-2 -ml-2 rounded-xl text-slate-500" aria-label="Back">
           <ArrowLeft className="w-5 h-5" />

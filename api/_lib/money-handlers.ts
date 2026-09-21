@@ -29,7 +29,7 @@ import {
   saveMyUpiProfile,
   startUpiPayment,
 } from './settlement-upi.js';
-import { extractMoneyAmount, ocrFingerprint, reconcileVisionAmount } from './amount-parse.js';
+import { extractMoneyAmount, learnKeysFromText, ocrFingerprint, reconcileVisionAmount } from './amount-parse.js';
 import { validateSplitPayload } from './split-validate.js';
 
 async function ensureMoneySchema() {
@@ -146,8 +146,24 @@ async function putIdempotent(key: string, bookId: string, uid: string, response:
   `;
 }
 
+function uniqueKeys(...groups: Array<string[] | string | undefined | null>) {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const group of groups) {
+    const list = Array.isArray(group) ? group : (group ? [group] : []);
+    for (const raw of list) {
+      const k = String(raw || '').trim().slice(0, 160);
+      if (!k || seen.has(k)) continue;
+      seen.add(k);
+      out.push(k);
+      if (out.length >= 12) return out;
+    }
+  }
+  return out;
+}
+
 async function parseAmountFromText(text: string) {
-  const learned = await lookupParseOverride(text);
+  const learned = await lookupParseOverride(learnKeysFromText(text));
   if (learned && learned.amount > 0) {
     return {
       amount: learned.amount,
@@ -217,19 +233,28 @@ async function upsertParseOverride(fingerprint: string, gold: NonNullable<Return
   `;
 }
 
-async function lookupParseOverride(text: string) {
-  const fp = ocrFingerprint(text);
-  if (!fp) return null;
+async function upsertParseOverrides(keys: string[], gold: NonNullable<ReturnType<typeof sanitizeGold>>) {
+  for (const k of uniqueKeys(keys)) {
+    await upsertParseOverride(k, gold);
+  }
+}
+
+async function lookupParseOverride(keys: string[]) {
+  const list = uniqueKeys(keys);
+  if (!list.length) return null;
   try {
     const sql = await getLedgerSql();
-    const rows = await sql`SELECT amount, merchant, extras FROM parse_overrides WHERE fingerprint = ${fp} LIMIT 1`;
-    const row = Array.isArray(rows) ? rows[0] : null;
-    if (!row || !(Number(row.amount) > 0)) return null;
-    return {
-      amount: Number(row.amount),
-      merchant: String(row.merchant || ''),
-      extras: Array.isArray(row.extras) ? row.extras : [],
-    };
+    for (const fp of list) {
+      const rows = await sql`SELECT amount, merchant, extras FROM parse_overrides WHERE fingerprint = ${fp} LIMIT 1`;
+      const row = Array.isArray(rows) ? rows[0] : null;
+      if (!row || !(Number(row.amount) > 0)) continue;
+      return {
+        amount: Number(row.amount),
+        merchant: String(row.merchant || ''),
+        extras: Array.isArray(row.extras) ? row.extras : [],
+      };
+    }
+    return null;
   } catch {
     return null;
   }
@@ -276,6 +301,14 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
+    if (op === 'lookupParseOverride') {
+      await ensureMoneySchema();
+      const keys = uniqueKeys(body.keys as string[] | undefined);
+      const gold = await lookupParseOverride(keys);
+      apiJson(res, 200, { gold });
+      return;
+    }
+
     if (op === 'reportMismatch' || op === 'confirmMismatchGold') {
       const ocrText = String(body.ocrText || '').slice(0, 8000);
       const fingerprint = String(body.fingerprint || ocrFingerprint(ocrText)).slice(0, 160);
@@ -318,7 +351,12 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
           WHERE id = ${id} AND uid = ${user.uid}
         `;
       }
-      if (gold) await upsertParseOverride(fingerprint, gold);
+      if (gold) {
+        await upsertParseOverrides(
+          uniqueKeys(fingerprint, body.keys as string[] | undefined, learnKeysFromText(ocrText)),
+          gold,
+        );
+      }
       apiJson(res, 200, { id, learned: Boolean(gold) });
       return;
     }

@@ -129,7 +129,7 @@ export default function HelpPage() {
   };
 
   return (
-    <div className="help-page">
+    <div className="help-page web-page">
       <header className="help-hero">
         <span className="help-hero-mark"><LifeBuoy /></span>
         <div>

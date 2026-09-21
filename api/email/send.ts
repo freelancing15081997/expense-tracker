@@ -120,7 +120,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
       settings = smtpConfig();
     } catch (cfgErr: any) {
-      await writeMailTrace('email.config', { ok: false, error: String(cfgErr?.message || cfgErr), uid, feature: 'email' });
+      if (process.env.VERCEL) {
+        await writeMailTrace('email.config', { ok: false, error: String(cfgErr?.message || cfgErr), uid, feature: 'email' });
+      }
       const { publicServiceError } = await import('../_lib/ops-classify.js');
       json(res, 503, { error: publicServiceError(cfgErr, 'Email is temporarily unavailable. Please try again later.') });
       return;

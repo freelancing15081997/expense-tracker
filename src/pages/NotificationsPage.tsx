@@ -44,7 +44,7 @@ export default function NotificationsPage() {
   const unread = rows.filter((r) => !r.read).length;
 
   return (
-    <div className="notify-page">
+    <div className="notify-page web-page">
       <div className="notify-page-head">
         <div className="notify-page-brand">
           <img src={BRAND_LOGO_SRC} alt="" className="notify-byjan-mark" />

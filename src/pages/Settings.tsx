@@ -174,7 +174,7 @@ export default function Settings() {
   const dirty = JSON.stringify({ displayName, categories, prefs }) !== baseline;
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 pb-28 md:pb-10">
+    <div className="web-page max-w-5xl lg:max-w-6xl mx-auto space-y-6 pb-28 md:pb-10">
     <form onSubmit={handleSave} className="space-y-6">
       {dirty ? (
         <div className="settings-save-bar">

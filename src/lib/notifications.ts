@@ -14,9 +14,20 @@ export type AppNotification = {
 
 export { notificationPath } from './notification-path';
 
+let listInflight: Promise<AppNotification[]> | null = null;
+
 export async function listNotifications() {
-  const payload = await apiPost<{ notifications?: AppNotification[] }>('/api/notifications', { op: 'list' });
-  return Array.isArray(payload.notifications) ? payload.notifications : [];
+  if (listInflight) return listInflight;
+  const promise = (async () => {
+    const payload = await apiPost<{ notifications?: AppNotification[] }>('/api/notifications', { op: 'list' });
+    return Array.isArray(payload.notifications) ? payload.notifications : [];
+  })();
+  listInflight = promise;
+  try {
+    return await promise;
+  } finally {
+    if (listInflight === promise) listInflight = null;
+  }
 }
 
 export async function markNotificationRead(id: string) {

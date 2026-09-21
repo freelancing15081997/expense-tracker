@@ -30,20 +30,22 @@ assert.match(uri, /pa=shop%40ybl|pa=shop@ybl/);
 assert.match(uri, /am=100\.50/);
 assert.match(uri, /cu=INR/);
 
-const gpay = buildAppUpiUri('gpay', { pa: 'a@upi', pn: 'A', am: '10.00' });
+const gpay = buildAppUpiUri('gpay', { pa: 'aa@upi', pn: 'A', am: '10.00' });
 assert.match(gpay, /^tez:\/\/upi\/pay\?/);
-assert.match(buildAppUpiUri('phonepe', { pa: 'a@upi', pn: 'A', am: '10.00' }), /^phonepe:\/\/pay\?/);
-assert.match(buildAppUpiUri('paytm', { pa: 'a@upi', pn: 'A', am: '10.00' }), /^paytmmp:\/\/pay\?/);
-assert.match(buildAppUpiUri('cred', { pa: 'a@upi', pn: 'A', am: '10.00' }), /^upi:\/\/pay\?/);
-assert.match(buildAppUpiUri('whatsapp', { pa: 'a@upi', pn: 'A', am: '10.00' }), /^upi:\/\/pay\?/);
+assert.match(buildAppUpiUri('phonepe', { pa: 'aa@upi', pn: 'A', am: '10.00' }), /^phonepe:\/\/pay\?/);
+assert.match(buildAppUpiUri('paytm', { pa: 'aa@upi', pn: 'A', am: '10.00' }), /^paytmmp:\/\/pay\?/);
+assert.match(buildAppUpiUri('cred', { pa: 'aa@upi', pn: 'A', am: '10.00' }), /^upi:\/\/pay\?/);
+assert.match(buildAppUpiUri('whatsapp', { pa: 'aa@upi', pn: 'A', am: '10.00' }), /^upi:\/\/pay\?/);
 
+assert.match(buildAppUpiUri('amazonpay', { pa: 'aa@upi', pn: 'A', am: '10.00' }), /^upi:\/\/pay\?/);
+assert.match(buildAppUpiUri('mobikwik', { pa: 'aa@upi', pn: 'A', am: '10.00' }), /^upi:\/\/pay\?/);
 assert.equal(UPI_APP_PACKAGES.phonepe, 'com.phonepe.app');
 assert.equal(UPI_APP_PACKAGES.paytm, 'net.one97.paytm');
 assert.equal(UPI_APP_PACKAGES.cred, 'com.dreamplug.androidapp');
 assert.equal(UPI_APP_PACKAGES.whatsapp, 'com.whatsapp');
 assert.deepEqual(
   UPI_PAY_APPS.map((a) => a.id),
-  ['phonepe', 'gpay', 'paytm', 'cred', 'whatsapp', 'bhim', 'generic'],
+  ['phonepe', 'gpay', 'paytm', 'cred', 'amazonpay', 'mobikwik', 'whatsapp', 'bhim', 'generic'],
 );
 assert.ok(UPI_PAY_APPS.every((a) => a.label.length > 0));
 

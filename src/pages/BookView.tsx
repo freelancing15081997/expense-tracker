@@ -18,7 +18,7 @@ import {
 } from '../lib/ledgers';
 import { createExpense, listExpenses, softDeleteExpense, updateExpense } from '../lib/expenses';
 import { notifyLedgerMembers } from '../lib/notify-team';
-import { CapacitorService } from '../lib/capacitor';
+import { CapacitorService, isWeb } from '../lib/capacitor';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send, Copy, CopyPlus, Paperclip, Mail, Megaphone, Shield, Pin, PinOff, SlidersHorizontal, ArrowUpDown, Star, Wallet, ArrowUpRight, TrendingUp, Receipt, History, PieChart, Split, MoreHorizontal, CalendarClock, Check } from 'lucide-react';
@@ -63,6 +63,7 @@ import { enqueueOfflineExpense, flushOfflineQueue, isLikelyOfflineError, listOff
 import { buildCapturePreview } from '../lib/money-capture';
 import CapturePreviewSheet from '../components/CapturePreviewSheet';
 import ReceiptCaptureFlow, { type ManualFormDraft, type ReceiptLaunch } from '../components/ReceiptCaptureFlow';
+import WebScanSheet, { type WebScanFile } from '../components/WebScanSheet';
 import { confirmMismatchGold, reportParseMismatch } from '../lib/parse-feedback';
 import SplitExpenseSheet from '../components/SplitExpenseSheet';
 import SplitEntryPickSheet from '../components/SplitEntryPickSheet';
@@ -278,6 +279,7 @@ export default function BookView() {
   const mismatchIdRef = useRef('');
   const [capturePreview, setCapturePreview] = useState<ReturnType<typeof buildCapturePreview> | null>(null);
   const [receiptLaunch, setReceiptLaunch] = useState<ReceiptLaunch | null>(null);
+  const [webScanOpen, setWebScanOpen] = useState(false);
   const [successExpense, setSuccessExpense] = useState<Record<string, unknown> | null>(null);
   const [successCount, setSuccessCount] = useState(1);
   const [splitTarget, setSplitTarget] = useState<{ id: string; amount: number; merchant?: string; description?: string } | null>(null);
@@ -1457,16 +1459,34 @@ export default function BookView() {
     } finally { setIsSaving(false); }
   };
 
+  const launchScanBatch = (batch: WebScanFile[]) => {
+    if (!batch.length) return;
+    if (batch.length === 1) {
+      setReceiptLaunch({
+        source: 'camera',
+        imageDataUrl: batch[0].imageDataUrl,
+        fileName: batch[0].fileName,
+        mimeType: batch[0].mimeType,
+      });
+      return;
+    }
+    setReceiptLaunch({ source: 'batch', batch });
+  };
+
   const scanReceiptEntry = async () => {
     if (!bookId) return;
     if (!canScan) {
       addToast(canWrite ? 'Scan is not enabled for this book' : 'You need write access to scan receipts', 'error');
       return;
     }
-    // Double-tap while the camera/picker is opening would stack two pickers.
     if (scanBusyRef.current) return;
     scanBusyRef.current = true;
     window.setTimeout(() => { scanBusyRef.current = false; }, 1500);
+    if (isWeb) {
+      setWebScanOpen(true);
+      scanBusyRef.current = false;
+      return;
+    }
     try {
       await CapacitorService.requestCameraPermission();
       let batch: Array<{ imageDataUrl: string; fileName: string; mimeType: string }> = [];
@@ -1477,17 +1497,7 @@ export default function BookView() {
         if (/cancel/i.test(msg)) return;
         throw err;
       }
-      if (!batch.length) return;
-      if (batch.length === 1) {
-        setReceiptLaunch({
-          source: 'camera',
-          imageDataUrl: batch[0].imageDataUrl,
-          fileName: batch[0].fileName,
-          mimeType: batch[0].mimeType,
-        });
-        return;
-      }
-      setReceiptLaunch({ source: 'batch', batch });
+      launchScanBatch(batch);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Could not open camera or photos';
       if (/cancel/i.test(msg)) return;
@@ -1925,7 +1935,7 @@ export default function BookView() {
     <>
       <div className="h-full min-h-0 flex flex-col" data-purpose-id={purposeId}>
       <Tabs.Root value={shownTab} onValueChange={onLedgerTabChange} className="h-full min-h-0 flex flex-col">
-        <div className="flex-1 min-h-0 overflow-y-auto book-scroll pb-[calc(7.5rem+env(safe-area-inset-bottom,0px))]">
+        <div className="flex-1 min-h-0 overflow-y-auto book-scroll pb-[calc(7.5rem+env(safe-area-inset-bottom,0px))] md:pb-8">
         <div className="px-4 md:px-6 lg:px-8 pt-2 pb-0 bg-white">
         <div className="max-w-6xl mx-auto">
       <div className="book-head mb-1">
@@ -3482,6 +3492,15 @@ export default function BookView() {
           onToast={addToast}
         />
       )}
+
+      <WebScanSheet
+        open={webScanOpen}
+        onClose={() => setWebScanOpen(false)}
+        onCaptured={(files) => {
+          setWebScanOpen(false);
+          launchScanBatch(files);
+        }}
+      />
 
       <ReceiptCaptureFlow
         open={Boolean(receiptLaunch)}
