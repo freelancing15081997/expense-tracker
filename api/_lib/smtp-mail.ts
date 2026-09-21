@@ -12,11 +12,11 @@ function smtpHost() {
   return String(process.env.SMTP_HOST || 'smtp-relay.brevo.com').trim().toLowerCase();
 }
 
-/** True when outbound mail authenticates through Google (smtp.gmail.com or a @gmail.com login). */
+/** True when outbound mail authenticates through Google SMTP. Do not treat a
+ *  @gmail.com *login* as Gmail when the host is Brevo (smtp-brevo.com users). */
 export function isGmailSmtp() {
   const host = smtpHost();
-  const { user } = smtpAuth();
-  return /gmail\.com$/i.test(host) || /googlemail\.com$/i.test(host) || /@gmail\.com$/i.test(user);
+  return /(^|\.)gmail\.com$/i.test(host) || /(^|\.)googlemail\.com$/i.test(host) || host === 'smtp.gmail.com';
 }
 
 /**
@@ -37,17 +37,30 @@ export function smtpConfigured() {
   return Boolean(user && pass);
 }
 
+/** Headers Gmail/Yahoo expect so authenticated Byjan mail is less likely to land in spam. */
+export function outboundMailHeaders(kind = 'transactional') {
+  const tag = String(kind || 'transactional').replace(/[^a-z0-9._-]+/gi, '_').slice(0, 40);
+  return {
+    'List-Unsubscribe': '<mailto:byjanbooks@easypado.com?subject=unsubscribe>, <https://www.easypado.com/api/email/unsubscribe>',
+    'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+    'Feedback-ID': `${tag}:Byjan:easypado`,
+  };
+}
+
+function easypadoMessageId() {
+  return `<${Date.now().toString(36)}.${Math.random().toString(36).slice(2, 12)}@easypado.com>`;
+}
+
 export function smtpSettings() {
   const { user, pass } = smtpAuth();
   if (!user || !pass) {
     throw new Error('SMTP is not configured. Set SMTP_USER and SMTP_PASS in the server environment.');
   }
   const host = process.env.SMTP_HOST || 'smtp-relay.brevo.com';
-  const gmail = isGmailSmtp();
   return {
     host,
-    // Gmail app passwords commonly use 587; Brevo defaults to 2525 with 587 fallback in sendTracedMail.
-    port: Number(process.env.SMTP_PORT || (gmail ? 587 : 2525)),
+    // 587 STARTTLS. 2525 is a Brevo alternate; 465 needs secure:true.
+    port: Number(process.env.SMTP_PORT || 587),
     secure: false,
     auth: { user, pass },
   };
@@ -103,6 +116,7 @@ export async function sendTracedMail(input: {
   const { transporter, settings } = await createSmtpTransport();
   const text = String(input.text || '').trim()
     || String(input.html || '').replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
+  const kind = input.kind || 'email.send';
   const mail: Record<string, unknown> = {
     from: `"${input.fromName || 'Byjan'}" <${from}>`,
     replyTo: input.replyTo || from,
@@ -110,11 +124,11 @@ export async function sendTracedMail(input: {
     to: input.to,
     subject: input.subject,
     text,
+    messageId: easypadoMessageId(),
+    headers: outboundMailHeaders(kind),
   };
   if (input.html) mail.html = input.html;
   if (input.attachments?.length) mail.attachments = input.attachments;
-
-  const kind = input.kind || 'email.send';
   try {
     const info = await transporter.sendMail(mail);
     await writeOpsTrace(kind, {

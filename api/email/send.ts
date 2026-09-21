@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { mailFrom, smtpConfig, writeMailTrace } from '../_lib/mail.js';
+import { outboundMailHeaders } from '../_lib/smtp-mail.js';
 import { applyCors } from '../_lib/http.js';
 
 const FIREBASE_PROJECT = 'gen-lang-client-0616065043';
@@ -163,7 +164,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       text: textMessage,
       html,
       headers: {
-        'List-Unsubscribe': '<mailto:noreply@easypado.com?subject=unsubscribe>',
+        ...outboundMailHeaders(kind || 'email.send'),
         'X-Auto-Response-Suppress': 'All',
       },
     };
