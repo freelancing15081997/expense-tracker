@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { postgresUrl, cleanPath, ledgerGet, ledgerSet, ledgerInsertIfNew, ledgerList, ledgerLiveExpenseByHash, ledgerResolveInboundSlug, ledgerSaveExpense } from '../_pg-tables.js';
+import { mailFromAddress } from '../_lib/smtp-mail.js';
 
 const R2_REGION = 'auto';
 const R2_SERVICE = 's3';
@@ -31,9 +32,7 @@ function json(res: VercelResponse, status: number, payload: unknown) {
 }
 
 function mailFrom() {
-  const raw = String(process.env.MAIL_FROM || DEFAULT_FROM).trim();
-  if (!raw || /gmail\.com$/i.test(raw)) return DEFAULT_FROM;
-  return raw;
+  return mailFromAddress(DEFAULT_FROM);
 }
 
 function inboundSecret() {

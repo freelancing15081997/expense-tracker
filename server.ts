@@ -65,6 +65,12 @@ app.get("/api/blob/file", async (req, res) => {
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
+// OTP must not go through the Neon Auth proxy — it uses Brevo/Gmail SMTP directly.
+app.all("/api/auth/otp", async (req, res) => {
+  const { default: otp } = await import("./api/auth/otp");
+  await otp(req as any, res as any);
+});
+
 app.use("/api/auth", (req, res) => {
   void handleAuthRequest(req, res);
 });

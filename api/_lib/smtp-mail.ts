@@ -2,16 +2,34 @@ import type { Transporter } from 'nodemailer';
 
 type TraceDetail = Record<string, unknown>;
 
-export function mailFromAddress(fallback = 'byjanbooks@easypado.com') {
-  const raw = String(process.env.MAIL_FROM || fallback).trim();
-  if (!raw || /gmail\.com$/i.test(raw)) return fallback;
-  return raw;
-}
-
 export function smtpAuth() {
   const user = String(process.env.SMTP_USER || process.env.BREVO_SMTP_USER || process.env.SMTP_LOGIN || '').trim();
   const pass = String(process.env.SMTP_PASS || process.env.BREVO_SMTP_KEY || process.env.BREVO_SMTP_PASS || '').trim();
   return { user, pass };
+}
+
+function smtpHost() {
+  return String(process.env.SMTP_HOST || 'smtp-relay.brevo.com').trim().toLowerCase();
+}
+
+/** True when outbound mail authenticates through Google (smtp.gmail.com or a @gmail.com login). */
+export function isGmailSmtp() {
+  const host = smtpHost();
+  const { user } = smtpAuth();
+  return /gmail\.com$/i.test(host) || /googlemail\.com$/i.test(host) || /@gmail\.com$/i.test(user);
+}
+
+/**
+ * Envelope/From address must match the SMTP login for Gmail, otherwise Google
+ * accepts the session but recipients often never see the message (spam / silent drop).
+ * For Brevo / custom SMTP, prefer MAIL_FROM, then the domain mailbox.
+ */
+export function mailFromAddress(fallback = 'byjanbooks@easypado.com') {
+  const { user } = smtpAuth();
+  if (isGmailSmtp() && user) return user;
+  const raw = String(process.env.MAIL_FROM || fallback).trim();
+  if (!raw || /gmail\.com$/i.test(raw)) return fallback;
+  return raw;
 }
 
 export function smtpConfigured() {
@@ -24,9 +42,12 @@ export function smtpSettings() {
   if (!user || !pass) {
     throw new Error('SMTP is not configured. Set SMTP_USER and SMTP_PASS in the server environment.');
   }
+  const host = process.env.SMTP_HOST || 'smtp-relay.brevo.com';
+  const gmail = isGmailSmtp();
   return {
-    host: process.env.SMTP_HOST || 'smtp-relay.brevo.com',
-    port: Number(process.env.SMTP_PORT || 2525),
+    host,
+    // Gmail app passwords commonly use 587; Brevo defaults to 2525 with 587 fallback in sendTracedMail.
+    port: Number(process.env.SMTP_PORT || (gmail ? 587 : 2525)),
     secure: false,
     auth: { user, pass },
   };

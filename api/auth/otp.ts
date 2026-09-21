@@ -90,11 +90,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               <h1 style="margin:0 0 12px;font-size:22px;color:#0B1F3A">${title}</h1>
               <p style="margin:0 0 18px;color:#475569;line-height:1.5">${intro}</p>
               <p style="margin:0;font-size:32px;letter-spacing:.28em;font-weight:700;color:#0B1F3A">${code}</p>
-              <p style="margin:18px 0 0;font-size:12px;color:#94a3b8">Expires in 10 minutes.</p>
+              <p style="margin:18px 0 0;font-size:12px;color:#94a3b8">Expires in 10 minutes. Check Spam if you do not see it.</p>
             </div></body></html>`,
         });
-      } catch {
-        json(res, 503, { error: 'Could not send the verification email. Please try again shortly.' });
+      } catch (err: any) {
+        const { publicServiceError } = await import('../_lib/ops-classify.js');
+        json(res, 503, { error: publicServiceError(err, 'Could not send the verification email. Please try again shortly.') });
         return;
       }
       json(res, 200, { ok: true, expiresAt });

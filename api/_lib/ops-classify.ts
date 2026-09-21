@@ -38,7 +38,7 @@ export function featureFromKind(kind: string): OpsFeature {
 export function classifyQuota(errorText: string): QuotaKind {
   const t = String(errorText || '').toLowerCase();
   if (!t) return null;
-  if (/daily.?limit|day.?limit|quota.?exceeded|sending.?quota|free.?credits.?exhausted|limit.?reached/i.test(t)) {
+  if (/daily.?limit|day.?limit|quota.?exceeded|sending.?quota|free.?credits.?exhausted|limit.?reached|daily.?user.?sending.?limit|sending.?limit.?exceeded/i.test(t)) {
     return 'daily_quota';
   }
   if (/429|rate.?limit|too many|throttl/i.test(t)) return 'rate_limit';
@@ -80,6 +80,9 @@ export function publicServiceError(err: unknown, fallback = 'Could not complete 
   }
   if (quota === 'rate_limit') {
     return 'Too many requests right now. Please wait a minute and try again.';
+  }
+  if (/daily.?user.?sending.?limit|sending.?limit.?exceeded/i.test(text)) {
+    return 'Email delivery hit today\u2019s send limit. Please try again in a few hours.';
   }
   if (/smtp|not configured/i.test(text)) {
     return 'Email is temporarily unavailable. Please try again later.';
