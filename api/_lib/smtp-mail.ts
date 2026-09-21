@@ -80,6 +80,15 @@ function brevoApiKey() {
   return String(process.env.BREVO_API_KEY || process.env.BREVO_API_V3_KEY || '').trim();
 }
 
+/** Brevo HTTP can return 201 while the platform is disabled and nothing is delivered. */
+function useBrevoHttp() {
+  const provider = String(process.env.MAIL_PROVIDER || '').trim().toLowerCase();
+  if (provider === 'smtp' || provider === 'godaddy' || provider === 'gmail') return false;
+  if (provider === 'brevo' || provider === 'brevo-http') return Boolean(brevoApiKey());
+  // Default off until Brevo transactional sending is enabled on the account.
+  return false;
+}
+
 async function sendViaBrevoHttp(input: {
   to: string;
   subject: string;
@@ -178,7 +187,7 @@ export async function sendTracedMail(input: {
     || String(input.html || '').replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
   const kind = input.kind || 'email.send';
 
-  if (brevoApiKey()) {
+  if (useBrevoHttp()) {
     try {
       const info = await sendViaBrevoHttp(input, from, kind, text);
       await writeOpsTrace(kind, {
