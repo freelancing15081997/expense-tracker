@@ -57,13 +57,74 @@ export function smtpSettings() {
     throw new Error('SMTP is not configured. Set SMTP_USER and SMTP_PASS in the server environment.');
   }
   const host = process.env.SMTP_HOST || 'smtp-relay.brevo.com';
+  const port = Number(process.env.SMTP_PORT || 587);
   return {
     host,
     // 587 STARTTLS. 2525 is a Brevo alternate; 465 needs secure:true.
-    port: Number(process.env.SMTP_PORT || 587),
-    secure: false,
+    port,
+    secure: port === 465,
+    requireTLS: port !== 465,
+    connectionTimeout: 12_000,
+    greetingTimeout: 12_000,
+    socketTimeout: 20_000,
     auth: { user, pass },
   };
+}
+
+function mailErrorText(err: unknown) {
+  const e = err as { message?: string; response?: string; responseCode?: number; code?: string };
+  return [e?.code, e?.responseCode, e?.response, e?.message, err].filter(Boolean).join(' ').slice(0, 240);
+}
+
+function brevoApiKey() {
+  return String(process.env.BREVO_API_KEY || process.env.BREVO_API_V3_KEY || '').trim();
+}
+
+async function sendViaBrevoHttp(input: {
+  to: string;
+  subject: string;
+  html?: string;
+  text?: string;
+  fromName?: string;
+  replyTo?: string;
+  attachments?: Array<{ filename: string; content: Buffer | string; encoding?: string }>;
+}, from: string, kind: string, text: string) {
+  const apiKey = brevoApiKey();
+  if (!apiKey) return null;
+  const payload: Record<string, unknown> = {
+    sender: { name: input.fromName || 'Byjan', email: from },
+    to: [{ email: input.to }],
+    replyTo: { email: input.replyTo || from },
+    subject: input.subject,
+    textContent: text,
+    headers: outboundMailHeaders(kind),
+  };
+  if (input.html) payload.htmlContent = input.html;
+  if (input.attachments?.length) {
+    payload.attachment = input.attachments.map((a) => {
+      const raw = a.content;
+      const content = Buffer.isBuffer(raw)
+        ? raw.toString('base64')
+        : a.encoding === 'base64'
+          ? String(raw).replace(/\s+/g, '')
+          : Buffer.from(String(raw)).toString('base64');
+      return { name: a.filename, content };
+    });
+  }
+  const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      accept: 'application/json',
+      'content-type': 'application/json',
+      'api-key': apiKey,
+    },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json().catch(() => ({} as Record<string, unknown>));
+  if (!res.ok) {
+    throw new Error(String((body as { message?: string; error?: string }).message || (body as { error?: string }).error || `Brevo HTTP ${res.status}`));
+  }
+  return { messageId: String((body as { messageId?: string }).messageId || '') };
 }
 
 export async function writeOpsTrace(kind: string, detail: TraceDetail) {
@@ -113,10 +174,37 @@ export async function sendTracedMail(input: {
   attachments?: Array<{ filename: string; content: Buffer | string; contentType?: string; encoding?: string }>;
 }) {
   const from = mailFromAddress();
-  const { transporter, settings } = await createSmtpTransport();
   const text = String(input.text || '').trim()
     || String(input.html || '').replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
   const kind = input.kind || 'email.send';
+
+  if (brevoApiKey()) {
+    try {
+      const info = await sendViaBrevoHttp(input, from, kind, text);
+      await writeOpsTrace(kind, {
+        ok: true,
+        to: input.to,
+        subject: String(input.subject || '').slice(0, 120),
+        messageId: info?.messageId,
+        via: 'brevo-http',
+      });
+      return info;
+    } catch (httpErr: any) {
+      const error = mailErrorText(httpErr);
+      console.error('[mail]', kind, 'brevo-http', error);
+      await writeOpsTrace(kind, {
+        ok: false,
+        to: input.to,
+        subject: String(input.subject || '').slice(0, 120),
+        error,
+        via: 'brevo-http',
+      });
+      const { user, pass } = smtpAuth();
+      if (!user || !pass) throw httpErr;
+    }
+  }
+
+  const { transporter, settings } = await createSmtpTransport();
   const mail: Record<string, unknown> = {
     from: `"${input.fromName || 'Byjan'}" <${from}>`,
     replyTo: input.replyTo || from,
@@ -158,22 +246,26 @@ export async function sendTracedMail(input: {
         });
         return info;
       } catch (second: any) {
+        const error = mailErrorText(second || first);
+        console.error('[mail]', kind, error);
         await writeOpsTrace(kind, {
           ok: false,
           to: input.to,
           subject: String(input.subject || '').slice(0, 120),
-          error: String(second?.message || second || first?.message || 'Send failed'),
+          error,
           host: settings.host,
           port: 587,
         });
         throw second;
       }
     }
+    const error = mailErrorText(first);
+    console.error('[mail]', kind, error);
     await writeOpsTrace(kind, {
       ok: false,
       to: input.to,
       subject: String(input.subject || '').slice(0, 120),
-      error: String(first?.message || first || 'Send failed'),
+      error,
       host: settings.host,
       port: settings.port,
     });

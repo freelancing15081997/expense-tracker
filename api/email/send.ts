@@ -1,6 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { mailFrom, smtpConfig, writeMailTrace } from '../_lib/mail.js';
-import { outboundMailHeaders } from '../_lib/smtp-mail.js';
+import { sendTracedMail } from '../_lib/smtp-mail.js';
 import { applyCors } from '../_lib/http.js';
 
 const FIREBASE_PROJECT = 'gen-lang-client-0616065043';
@@ -133,22 +132,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    const nodemailerMod: any = await import('nodemailer');
-    const createTransport = nodemailerMod.createTransport || nodemailerMod.default?.createTransport;
-    let settings: ReturnType<typeof smtpConfig>;
-    try {
-      settings = smtpConfig();
-    } catch (cfgErr: any) {
-      if (process.env.VERCEL) {
-        await writeMailTrace('email.config', { ok: false, error: String(cfgErr?.message || cfgErr), uid, feature: 'email' });
-      }
-      const { publicServiceError } = await import('../_lib/ops-classify.js');
-      json(res, 503, { error: publicServiceError(cfgErr, 'Email is temporarily unavailable. Please try again later.') });
-      return;
-    }
-    let transporter = createTransport(settings);
     const textMessage = message.replace(/<[^>]*>?/gm, '');
-    const from = mailFrom();
     const safeBody = /<!DOCTYPE html/i.test(message) ? message : escapeHtml(message).replace(/\n/g, '<br/>');
     const html = /<!DOCTYPE html/i.test(message) ? message : `<!DOCTYPE html>
 <html lang="en">
@@ -173,80 +157,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   </table>
 </body>
 </html>`;
-    const mail: Record<string, unknown> = {
-      from: `"Byjan" <${from}>`,
-      replyTo: from,
-      envelope: { from, to },
-      to,
-      subject,
-      text: textMessage,
-      html,
-      headers: {
-        ...outboundMailHeaders(kind || 'email.send'),
-        'X-Auto-Response-Suppress': 'All',
-      },
-    };
     const pdfBase64 = String(body.pdfBase64 || '').replace(/^data:application\/pdf[^,]*,/i, '').replace(/\s+/g, '');
-    if (pdfBase64) {
-      mail.attachments = [{
-        filename: String(body.filename || 'Byjan_Report.pdf').replace(/[^\w.-]+/g, '_'),
-        content: pdfBase64,
-        encoding: 'base64',
-        contentType: 'application/pdf',
-      }];
-    }
     try {
-      const info = await transporter.sendMail(mail);
-      await writeMailTrace('email.send', {
-        ok: true,
-        uid,
+      const info = await sendTracedMail({
         to,
-        subject: subject.slice(0, 120),
-        messageId: info.messageId,
-        host: settings.host,
-        port: settings.port,
+        subject,
+        text: textMessage,
+        html,
+        kind: kind || 'email.send',
+        attachments: pdfBase64
+          ? [{
+              filename: String(body.filename || 'Byjan_Report.pdf').replace(/[^\w.-]+/g, '_'),
+              content: pdfBase64,
+              encoding: 'base64',
+              contentType: 'application/pdf',
+            }]
+          : undefined,
       });
-      json(res, 200, { success: true, messageId: info.messageId });
+      json(res, 200, { success: true, messageId: info?.messageId });
     } catch (first: any) {
-      if (settings.port === 2525) {
-        try {
-          transporter = createTransport({ ...settings, port: 587 });
-          const info = await transporter.sendMail(mail);
-          await writeMailTrace('email.send', {
-            ok: true,
-            uid,
-            to,
-            subject: subject.slice(0, 120),
-            messageId: info.messageId,
-            host: settings.host,
-            port: 587,
-            note: 'fallback-port-587',
-          });
-          json(res, 200, { success: true, messageId: info.messageId });
-          return;
-        } catch (second: any) {
-          await writeMailTrace('email.send', {
-            ok: false,
-            uid,
-            to,
-            subject: subject.slice(0, 120),
-            error: String(second?.message || second || first?.message || 'Send failed'),
-            host: settings.host,
-            port: 587,
-          });
-          throw second;
-        }
-      }
-      await writeMailTrace('email.send', {
-        ok: false,
-        uid,
-        to,
-        subject: subject.slice(0, 120),
-        error: String(first?.message || first || 'Send failed'),
-        host: settings.host,
-        port: settings.port,
-      });
-      throw first;
+      const { publicServiceError } = await import('../_lib/ops-classify.js');
+      json(res, 503, { error: publicServiceError(first, 'Could not send that email. Please try again later.') });
     }
   } catch (err: any) {
     const { publicServiceError } = await import('../_lib/ops-classify.js');
