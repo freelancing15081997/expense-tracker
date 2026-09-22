@@ -38,7 +38,20 @@ export default function ForgotPassword() {
       await apiPost('/api/auth/otp', { op: 'send', purpose: 'reset', email: cleaned });
       navigate('/verify-email', { state: { email: cleaned, purpose: 'reset', otpSent: true } });
     } catch (err: any) {
-      setError(toUserMessage(err, 'Could not start password reset.'));
+      // Our mailer can be down while Firebase's own reset mail still works.
+      // A missing account gets the same confirmation so the screen never reveals who is registered.
+      try {
+        await sendPasswordResetEmail(auth, cleaned, { url: 'https://www.easypado.com/#/login', handleCodeInApp: false });
+        setDone(true);
+        setResendIn(45);
+      } catch (fb: any) {
+        const code = String(fb?.code || '');
+        if (code === 'auth/user-not-found') {
+          setDone(true);
+          return;
+        }
+        setError(toUserMessage(err, 'Could not start password reset.'));
+      }
     } finally {
       setBusy(false);
     }

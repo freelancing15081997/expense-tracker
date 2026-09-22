@@ -81,11 +81,16 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
   const [nativeRef, setNativeRef] = useState('');
   const [recorded, setRecorded] = useState<{ id: string; bookId: string } | null>(null);
   const [cameraLive, setCameraLive] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [zoomMax, setZoomMax] = useState(1);
+  const [morePay, setMorePay] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number>(0);
   const attemptRef = useRef('');
   const recordedOnce = useRef(false);
+  const zoomTrack = useRef<MediaStreamTrack | null>(null);
+  const cameraKick = useRef(0);
 
   const book = useMemo(() => books.find((b) => b.id === bookId) || books[0], [books, bookId]);
   const symbol = getCurrencySymbol(String(book?.currency || 'INR'));
@@ -99,6 +104,7 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
     rafRef.current = 0;
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
+    zoomTrack.current = null;
     setCameraLive(false);
   };
 
@@ -118,6 +124,10 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
     setStatusMsg('');
     setNativeRef('');
     setRecorded(null);
+    setZoom(1);
+    setZoomMax(1);
+    setMorePay(false);
+    cameraKick.current += 1;
     setBookId(preferredBookId || lastMoneyBookId() || '');
     void listLedgers().then((rows) => {
       const next = rows.filter((b: any) => !b.deleted && !b.archived).map((b: any) => ({ id: String(b.id), name: String(b.name || 'Book'), currency: String(b.currency || 'INR'), categories: Array.isArray(b.categories) ? b.categories.map(String) : [] }));
@@ -146,6 +156,7 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
   };
 
   const startLiveScan = async () => {
+    if (streamRef.current) return;
     setScanError('');
     if (!navigator.mediaDevices?.getUserMedia) {
       setScanError('Live camera is not available here. Take a photo of the QR instead.');
@@ -156,6 +167,12 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
       streamRef.current = stream;
       setCameraLive(true);
+      const track = stream.getVideoTracks()[0];
+      zoomTrack.current = track || null;
+      const caps = track?.getCapabilities?.() as { zoom?: { min?: number; max?: number } } | undefined;
+      const maxZoom = Number(caps?.zoom?.max || 1);
+      setZoom(Number(caps?.zoom?.min || 1));
+      setZoomMax(maxZoom > 1 ? Math.min(maxZoom, 6) : 3);
       const video = videoRef.current;
       if (!video) return;
       video.srcObject = stream;
@@ -189,10 +206,30 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
         rafRef.current = requestAnimationFrame((t) => { void tick(t); });
       };
       rafRef.current = requestAnimationFrame((t) => { void tick(t); });
+      requestAnimationFrame(() => document.querySelector('.uq-root .sp-body')?.scrollTo(0, 0));
     } catch (err) {
       stopCamera();
       const msg = err instanceof Error ? err.message : '';
-      setScanError(/denied|permission|NotAllowed/i.test(msg) ? 'Camera permission was not granted. Allow camera access or take a photo of the QR.' : 'Could not start the camera. Take a photo of the QR instead.');
+      setScanError(/denied|permission|NotAllowed/i.test(msg) ? 'Camera permission was not granted. Use gallery or paste the UPI ID.' : 'Could not start the camera. Use gallery or paste the UPI ID.');
+    }
+  };
+
+  // Camera opens with the scanner. Gallery and paste stay as backups.
+  useEffect(() => {
+    if (!open || phase !== 'scan' || initialQr) return;
+    const id = window.setTimeout(() => { void startLiveScan(); }, 40);
+    return () => window.clearTimeout(id);
+    // startLiveScan is stable enough for open/phase; cameraKick retries after rescan.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, phase, initialQr]);
+
+  const setCameraZoom = (value: number) => {
+    const next = Math.min(zoomMax, Math.max(1, value));
+    setZoom(next);
+    const track = zoomTrack.current;
+    const caps = track?.getCapabilities?.() as { zoom?: { max?: number } } | undefined;
+    if (track && caps?.zoom && typeof track.applyConstraints === 'function') {
+      void track.applyConstraints({ advanced: [{ zoom: next } as MediaTrackConstraintSet] }).catch(() => { /* visual zoom still applies */ });
     }
   };
 
@@ -358,25 +395,28 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
         <div className="sp-body">
           {phase === 'scan' ? (
             <>
-              <div className={`uq-viewport${cameraLive ? ' is-live' : ''}`}>
-                <video ref={videoRef} className="uq-video" playsInline muted autoPlay />
+              <div className={`uq-viewport${cameraLive ? ' is-live' : ''}`} data-testid="upi-qr-viewport">
+                <video ref={videoRef} className="uq-video" playsInline muted autoPlay style={zoom > 1 ? { transform: `scale(${zoom})` } : undefined} />
                 {!cameraLive ? (
                   <div className="uq-viewport-idle">
                     <QrCode className="w-10 h-10" />
-                    <p>Point at any UPI QR — shop counters, bills, or a friend's code.</p>
-                    <button type="button" className="sp-cta" data-testid="upi-qr-start" onClick={() => void startLiveScan()}><Camera className="w-4 h-4" /> Open camera</button>
+                    <p>{scanError || 'Opening the camera… point it at the UPI QR.'}</p>
+                    <button type="button" className="sp-cta" data-testid="upi-qr-start" onClick={() => { cameraKick.current += 1; void startLiveScan(); }}><Camera className="w-4 h-4" /> Try camera again</button>
                   </div>
                 ) : (
-                  <div className="uq-frame" aria-hidden><i /><i /><i /><i /><span className="uq-laser" /></div>
+                  <>
+                    <div className="uq-frame" aria-hidden><i /><i /><i /><i /><span className="uq-laser" /></div>
+                    <label className="uq-zoom" data-testid="upi-qr-zoom">
+                      <span>Zoom</span>
+                      <input type="range" min={1} max={zoomMax} step={0.1} value={zoom} aria-label="Camera zoom" onChange={(e) => setCameraZoom(Number(e.target.value))} />
+                    </label>
+                  </>
                 )}
               </div>
-              {scanError ? <p className="sp-error" role="alert">{scanError}</p> : null}
+              {scanError && cameraLive ? <p className="sp-error" role="alert">{scanError}</p> : null}
               <div className="uq-alt">
-                <button type="button" className="sp-select-all" disabled={busy} onClick={() => void scanFromPhoto()}>
-                  {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />} Take a photo
-                </button>
                 <label className="sp-select-all uq-file">
-                  <ImagePlus className="w-3.5 h-3.5" /> From gallery
+                  <ImagePlus className="w-3.5 h-3.5" /> Gallery
                   <input type="file" accept="image/*" hidden onChange={(e) => { void pickFromGallery(e.target.files?.[0] || null); e.currentTarget.value = ''; }} />
                 </label>
                 <button type="button" className="sp-select-all" data-testid="upi-qr-paste-toggle" onClick={() => setShowPaste((v) => !v)}>
@@ -401,40 +441,44 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
                   <p className="uq-payee-name">{qr.pn || 'UPI merchant'}</p>
                   <p className="uq-payee-vpa">{qr.pa}{handleLabel ? ` · ${handleLabel}` : ''}</p>
                 </div>
-                <button type="button" className="uq-rescan" onClick={() => { setQr(null); setPhase('scan'); }} aria-label="Scan a different code"><RefreshCw className="w-3.5 h-3.5" /></button>
+                <button type="button" className="uq-rescan" onClick={() => { cameraKick.current += 1; setQr(null); setMorePay(false); setPhase('scan'); }} aria-label="Scan a different code"><RefreshCw className="w-3.5 h-3.5" /></button>
               </div>
               <label className={`uq-amount${amountLocked ? ' is-locked' : ''}`}>
                 <span className="uq-amount-ccy">{symbol}</span>
                 <input type="number" inputMode="decimal" step="0.01" min="1" value={amount} readOnly={amountLocked} onChange={(e) => setAmount(e.target.value)} placeholder="0" autoFocus={!amountLocked} aria-label="Amount" data-testid="upi-qr-amount" />
-                <span className="uq-amount-hint">{amountLocked ? 'Amount set by the QR' : 'Enter the amount to pay'}</span>
+                <span className="uq-amount-hint">{amountLocked ? 'Amount is on the QR' : 'Amount'}</span>
               </label>
-              <label className="uq-field">
-                <span>What is this for?</span>
-                <input value={note} onChange={(e) => setNote(e.target.value)} placeholder={qr.tn || 'e.g. Groceries, chai, auto'} maxLength={80} data-testid="upi-qr-note" />
+              <label className="uq-field uq-note">
+                <input value={note} onChange={(e) => setNote(e.target.value)} placeholder={qr.tn || 'Note (optional) — chai, auto, rent'} maxLength={80} data-testid="upi-qr-note" aria-label="Note" />
               </label>
-              <div className="uq-row">
-                <label className="uq-field">
-                  <span><BookOpen className="w-3 h-3" /> Book</span>
-                  <div className="uq-select">
-                    <select value={book?.id || ''} onChange={(e) => setBookId(e.target.value)} data-testid="upi-qr-book">
-                      {books.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-                    </select>
-                    <ChevronDown className="w-4 h-4" />
-                  </div>
-                </label>
-                <label className="uq-field">
-                  <span>Category</span>
-                  <div className="uq-select">
-                    <select value={category} onChange={(e) => setCategory(e.target.value)} data-testid="upi-qr-category">
-                      <option value="">Pick later</option>
-                      {categories.map((c) => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                    <ChevronDown className="w-4 h-4" />
-                  </div>
-                </label>
-              </div>
+              <button type="button" className="uq-more" aria-expanded={morePay} onClick={() => setMorePay((v) => !v)}>
+                {morePay ? 'Hide book' : `Saving in ${book?.name || 'your book'}`}
+              </button>
+              {morePay ? (
+                <div className="uq-row">
+                  <label className="uq-field">
+                    <span><BookOpen className="w-3 h-3" /> Book</span>
+                    <div className="uq-select">
+                      <select value={book?.id || ''} onChange={(e) => setBookId(e.target.value)} data-testid="upi-qr-book">
+                        {books.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                      </select>
+                      <ChevronDown className="w-4 h-4" />
+                    </div>
+                  </label>
+                  <label className="uq-field">
+                    <span>Category</span>
+                    <div className="uq-select">
+                      <select value={category} onChange={(e) => setCategory(e.target.value)} data-testid="upi-qr-category">
+                        <option value="">Other</option>
+                        {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                      <ChevronDown className="w-4 h-4" />
+                    </div>
+                  </label>
+                </div>
+              ) : null}
               {!books.length ? <p className="sp-error">Create a money book first so the payment can be recorded.</p> : null}
-              <p className="sp-kicker" style={{ margin: '10px 0 8px' }}>Pay with</p>
+              <p className="sp-kicker" style={{ margin: '8px 0 6px' }}>Pay with</p>
               <div className="sp-partners" data-testid="upi-qr-apps">
                 {UPI_PAY_APPS.map((app) => (
                   <button key={app.id} type="button" className="sp-partner" disabled={busy || !books.length} aria-label={`Pay with ${app.label}`} data-app={app.id} onClick={() => void pay(app.id)}>

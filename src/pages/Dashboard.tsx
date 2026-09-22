@@ -1361,6 +1361,7 @@ export default function Dashboard() {
                 <p className="home-lead-light">Your admin has not turned on Money or Business yet.</p>
               ) : canSeeMoney ? (
                 <>
+                  <p className="home-left-label">Money left</p>
                   <div className="home-amount-row">
                     <CurrencyMark code={currencyCode} size="lg" />
                     <AutoFitAmount className="home-amount byjan-money">
@@ -1698,7 +1699,7 @@ export default function Dashboard() {
             <div>
               <p className="md3-kicker">Library</p>
               <h2>Your books</h2>
-              <p className="md3-sub">{visibleBooks.length} open · tap to open expenses</p>
+              <p className="md3-sub">{visibleBooks.length} open · tap a book to see its entries. Add and Scan stay on the card.</p>
             </div>
             <div className="flex items-center gap-2">
               <div className="books-view-toggle" role="group" aria-label="Book list view">

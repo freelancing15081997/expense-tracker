@@ -348,6 +348,11 @@ await waitFor(() => js(`document.querySelectorAll('.md3-book').length > 0 || /No
   const pay = await waitFor(() => js(`Boolean(document.querySelector('[data-testid="upi-qr-sheet"]'))`), { timeout: 8000 });
   record('pay', 'Pay QR sheet opens from the book', Boolean(pay), { phase: await js(`document.querySelector('[data-testid="upi-qr-sheet"]')?.getAttribute('data-phase')`) });
   if (pay) {
+    await sleep(350);
+    const frame = await js(`(() => { const b = document.querySelector('[data-testid="upi-qr-viewport"]')?.getBoundingClientRect(); if (!b) return null; return { top: Math.round(b.top), height: Math.round(b.height), bottom: Math.round(b.bottom), vh: window.innerHeight }; })()`);
+    record('pay', 'camera fills the screen without scrolling', Boolean(frame) && frame.top >= 0 && frame.top < 160 && frame.bottom <= frame.vh + 8 && frame.height > 180, frame);
+  }
+  if (pay) {
     await click('[data-testid="upi-qr-paste-toggle"]');
     const pasteBox = await waitFor(() => js(`Boolean(document.querySelector('[data-testid="upi-qr-paste"]'))`));
     record('pay', 'paste UPI ID is available from the scanner', Boolean(pasteBox));
@@ -359,6 +364,8 @@ await waitFor(() => js(`document.querySelectorAll('.md3-book').length > 0 || /No
     await setInput('[data-testid="upi-qr-amount"]', '50');
     await setInput('[data-testid="upi-qr-note"]', 'E2E chai');
     const apps = await js(`document.querySelectorAll('[data-testid="upi-qr-apps"] [data-app]').length`);
+    const simple = await js(`({ amount: Boolean(document.querySelector('[data-testid="upi-qr-amount"]')), note: Boolean(document.querySelector('[data-testid="upi-qr-note"]')), bookHidden: !document.querySelector('[data-testid="upi-qr-book"]') })`);
+    record('pay', 'after a scan only amount and note are required', Boolean(simple?.amount && simple?.note && simple?.bookHidden), simple);
     record('pay', 'amount, note, and UPI app deeplink buttons are ready', apps >= 1 && Boolean(await js(`document.querySelector('[data-testid="upi-qr-amount"]')?.value === '50'`)), { apps });
     await js(`document.querySelector('[data-testid="upi-qr-sheet"] .sp-close, [data-testid="upi-qr-sheet"] .sp-dim')?.click()`);
     await sleep(400);
@@ -388,6 +395,8 @@ await waitFor(() => js(`document.querySelectorAll('.md3-book').length > 0 || /No
   record('reports', 'period control switches and counts are monotonic Week ≤ Month ≤ 3 months ≤ Year', monotonic && counts.month >= 1, counts);
   const heroText = await js(`document.querySelector('[data-testid="reports-hero"]')?.textContent || ''`);
   record('reports', 'hero shows period bounds and delta pills', /vs last time|nothing to compare|same as last time|vs previous|new|same as before/i.test(heroText) && /–/.test(heroText));
+  const plain = await js(`document.querySelector('[data-testid="reports-plain"]')?.textContent || ''`);
+  record('reports', 'summary says what was paid, received, and left', /You paid|Nothing recorded/i.test(plain), { plain: String(plain).slice(0, 140) });
   await click(`[data-testid="reports-export"]`);
   const note = await waitFor(() => js(`document.querySelector('[data-testid="reports-export-note"]')?.textContent || ''`));
   record('reports', 'spreadsheet export gives explicit feedback', /Exported \d+ entr/i.test(note || ''), { note });

@@ -322,7 +322,18 @@ export default function ReportsDashboard({ expenses, books, fixedBookId, embedde
         </div>
         <p className="rp-hero-label">{netNeg ? 'Spent more than came in' : 'Left over after spending'}</p>
         <p className="rp-hero-amount byjan-money" data-testid="reports-net">{netNeg ? '−' : ''}{formatIndianAmount(Math.round(netShown), currency)}</p>
-        <p className="rp-hero-story">{empty ? 'No entries in this period yet. Add a few and this fills in.' : story.narrative}</p>
+        <p className="rp-hero-story" data-testid="reports-plain">
+          {empty
+            ? 'Nothing recorded in this period yet. Add an entry and this explains where the money went.'
+            : `You paid ${formatIndianAmount(Math.round(summary.moneyOut), currency)}. You received ${formatIndianAmount(Math.round(summary.moneyIn), currency)}. ${netNeg ? 'More went out than came in.' : `You still have ${formatIndianAmount(Math.round(summary.net), currency)} left.`}`}
+        </p>
+        {!empty ? (
+          <div className="rp-split" aria-hidden>
+            <span className="is-out" style={{ flex: Math.max(summary.moneyOut, 1) }} />
+            <span className="is-in" style={{ flex: Math.max(summary.moneyIn, 0.001) }} />
+          </div>
+        ) : null}
+        {!empty && story.narrative ? <p className="rp-hero-story">{story.narrative}</p> : null}
         <div className="rp-hero-row">
           <div className="rp-hero-cell">
             <span className="rp-cell-label"><ArrowUpRight className="w-3.5 h-3.5" /> Money out</span>
