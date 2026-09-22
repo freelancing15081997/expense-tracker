@@ -37,19 +37,31 @@ function webDownload(blob: Blob, fileName: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
-/** Save to app Documents and return the URI — no share sheet / store picker. */
+/** Save inside the app first. Public Documents needs a storage permission many phones refuse. */
 async function nativeSaveBase64(fileName: string, base64: string) {
   const { Filesystem, Directory } = await import('@capacitor/filesystem');
   const path = `Byjan/${safeFileName(fileName)}`;
-  await Filesystem.writeFile({ path, data: base64, directory: Directory.Documents, recursive: true });
-  const uri = await Filesystem.getUri({ path, directory: Directory.Documents });
+  let savedUri = '';
+  try {
+    await Filesystem.writeFile({ path, data: base64, directory: Directory.Documents, recursive: true });
+    savedUri = (await Filesystem.getUri({ path, directory: Directory.Documents })).uri;
+  } catch {
+    await Filesystem.writeFile({ path, data: base64, directory: Directory.Cache, recursive: true });
+    savedUri = (await Filesystem.getUri({ path, directory: Directory.Cache })).uri;
+    try {
+      const { Share } = await import('@capacitor/share');
+      await Share.share({ title: fileName, url: savedUri, dialogTitle: 'Save file' });
+    } catch {
+      /* share dismissed — the file is still in app storage */
+    }
+  }
   try {
     const { Toast } = await import('@capacitor/toast');
     await Toast.show({ text: `Saved · ${fileName}`, duration: 'short', position: 'bottom' });
   } catch {
     /* toast optional */
   }
-  return uri.uri;
+  return savedUri;
 }
 
 export async function saveTextFile(fileName: string, text: string, mime = 'text/plain', _title?: string) {

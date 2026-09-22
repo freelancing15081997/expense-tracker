@@ -201,11 +201,19 @@ export default function Settings() {
           <p className="text-sm font-semibold text-slate-900 mt-1 truncate">{userProfile?.displayName || 'Signed in'}</p>
           <p className="text-xs text-slate-500 mt-1 truncate">{userProfile?.email}</p>
         </div>
+        {hasFeature('business') && tenant ? (
         <div className="byjan-card p-4">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{tenant ? 'Business company' : 'Money books'}</p>
-          <p className="text-sm font-semibold text-slate-900 mt-1">{tenant?.name || 'Shared daily money'}</p>
-          <p className="text-xs text-slate-500 mt-1">{tenant ? 'Company letterhead lives in Business → Settings.' : 'Money books are for daily spend. Business is for invoices and GST.'}</p>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Business company</p>
+          <p className="text-sm font-semibold text-slate-900 mt-1">{tenant.name}</p>
+          <p className="text-xs text-slate-500 mt-1">Company letterhead lives in Business → Settings.</p>
         </div>
+        ) : (
+        <div className="byjan-card p-4">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Money books</p>
+          <p className="text-sm font-semibold text-slate-900 mt-1">Shared daily money</p>
+          <p className="text-xs text-slate-500 mt-1">These settings apply to the money books on this account.</p>
+        </div>
+        )}
         {isSuperUser && (
         <Link to="/access" className="byjan-card p-4 sm:col-span-2 block">
           <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 flex items-center gap-1.5">
@@ -287,10 +295,10 @@ export default function Settings() {
       <section className="byjan-card overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-200 bg-[#F8FAFC]">
           <h2 className="text-base font-semibold text-slate-900">Regional</h2>
-          <p className="text-xs text-slate-500 mt-1">Number and date formatting for Business, money books, search, and reports.</p>
+          <p className="text-xs text-slate-500 mt-1">{hasFeature('business') ? 'Number and date formatting for Business, money books, search, and reports.' : 'Number and date formatting for money books, search, and reports.'}</p>
         </div>
         <div className="p-5 grid md:grid-cols-2 gap-5">
-          <Field label="Default currency" hint="Used when you create a new money book. Posted Business entries keep the company currency.">
+          <Field label="Default currency" hint={hasFeature('business') ? 'Used when you create a new money book. Posted Business entries keep the company currency.' : 'Used when you create a new money book.'}>
             <Select value={prefs.defaultCurrency} onValueChange={(v) => setPref('defaultCurrency', v)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>

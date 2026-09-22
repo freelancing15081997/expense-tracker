@@ -13,8 +13,8 @@ android {
         applicationId "com.byjanbooks.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 37
-        versionName "1.0.37"
+        versionCode 38
+        versionName "1.0.38"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Keep PP-OCR .nb models uncompressed so Paddle-Lite can mmap them reliably in release.
@@ -38,6 +38,11 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (byjanHasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
+        }
+        debug {
             if (byjanHasReleaseSigning) {
                 signingConfig signingConfigs.release
             }

@@ -2591,7 +2591,7 @@ export default function BookView() {
                         )}
                         {visibleColumns.merchant && <td className="px-3.5 py-2 text-slate-600 text-sm truncate max-w-[140px]" title={exp.merchant || ''}>{exp.merchant || '—'}</td>}
                         {visibleColumns.method && <td className="px-3.5 py-2 text-slate-500 text-sm capitalize">{exp.paymentMethod || 'cash'}</td>}
-                        {visibleColumns.author && <td className="px-3.5 py-2 text-slate-600 text-sm truncate max-w-[120px]" title={`Entered by: ${exp.enteredBy || exp.paidByName}${exp.lastEditedBy ? '\nLast edited by: ' + exp.lastEditedBy : ''}`}>{exp.enteredBy || exp.paidByName}</td>}
+                        {visibleColumns.author && <td className="px-3.5 py-2 text-slate-600 text-sm truncate max-w-[160px]" title={`Added by ${exp.enteredBy || exp.paidByName}${exp.lastEditedBy ? '\nLast edited by: ' + exp.lastEditedBy : ''}`}>{exp.enteredBy || exp.paidByName ? `Added by ${exp.enteredBy || exp.paidByName}` : ''}</td>}
                         {visibleColumns.amount && (
                           <td className="px-3.5 py-2 text-right">
                             <div className="flex items-center justify-end gap-1.5 font-bold">
@@ -2715,7 +2715,7 @@ export default function BookView() {
                           <span>{expenseDateLabel(exp)}</span>
                           {exp.merchant ? <span>{exp.merchant}</span> : null}
                           {exp.status === 'draft' ? <span className="entry-cat-pill tone-amber">Needs review</span> : null}
-                          {exp.enteredBy || exp.paidByName ? <span>{exp.enteredBy || exp.paidByName}</span> : null}
+                          {exp.enteredBy || exp.paidByName ? <span className="entry-card-by">Added by {exp.enteredBy || exp.paidByName}</span> : null}
                         </p>
                       </div>
                       {canWrite && (
@@ -3071,7 +3071,7 @@ export default function BookView() {
       <Dialog.Root open={Boolean(deleteTarget)} onOpenChange={(next) => { if (!next) setDeleteTarget(null); }}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 z-[190]" />
-          <Dialog.Content className="fixed left-[50%] top-[50%] z-[200] w-[min(100%-1.5rem,24rem)] translate-x-[-50%] translate-y-[-50%] rounded-[22px] bg-white border border-slate-200 p-5 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)] byjan-pop-in" data-testid="entry-delete-confirm">
+          <Dialog.Content className="byjan-dialog fixed z-[200] w-[min(100%-1.5rem,24rem)] rounded-[22px] bg-white border border-slate-200 p-5 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)] byjan-pop-in" data-testid="entry-delete-confirm">
             <Dialog.Title className="text-base font-semibold text-slate-900">Delete this entry?</Dialog.Title>
             <p className="text-sm text-slate-600 mt-2">“{deleteTarget?.description || 'This entry'}” will be removed from {book?.name || 'this book'} for everyone on it. You can undo for a short while after.</p>
             <div className="flex justify-end gap-2 mt-4">
@@ -3088,7 +3088,7 @@ export default function BookView() {
       <Dialog.Root open={editConfirmOpen} onOpenChange={(next) => { if (!isSaving) setEditConfirmOpen(next); }}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 z-[190]" />
-          <Dialog.Content className="fixed left-[50%] top-[50%] z-[200] w-[min(100%-1.5rem,24rem)] translate-x-[-50%] translate-y-[-50%] rounded-[22px] bg-white border border-slate-200 p-5 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)] byjan-pop-in" data-testid="entry-edit-confirm">
+          <Dialog.Content className="byjan-dialog fixed z-[200] w-[min(100%-1.5rem,24rem)] rounded-[22px] bg-white border border-slate-200 p-5 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)] byjan-pop-in" data-testid="entry-edit-confirm">
             <Dialog.Title className="text-base font-semibold text-slate-900">Save these changes?</Dialog.Title>
             {editingExpense ? (
               <ul className="mt-2 text-sm text-slate-600 space-y-1">
@@ -3432,7 +3432,7 @@ export default function BookView() {
       <Dialog.Root open={isAnnounceOpen} onOpenChange={setIsAnnounceOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 z-[90]" />
-          <Dialog.Content className="fixed left-[50%] top-[50%] z-[100] grid w-full max-w-md translate-x-[-50%] translate-y-[-50%] gap-4 p-5 rounded-[22px] bg-white border border-slate-200 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)]">
+          <Dialog.Content className="byjan-dialog fixed z-[100] grid w-full max-w-md gap-4 p-5 rounded-[22px] bg-white border border-slate-200 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)]">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <Dialog.Title className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <Megaphone className="w-4 h-4 text-slate-500" /> Announce to the team
@@ -3477,7 +3477,7 @@ export default function BookView() {
       <Dialog.Root open={confirmDelete} onOpenChange={(open) => { if (!deletingLedger) setConfirmDelete(open); }}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 z-[90]" />
-          <Dialog.Content className="fixed left-[50%] top-[50%] z-[100] w-[min(100%-1.5rem,24rem)] translate-x-[-50%] translate-y-[-50%] rounded-[22px] bg-white border border-slate-200 p-5 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)]">
+          <Dialog.Content className="byjan-dialog fixed z-[100] w-[min(100%-1.5rem,24rem)] rounded-[22px] bg-white border border-slate-200 p-5 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)]">
             <Dialog.Title className="text-base font-bold text-slate-900">Delete this book?</Dialog.Title>
             <p className="text-sm text-slate-600 mt-2">“{book?.name}” and its entries will be removed for the team. This cannot be undone from the app.</p>
             <div className="flex justify-end gap-2 mt-4">
@@ -3494,7 +3494,7 @@ export default function BookView() {
       <Dialog.Root open={isEditBookOpen} onOpenChange={setIsEditBookOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 z-[90]" />
-          <Dialog.Content className="fixed left-[50%] top-[50%] z-[100] w-[min(100%-1.5rem,24rem)] translate-x-[-50%] translate-y-[-50%] rounded-[22px] bg-white border border-slate-200 p-5 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)]">
+          <Dialog.Content className="byjan-dialog fixed z-[100] w-[min(100%-1.5rem,24rem)] rounded-[22px] bg-white border border-slate-200 p-5 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)]">
             <div className="flex items-center justify-between mb-3">
               <Dialog.Title className="text-base font-bold text-slate-900">Edit book</Dialog.Title>
               <Dialog.Close className="rounded-md p-1 text-slate-400 hover:bg-slate-100"><X className="w-4 h-4" /></Dialog.Close>
@@ -3551,7 +3551,7 @@ export default function BookView() {
       }}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 z-[90]" />
-          <Dialog.Content className="fixed left-[50%] top-[50%] z-[100] flex flex-col w-full max-w-lg max-h-[85vh] translate-x-[-50%] translate-y-[-50%] overflow-hidden rounded-[22px] bg-white border border-slate-200 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)]">
+          <Dialog.Content className="byjan-dialog fixed z-[100] flex flex-col w-full max-w-lg max-h-[85vh] overflow-hidden rounded-[22px] bg-white border border-slate-200 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)]">
             <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
               <Dialog.Title className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <Users className="w-4 h-4 text-slate-500" /> People & access

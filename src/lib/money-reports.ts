@@ -50,8 +50,9 @@ export function periodBounds(period: ReportPeriod, anchor = new Date()) {
     return { from: `${y}-${pad(m + 1)}-01`, to: today };
   }
   if (period === 'quarter') {
-    const qStart = m - (m % 3);
-    return { from: `${y}-${pad(qStart + 1)}-01`, to: today };
+    const start = new Date(anchor);
+    start.setMonth(m - 3);
+    return { from: iso(start), to: today };
   }
   if (period === 'year') {
     return { from: `${y}-01-01`, to: today };
@@ -75,9 +76,9 @@ export function previousPeriodBounds(period: ReportPeriod, anchor = new Date()) 
     return { from: `${prevEnd.getFullYear()}-${pad(prevEnd.getMonth() + 1)}-01`, to: iso(prevEnd) };
   }
   if (period === 'quarter') {
-    const m = prevEnd.getMonth();
-    const qStart = m - (m % 3);
-    return { from: `${prevEnd.getFullYear()}-${pad(qStart + 1)}-01`, to: iso(prevEnd) };
+    const prevStart = new Date(prevEnd);
+    prevStart.setMonth(prevEnd.getMonth() - 3);
+    return { from: iso(prevStart), to: iso(prevEnd) };
   }
   return { from: `${prevEnd.getFullYear()}-01-01`, to: iso(prevEnd) };
 }

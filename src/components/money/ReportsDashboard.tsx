@@ -38,7 +38,12 @@ export const REPORT_PERIODS: Array<{ key: ReportPeriod; label: string; long: str
   { key: 'month', label: 'Month', long: 'This month' },
   { key: 'quarter', label: '3 months', long: 'Last 3 months' },
   { key: 'year', label: 'Year', long: 'This year' },
+  { key: 'custom', label: 'Dates', long: 'Your dates' },
 ];
+
+function localIso(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 const CAT_TONES = ['#0B1F3A', '#3654FF', '#12B8A8', '#F59E0B', '#EF4444', '#8B5CF6', '#64748B'];
 
@@ -225,6 +230,12 @@ export type ReportsDashboardProps = {
 
 export default function ReportsDashboard({ expenses, books, fixedBookId, embedded = false, onOpenEntry, children }: ReportsDashboardProps) {
   const [period, setPeriod] = useState<ReportPeriod>('month');
+  const [customFrom, setCustomFrom] = useState(() => {
+    const start = new Date();
+    start.setDate(1);
+    return localIso(start);
+  });
+  const [customTo, setCustomTo] = useState(() => localIso());
   const [bookId, setBookId] = useState(fixedBookId || 'all');
   const [exporting, setExporting] = useState(false);
   const [exportNote, setExportNote] = useState('');
@@ -236,8 +247,25 @@ export default function ReportsDashboard({ expenses, books, fixedBookId, embedde
   useEffect(() => { if (fixedBookId) setBookId(fixedBookId); }, [fixedBookId]);
   useEffect(() => () => { if (exportTimer.current) window.clearTimeout(exportTimer.current); }, []);
 
-  const bounds = useMemo(() => periodBounds(period), [period]);
-  const prevBounds = useMemo(() => previousPeriodBounds(period), [period]);
+  const bounds = useMemo(() => {
+    if (period !== 'custom') return periodBounds(period);
+    const from = customFrom || '';
+    const to = customTo || localIso();
+    if (from && to && from > to) return { from: to, to: from };
+    return { from, to };
+  }, [period, customFrom, customTo]);
+  const prevBounds = useMemo(() => {
+    if (period !== 'custom') return previousPeriodBounds(period);
+    if (!bounds.from || !bounds.to) return { from: '', to: '' };
+    const start = new Date(`${bounds.from}T00:00:00`);
+    const end = new Date(`${bounds.to}T00:00:00`);
+    const days = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000) + 1);
+    const prevEnd = new Date(start);
+    prevEnd.setDate(start.getDate() - 1);
+    const prevStart = new Date(prevEnd);
+    prevStart.setDate(prevEnd.getDate() - (days - 1));
+    return { from: localIso(prevStart), to: localIso(prevEnd) };
+  }, [period, bounds]);
   // In a fixed-book context the rows may not carry bookId — don't filter them out.
   const bookIds = fixedBookId || bookId === 'all' ? undefined : [bookId];
   const filtered = useMemo(() => filterExpenses(expenses, { ...bounds, bookIds }), [expenses, bounds, bookId, fixedBookId]);
@@ -301,6 +329,18 @@ export default function ReportsDashboard({ expenses, books, fixedBookId, embedde
             </button>
           ))}
         </div>
+        {period === 'custom' ? (
+          <div className="rp-dates">
+            <label>
+              From
+              <input type="date" value={customFrom} max={customTo || undefined} onChange={(e) => setCustomFrom(e.target.value)} data-testid="reports-from" />
+            </label>
+            <label>
+              To
+              <input type="date" value={customTo} min={customFrom || undefined} onChange={(e) => setCustomTo(e.target.value)} data-testid="reports-to" />
+            </label>
+          </div>
+        ) : null}
         {!fixedBookId && books.length > 1 ? (
           <select className="rp-book-select" value={bookId} onChange={(e) => setBookId(e.target.value)} aria-label="Book" data-testid="reports-book">
             <option value="all">All books</option>

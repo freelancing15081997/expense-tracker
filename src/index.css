@@ -4460,10 +4460,11 @@ html[data-radius="round"] { --ui-radius: 24px; --ui-btn-radius: 999px; }
   .record-sheet {
     top: auto;
     bottom: 0;
-    left: 0;
-    right: 0;
-    transform: none;
-    width: 100%;
+    left: 0 !important;
+    right: 0 !important;
+    transform: none !important;
+    translate: none !important;
+    width: 100% !important;
     max-width: none;
     max-height: min(92dvh, 760px);
     border-radius: 22px 22px 0 0;
@@ -8335,14 +8336,23 @@ section[aria-label="To pay"] {
 }
 .rp-export:disabled { opacity: 0.5; }
 .rp-export:not(:disabled):active { transform: scale(0.97); background: #f1f5f9; }
-.rp-controls { display: flex; align-items: center; gap: 8px; }
+.rp-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .rp-seg {
-  flex: 1 1 auto; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px;
+  flex: 1 1 100%; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px;
   padding: 3px; border-radius: 14px; background: #e9eef5; border: 1px solid rgba(11, 31, 58, 0.06);
 }
 .rp-seg-btn {
-  height: 34px; border-radius: 11px; border: 0; background: transparent; color: #475569;
-  font-size: 13px; font-weight: 580; letter-spacing: -0.01em; transition: background 140ms ease, color 140ms ease, box-shadow 140ms ease;
+  height: 34px; min-width: 0; padding: 0 4px; border-radius: 11px; border: 0; background: transparent; color: #475569;
+  font-size: 12px; font-weight: 580; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: background 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+.rp-dates {
+  flex: 1 1 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+}
+.rp-dates label { display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: 11px; font-weight: 580; color: #64748b; }
+.rp-dates input {
+  height: 40px; width: 100%; border-radius: 14px; border: 1px solid rgba(11, 31, 58, 0.1);
+  background: #fff; color: #0B1F3A; font-size: 13px; font-weight: 580; padding: 0 10px;
 }
 .rp-seg-btn[data-on="true"] { background: #fff; color: #0B1F3A; box-shadow: 0 4px 12px -6px rgba(11, 31, 58, 0.45); }
 .rp-book-select {
@@ -8529,7 +8539,8 @@ section[aria-label="To pay"] {
 .byjan-fade-in { animation: byjan-fade 180ms ease both; }
 .byjan-pop-in { animation: byjan-pop 220ms cubic-bezier(.2,.8,.2,1) both; }
 @keyframes byjan-fade { from { opacity: 0; } to { opacity: 1; } }
-@keyframes byjan-pop { from { opacity: 0; transform: translate(-50%, -50%) scale(0.94); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+/* Opacity only. A transform here stacks on top of the dialog's own centering and shoves the card off the left edge. */
+@keyframes byjan-pop { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .byjan-fade-in, .byjan-pop-in { animation: none; } }
 
 /* ===================== ENTRY FORM (compact) ===================== */
@@ -9108,6 +9119,7 @@ section[aria-label="To pay"] {
   align-items: center;
   gap: 4px 6px;
 }
+.entry-card-by { flex: 1 0 100%; color: #475569; font-weight: 560; }
 .entry-card-mobile .money-kind {
   height: 18px;
   padding: 0 7px;
@@ -9204,3 +9216,27 @@ html, body, button, input, textarea, select {
   -webkit-backdrop-filter: blur(22px) saturate(1.5);
 }
 .md3-panel-books { background: transparent; border: 0; box-shadow: none; backdrop-filter: none; }
+
+.phone-tools > div:first-child { min-width: 0; max-width: 9.5rem; }
+.phone-tools > div:first-child > button { min-width: 0; max-width: 9.5rem; }
+@media (max-width: 390px) {
+  .phone-tools > div:first-child,
+  .phone-tools > div:first-child > button { max-width: 2.75rem; padding-left: 0; padding-right: 0; justify-content: center; }
+  .phone-tools > div:first-child > button > span,
+  .phone-tools > div:first-child > button > svg:last-child { display: none; }
+}
+
+/* Centered confirms. translate + a pop transform were stacking, so only a sliver showed from the left. */
+.byjan-dialog {
+  position: fixed !important;
+  left: 50% !important;
+  top: 50% !important;
+  right: auto !important;
+  bottom: auto !important;
+  translate: none !important;
+  transform: translate(-50%, -50%) !important;
+  margin: 0 !important;
+  max-width: calc(100vw - 1.5rem);
+  max-height: min(88dvh, 720px);
+  overflow: auto;
+}

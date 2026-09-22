@@ -1252,7 +1252,7 @@ export default function Dashboard() {
       <Dialog.Root open={Boolean(editBook)} onOpenChange={(open) => { if (!savingBook && !open) setEditBook(null); }}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 z-[90]" />
-          <Dialog.Content className="fixed left-[50%] top-[50%] z-[100] w-[min(100%-1.5rem,24rem)] translate-x-[-50%] translate-y-[-50%] rounded-[22px] bg-white border border-slate-200 p-5 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)]">
+          <Dialog.Content className="byjan-dialog fixed z-[100] w-[min(100%-1.5rem,24rem)] rounded-[22px] bg-white border border-slate-200 p-5 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)]">
             <Dialog.Title className="text-base font-bold text-slate-900">Edit book</Dialog.Title>
             <form
               className="space-y-3 mt-3"
@@ -1289,7 +1289,7 @@ export default function Dashboard() {
       <Dialog.Root open={Boolean(deleteBook)} onOpenChange={(open) => { if (!deletingBook && !open) setDeleteBook(null); }}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 z-[90]" />
-          <Dialog.Content className="fixed left-[50%] top-[50%] z-[100] w-[min(100%-1.5rem,24rem)] translate-x-[-50%] translate-y-[-50%] rounded-[22px] bg-white border border-slate-200 p-5 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)]">
+          <Dialog.Content className="byjan-dialog fixed z-[100] w-[min(100%-1.5rem,24rem)] rounded-[22px] bg-white border border-slate-200 p-5 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)]">
             <Dialog.Title className="text-base font-bold text-slate-900">Delete this book?</Dialog.Title>
             <p className="text-sm text-slate-600 mt-2">
               “{deleteBook?.name}” and its entries will be removed for the team. This cannot be undone from the app.

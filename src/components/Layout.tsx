@@ -4,6 +4,7 @@ import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { logout } from '../lib/firebase';
 import { Bell, CheckCircle2, X, LayoutDashboard, Settings, BookText, Plus, ScanLine, PenLine, Mic, Activity, QrCode } from 'lucide-react';
+import HelpAskButton from './HelpAskButton';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { listNotifications, markNotificationRead, notificationPath, notifyTimeAgo } from '../lib/notifications';
@@ -227,8 +228,9 @@ export default function Layout() {
           <BrandLogo size="sm" className="!w-10 !h-10" />
           <span className="font-display font-semibold text-[17px] text-[#0B0F1F] tracking-tight">Byjan</span>
         </Link>
-        <div className="flex items-center gap-1">
+        <div className="phone-tools flex items-center gap-1 min-w-0">
           <WorkspaceSwitcher variant="header" />
+          <HelpAskButton />
           {hasFeature('app_search') ? <SearchTrigger /> : null}
           {canNotify && (
           <button
@@ -277,6 +279,7 @@ export default function Layout() {
               {hasFeature('app_search') ? <SearchTrigger variant="bar" /> : null}
             </div>
           </div>
+          <HelpAskButton />
           {canNotify && (
           <button
             type="button"
