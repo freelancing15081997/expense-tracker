@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertCircle, BookOpen, Camera, CheckCircle2, ChevronDown, ClipboardPaste, HelpCircle, ImagePlus, Loader2, QrCode, RefreshCw, ShieldCheck, X } from 'lucide-react';
+import { AlertCircle, BookOpen, Camera, CheckCircle2, ChevronDown, ClipboardPaste, Flashlight, HelpCircle, ImagePlus, Loader2, QrCode, RefreshCw, ShieldCheck, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { CapacitorService, isWeb } from '../lib/capacitor';
 import { createExpense } from '../lib/expenses';
@@ -82,6 +82,7 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
   const [nativeRef, setNativeRef] = useState('');
   const [recorded, setRecorded] = useState<{ id: string; bookId: string } | null>(null);
   const [cameraLive, setCameraLive] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [zoomMax, setZoomMax] = useState(1);
   const [hardwareZoom, setHardwareZoom] = useState(false);
@@ -113,6 +114,7 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
     zoomTrack.current = null;
     setCameraLive(false);
     setHardwareZoom(false);
+    setTorchOn(false);
   };
 
   // Reset when (re)opened
@@ -287,6 +289,20 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
     };
   }, [cameraLive]);
 
+  const toggleTorch = async () => {
+    const track = zoomTrack.current;
+    if (!track || typeof track.applyConstraints !== 'function') return;
+    const next = !torchOn;
+    try {
+      await track.applyConstraints({ advanced: [{ torch: next } as MediaTrackConstraintSet] });
+      setTorchOn(next);
+      setScanError('');
+    } catch {
+      setScanError('Torch is not available on this camera.');
+      setTorchOn(false);
+    }
+  };
+
   const scanFromPhoto = async () => {
     setScanError('');
     setBusy(true);
@@ -460,6 +476,9 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
                   </div>
                 ) : (
                   <>
+                    <button type="button" className={`uq-torch${torchOn ? ' is-on' : ''}`} aria-pressed={torchOn} aria-label={torchOn ? 'Turn torch off' : 'Turn torch on'} onClick={() => { void toggleTorch(); }}>
+                      <Flashlight className="w-4 h-4" />
+                    </button>
                     <div className="uq-frame" aria-hidden><i /><i /><i /><i /><span className="uq-laser" /></div>
                     <div className="uq-zoom" data-testid="upi-qr-zoom">
                       <p className="uq-pinch">Pinch with two fingers</p>

@@ -30,7 +30,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import ReportsDashboard from '../components/money/ReportsDashboard';
 import { format } from 'date-fns';
 import { getCurrencySymbol } from '../lib/currency';
-import { CategoryBadge, CategoryIconMark, EntryFieldLabel, ENTRY_FIELD_ICONS, MONEY_KIND_VISUAL } from '../lib/category-icons';
+import { CategoryBadge, CategoryIconMark, EntryFieldLabel, ENTRY_FIELD_ICONS, MONEY_KIND_VISUAL, categoryVisual } from '../lib/category-icons';
 import { categoryForQuickAction, getPurposeTemplate, purposeFieldMeta, quickActionLabel, type QuickActionId } from '../lib/purpose-templates';
 import { suggestBookEvolution } from '../lib/book-evolution';
 import { bookInboundAddress, ledgerAppLink, openInviteButtonHtml, openLedgerButtonHtml, wrapByjanEmailHtml } from '../lib/inbound-mail';
@@ -1961,13 +1961,10 @@ export default function BookView() {
 
   return (
     <>
-      <div className="h-full min-h-0 flex flex-col" data-purpose-id={purposeId}>
+      <div className="book-stage h-full min-h-0 flex flex-col" data-purpose-id={purposeId}>
       <Tabs.Root value={shownTab} onValueChange={onLedgerTabChange} className="h-full min-h-0 flex flex-col">
-        <PullToRefresh
-          className="flex-1 min-h-0 overflow-y-auto book-scroll pb-[calc(7.5rem+env(safe-area-inset-bottom,0px))] md:pb-8"
-          onRefresh={async () => { await refreshExpenses(); }}
-        >
-        <div className="px-4 md:px-6 lg:px-8 pt-2 pb-0 bg-white">
+        <div className="book-chrome shrink-0">
+        <div className="px-4 md:px-6 lg:px-8 pt-2 pb-0">
         <div className="max-w-6xl mx-auto">
       <div className="book-head mb-1">
       <div className="flex flex-col gap-2 mb-1">
@@ -1989,42 +1986,6 @@ export default function BookView() {
               )}
             </div>
           </div>
-        </div>
-          <div className="book-open-actions">
-            {canWrite && (
-              <button
-                type="button"
-                onClick={() => { void CapacitorService.hapticTick(); openNewExpense(); }}
-                className="book-head-action book-head-add"
-                title="Add entry"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Add entry</span>
-              </button>
-            )}
-            {canWrite && (
-              <button
-                type="button"
-                onClick={() => { void CapacitorService.hapticTick(); setQrPayOpen(true); }}
-                className="book-head-action book-head-pay"
-                title="Scan a UPI QR and pay — the entry is recorded here"
-                data-testid="book-pay-qr"
-              >
-                <QrCode className="w-4 h-4" />
-                <span>Pay</span>
-              </button>
-            )}
-            {hasFeature('money_people') && (
-              <button
-                type="button"
-                onClick={() => setIsMembersModalOpen(true)}
-                className="book-head-action book-head-team"
-                title="Team — people with access to this book"
-              >
-                <Users className="w-4 h-4" />
-                <span>Team</span>
-              </button>
-            )}
             <DropdownMenu.Root>
               <DropdownMenu.Trigger asChild>
                 <button type="button" className="book-head-action book-head-more" aria-label="Book actions">
@@ -2068,7 +2029,7 @@ export default function BookView() {
                 </DropdownMenu.Content>
               </DropdownMenu.Portal>
             </DropdownMenu.Root>
-          </div>
+        </div>
         {evolution && canManageUsers ? (
           <div className="purpose-detect mt-2">
             <span className="flex-1 min-w-0">
@@ -2146,56 +2107,7 @@ export default function BookView() {
         </div>
 
         {ledgerTab === 'ledger' && (
-          <div className="book-dash book-dash-compact mt-1.5 space-y-1.5">
-            <div className="book-dash-kpis">
-            <div className="md3-stats">
-              <div className="md3-stat tone-idle">
-                <span className="md3-stat-icon" aria-hidden><Wallet className="w-3.5 h-3.5" /></span>
-                <span className="md3-stat-label">Net</span>
-                <strong className={cn('md3-stat-value byjan-money', balance >= 0 ? 'is-in' : '')}>
-                  {balance < 0 ? '−' : ''}{getCurrencySymbol(book.currency)}{Math.abs(balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                </strong>
-              </div>
-              <div className="md3-stat tone-out">
-                <span className="md3-stat-icon" aria-hidden><ArrowUpRight className="w-3.5 h-3.5" /></span>
-                <span className="md3-stat-label">Money out</span>
-                <strong className="md3-stat-value byjan-money">
-                  {getCurrencySymbol(book.currency)}{totalOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                </strong>
-              </div>
-              <div className="md3-stat tone-in">
-                <span className="md3-stat-icon" aria-hidden><ArrowDownRight className="w-3.5 h-3.5" /></span>
-                <span className="md3-stat-label">Money in</span>
-                <strong className="md3-stat-value byjan-money">
-                  {getCurrencySymbol(book.currency)}{totalIn.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                </strong>
-              </div>
-              <div className="md3-stat tone-warn">
-                <span className="md3-stat-icon" aria-hidden><Receipt className="w-3.5 h-3.5" /></span>
-                <span className="md3-stat-label">This month</span>
-                <strong className="md3-stat-value byjan-money">
-                  {getCurrencySymbol(book.currency)}{monthOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                </strong>
-              </div>
-            </div>
-            </div>
-            {(budget > 0 || reimbursableOpen > 0 || isAuditor) && (
-              <div className="flex flex-wrap items-center gap-1.5">
-                {budget > 0 && (
-                  <span className={cn('text-[10px] font-semibold px-2 py-0.5 rounded-full border', monthOut > budget ? 'text-rose-700 bg-rose-50 border-rose-200' : 'text-slate-600 bg-slate-50 border-slate-200')}>
-                    Budget left {getCurrencySymbol(book.currency)}{(budget - monthOut).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                  </span>
-                )}
-                {reimbursableOpen > 0 && (
-                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border text-amber-800 bg-amber-50 border-amber-200">
-                    Reimbursable {getCurrencySymbol(book.currency)}{reimbursableOpen.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                  </span>
-                )}
-                {isAuditor && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border text-amber-800 bg-amber-50 border-amber-200">Read-only</span>}
-              </div>
-            )}
-
-            <div className="book-dash-tools book-tools-sticky sticky top-0 z-30 -mx-1 px-1 py-1.5 bg-white/95 backdrop-blur-md border-b border-slate-100/80">
+            <div className="book-dash-tools book-tools-bar">
             <div className="flex items-center gap-1.5">
               {canLedgerSearch && (
               <label className="byjan-search flex-1">
@@ -2278,6 +2190,100 @@ export default function BookView() {
               )}
             </div>
             </div>
+        )}
+
+        </div>
+        </div>
+        </div>
+        <PullToRefresh
+          className="flex-1 min-h-0 overflow-y-auto book-scroll pb-[calc(7.5rem+env(safe-area-inset-bottom,0px))] md:pb-8"
+          onRefresh={async () => { await refreshExpenses(); }}
+        >
+        <div className="px-4 md:px-6 lg:px-8 pt-2">
+        <div className="max-w-6xl mx-auto">
+        <div className="book-open-actions">
+            {canWrite && (
+              <button
+                type="button"
+                onClick={() => { void CapacitorService.hapticTick(); openNewExpense(); }}
+                className="book-head-action book-head-add"
+                title="Add entry"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add entry</span>
+              </button>
+            )}
+            {canWrite && (
+              <button
+                type="button"
+                onClick={() => { void CapacitorService.hapticTick(); setQrPayOpen(true); }}
+                className="book-head-action book-head-pay"
+                title="Scan a UPI QR and pay — the entry is recorded here"
+                data-testid="book-pay-qr"
+              >
+                <QrCode className="w-4 h-4" />
+                <span>Pay</span>
+              </button>
+            )}
+            {hasFeature('money_people') && (
+              <button
+                type="button"
+                onClick={() => setIsMembersModalOpen(true)}
+                className="book-head-action book-head-team"
+                title="Team — people with access to this book"
+              >
+                <Users className="w-4 h-4" />
+                <span>Team</span>
+              </button>
+            )}
+        </div>
+        {ledgerTab === 'ledger' && (
+          <div className="book-dash-kpis mb-2">
+            <div className="md3-stats">
+              <div className="md3-stat tone-idle">
+                <span className="md3-stat-icon" aria-hidden><Wallet className="w-3.5 h-3.5" /></span>
+                <span className="md3-stat-label">Net</span>
+                <strong className={cn('md3-stat-value byjan-money', balance >= 0 ? 'is-in' : '')}>
+                  {balance < 0 ? '−' : ''}{getCurrencySymbol(book.currency)}{Math.abs(balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </strong>
+              </div>
+              <div className="md3-stat tone-out">
+                <span className="md3-stat-icon" aria-hidden><ArrowUpRight className="w-3.5 h-3.5" /></span>
+                <span className="md3-stat-label">Money out</span>
+                <strong className="md3-stat-value byjan-money">
+                  {getCurrencySymbol(book.currency)}{totalOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </strong>
+              </div>
+              <div className="md3-stat tone-in">
+                <span className="md3-stat-icon" aria-hidden><ArrowDownRight className="w-3.5 h-3.5" /></span>
+                <span className="md3-stat-label">Money in</span>
+                <strong className="md3-stat-value byjan-money">
+                  {getCurrencySymbol(book.currency)}{totalIn.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </strong>
+              </div>
+              <div className="md3-stat tone-warn">
+                <span className="md3-stat-icon" aria-hidden><Receipt className="w-3.5 h-3.5" /></span>
+                <span className="md3-stat-label">This month</span>
+                <strong className="md3-stat-value byjan-money">
+                  {getCurrencySymbol(book.currency)}{monthOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </strong>
+              </div>
+            </div>
+            {(budget > 0 || reimbursableOpen > 0 || isAuditor) && (
+              <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                {budget > 0 && (
+                  <span className={cn('text-[10px] font-semibold px-2 py-0.5 rounded-full border', monthOut > budget ? 'text-rose-700 bg-rose-50 border-rose-200' : 'text-slate-600 bg-slate-50 border-slate-200')}>
+                    Budget left {getCurrencySymbol(book.currency)}{(budget - monthOut).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </span>
+                )}
+                {reimbursableOpen > 0 && (
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border text-amber-800 bg-amber-50 border-amber-200">
+                    Reimbursable {getCurrencySymbol(book.currency)}{reimbursableOpen.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </span>
+                )}
+                {isAuditor && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border text-amber-800 bg-amber-50 border-amber-200">Read-only</span>}
+              </div>
+            )}
           </div>
         )}
 
@@ -2457,6 +2463,16 @@ export default function BookView() {
               <span className="text-emerald-600"> · In {getCurrencySymbol(book.currency)}{filterIn.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
               <span> · Out {getCurrencySymbol(book.currency)}{filterOut.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
             </p>
+          )}
+          {filteredExpenses.length > 0 && (
+            <ListPager
+              page={safePage}
+              totalPages={totalPages}
+              onPage={setCurrentPage}
+              pageSize={itemsPerPage}
+              onPageSize={setItemsPerPage}
+              total={filteredExpenses.length}
+            />
           )}
 
           {/* Data Table */}
@@ -2650,7 +2666,7 @@ export default function BookView() {
             </div>
 
             {/* Compact Mobile View */}
-            <div className="md:hidden flex flex-col gap-2.5 pt-1">
+            <div className="md:hidden flex flex-col gap-1.5 pt-1">
               {paginatedExpenses.length === 0 ? (
                 <div className="p-8 text-center text-sm text-slate-500 bg-white rounded-2xl border border-slate-200">No entries found.</div>
               ) : (
@@ -2660,6 +2676,7 @@ export default function BookView() {
                     {group.rows.map((exp) => {
                   const kind = moneyKindMeta(exp.entryType, exp.txType);
                   const why = entryEvidence(exp);
+                  const cat = categoryVisual(exp.category);
                   return (
                   <div
                     key={exp.id}
@@ -2668,6 +2685,7 @@ export default function BookView() {
                     data-testid="entry-card"
                     className={cn(
                       'entry-card-mobile mb-entry is-tappable',
+                      `tone-${cat.tone}`,
                       exp.flagged && 'byjan-row-flag',
                       anomalySet.has(exp.id) && 'byjan-row-anomaly',
                     )}
@@ -2679,95 +2697,78 @@ export default function BookView() {
                       if (event.key === 'Enter' && event.target === event.currentTarget) setViewExpense(exp);
                     }}
                   >
-                    <div className="flex justify-between items-start gap-3">
+                    <div className="entry-card-row">
                       {canWrite && (
-                        <input type="checkbox" className="mt-1.5" aria-label={`Select ${exp.description}`} checked={selectedIds.includes(exp.id)} onChange={() => toggleSelected(exp.id)} />
+                        <input type="checkbox" aria-label={`Select ${exp.description}`} checked={selectedIds.includes(exp.id)} onChange={() => toggleSelected(exp.id)} />
                       )}
                       <span className={`mb-entry-icon tone-${exp.entryType === 'in' ? 'in' : exp.entryType === 'transfer' ? 'xfer' : 'out'}`} aria-hidden>
                         <CategoryIconMark name={exp.category || (exp.entryType === 'in' ? 'income' : 'Uncategorized')} className="!w-full !h-full" />
                       </span>
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className={cn('money-kind', kind.cls)}>{kind.label}</span>
-                          {exp.source === 'email' && (
-                            <span className="money-evidence" title={String(exp.emailSubject || 'From inbound email')}>Email</span>
-                          )}
-                          {exp.status === 'draft' && (
-                            <span className="money-evidence money-evidence-warn">Needs review</span>
-                          )}
+                        <div className="entry-card-line">
+                          <p className="entry-card-title">{exp.description}</p>
+                          <div className={cn('entry-card-amount byjan-money', kind.cls)}>{kind.sign}{getCurrencySymbol(book.currency)}{Number(exp.amount || 0).toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
                         </div>
-                        <p className="entry-card-title">{exp.description}</p>
+                        <p className="entry-card-meta">
+                          <span className={cn('money-kind', kind.cls)}>{kind.label}</span>
+                          <span className={`entry-cat-pill tone-${cat.tone}`}>{cat.label}</span>
+                          <span>{expenseDateLabel(exp)}</span>
+                          {exp.merchant ? <span>{exp.merchant}</span> : null}
+                          {exp.status === 'draft' ? <span className="entry-cat-pill tone-amber">Needs review</span> : null}
+                          {exp.enteredBy || exp.paidByName ? <span>{exp.enteredBy || exp.paidByName}</span> : null}
+                        </p>
                       </div>
-                      <div className={cn('entry-card-amount byjan-money', kind.cls)}>{kind.sign}{getCurrencySymbol(book.currency)}{Number(exp.amount || 0).toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
-                    </div>
-                    <p className="entry-card-meta">
-                      {expenseDateLabel(exp)}
-                      {exp.merchant ? ` · ${exp.merchant}` : ''}
-                      {exp.paymentMethod ? ` · ${exp.paymentMethod}` : ''}
-                    </p>
-                    <p className="entry-card-by">Added by {exp.enteredBy || exp.paidByName || 'Unknown'}</p>
-                    <div className="mt-1">
-                      <CategoryBadge name={exp.category || 'Uncategorized'} size="md" />
+                      {canWrite && (
+                        <DropdownMenu.Root>
+                          <DropdownMenu.Trigger asChild>
+                            <button type="button" className="entry-more" aria-label="Entry actions">
+                              <MoreHorizontal className="w-4 h-4" />
+                            </button>
+                          </DropdownMenu.Trigger>
+                          <DropdownMenu.Portal>
+                            <DropdownMenu.Content className="book-overflow-menu" align="end" sideOffset={6}>
+                              <DropdownMenu.Item className="book-overflow-item" data-testid="entry-card-view" onSelect={() => setViewExpense(exp)}>
+                                <Eye className="w-4 h-4" /> View
+                              </DropdownMenu.Item>
+                              <DropdownMenu.Item className="book-overflow-item" onSelect={() => openEditExpense(exp)}>
+                                <PenSquare className="w-4 h-4" /> Edit
+                              </DropdownMenu.Item>
+                              {exp.receiptPath ? (
+                                <DropdownMenu.Item className="book-overflow-item" onSelect={() => { void openReceipt(exp); }}>
+                                  <Paperclip className="w-4 h-4" /> Receipt
+                                </DropdownMenu.Item>
+                              ) : null}
+                              {canFlag ? (
+                                <DropdownMenu.Item className="book-overflow-item" onSelect={() => { void updateExpense(bookId!, exp.id, { flagged: !exp.flagged }).then(() => refreshExpenses()); }}>
+                                  <Star className="w-4 h-4" /> {exp.flagged ? 'Unflag' : 'Flag'}
+                                </DropdownMenu.Item>
+                              ) : null}
+                              {canDuplicate ? (
+                                <DropdownMenu.Item className="book-overflow-item" onSelect={() => { void duplicateExpense(exp); }}>
+                                  <CopyPlus className="w-4 h-4" /> Duplicate
+                                </DropdownMenu.Item>
+                              ) : null}
+                              {canSplitEntry && peopleFromBook(book).length > 1 && String(exp.entryType || 'out') === 'out' ? (
+                                <DropdownMenu.Item className="book-overflow-item" onSelect={() => setSplitTarget({
+                                  id: String(exp.id),
+                                  amount: Number(exp.amount || 0),
+                                  merchant: String(exp.merchant || ''),
+                                  description: String(exp.description || ''),
+                                })}>
+                                  <Users className="w-4 h-4" /> {Array.isArray(exp.personSplits) && exp.personSplits.length ? 'Edit split' : 'Split'}
+                                </DropdownMenu.Item>
+                              ) : null}
+                              {canDelete ? (
+                                <DropdownMenu.Item className="book-overflow-item is-danger" onSelect={() => handleDeleteExpense(exp.id, exp.description)}>
+                                  <Trash2 className="w-4 h-4" /> Delete
+                                </DropdownMenu.Item>
+                              ) : null}
+                            </DropdownMenu.Content>
+                          </DropdownMenu.Portal>
+                        </DropdownMenu.Root>
+                      )}
                     </div>
                     {why ? <p className="entry-card-why">{why}</p> : null}
-                    {canWrite && (
-                      <div className="entry-card-actions">
-                        {exp.receiptPath && (
-                          <button
-                            type="button"
-                            onClick={() => void openReceipt(exp)}
-                            disabled={openingReceiptId === exp.id}
-                            className="entry-card-action"
-                            title="Open attachment"
-                            aria-label="Open attachment"
-                            data-receipt-open="true"
-                          >
-                            {openingReceiptId === exp.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Paperclip className="w-3.5 h-3.5" />}
-                          </button>
-                        )}
-                        {canFlag && (
-                        <button
-                          type="button"
-                          onClick={() => void updateExpense(bookId!, exp.id, { flagged: !exp.flagged }).then(() => refreshExpenses())}
-                          className={cn('entry-card-action', exp.flagged && 'is-on')}
-                          title={exp.flagged ? 'Unflag' : 'Flag'}
-                        >
-                          <Star className="w-3.5 h-3.5" fill={exp.flagged ? 'currentColor' : 'none'} />
-                        </button>
-                        )}
-                        {canDuplicate && (
-                        <button type="button" onClick={() => void duplicateExpense(exp)} disabled={bulkBusy === exp.id} className="entry-card-action" title="Duplicate">
-                          {bulkBusy === exp.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CopyPlus className="w-3.5 h-3.5" />}
-                        </button>
-                        )}
-                        <button type="button" onClick={() => setViewExpense(exp)} className="entry-card-action" title="View" data-testid="entry-card-view">
-                          <Eye className="w-3.5 h-3.5" />
-                        </button>
-                        <button type="button" onClick={() => openEditExpense(exp)} className="entry-card-action" title="Edit">
-                          <PenSquare className="w-3.5 h-3.5" />
-                        </button>
-                        {canSplitEntry && peopleFromBook(book).length > 1 && String(exp.entryType || 'out') === 'out' ? (
-                          <button
-                            type="button"
-                            className={`entry-split-cta ${Array.isArray(exp.personSplits) && exp.personSplits.length ? 'is-done' : ''}`}
-                            onClick={() => setSplitTarget({
-                              id: String(exp.id),
-                              amount: Number(exp.amount || 0),
-                              merchant: String(exp.merchant || ''),
-                              description: String(exp.description || ''),
-                            })}
-                          >
-                            <Users className="w-3.5 h-3.5" />
-                            {Array.isArray(exp.personSplits) && exp.personSplits.length ? 'Edit split' : 'Split'}
-                          </button>
-                        ) : null}
-                        {canDelete && (
-                        <button type="button" onClick={() => handleDeleteExpense(exp.id, exp.description)} disabled={isDeleting === exp.id} className="entry-card-action is-danger" title="Delete">
-                          {isDeleting === exp.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                        </button>
-                        )}
-                      </div>
-                    )}
                   </div>
                   );
                 })}
@@ -2777,7 +2778,7 @@ export default function BookView() {
             </div>
           </div>
           {/* Pagination Controls */}
-          {filteredExpenses.length > 0 && totalPages > 1 && (
+          {filteredExpenses.length > 0 && (
             <ListPager
               page={safePage}
               totalPages={totalPages}

@@ -12,7 +12,7 @@ import { useBooksTenantMeta } from '../lib/tenant';
 import { getCurrencySymbol } from '../lib/currency';
 import { initials, sparkDays } from '../lib/ledger-advanced';
 import { formatIndianAmount, workspaceBridges } from '../lib/bridge-automations';
-import { Plus, Check, X, Users, ArrowUpRight, ArrowDownRight, RefreshCw, Wallet, Receipt, Shield, ScanLine, BookText, BarChart3, Split, ArrowLeftRight, Mic, LayoutGrid, List, Rows3, Pin, MoreHorizontal, Pencil, Trash2, UserPlus, QrCode } from 'lucide-react';
+import { Plus, Check, X, Users, ArrowUpRight, ArrowDownRight, RefreshCw, Wallet, Receipt, Shield, ScanLine, BookText, BarChart3, Split, Library, BookPlus, CalendarClock, Activity, Mic, LayoutGrid, List, Rows3, Pin, MoreHorizontal, Pencil, Trash2, UserPlus, QrCode } from 'lucide-react';
 import UpiQrPaySheet from '../components/UpiQrPaySheet';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
@@ -1481,8 +1481,8 @@ export default function Dashboard() {
               <MoneyAttentionSkeleton />
             ) : (
               <>
+                {hasFeature('money_recurring') && upcoming.length > 0 ? <UpcomingHomeStrip items={upcoming} currencyCode={currencyCode} /> : null}
                 {hasFeature('money_inbox') ? <FinancialInbox items={attentionItems} /> : null}
-                {hasFeature('money_recurring') ? <UpcomingHomeStrip items={upcoming} currencyCode={currencyCode} /> : null}
               </>
             )}
           </section>
@@ -1493,12 +1493,12 @@ export default function Dashboard() {
             <h2 className="home-section-label">Quick access</h2>
             <div className="home-qa-row">
               <Link to="/expenses" className="home-qa-tile">
-                <span className="home-qa-icon" aria-hidden><BookText className="w-5 h-5" /></span>
+                <span className="home-qa-icon" aria-hidden><Library className="w-5 h-5" /></span>
                 Books
               </Link>
               {hasFeature('money_create_book') && (
                 <button type="button" className="home-qa-tile" onClick={() => setShowNewBook(true)}>
-                  <span className="home-qa-icon" aria-hidden><BookText className="w-5 h-5" /></span>
+                  <span className="home-qa-icon" aria-hidden><BookPlus className="w-5 h-5" /></span>
                   New book
                 </button>
               )}
@@ -1510,13 +1510,13 @@ export default function Dashboard() {
               )}
               {hasFeature('money_recurring') && (
                 <Link to="/regular-payments" className="home-qa-tile">
-                  <span className="home-qa-icon" aria-hidden><ArrowLeftRight className="w-5 h-5" /></span>
+                  <span className="home-qa-icon" aria-hidden><CalendarClock className="w-5 h-5" /></span>
                   Recurring
                 </Link>
               )}
               {hasFeature('money_activity') && (
               <Link to="/activity" className="home-qa-tile">
-                <span className="home-qa-icon" aria-hidden><Wallet className="w-5 h-5" /></span>
+                <span className="home-qa-icon" aria-hidden><Activity className="w-5 h-5" /></span>
                 Activity
               </Link>
               )}
@@ -1657,7 +1657,7 @@ export default function Dashboard() {
       <section className="dash-hero dash-hero-money dash-hero-compact">
         <div className="dash-hero-compact-row">
           <div className="min-w-0">
-            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/45">Money books</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Money books</p>
             <p className="dash-hero-balance byjan-money !mt-1 inline-flex items-center gap-2">
               <CurrencyMark code={currencyCode} size="sm" />
               {formatIndianAmount(statsReady ? net : 0, currency)}
@@ -1728,6 +1728,7 @@ export default function Dashboard() {
         </div>
       ) : (
       <section className="md3-panel md3-panel-books">
+          <div className="books-glass">
           <div className="md3-panel-head">
             <div>
               <p className="md3-kicker">Library</p>
@@ -1771,18 +1772,21 @@ export default function Dashboard() {
               </button>
             </div>
           ) : (
+            <ListControls
+              query={bookList.query}
+              onQuery={bookList.setQuery}
+              page={bookList.page}
+              totalPages={bookList.totalPages}
+              onPage={bookList.setPage}
+              pageSize={bookList.pageSize}
+              onPageSize={bookList.setPageSize}
+              total={bookList.filtered.length}
+              placeholder="Search money books"
+            />
+          )}
+          </div>
+          {!loading && !loadError && books.length > 0 && (
             <div className="space-y-3">
-              <ListControls
-                query={bookList.query}
-                onQuery={bookList.setQuery}
-                page={bookList.page}
-                totalPages={bookList.totalPages}
-                onPage={bookList.setPage}
-                pageSize={bookList.pageSize}
-                onPageSize={bookList.setPageSize}
-                total={bookList.filtered.length}
-                placeholder="Search money books"
-              />
               <div className={`md3-book-list is-${booksView}`}>
                 {bookList.pageRows.map(renderLedgerCard)}
               </div>

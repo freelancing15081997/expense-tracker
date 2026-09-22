@@ -40,19 +40,20 @@ export default function FinancialInbox({ items }: { items: AttentionItem[] }) {
             <Link
               key={row.id}
               to={row.href || inboxHref}
-              className="home-swipe-slide home-quad-card"
+              className="home-swipe-slide home-inbox-card"
+              data-kind={row.kind}
             >
-              <span className="home-quad-kind" data-kind={row.kind}>
-                {row.kind === 'outlier' ? 'Unusual' : row.kind === 'receipt_review' ? 'Receipt' : row.kind === 'categorize' ? 'No category' : row.kind === 'duplicate' ? 'Duplicate' : row.kind === 'recurring' ? 'Repeating' : row.kind === 'commitment' ? 'Coming up' : row.kind === 'split' ? 'Owed' : row.kind.replace('_', ' ')}
+              <span className="home-inbox-top">
+                <span className="home-inbox-kind">
+                  {row.kind === 'outlier' ? 'Unusual' : row.kind === 'receipt_review' ? 'Receipt' : row.kind === 'categorize' ? 'No category' : row.kind === 'duplicate' ? 'Duplicate' : row.kind === 'recurring' ? 'Repeating' : row.kind === 'commitment' ? 'Coming up' : row.kind === 'split' ? 'Owed' : row.kind.replace('_', ' ')}
+                </span>
+                <strong className="home-inbox-amt byjan-money">
+                  {row.amount ? formatIndianAmount(row.amount) : '—'}
+                </strong>
               </span>
-              <span className="home-quad-copy min-w-0">
-                <span className="home-upcoming-name">{row.title}</span>
-                <span className="home-upcoming-meta">{row.detail}</span>
-              </span>
-              <strong className="home-upcoming-amt byjan-money">
-                {row.amount ? formatIndianAmount(row.amount) : '—'}
-              </strong>
-              <span className={`home-quad-pay${/pay|review|remind/i.test(row.kind + row.action) ? ' pulse-attn' : ''}`}>{row.action || 'Open'}</span>
+              <span className="home-inbox-title">{row.title}</span>
+              <span className="home-inbox-detail">{row.detail}</span>
+              <span className="home-inbox-go">{row.action || 'Open'} <ChevronRight className="w-3.5 h-3.5" /></span>
             </Link>
           ))}
         </HomeSwipeDeck>

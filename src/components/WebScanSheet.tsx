@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Camera, ImagePlus, X } from 'lucide-react';
+import { Camera, Flashlight, ImagePlus, X } from 'lucide-react';
 
 export type WebScanFile = {
   imageDataUrl: string;
@@ -31,9 +31,11 @@ export default function WebScanSheet({
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const trackRef = useRef<MediaStreamTrack | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [camError, setCamError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -55,6 +57,8 @@ export default function WebScanSheet({
           return;
         }
         streamRef.current = stream;
+        trackRef.current = stream.getVideoTracks()[0] || null;
+        setTorchOn(false);
         const video = videoRef.current;
         if (video) {
           video.srcObject = stream;
@@ -76,12 +80,28 @@ export default function WebScanSheet({
       window.clearTimeout(fallback);
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
+      trackRef.current = null;
+      setTorchOn(false);
       const video = videoRef.current;
       if (video) video.srcObject = null;
     };
   }, [open]);
 
   if (!open) return null;
+
+  const toggleTorch = async () => {
+    const track = trackRef.current;
+    if (!track) return;
+    const next = !torchOn;
+    try {
+      await track.applyConstraints({ advanced: [{ torch: next } as MediaTrackConstraintSet] });
+      setTorchOn(next);
+      setCamError('');
+    } catch {
+      setCamError('Torch is not available on this camera.');
+      setTorchOn(false);
+    }
+  };
 
   const snap = () => {
     const video = videoRef.current;
@@ -130,6 +150,9 @@ export default function WebScanSheet({
         <div className="px-5 py-4 space-y-3">
           <div className="relative overflow-hidden rounded-2xl bg-[#0B1F3A] aspect-[4/3]">
             <video ref={videoRef} className="absolute inset-0 h-full w-full object-cover" playsInline muted autoPlay />
+            <button type="button" className={`scan-torch${torchOn ? ' is-on' : ''}`} aria-pressed={torchOn} aria-label={torchOn ? 'Turn torch off' : 'Turn torch on'} onClick={() => { void toggleTorch(); }}>
+              <Flashlight className="w-4 h-4" />
+            </button>
             {camError ? (
               <div className="absolute inset-0 flex items-center justify-center p-6 text-center text-[13px] text-white/90 bg-[#0B1F3A]">
                 {camError}

@@ -27,6 +27,7 @@ export default function UpcomingHomeStrip({
   const rows = items.slice(0, 8);
   const [index, setIndex] = useState(0);
   const safeIndex = rows.length ? Math.min(index, rows.length - 1) : 0;
+  if (!rows.length) return null;
 
   return (
     <section className={`home-upcoming${rows.length === 0 ? ' is-empty' : ''}`} aria-label="Upcoming payments">
