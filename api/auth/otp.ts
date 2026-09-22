@@ -27,6 +27,18 @@ function otpKey(purpose: string, email: string) {
   return `ops/otp/${purpose}/${email.replace(/[^a-z0-9@._+-]/gi, '_')}`;
 }
 
+function passwordProblem(raw: string) {
+  const password = String(raw || '');
+  if (password.length < 8) return 'Password must be at least 8 characters.';
+  if (password.length > 128) return 'Password is too long.';
+  if (!/[a-z]/.test(password)) return 'Include at least one lowercase letter.';
+  if (!/[A-Z]/.test(password)) return 'Include at least one uppercase letter.';
+  if (!/[0-9]/.test(password)) return 'Include at least one number.';
+  if (!/[^A-Za-z0-9]/.test(password)) return 'Include at least one symbol (for example ! @ # $).';
+  if (/\s/.test(password)) return 'Password cannot contain spaces.';
+  return '';
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     applyCors(req as any, res as any);
@@ -104,7 +116,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         json(res, 503, { error: publicServiceError(err, 'Could not send the verification email. Please try again shortly.') });
         return;
       }
-      json(res, 200, { ok: true, expiresAt });
+      json(res, 200, { ok: true, delivery: 'code', expiresAt });
       return;
     }
 
@@ -136,6 +148,58 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return;
       }
       json(res, 200, { ok: true, purpose, email });
+      return;
+    }
+
+    if (op === 'completeReset') {
+      const code = String(body.code || '').replace(/\s+/g, '');
+      const password = String(body.password || '');
+      const problem = passwordProblem(password);
+      if (problem) {
+        json(res, 400, { error: problem });
+        return;
+      }
+      if (!/^\d{6}$/.test(code)) {
+        json(res, 400, { error: 'Enter the 6-digit code from your email.' });
+        return;
+      }
+      const row = await ledgerGet(key);
+      if (!row || typeof row !== 'object') {
+        json(res, 400, { error: 'No active code found. Request a new one.' });
+        return;
+      }
+      const data = row as Record<string, unknown>;
+      if (String(data.purpose || '') !== 'reset') {
+        json(res, 400, { error: 'That code cannot reset a password. Request a new one.' });
+        return;
+      }
+      const attempts = Number(data.attempts || 0);
+      if (attempts >= 8) {
+        json(res, 429, { error: 'Too many attempts. Request a new code.' });
+        return;
+      }
+      if (String(data.expiresAt || '') < new Date().toISOString()) {
+        json(res, 400, { error: 'That code has expired. Request a new one.' });
+        return;
+      }
+      const ok = String(data.hash || '') === hashCode(email, 'reset', code);
+      if (!ok) {
+        await ledgerSet(key, { ...data, attempts: attempts + 1 });
+        json(res, 400, { error: 'That code is incorrect. Check your email and try again.' });
+        return;
+      }
+      const { setFirebaseUserPassword } = await import('../_lib/fcm.js');
+      const updated = await setFirebaseUserPassword(email, password);
+      if (!updated.ok && updated.error === 'not-found') {
+        json(res, 400, { error: 'No Byjan account uses that email. Create an account instead.' });
+        return;
+      }
+      if (!updated.ok) {
+        json(res, 503, { error: 'Could not update the password. Please try again shortly.' });
+        return;
+      }
+      await ledgerSet(key, { ...data, verified: true, verifiedAt: new Date().toISOString(), usedAt: new Date().toISOString(), attempts });
+      json(res, 200, { ok: true });
       return;
     }
 

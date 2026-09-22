@@ -79,6 +79,32 @@ export async function googleIdentityToken() {
   return String(json.access_token || '');
 }
 
+/** Set the sign-in password for an existing account. The reset email itself is sent by Byjan SMTP. */
+export async function setFirebaseUserPassword(email: string, password: string) {
+  const target = String(email || '').trim().toLowerCase();
+  const next = String(password || '');
+  if (!target || !next) return { ok: false as const, error: 'missing' };
+  const project = String(serviceAccount()?.project_id || process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || 'gen-lang-client-0616065043');
+  const access = await googleIdentityToken();
+  if (!access) return { ok: false as const, error: 'missing-access' };
+  const headers = { Authorization: `Bearer ${access}`, 'content-type': 'application/json' };
+  const lookup = await fetch(`https://identitytoolkit.googleapis.com/v1/projects/${project}/accounts:lookup`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ email: [target] }),
+  });
+  const found = await lookup.json().catch(() => ({} as { users?: Array<{ localId?: string }> }));
+  const localId = String(found?.users?.[0]?.localId || '');
+  if (!lookup.ok || !localId) return { ok: false as const, error: 'not-found' };
+  const updated = await fetch(`https://identitytoolkit.googleapis.com/v1/projects/${project}/accounts:update`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ localId, password: next }),
+  });
+  if (updated.ok) return { ok: true as const };
+  return { ok: false as const, error: 'update-failed' };
+}
+
 export async function deleteFirebaseAuthUser(uid: string) {
   const localId = String(uid || '').trim();
   if (!localId) return { ok: false as const, error: 'missing-uid' };

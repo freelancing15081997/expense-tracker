@@ -1,12 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { AlertCircle, ShieldCheck } from 'lucide-react';
+import { AlertCircle, Lock, ShieldCheck } from 'lucide-react';
 import AuthScene from '../components/AuthScene';
 import { apiPost } from '../lib/api';
 import { createUserWithEmailAndPassword, auth } from '../lib/firebase';
 import { maskEmail, normalizeEmail } from '../lib/email';
-import { sendPasswordResetEmail } from 'firebase/auth';
-import { checkNewPassword } from '../lib/password';
+import { checkNewPassword, PASSWORD_HINT } from '../lib/password';
 import { consumeReturnTo } from '../lib/return-to';
 import { toUserMessage } from '../lib/user-message';
 import { upsertMe } from '../lib/me';
@@ -26,6 +25,7 @@ export default function VerifyEmail() {
   const state = (location.state || {}) as LocState;
   const [email, setEmail] = useState(() => normalizeEmail(state.email || ''));
   const [password, setPassword] = useState(() => String(state.password || ''));
+  const [confirm, setConfirm] = useState('');
   const purpose = (state.purpose === 'reset' ? 'reset' : 'register') as 'register' | 'reset';
   const [digits, setDigits] = useState(['', '', '', '', '', '']);
   const [error, setError] = useState('');
@@ -110,19 +110,28 @@ export default function VerifyEmail() {
     try {
       setBusy(true);
       setError('');
-      await apiPost('/api/auth/otp', { op: 'verify', purpose, email, code });
-      if (purpose === 'register') {
-        await createUserWithEmailAndPassword(auth, email, password);
-        try {
-          await upsertMe({ email, emailVerified: true, emailVerifiedAt: new Date().toISOString() });
-        } catch { /* profile upsert best-effort */ }
+      if (purpose === 'reset') {
+        if (password !== confirm) {
+          setError('Those passwords do not match.');
+          return;
+        }
+        const pwd = checkNewPassword(password);
+        if (!pwd.ok) {
+          setError(pwd.message || 'Choose a stronger password.');
+          return;
+        }
+        await apiPost('/api/auth/otp', { op: 'completeReset', purpose: 'reset', email, code, password });
         try { sessionStorage.removeItem(PENDING_KEY); } catch { /* ignore */ }
-        navigate(consumeReturnTo(), { replace: true });
+        navigate('/forgot-password', { replace: true, state: { email, passwordUpdated: true } });
         return;
       }
-      await sendPasswordResetEmail(auth, email, { url: 'https://www.easypado.com/#/login', handleCodeInApp: false });
+      await apiPost('/api/auth/otp', { op: 'verify', purpose, email, code });
+      await createUserWithEmailAndPassword(auth, email, password);
+      try {
+        await upsertMe({ email, emailVerified: true, emailVerifiedAt: new Date().toISOString() });
+      } catch { /* profile upsert best-effort */ }
       try { sessionStorage.removeItem(PENDING_KEY); } catch { /* ignore */ }
-      navigate('/forgot-password', { replace: true, state: { email, resetSent: true } });
+      navigate(consumeReturnTo(), { replace: true });
     } catch (err: any) {
       setError(toUserMessage(err, 'Could not verify that code.'));
     } finally {
@@ -142,7 +151,9 @@ export default function VerifyEmail() {
   return (
     <AuthScene
       title="Enter verification code"
-      subtitle={`We emailed a code to ${maskEmail(email)}`}
+      subtitle={purpose === 'reset'
+        ? `Enter the code Byjan sent to ${maskEmail(email)}, then choose a new password.`
+        : `We emailed a code to ${maskEmail(email)}`}
       switchPrompt="Wrong email?"
       switchHref={purpose === 'reset' ? '/forgot-password' : '/register'}
       switchLabel="Go back"
@@ -177,8 +188,21 @@ export default function VerifyEmail() {
             />
           ))}
         </div>
+        {purpose === 'reset' ? (
+          <>
+            <label className="byjan-field">
+              <Lock className="h-4 w-4 text-slate-400 shrink-0" />
+              <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="New password" autoComplete="new-password" minLength={8} aria-label="New password" />
+            </label>
+            <label className="byjan-field">
+              <Lock className="h-4 w-4 text-slate-400 shrink-0" />
+              <input type="password" required value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="Confirm new password" autoComplete="new-password" minLength={8} aria-label="Confirm new password" />
+            </label>
+            <p className="text-[11px] leading-relaxed text-slate-500 text-center">{PASSWORD_HINT}</p>
+          </>
+        ) : null}
         <button type="submit" disabled={busy || code.length !== 6} className="byjan-btn w-full h-10">
-          {busy ? 'Verifying…' : purpose === 'register' ? 'Verify & activate' : 'Verify code'}
+          {busy ? 'Verifying…' : purpose === 'register' ? 'Verify & activate' : purpose === 'reset' ? 'Save new password' : 'Verify code'}
         </button>
         <button
           type="button"
