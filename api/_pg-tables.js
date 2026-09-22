@@ -1469,11 +1469,14 @@ async function ledgerListLiveExpenses(bookId) {
 /**
  * @param {string} bookId
  * @param {string} expenseId
+ * @param {{ includeDeleted?: boolean }} [opts]
  * @returns {Promise<(Record<string, unknown> & { id: string }) | null>}
  */
-async function ledgerGetExpense(bookId, expenseId) {
+async function ledgerGetExpense(bookId, expenseId, opts) {
   const data = asObject(await ledgerGet(`books/${bookId}/expenses/${expenseId}`));
-  if (!data || flag(data)) return null;
+  if (!data) return null;
+  // Soft-deleted rows stay in storage; restore must be able to read them back.
+  if (!opts?.includeDeleted && flag(data)) return null;
   return /** @type {Record<string, unknown> & { id: string }} */ ({ id: expenseId, ...data });
 }
 /**
