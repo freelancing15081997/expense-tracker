@@ -404,10 +404,20 @@ async function handleExpenses(req: VercelRequest, res: VercelResponse) {
       }
       const now = new Date().toISOString();
       const paidDate = String(input.paidAt || input.date || now.slice(0, 10)).slice(0, 10);
+      let profileName = '';
+      try {
+        const profile = await ledgerGetUser(user.uid);
+        profileName = String(profile?.displayName || profile?.email || '').trim();
+      } catch {
+        profileName = '';
+      }
+      const displayName = String(input.enteredBy || input.paidByName || profileName || user.email || '').trim();
       const saved = await ledgerSaveExpense(bookId, {
         ...input,
         date: paidDate,
         paidAt: paidDate,
+        enteredBy: displayName || input.enteredBy,
+        paidByName: String(input.paidByName || displayName || '').trim() || input.paidByName,
         enteredByUid: user.uid,
         enteredByEmail: user.email,
         // Record creation is always "now" — never reuse receipt/paid date as createdAt.
@@ -456,6 +466,11 @@ async function handleExpenses(req: VercelRequest, res: VercelResponse) {
       const restoring = patch.deleted === false || patch.deletedAt === null;
       const current = await ledgerGetExpense(bookId, expenseId, { includeDeleted: restoring });
       if (!current) throw new ApiError(404, 'Expense not found');
+      const nextStatus = restoring
+        ? (String(patch.status || '') === 'deleted' || String(current.status || '') === 'deleted'
+          ? 'recorded'
+          : String(patch.status || current.status || 'recorded'))
+        : undefined;
       const saved = await ledgerSaveExpense(bookId, {
         ...current,
         ...patch,
@@ -466,6 +481,14 @@ async function handleExpenses(req: VercelRequest, res: VercelResponse) {
         paidAt: String(patch.paidAt || patch.date || current.paidAt || current.date || '').slice(0, 10) || current.paidAt || current.date,
         lastEditedByUid: user.uid,
         lastEditedAt: new Date().toISOString(),
+        ...(restoring
+          ? {
+              deleted: false,
+              deletedAt: null,
+              deletedBy: null,
+              status: nextStatus || 'recorded',
+            }
+          : {}),
       });
       await mergeCategory(bookId, String((saved.expense as Record<string, unknown>).category || '')).catch(() => undefined);
       await ledgerAudit({

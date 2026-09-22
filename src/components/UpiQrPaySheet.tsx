@@ -195,7 +195,9 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
       }
       const stream = streamRef.current;
       if (!video || !stream) {
-        setScanError('The camera is ready, but the preview did not appear. Tap try again.');
+        stopCamera();
+        setCameraLive(false);
+        setScanError('Camera needs another try. Tap below, or upload a photo of the QR.');
         return;
       }
       if (video.srcObject !== stream) {
@@ -470,9 +472,14 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
                 <video ref={videoRef} className="uq-video" playsInline muted autoPlay style={!hardwareZoom && zoom > 1 ? { transform: `scale(${zoom})` } : undefined} />
                 {!cameraLive ? (
                   <div className="uq-viewport-idle">
-                    <QrCode className="w-10 h-10" />
-                    <p>{scanError || 'Opening the camera… point it at the UPI QR.'}</p>
-                    <button type="button" className="sp-cta" data-testid="upi-qr-start" onClick={() => { cameraKick.current += 1; void startLiveScan(); }}><Camera className="w-4 h-4" /> Try camera again</button>
+                    <div className="uq-idle-ring" aria-hidden>
+                      <QrCode className="w-9 h-9" />
+                    </div>
+                    <p className="uq-idle-title">{scanError ? 'Camera needs a moment' : 'Opening camera'}</p>
+                    <p className="uq-idle-copy">{scanError || 'Point at the UPI QR. You can also upload a photo or paste a UPI ID below.'}</p>
+                    <button type="button" className="uq-idle-cta" data-testid="upi-qr-start" onClick={() => { cameraKick.current += 1; stopCamera(); void startLiveScan(); }}>
+                      <Camera className="w-4 h-4" /> {scanError ? 'Open camera' : 'Retry'}
+                    </button>
                   </div>
                 ) : (
                   <>
@@ -497,21 +504,21 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
                 <div className="uq-alt">
                   <label className="uq-dock-btn uq-file">
                     <ImagePlus className="w-4 h-4" />
-                    <span>Upload photo</span>
+                    <span>Photo</span>
                     <input type="file" accept="image/*" hidden onChange={(e) => { void pickFromGallery(e.target.files?.[0] || null); e.currentTarget.value = ''; }} />
                   </label>
                   <button type="button" className="uq-dock-btn" data-testid="upi-qr-paste-toggle" onClick={() => setShowPaste((v) => !v)}>
                     <ClipboardPaste className="w-4 h-4" />
-                    <span>Paste UPI ID</span>
+                    <span>UPI ID</span>
                   </button>
                 </div>
                 {showPaste ? (
                   <form className="uq-paste" onSubmit={(e) => { e.preventDefault(); applyDecoded(paste); }}>
-                    <input value={paste} onChange={(e) => setPaste(e.target.value)} placeholder="name@okbank or upi://pay?pa=…" autoCapitalize="none" autoCorrect="off" data-testid="upi-qr-paste" />
-                    <button type="submit" className="sp-cta" data-testid="upi-qr-paste-go">Continue</button>
+                    <input value={paste} onChange={(e) => setPaste(e.target.value)} placeholder="name@okbank" autoCapitalize="none" autoCorrect="off" data-testid="upi-qr-paste" />
+                    <button type="submit" className="uq-paste-go" data-testid="upi-qr-paste-go">Continue</button>
                   </form>
                 ) : null}
-                <p className="uq-safe"><ShieldCheck className="w-3.5 h-3.5" /> Byjan never sees your UPI PIN.</p>
+                <p className="uq-safe"><ShieldCheck className="w-3.5 h-3.5" /> Byjan never sees your UPI PIN</p>
               </div>
             </>
           ) : null}

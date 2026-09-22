@@ -204,7 +204,7 @@ export default function SettlementsPanel({
         </div>
       )}
 
-      {variant === 'page' ? (
+      {variant === 'page' || unpaid.length > 0 ? (
         <div className="stx-stats">
           <div className="stx-stat">
             <span>You owe</span>

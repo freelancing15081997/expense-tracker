@@ -138,6 +138,21 @@ export function ensurePreviewCategory(preview: CapturePreview, history: ExpenseR
   };
 }
 
+/** Who saved this capture — used so entry lists can show “Added by …”. */
+export function captureAuthorFields(who?: {
+  displayName?: string | null;
+  email?: string | null;
+  uid?: string | null;
+} | null) {
+  const name = String(who?.displayName || who?.email || '').trim();
+  return {
+    paidByName: name,
+    enteredBy: name,
+    enteredByUid: String(who?.uid || ''),
+    enteredByEmail: String(who?.email || ''),
+  };
+}
+
 export function capturePreviewToExpense(preview: CapturePreview, extras: Record<string, unknown> = {}) {
   const ready = ensurePreviewCategory(preview);
   const entryType = ready.direction === 'MONEY_IN' ? 'in' : ready.direction === 'TRANSFER' ? 'transfer' : 'out';

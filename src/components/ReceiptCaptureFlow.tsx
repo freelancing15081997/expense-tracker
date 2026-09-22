@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { createExpense, checkDuplicateExpense } from '../lib/expenses';
-import { buildCapturePreview, capturePreviewToExpense, ensurePreviewCategory } from '../lib/money-capture';
+import { buildCapturePreview, captureAuthorFields, capturePreviewToExpense, ensurePreviewCategory } from '../lib/money-capture';
+import { auth } from '../lib/firebase';
 import { processReceiptJob } from '../lib/money-api';
 import { uploadLedgerReceipt } from '../lib/money-receipts';
 import {
@@ -676,6 +677,14 @@ export default function ReceiptCaptureFlow({
   onConfirmed,
   onManualForm,
 }: Props) {
+  const authorExtras = () => {
+    const u = auth.currentUser;
+    return captureAuthorFields({
+      displayName: u?.displayName,
+      email: u?.email,
+      uid: u?.uid,
+    });
+  };
   const [phase, setPhase] = useState<Phase>('working');
   const [contexts, setContexts] = useState<MoneyContextOption[]>([]);
   const [busy, setBusy] = useState(false);
@@ -754,6 +763,7 @@ export default function ReceiptCaptureFlow({
         const created: Record<string, unknown>[] = [];
         await Promise.all(toSave.map(async (row, ri) => {
           const payload = capturePreviewToExpense(row, {
+            ...authorExtras(),
             receiptPath: row.receiptPath,
             receiptName: row.receiptName,
             captureSource: row.source || 'batch',
@@ -892,6 +902,7 @@ export default function ReceiptCaptureFlow({
       );
       const row = rows.find((r) => Number(r.amountPaise || 0) > 0) || rows[0];
       const payload = capturePreviewToExpense(row, {
+        ...authorExtras(),
         receiptPath: row.receiptPath,
         receiptName: row.receiptName,
         captureSource: row.source || 'share',
@@ -942,6 +953,7 @@ export default function ReceiptCaptureFlow({
       for (let i = 0; i < rows.length; i += 1) {
         const row = rows[i];
         const payload = capturePreviewToExpense(row, {
+          ...authorExtras(),
           receiptPath: row.receiptPath,
           receiptName: row.receiptName,
           captureSource: row.source || 'share',
@@ -995,6 +1007,7 @@ export default function ReceiptCaptureFlow({
         const matches = Array.isArray(err?.extra?.matches) ? err.extra.matches : [];
         const row = review.rows[0];
         const payload = capturePreviewToExpense(row, {
+          ...authorExtras(),
           receiptPath: row.receiptPath,
           receiptName: row.receiptName,
           captureSource: row.source || 'share',
@@ -1141,6 +1154,7 @@ export default function ReceiptCaptureFlow({
         const row = rows[i];
         if (!(Number(row.amountPaise || 0) > 0) && rows.length > 1 && anyAmount) continue;
         const payload = capturePreviewToExpense(row, {
+          ...authorExtras(),
           receiptPath: row.receiptPath,
           receiptName: row.receiptName,
           captureSource: row.source || 'share',

@@ -32,7 +32,7 @@ export function SearchTrigger({
         className="relative z-20 flex items-center gap-2.5 w-full px-4 h-11 text-sm text-slate-800 bg-[#F8FAFC] hover:bg-white rounded-2xl border border-slate-200 shadow-[0_1px_1px_rgba(11,31,58,0.04),0_8px_18px_-12px_rgba(11,31,58,0.18)] transition-colors"
       >
         <Search className="w-5 h-5 text-slate-500" />
-        <span className="flex-1 text-left text-slate-500">Search ledgers, entries, invoices, people…</span>
+        <span className="flex-1 text-left text-slate-500">Search…</span>
         <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 bg-slate-100 border border-slate-200 rounded">Ctrl+K</kbd>
       </button>
     );
@@ -112,6 +112,12 @@ export default function GlobalSearch() {
 
   useEffect(() => {
     if (!isOpen) return;
+    const q = searchQuery.trim();
+    if (!q) {
+      setResults([]);
+      setLoading(false);
+      return;
+    }
     setResults(querySearchCatalog(searchQuery).filter((hit) => allowsHref(hit.href)));
     if (currentUser?.uid) {
       setLoading(true);
@@ -137,7 +143,7 @@ export default function GlobalSearch() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search ledgers, entries, invoices, people…"
+            placeholder="Search books, entries, and features you can open…"
             className="flex-1 text-sm outline-none text-slate-900 placeholder:text-slate-400"
             autoFocus
           />
@@ -148,7 +154,7 @@ export default function GlobalSearch() {
         </div>
         <div className="max-h-[60vh] overflow-y-auto">
           {results.length === 0 && !loading ? (
-            <div className="p-8 text-center text-sm text-slate-500">{searchQuery.trim() ? `No results for “${searchQuery}”` : 'Type to search everything you can open.'}</div>
+            <div className="p-8 text-center text-sm text-slate-500">{searchQuery.trim() ? `No results for “${searchQuery}”` : 'Start typing. Only books and features you can open will appear.'}</div>
           ) : (
             <div className="py-1">
               {results.map((result) => (
@@ -188,7 +194,7 @@ export default function GlobalSearch() {
           )}
         </div>
         <div className="px-4 py-2 bg-slate-50 border-t border-slate-200 text-xs text-slate-500 flex items-center justify-between">
-          <span>Money books, records, business, and features</span>
+          <span>Only what you can open</span>
           <span>Ctrl+K</span>
         </div>
       </div>

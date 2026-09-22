@@ -3561,7 +3561,10 @@ html[data-radius="round"] { --ui-radius: 24px; --ui-btn-radius: 999px; }
   flex-direction: column;
   padding: 8px 0 calc(14px + env(safe-area-inset-bottom));
   border-radius: 24px 24px 0 0;
-  background: #f4f6f9;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(244, 247, 251, 0.96) 40%, #f4f6f9);
+  backdrop-filter: blur(22px) saturate(1.2);
+  -webkit-backdrop-filter: blur(22px) saturate(1.2);
   box-shadow: 0 -18px 50px -20px rgba(11, 31, 58, 0.45);
   animation: ios-sheet-up 320ms cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -3592,6 +3595,29 @@ html[data-radius="round"] { --ui-radius: 24px; --ui-btn-radius: 999px; }
   margin-top: 4px;
   font-size: 13px;
   color: #64748b;
+}
+.book-pick-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 16px 10px;
+  padding: 0 12px;
+  height: 44px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(11, 31, 58, 0.08);
+  color: #64748b;
+}
+.book-pick-search input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-size: 15px;
+  font-weight: 500;
+  color: #0b1f3a;
 }
 .book-pick-list {
   overflow-y: auto;
@@ -6187,19 +6213,19 @@ html[data-radius="round"] { --ui-radius: 24px; --ui-btn-radius: 999px; }
   gap: 5px;
   padding: 0 12px;
   font-size: 12px;
-  font-weight: 580;
+  font-weight: 560;
   letter-spacing: -0.005em;
-  background: #0B1F3A;
-  color: #fff;
-  border-color: #0B1F3A;
-  box-shadow: 0 8px 16px -12px rgba(11, 31, 58, 0.7);
-  transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
-}
-.md3-book-actions .md3-book-cta:active { transform: translateY(1px) scale(0.99); box-shadow: none; }
-.md3-book-actions .md3-book-cta.is-ghost {
-  background: #fff;
+  background: rgba(255, 255, 255, 0.88);
   color: #0B1F3A;
-  border-color: rgba(11, 31, 58, 0.12);
+  border: 1px solid rgba(11, 31, 58, 0.1);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset;
+  transition: transform 120ms ease, background 120ms ease, border-color 120ms ease;
+}
+.md3-book-actions .md3-book-cta:active { transform: translateY(1px) scale(0.99); background: #f8fafc; }
+.md3-book-actions .md3-book-cta.is-ghost {
+  background: transparent;
+  color: #475569;
+  border-color: rgba(11, 31, 58, 0.08);
   box-shadow: none;
 }
 .md3-book-actions .md3-book-iconbtn {
@@ -6215,9 +6241,9 @@ html[data-radius="round"] { --ui-radius: 24px; --ui-btn-radius: 999px; }
 /* Same actions in every view: Add - Scan - Pin - - â€” grid/compact just drop the labels. */
 .md3-book.is-compact .md3-book-actions { display: flex; gap: 4px; margin-top: 2px; }
 .md3-book.is-compact .md3-book-actions button { height: 28px; border-radius: 9px; }
-.md3-book.is-compact .md3-book-actions .md3-book-cta { flex: 0 0 34px; width: 34px; padding: 0; }
+.md3-book.is-compact .md3-book-actions .md3-book-cta { flex: 1 1 auto; min-width: 0; width: auto; padding: 0 10px; }
 .md3-book.is-compact .md3-book-actions .md3-book-iconbtn { flex: 0 0 30px; width: 30px; }
-.md3-book.is-compact .md3-book-cta-label { display: none; }
+.md3-book.is-compact .md3-book-cta-label { display: inline; font-size: 11px; font-weight: 560; }
 .md3-book.is-grid .md3-book-actions { flex-wrap: nowrap; gap: 6px; }
 .md3-book.is-grid .md3-book-actions .md3-book-cta { flex: 1 1 0; min-width: 0; padding: 0 8px; }
 .md3-book.is-grid .md3-book-actions .md3-book-iconbtn { flex: 0 0 32px; width: 32px; }
@@ -8622,9 +8648,25 @@ section[aria-label="To pay"] {
 .uq-viewport { position: relative; aspect-ratio: 1 / 1; max-height: 46vh; border-radius: 22px; overflow: hidden; background: linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(236, 253, 250, 0.62)); border: 1px solid rgba(255, 255, 255, 0.72); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 18px 36px -28px rgba(15, 23, 42, 0.4); backdrop-filter: blur(18px); touch-action: none; }
 .uq-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 240ms ease; }
 .uq-viewport.is-live .uq-video { opacity: 1; }
-.uq-viewport-idle { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 20px; text-align: center; color: #0b1f3a; background: linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(236, 253, 250, 0.78)); backdrop-filter: blur(18px); }
+.uq-viewport-idle { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 20px; text-align: center; color: #0b1f3a; background: linear-gradient(180deg, rgba(255, 255, 255, 0.7), rgba(236, 253, 250, 0.82)); backdrop-filter: blur(18px); }
 .uq-viewport-idle p { margin: 0; font-size: 13px; line-height: 1.45; max-width: 28ch; color: #475569; }
+.uq-idle-ring {
+  width: 64px; height: 64px; border-radius: 20px; display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(255, 255, 255, 0.9); border: 1px solid rgba(11, 31, 58, 0.08); color: #0b1f3a;
+  box-shadow: 0 12px 28px -20px rgba(11, 31, 58, 0.55);
+}
+.uq-idle-title { margin: 4px 0 0 !important; font-size: 15px !important; font-weight: 600; color: #0b1f3a !important; }
+.uq-idle-copy { font-size: 12.5px !important; color: #64748b !important; }
+.uq-idle-cta {
+  margin-top: 6px; height: 40px; padding: 0 16px; border-radius: 999px; border: 1px solid rgba(11, 31, 58, 0.1);
+  background: #fff; color: #0b1f3a; font-size: 13px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px;
+}
 .uq-viewport-idle .sp-cta { width: auto; min-width: 180px; }
+.entry-split-chip {
+  flex: 0 0 auto; height: 30px; padding: 0 10px; border-radius: 999px; border: 1px solid rgba(11, 31, 58, 0.1);
+  background: rgba(255, 255, 255, 0.88); color: #0b1f3a; font-size: 11px; font-weight: 600;
+  display: inline-flex; align-items: center; gap: 4px; margin-left: 2px;
+}
 .uq-frame { position: absolute; inset: 14%; pointer-events: none; }
 .uq-torch, .scan-torch {
   position: absolute;
@@ -8659,7 +8701,10 @@ section[aria-label="To pay"] {
 .uq-file { cursor: pointer; }
 .uq-paste { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; margin-top: 8px; }
 .uq-paste input { height: 44px; border-radius: 14px; border: 1px solid rgba(11, 31, 58, 0.14); padding: 0 12px; font-size: 14px; background: #fff; min-width: 0; }
-.uq-paste .sp-cta { width: auto; min-height: 44px; padding: 0 14px; }
+.uq-paste-go, .uq-paste .sp-cta {
+  width: auto; min-height: 44px; padding: 0 14px; border-radius: 14px; border: 0;
+  background: #0b1f3a; color: #fff; font-size: 13px; font-weight: 600;
+}
 .uq-safe { display: flex; align-items: center; gap: 6px; margin: 12px 0 0; font-size: 11.5px; color: #64748b; }
 .uq-payee { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 12px; border-radius: 18px; border: 1px solid rgba(11, 31, 58, 0.1); background: #f6f8fb; }
 .uq-payee-avatar { width: 44px; height: 44px; border-radius: 14px; background: #0B1F3A; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 620; }

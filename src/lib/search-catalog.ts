@@ -1,18 +1,23 @@
 import { listAllExpenses } from './expenses';
 import { listLedgers } from './ledgers';
-import { BOOKS_FLAT_LINKS, BOOKS_QUICK_CREATE } from '../books/nav';
 import { getBooksSearchHits, setBooksSearchHits, type SearchHit } from './search-index';
 
 export type CatalogHit = SearchHit;
 
-const FEATURES: CatalogHit[] = [...BOOKS_QUICK_CREATE, ...BOOKS_FLAT_LINKS, { name: 'Main Dashboard', href: '/' }, { name: 'Money books', href: '/expenses' }, { name: 'Settings', href: '/settings' }]
-  .filter((item, i, arr) => arr.findIndex((x) => x.href === item.href) === i)
+const FEATURES: CatalogHit[] = [
+  { name: 'Home', href: '/' },
+  { name: 'Money books', href: '/expenses' },
+  { name: 'Activity', href: '/activity' },
+  { name: 'Summary', href: '/reports' },
+  { name: 'Settings', href: '/settings' },
+  { name: 'Help', href: '/help' },
+]
   .map((item) => ({
     id: item.href,
     type: 'feature' as const,
     href: item.href,
     description: item.name,
-    hint: item.href.startsWith('/books') ? 'Books' : 'Workspace',
+    hint: 'Workspace',
   }));
 
 type Catalog = { uid: string; at: number; hits: CatalogHit[] };

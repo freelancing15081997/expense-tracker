@@ -40,10 +40,18 @@
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
     <script>
-      window.__byjanHideBoot = function () {
+      (function () {
+        var native = false;
+        try {
+          native = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+        } catch (e) { /* ignore */ }
         var el = document.getElementById('boot-splash');
-        if (el) el.classList.add('is-gone');
-      };
+        if (native && el) el.classList.add('is-gone');
+        window.__byjanHideBoot = function () {
+          var node = document.getElementById('boot-splash');
+          if (node) node.classList.add('is-gone');
+        };
+      })();
     </script>
   </body>
 </html>

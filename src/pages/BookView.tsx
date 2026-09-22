@@ -1590,21 +1590,20 @@ export default function BookView() {
     if (!canDelete || !currentUser) return;
     setDeleteTarget(null);
     setViewExpense((curr: any) => (curr && String(curr.id) === id ? null : curr));
-    {
-      setIsDeleting(id);
-      const gone = expenses.find((row) => row.id === id);
-      dropExpensesLocal([id]);
-      if (gone) setLastDeleted(gone);
-      try {
-        await softDeleteExpense(bookId, id);
-        await notifyTeamMembers('Deleted an entry', `Removed entry for "${description}"`, `${userProfile?.displayName || currentUser?.email} deleted "${description}" from ${book.name}`);
-        addToast('Entry deleted.', 'success');
-      } catch (err: any) {
-        if (gone) applyExpenseLocal(gone);
-        console.error("Delete failed:", err);
-        addToast("Delete failed: " + err.message, 'error');
-      } finally { setIsDeleting(null); }
-    }
+    setIsDeleting(id);
+    const gone = expenses.find((row) => row.id === id);
+    dropExpensesLocal([id]);
+    if (gone) setLastDeleted({ ...gone, status: gone.status === 'deleted' ? 'recorded' : (gone.status || 'recorded') });
+    try {
+      await softDeleteExpense(bookId, id);
+      await notifyTeamMembers('Deleted an entry', `Removed entry for "${description}"`, `${userProfile?.displayName || currentUser?.email} deleted "${description}" from ${book.name}`);
+      addToast('Entry deleted. Tap Undo to bring it back.', 'success');
+    } catch (err: any) {
+      if (gone) applyExpenseLocal(gone);
+      setLastDeleted(null);
+      console.error("Delete failed:", err);
+      addToast("Delete failed: " + err.message, 'error');
+    } finally { setIsDeleting(null); }
   };
 
   const refreshExpenses = async () => {
@@ -2419,12 +2418,19 @@ export default function BookView() {
               type="button"
               data-undo-remove
               className="byjan-chip"
+              disabled={Boolean(isDeleting)}
               onClick={async () => {
                 const restored = lastDeleted;
+                if (!restored?.id || !bookId) return;
                 applyExpenseLocal(restored);
                 setLastDeleted(null);
                 try {
-                  await updateExpense(bookId!, String(restored.id), { deleted: false, deletedAt: null, status: restored.status || 'recorded' });
+                  await updateExpense(bookId, String(restored.id), {
+                    deleted: false,
+                    deletedAt: null,
+                    deletedBy: null,
+                    status: restored.status === 'deleted' ? 'recorded' : (restored.status || 'recorded'),
+                  });
                   addToast('Entry restored.', 'success');
                 } catch (err: any) {
                   dropExpensesLocal([String(restored.id)]);
@@ -2715,9 +2721,31 @@ export default function BookView() {
                           <span>{expenseDateLabel(exp)}</span>
                           {exp.merchant ? <span>{exp.merchant}</span> : null}
                           {exp.status === 'draft' ? <span className="entry-cat-pill tone-amber">Needs review</span> : null}
+                          {Array.isArray(exp.personSplits) && exp.personSplits.length > 1 ? (
+                            <span className="entry-cat-pill tone-teal">Split · {exp.personSplits.length}</span>
+                          ) : null}
                           {exp.enteredBy || exp.paidByName ? <span className="entry-card-by">Added by {exp.enteredBy || exp.paidByName}</span> : null}
                         </p>
                       </div>
+                      {canSplitEntry && peopleFromBook(book).length > 1 && String(exp.entryType || 'out') === 'out' ? (
+                        <button
+                          type="button"
+                          className="entry-split-chip"
+                          aria-label="Split this entry"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setSplitTarget({
+                              id: String(exp.id),
+                              amount: Number(exp.amount || 0),
+                              merchant: String(exp.merchant || ''),
+                              description: String(exp.description || ''),
+                            });
+                          }}
+                        >
+                          <Users className="w-3.5 h-3.5" />
+                          Split
+                        </button>
+                      ) : null}
                       {canWrite && (
                         <DropdownMenu.Root>
                           <DropdownMenu.Trigger asChild>

@@ -214,7 +214,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   return (
     <AuthContext.Provider value={{ currentUser, userProfile, loading, isSuperUser: emailIsSuperUser(currentUser?.email || userProfile?.email), refreshUserProfile }}>
-      {loading ? <AppLoader overlay title="Byjan" message="Opening…" /> : children}
+      {loading ? <AppLoader title="Byjan" message="Opening…" /> : children}
     </AuthContext.Provider>
   );
 };
