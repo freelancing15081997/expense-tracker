@@ -8772,3 +8772,60 @@ section[aria-label="To pay"] {
   to { opacity: 1; transform: none; }
 }
 .rp-card, .rp-kpi, .md3-book, .fi-card { animation: byjan-rise 280ms cubic-bezier(.2,.8,.2,1) both; }
+
+/* Pay and Scan sit on their own row, apart from Add / Split / Voice. */
+.home-pay-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 2px 0 10px;
+}
+.home-pay-act {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  border-radius: 16px;
+  font-size: 14px;
+  font-weight: 560;
+  letter-spacing: -0.01em;
+  transition: transform 140ms ease, box-shadow 140ms ease;
+}
+.home-pay-act:active { transform: scale(0.98); }
+.home-pay-act.is-pay {
+  background: #0f766e;
+  color: #fff;
+  border: 0;
+  box-shadow: 0 10px 20px -14px rgba(15, 118, 110, 0.9);
+}
+.home-pay-act.is-scan {
+  background: #fff;
+  color: #0f766e;
+  border: 1px solid rgba(15, 118, 110, 0.28);
+}
+.home-pills { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+.home-pill, .home-qa-tile, .md3-book-cta, .entry-card-action, .rp-seg-btn {
+  transition: transform 140ms ease, background 140ms ease;
+}
+.home-pill:active, .home-qa-tile:active, .md3-book-cta:active, .entry-card-action:active, .rp-seg-btn:active {
+  transform: scale(0.97);
+}
+.md3-book {
+  padding: 12px 12px 10px;
+  box-shadow: 0 10px 24px -22px rgba(11, 31, 58, 0.55);
+}
+.md3-book-amt { font-size: 18px !important; font-weight: 600 !important; }
+.md3-book-list.is-grid { gap: 10px; }
+.entry-card-mobile, .mb-entry {
+  border-radius: 16px;
+  border: 1px solid rgba(11, 31, 58, 0.08);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 8px 18px -16px rgba(11, 31, 58, 0.5);
+}
+.entry-card-amount { font-size: 18px !important; font-weight: 600 !important; letter-spacing: -0.03em; }
+.entry-card-title { font-weight: 560; color: #1b2537; }
+.rp-hero { border-radius: 22px; }
+@media (prefers-reduced-motion: reduce) {
+  .home-pay-act, .home-pill, .home-qa-tile, .md3-book, .rp-card { transition: none; animation: none; }
+}

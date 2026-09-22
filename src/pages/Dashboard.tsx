@@ -198,6 +198,8 @@ export default function Dashboard() {
         }
       }
       setLoadError('');
+      // Profile features are still on the way. Do not wipe the cached books.
+      if (userProfile.features === undefined) return;
       if (!canSeeMoney) {
         setBooks([]);
         setBookStats({});
@@ -212,11 +214,29 @@ export default function Dashboard() {
         return;
       }
 
-      // One expenses API (includes books) + invites — no duplicate listLedgers.
-      const [allExp, inviteRows] = await Promise.all([
-        listAllExpenses().catch(() => ({ expenses: [] as Array<Record<string, unknown>>, books: [] as Array<Record<string, unknown>> })),
-        listLedgerInvites().catch(() => [] as InviteItem[]),
-      ]);
+      // Books list is small. Paint it before the full entry download finishes.
+      const booksSoon = listLedgers().catch(() => [] as Awaited<ReturnType<typeof listLedgers>>);
+      const expensesSoon = listAllExpenses().catch(() => ({ expenses: [] as Array<Record<string, unknown>>, books: [] as Array<Record<string, unknown>> }));
+      const invitesSoon = listLedgerInvites().catch(() => [] as InviteItem[]);
+      const earlyBooks = await booksSoon;
+      let paintedBooks: BookItem[] = [];
+      if (earlyBooks.length) {
+        paintedBooks = earlyBooks.map((book) => ({
+          id: String(book.id),
+          name: String(book.name || 'Money book'),
+          ownerId: String(book.ownerId || ''),
+          currency: String(book.currency || 'INR'),
+          pinned: Boolean(book.pinned),
+          archived: Boolean(book.archived),
+          accentHue: Number(book.accentHue || 0) || undefined,
+          createdAt: String(book.createdAt || ''),
+          roles: (book.roles || {}) as BookItem['roles'],
+          isMember: book.isMember !== false && Boolean((book.roles || {})[uid] || book.ownerId === uid),
+        })).sort(sortBooks);
+        setBooks(paintedBooks);
+        setLoading(false);
+      }
+      const [allExp, inviteRows] = await Promise.all([expensesSoon, invitesSoon]);
 
       const fetchedBooks = (allExp.books || []).map((book: any) => ({
         id: String(book.id),
@@ -232,7 +252,9 @@ export default function Dashboard() {
       })).sort(sortBooks);
       const pending = pendingBooksRef.current.filter((book) => !fetchedBooks.some((row) => row.id === book.id));
       pendingBooksRef.current = pending;
-      const nextBooks = [...pending, ...fetchedBooks];
+      const nextBooks = fetchedBooks.length || !paintedBooks.length
+        ? [...pending, ...fetchedBooks]
+        : [...pending, ...paintedBooks];
       setBooks(nextBooks);
       setInvites(inviteRows);
       setLoading(false);
@@ -1402,6 +1424,23 @@ export default function Dashboard() {
 
         {inviteBlock}
 
+        {hasFeature('money') && (hasFeature('money_scan') || hasFeature('money_add')) && (
+          <section className="home-pay-row" aria-label="Pay or scan">
+            {hasFeature('money_add') && (
+              <button type="button" className="home-pay-act is-pay" data-testid="home-pay-qr" onClick={() => { void CapacitorService.hapticTick(); requestQuick('pay'); }}>
+                <QrCode className="w-4 h-4" strokeWidth={2.2} />
+                <span>Pay</span>
+              </button>
+            )}
+            {hasFeature('money_scan') && (
+              <button type="button" className="home-pay-act is-scan" onClick={() => { void CapacitorService.hapticTick(); requestQuick('scan'); }}>
+                <ScanLine className="w-4 h-4" strokeWidth={2.2} />
+                <span>Scan</span>
+              </button>
+            )}
+          </section>
+        )}
+
         {hasFeature('money') && (
           <section className="home-pills" aria-label="Quick actions">
             {hasFeature('money_add') && (
@@ -1418,18 +1457,6 @@ export default function Dashboard() {
               >
                 <Split className="w-4 h-4" strokeWidth={2.4} />
                 Split
-              </button>
-            )}
-            {hasFeature('money_scan') && (
-              <button type="button" className="home-pill tone-scan" onClick={() => { void CapacitorService.hapticTick(); requestQuick('scan'); }}>
-                <ScanLine className="w-4 h-4" strokeWidth={2.4} />
-                Scan
-              </button>
-            )}
-            {hasFeature('money_add') && (
-              <button type="button" className="home-pill tone-pay" data-testid="home-pay-qr" onClick={() => { void CapacitorService.hapticTick(); requestQuick('pay'); }}>
-                <QrCode className="w-4 h-4" strokeWidth={2.4} />
-                Pay
               </button>
             )}
             {hasFeature('money_voice') && (

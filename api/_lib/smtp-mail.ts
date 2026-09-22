@@ -152,10 +152,13 @@ export async function writeOpsTrace(kind: string, detail: TraceDetail) {
   }
 }
 
+let pooledTransport: { transporter: Transporter; settings: ReturnType<typeof smtpSettings> } | null = null;
+
 export async function createSmtpTransport(): Promise<{
   transporter: Transporter;
   settings: ReturnType<typeof smtpSettings>;
 }> {
+  if (pooledTransport) return pooledTransport;
   const nodemailerMod: any = await import('nodemailer');
   const createTransport = nodemailerMod.createTransport || nodemailerMod.default?.createTransport;
   let settings: ReturnType<typeof smtpSettings>;
@@ -169,7 +172,11 @@ export async function createSmtpTransport(): Promise<{
     }
     throw err;
   }
-  return { transporter: createTransport(settings), settings };
+  pooledTransport = {
+    transporter: createTransport({ ...settings, pool: true, maxConnections: 2, maxMessages: 80 }),
+    settings,
+  };
+  return pooledTransport;
 }
 
 export async function sendTracedMail(input: {
@@ -227,8 +234,14 @@ export async function sendTracedMail(input: {
   if (input.html) mail.html = input.html;
   if (input.attachments?.length) mail.attachments = input.attachments;
   try {
-    const info = await transporter.sendMail(mail);
-    await writeOpsTrace(kind, {
+    let info;
+    try {
+      info = await transporter.sendMail(mail);
+    } catch (sendErr) {
+      pooledTransport = null;
+      throw sendErr;
+    }
+    void writeOpsTrace(kind, {
       ok: true,
       to: input.to,
       subject: String(input.subject || '').slice(0, 120),

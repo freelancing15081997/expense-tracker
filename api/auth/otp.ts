@@ -77,19 +77,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
       const code = String(randomInt(100000, 999999));
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-      await ledgerSet(key, {
-        email,
-        purpose,
-        hash: hashCode(email, purpose, code),
-        expiresAt,
-        sentAtMs: Date.now(),
-        attempts: 0,
-        verified: false,
-      });
-      const mail = (await import('../_lib/email-templates.js')).otpEmail({
-        code,
-        purpose: purpose === 'reset' ? 'reset' : 'register',
-      });
+      const [, mail] = await Promise.all([
+        ledgerSet(key, {
+          email,
+          purpose,
+          hash: hashCode(email, purpose, code),
+          expiresAt,
+          sentAtMs: Date.now(),
+          attempts: 0,
+          verified: false,
+        }),
+        import('../_lib/email-templates.js').then((mod) => mod.otpEmail({
+          code,
+          purpose: purpose === 'reset' ? 'reset' : 'register',
+        })),
+      ]);
       try {
         await sendTracedMail({
           to: email,
