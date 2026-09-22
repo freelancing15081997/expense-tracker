@@ -1,7 +1,7 @@
 ﻿import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { createLedger, forgetLedger, listLedgers, updateLedger, softDeleteLedger } from '../lib/ledgers';
 import { CurrencyMark } from '../lib/currency-mark';
 import PullToRefresh from '../components/money/PullToRefresh';
@@ -12,8 +12,10 @@ import { useBooksTenantMeta } from '../lib/tenant';
 import { getCurrencySymbol } from '../lib/currency';
 import { initials, sparkDays } from '../lib/ledger-advanced';
 import { formatIndianAmount, workspaceBridges } from '../lib/bridge-automations';
-import { Plus, Check, X, Users, ArrowUpRight, ArrowDownRight, RefreshCw, Wallet, Receipt, Shield, ScanLine, PenLine, BookText, BarChart3, Split, ArrowLeftRight, Mic, LayoutGrid, List, Rows3, Pin, PinOff, MoreHorizontal, Pencil, Trash2, UserPlus } from 'lucide-react';
+import { Plus, Check, X, Users, ArrowUpRight, ArrowDownRight, RefreshCw, Wallet, Receipt, Shield, ScanLine, BookText, BarChart3, Split, ArrowLeftRight, Mic, LayoutGrid, List, Rows3, Pin, MoreHorizontal, Pencil, Trash2, UserPlus, QrCode } from 'lucide-react';
+import UpiQrPaySheet from '../components/UpiQrPaySheet';
 import * as Dialog from '@radix-ui/react-dialog';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 import { ListControls, ListPager, usePagedList } from '../components/ListControls';
 import { FeatureIcon } from '../books/ui/icons';
@@ -25,7 +27,6 @@ import ReceiptCaptureFlow, { type ReceiptLaunch } from '../components/ReceiptCap
 import { cacheMoneyBooks, readPendingCapture, clearPendingCapture, rememberMoneyBook, readCachedMoneyBooks, lastMoneyBookId, type PendingCapture } from '../components/ShareIntentListener';
 import { readUserJson, writeUserJson } from '../lib/user-cache';
 import PendingPayStrip from '../components/PendingPayStrip';
-import HomeFeatureReel from '../components/HomeFeatureReel';
 import { CapacitorService, isWeb } from '../lib/capacitor';
 import BookPickSheet from '../components/BookPickSheet';
 import FinancialInbox from '../components/FinancialInbox';
@@ -111,10 +112,11 @@ type InviteItem = LedgerInvite;
 
 export default function Dashboard() {
   const { currentUser, userProfile, isSuperUser, refreshUserProfile } = useAuth();
-  const { on: hasFeature, anyOn: hasAnyFeature, canSeeMoney, tree: businessTree } = useFeatures();
+  const { on: hasFeature, anyOn: hasAnyFeature, pending: featuresPending, canSeeMoney, tree: businessTree } = useFeatures();
   const { addToast } = useToast();
   const location = useLocation();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const tenant = useBooksTenantMeta();
   const expensesOnly = location.pathname.startsWith('/expenses');
   const [books, setBooks] = useState<BookItem[]>([]);
@@ -303,6 +305,19 @@ export default function Dashboard() {
           return !cat || cat === 'uncategorized';
         }).slice(0, 8);
         const dupHits = detectAnomalies(expenses as any).filter((h) => h.kind === 'duplicate').slice(0, 5);
+        const amountHits = detectAnomalies(expenses as any).filter((h) => h.kind === 'amount').slice(0, 6);
+        const byExpenseId = new Map(expenses.map((e) => [String(e.id), e]));
+        const outliers = amountHits.map((h) => {
+          const e = byExpenseId.get(h.id);
+          return {
+            id: h.id,
+            message: h.message,
+            severity: h.severity,
+            bookId: String(e?.bookId || ''),
+            amount: Number(e?.amount || 0),
+            label: [String(e?.description || e?.merchant || 'Entry'), e?.bookName ? String(e.bookName) : ''].filter(Boolean).join(' · '),
+          };
+        });
         const commitments = detectCommitments(expenses as any).slice(0, 4);
         const recurring = detectRegularPayments(expenses.map((e) => ({
           id: String(e.id),
@@ -320,6 +335,7 @@ export default function Dashboard() {
         setAttentionItems(buildAttentionInbox({
           drafts: drafts as any,
           uncategorized: uncategorizedRows as any,
+          outliers,
           duplicates: dupHits.map((h) => ({
             id: h.id,
             message: h.message,
@@ -522,7 +538,17 @@ export default function Dashboard() {
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [receiptLaunch, setReceiptLaunch] = useState<ReceiptLaunch | null>(null);
   const [webScan, setWebScan] = useState<{ bookId?: string } | null>(null);
-  const [bookPickKind, setBookPickKind] = useState<'add' | 'scan' | 'voice' | 'share' | 'split' | null>(null);
+  const [qrPay, setQrPay] = useState<{ bookId?: string; initialQr?: string } | null>(null);
+  // Deep link: #/?pay=qr (or ?pay=upi://pay?...) opens Scan & pay directly.
+  useEffect(() => {
+    const raw = searchParams.get('pay');
+    if (!raw) return;
+    setQrPay(raw === 'qr' ? {} : { initialQr: raw });
+    const next = new URLSearchParams(searchParams);
+    next.delete('pay');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+  const [bookPickKind, setBookPickKind] = useState<'add' | 'scan' | 'voice' | 'share' | 'split' | 'pay' | null>(null);
   const [sharePending, setSharePending] = useState<PendingCapture | null>(null);
   const [sharePickBooks, setSharePickBooks] = useState<Array<{ id: string; name: string }>>([]);
   const [sharePickLoading, setSharePickLoading] = useState(false);
@@ -747,7 +773,7 @@ export default function Dashboard() {
     else setBookPickKind('voice');
   };
 
-  const requestQuick = (kind: 'add' | 'scan' | 'voice' | 'split') => {
+  const requestQuick = (kind: 'add' | 'scan' | 'voice' | 'split' | 'pay') => {
     if (loading) {
       setBookPickKind(kind);
       return;
@@ -777,7 +803,7 @@ export default function Dashboard() {
   useEffect(() => {
     const onQuick = (event: Event) => {
       const kind = (event as CustomEvent<string>).detail;
-      if (kind === 'scan' || kind === 'add' || kind === 'voice') requestQuickRef.current(kind);
+      if (kind === 'scan' || kind === 'add' || kind === 'voice' || kind === 'pay') requestQuickRef.current(kind);
     };
     window.addEventListener('byjan-quick', onQuick);
     return () => window.removeEventListener('byjan-quick', onQuick);
@@ -806,6 +832,7 @@ export default function Dashboard() {
     if (kind === 'scan') void scanHomeReceipt(bookId);
     else if (kind === 'add') addHomeEntry(bookId);
     else if (kind === 'split') splitHomeEntry(bookId);
+    else if (kind === 'pay') { rememberMoneyBook(bookId); setQrPay({ bookId }); }
     else voiceHomeEntry(bookId);
   };
 
@@ -827,18 +854,40 @@ export default function Dashboard() {
         ? 'Save share into which book?'
         : bookPickKind === 'split'
           ? 'Split in which book?'
-          : 'Add entry into which book?';
+          : bookPickKind === 'pay'
+            ? 'Pay from which book?'
+            : 'Add entry into which book?';
   const pickSheetSubtitle = bookPickKind === 'scan'
     ? 'Pick several receipts or docs at once — Byjan creates an entry for each.'
     : bookPickKind === 'share'
       ? 'Pick a money book for this shared receipt'
       : bookPickKind === 'split'
         ? 'Choose a book, then the expense you want to split with your team.'
-        : 'Pick a money book to continue';
+        : bookPickKind === 'pay'
+          ? 'Scan a UPI QR, enter amount and note, then open your UPI app. The entry is saved in this book.'
+          : 'Pick a money book to continue';
 
   const changeBooksView = (next: BooksView) => {
     setBooksView(next);
     try { localStorage.setItem(BOOKS_VIEW_KEY, next); } catch { /* ignore */ }
+  };
+
+  /** Update books in state AND the per-user first-paint cache so the change survives navigation. */
+  const commitBooks = (update: (curr: BookItem[]) => BookItem[]) => {
+    setBooks((curr) => {
+      const next = update(curr);
+      cacheMoneyBooks(next.map((b) => ({ id: b.id, name: b.name, currency: b.currency })));
+      if (currentUser) {
+        const parsed = readUserJson<{ globalStats?: typeof globalStats; bookStats?: Record<string, BookStat>; at?: number }>(currentUser.uid, 'dash_stats');
+        writeUserJson(currentUser.uid, 'dash_stats', {
+          at: Date.now(),
+          globalStats: parsed?.globalStats || globalStats,
+          bookStats: parsed?.bookStats || bookStats,
+          books: next,
+        });
+      }
+      return next;
+    });
   };
 
   const toggleBookPin = async (book: BookItem, event?: React.MouseEvent) => {
@@ -847,7 +896,7 @@ export default function Dashboard() {
     const pinned = !book.pinned;
     try {
       await updateLedger(book.id, { pinned });
-      setBooks((curr) => curr.map((row) => (row.id === book.id ? { ...row, pinned } : row)).sort(sortBooks));
+      commitBooks((curr) => curr.map((row) => (row.id === book.id ? { ...row, pinned } : row)).sort(sortBooks));
     } catch (err) {
       addToast(toUserMessage(err, 'Could not update pin'), 'error');
     }
@@ -906,60 +955,110 @@ export default function Dashboard() {
           ) : null}
         </div>
         <div className="md3-book-actions" role="group" aria-label={`${book.name} actions`}>
-          {canManage && (
-            <button type="button" title="Edit book" onClick={(event) => { event.preventDefault(); event.stopPropagation(); setEditBook(book); setEditBookName(book.name); }}>
-              <Pencil className="w-3.5 h-3.5" />
-            </button>
-          )}
-          {canManage && hasFeature('money_people') && (
-            <button type="button" title="Invite members" onClick={(event) => openPeople(book.id, event)}>
-              <UserPlus className="w-3.5 h-3.5" />
-            </button>
-          )}
-          {hasFeature('money_pin') && member && (
-            <button type="button" title={book.pinned ? 'Unpin' : 'Pin'} onClick={(event) => { void toggleBookPin(book, event); }}>
-              {book.pinned ? <Pin className="w-3.5 h-3.5" /> : <PinOff className="w-3.5 h-3.5" />}
-            </button>
-          )}
-          {canManage && hasFeature('money_delete_book') && (
-            <button type="button" title="Delete book" onClick={(event) => { event.preventDefault(); event.stopPropagation(); setDeleteBook(book); }}>
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          )}
           {canAddHere && (
-            <button type="button" title="Add entry" onClick={(event) => { event.preventDefault(); event.stopPropagation(); addHomeEntry(book.id); }}>
-              <PenLine className="w-3.5 h-3.5" />
+            <button
+              type="button"
+              className="md3-book-cta"
+              data-testid="book-add-entry"
+              onClick={(event) => { event.preventDefault(); event.stopPropagation(); addHomeEntry(book.id); }}
+            >
+              <Plus className="w-3.5 h-3.5" strokeWidth={2.6} />
+              <span className="md3-book-cta-label">Add</span>
             </button>
           )}
           {canScanHere && (
-            <button type="button" title="Scan receipt" onClick={(event) => { event.preventDefault(); event.stopPropagation(); void scanHomeReceipt(book.id); }}>
-              <ScanLine className="w-3.5 h-3.5" />
-            </button>
-          )}
-          {!member && (
             <button
               type="button"
+              className="md3-book-cta is-ghost"
+              title="Scan a receipt into this book"
+              aria-label="Scan receipt"
+              data-testid="book-scan"
+              onClick={(event) => { event.preventDefault(); event.stopPropagation(); void scanHomeReceipt(book.id); }}
+            >
+              <ScanLine className="w-3.5 h-3.5" />
+              <span className="md3-book-cta-label">Scan</span>
+            </button>
+          )}
+          {hasFeature('money_pin') && member && booksView !== 'grid' && (
+            <button
+              type="button"
+              className="md3-book-iconbtn"
+              title={book.pinned ? 'Unpin' : 'Pin'}
+              aria-label={book.pinned ? 'Unpin book' : 'Pin book'}
+              aria-pressed={Boolean(book.pinned)}
+              onClick={(event) => { void toggleBookPin(book, event); }}
+            >
+              {book.pinned ? <Pin className="w-3.5 h-3.5" fill="currentColor" /> : <Pin className="w-3.5 h-3.5" />}
+            </button>
+          )}
+          {!member ? (
+            <button
+              type="button"
+              className="md3-book-iconbtn"
               title="Remove from my books"
+              aria-label="Remove from my books"
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
                 void (async () => {
                   try {
                     await forgetLedger(book.id);
-                    setBooks((curr) => curr.filter((row) => row.id !== book.id));
+                    commitBooks((curr) => curr.filter((row) => row.id !== book.id));
                     addToast('Removed from your books list', 'success');
                   } catch (err) {
-                    addToast(err instanceof Error ? err.message : 'Could not remove this book', 'error');
+                    addToast(toUserMessage(err, 'Could not remove this book'), 'error');
                   }
                 })();
               }}
             >
               <X className="w-3.5 h-3.5" />
             </button>
+          ) : (
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger asChild>
+                <button
+                  type="button"
+                  className="md3-book-iconbtn"
+                  title="Book options"
+                  aria-label={`${book.name} options`}
+                  data-testid="book-menu"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <MoreHorizontal className="w-4 h-4" />
+                </button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content className="book-overflow-menu" align="end" sideOffset={6} onClick={(event) => event.stopPropagation()}>
+                  <DropdownMenu.Item className="book-overflow-item" onSelect={() => navigate(`/book/${book.id}`)}>
+                    <BookText className="w-4 h-4" /> Open book
+                  </DropdownMenu.Item>
+                  {canManage && (
+                    <DropdownMenu.Item className="book-overflow-item" data-testid="book-menu-edit" onSelect={() => { setEditBook(book); setEditBookName(book.name); }}>
+                      <Pencil className="w-4 h-4" /> Rename book
+                    </DropdownMenu.Item>
+                  )}
+                  {hasFeature('money_pin') && member && (
+                    <DropdownMenu.Item className="book-overflow-item" onSelect={() => { void toggleBookPin(book); }}>
+                      <Pin className="w-4 h-4" /> {book.pinned ? 'Unpin' : 'Pin to top'}
+                    </DropdownMenu.Item>
+                  )}
+                  {canManage && hasFeature('money_people') && (
+                    <DropdownMenu.Item className="book-overflow-item" onSelect={() => openPeople(book.id)}>
+                      <UserPlus className="w-4 h-4" /> Invite people
+                    </DropdownMenu.Item>
+                  )}
+                  {canManage && hasFeature('money_delete_book') && (
+                    <>
+                      <DropdownMenu.Separator className="book-overflow-sep" />
+                      <DropdownMenu.Item className="book-overflow-item is-danger" data-testid="book-menu-delete" onSelect={() => setDeleteBook(book)}>
+                        <Trash2 className="w-4 h-4" /> Delete book
+                      </DropdownMenu.Item>
+                    </>
+                  )}
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
           )}
-          <Link to={`/book/${book.id}`} title="Open book" className="md3-book-open">
-            <MoreHorizontal className="w-3.5 h-3.5" />
-          </Link>
         </div>
       </article>
     );
@@ -1143,7 +1242,7 @@ export default function Dashboard() {
                   try {
                     setSavingBook(true);
                     await updateLedger(editBook.id, { name });
-                    setBooks((curr) => curr.map((row) => (row.id === editBook.id ? { ...row, name } : row)));
+                    commitBooks((curr) => curr.map((row) => (row.id === editBook.id ? { ...row, name } : row)));
                     addToast('Book updated', 'success');
                     setEditBook(null);
                   } catch (err) {
@@ -1155,10 +1254,11 @@ export default function Dashboard() {
               }}
             >
               <label className="block text-sm font-medium text-slate-700">Book name</label>
+              <p className="text-[12px] text-slate-500 -mt-1">Everyone on this book will see the new name.</p>
               <input className="byjan-input" value={editBookName} onChange={(e) => setEditBookName(e.target.value)} autoFocus />
               <div className="flex justify-end gap-2">
                 <button type="button" className="byjan-btn-ghost" onClick={() => setEditBook(null)}>Cancel</button>
-                <button type="submit" className="byjan-btn" disabled={savingBook || !editBookName.trim()}>{savingBook ? 'Saving…' : 'Save'}</button>
+                <button type="submit" className="byjan-btn" disabled={savingBook || !editBookName.trim()}>{savingBook ? 'Saving…' : 'Save name'}</button>
               </div>
             </form>
           </Dialog.Content>
@@ -1184,7 +1284,7 @@ export default function Dashboard() {
                     try {
                       setDeletingBook(true);
                       await softDeleteLedger(deleteBook.id);
-                      setBooks((curr) => curr.filter((row) => row.id !== deleteBook.id));
+                      commitBooks((curr) => curr.filter((row) => row.id !== deleteBook.id));
                       addToast('Book deleted', 'success');
                       setDeleteBook(null);
                     } catch (err) {
@@ -1246,11 +1346,18 @@ export default function Dashboard() {
         <div className="home-desk">
         <section className="home-hero">
           <div className="home-hero-top">
-            {canSeeMoney ? <HomeFeatureReel /> : null}
             <div className="home-hero-main min-w-0">
-              <p className="home-greet">{hello}</p>
-              <h1 className="home-name">{firstName}</h1>
-              {!hasAnyFeature ? (
+              <h1 className="home-name home-name-inline"><span className="home-greet">{hello},</span> {firstName}</h1>
+              {featuresPending ? (
+                <div className="home-hero-skel" aria-busy="true" aria-label="Loading your workspace">
+                  <span className="home-skel-balance byjan-skel" />
+                  <div className="home-hero-chips" aria-hidden>
+                    <span className="byjan-skel h-6 w-20 rounded-full" />
+                    <span className="byjan-skel h-6 w-20 rounded-full" />
+                    <span className="byjan-skel h-6 w-24 rounded-full" />
+                  </div>
+                </div>
+              ) : !hasAnyFeature ? (
                 <p className="home-lead-light">Your admin has not turned on Money or Business yet.</p>
               ) : canSeeMoney ? (
                 <>
@@ -1266,12 +1373,10 @@ export default function Dashboard() {
                     <span className={`home-hero-chip${globalStats.uncategorized > 0 ? ' is-warn pulse-attn' : ''}`}>
                       {loading || !statsReady ? '…' : `${globalStats.uncategorized} to review`}
                     </span>
+                    <span className="home-hero-chip is-muted">
+                      {loading || !statsReady ? 'Loading books' : `${visibleBooks.length} ${visibleBooks.length === 1 ? 'book' : 'books'} · ${globalStats.entries} entries`}
+                    </span>
                   </div>
-                  <p className="home-amount-sub">
-                    {loading || !statsReady
-                      ? 'Loading books'
-                      : `${visibleBooks.length} books · ${globalStats.entries} entries`}
-                  </p>
                 </>
               ) : (
                 <p className="home-lead-light">Open Business when you need invoices and GST.</p>
@@ -1320,6 +1425,12 @@ export default function Dashboard() {
                 Scan
               </button>
             )}
+            {hasFeature('money_add') && (
+              <button type="button" className="home-pill tone-pay" data-testid="home-pay-qr" onClick={() => { void CapacitorService.hapticTick(); requestQuick('pay'); }}>
+                <QrCode className="w-4 h-4" strokeWidth={2.4} />
+                Pay
+              </button>
+            )}
             {hasFeature('money_voice') && (
               <button type="button" className="home-pill tone-voice" onClick={() => { void CapacitorService.hapticTick(); requestQuick('voice'); }}>
                 <Mic className="w-4 h-4" strokeWidth={2.4} />
@@ -1360,7 +1471,7 @@ export default function Dashboard() {
               {hasFeature('money_reports') && (
               <Link to="/reports" className="home-qa-tile">
                 <span className="home-qa-icon" aria-hidden><BarChart3 className="w-5 h-5" /></span>
-                Reports
+                Summary
               </Link>
               )}
               {hasFeature('money_recurring') && (
@@ -1382,7 +1493,7 @@ export default function Dashboard() {
 
         <div className="home-desk-feed">
         {hasFeature('money') && (loading || recentEntries.length > 0) && (
-          <section className="home-recent" aria-label="Recent transactions">
+          <section className="home-recent" aria-label="Recent entries">
             <div className="home-zone-head">
               <h2>Recent</h2>
               {hasFeature('money_activity') ? <Link to="/activity">See all</Link> : <span />}
@@ -1439,6 +1550,15 @@ export default function Dashboard() {
             setWebScan(null);
             launchScanBatch(files, bookId);
           }}
+        />
+
+        <UpiQrPaySheet
+          open={Boolean(qrPay)}
+          bookId={qrPay?.bookId}
+          initialQr={qrPay?.initialQr}
+          onClose={() => setQrPay(null)}
+          onToast={(msg, kind) => addToast(msg, kind || 'success')}
+          onRecorded={() => { void fetchData({ silent: true }); }}
         />
 
         <ReceiptCaptureFlow
@@ -1588,7 +1708,7 @@ export default function Dashboard() {
                 <button type="button" data-on={booksView === 'compact'} onClick={() => changeBooksView('compact')} title="Compact view">
                   <Rows3 className="w-3.5 h-3.5" />
                 </button>
-                <button type="button" data-on={booksView === 'grid'} onClick={() => changeBooksView('grid')} title="Grid view">
+                <button type="button" data-on={booksView === 'grid'} onClick={() => changeBooksView('grid')} title="Grid view" data-testid="books-view-grid">
                   <LayoutGrid className="w-3.5 h-3.5" />
                 </button>
               </div>

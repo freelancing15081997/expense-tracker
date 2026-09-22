@@ -63,6 +63,9 @@ export async function createLedger(input: {
 
 export async function updateLedger(bookId: string, patch: Record<string, unknown>) {
   const payload = await apiPost<{ book: LedgerBook }>('/api/ledgers', { op: 'update', bookId, patch });
+  // Book metadata (name, pin, budget, purpose…) rides along with the expenses list; drop the cached copy
+  // so the next screen shows the change instead of a 60s-stale snapshot.
+  clearExpensesListCache();
   return payload.book;
 }
 

@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -87,7 +87,7 @@ export default function Activity() {
       <h1 className="font-display text-[26px] font-semibold text-[#0B1F3A] tracking-tight">What’s happening</h1>
       <div className="mt-3 flex flex-wrap gap-2">
         {hasFeature('money_recurring') && <Link to="/regular-payments" className="byjan-chip text-xs">Regular payments</Link>}
-        {hasFeature('money_reports') && <Link to="/reports" className="byjan-chip text-xs">Reports</Link>}
+        {hasFeature('money_reports') && <Link to="/reports" className="byjan-chip text-xs">Summary</Link>}
         {hasFeature('money_inbox') && <Link to="/financial-inbox" className="byjan-chip text-xs">Financial inbox</Link>}
       </div>
       <div className="mt-3">

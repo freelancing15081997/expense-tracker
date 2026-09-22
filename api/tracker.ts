@@ -214,11 +214,37 @@ async function handleLedgers(req: VercelRequest, res: VercelResponse) {
     if (op === 'update') {
       const bookId = String(body.bookId || '').trim();
       if (!bookId) throw new ApiError(400, 'Missing ledger');
-      const patch = body.patch && typeof body.patch === 'object' && !Array.isArray(body.patch)
+      const rawPatch = body.patch && typeof body.patch === 'object' && !Array.isArray(body.patch)
         ? body.patch as Record<string, unknown>
         : {};
-      if (patch.roles) await ledgerRequireManager(bookId, user.uid);
-      else await ledgerRequireMember(bookId, user.uid);
+      // Identity / lifecycle fields are server-owned; never accept them from a client patch.
+      const patch: Record<string, unknown> = { ...rawPatch };
+      for (const key of ['id', 'ownerId', 'createdBy', 'createdAt', 'deleted', 'deletedAt', 'deletedBy', 'status', 'isMember']) delete patch[key];
+      if (!Object.keys(patch).length) throw new ApiError(400, 'Nothing to update');
+      // Tiered write access:
+      //  - any member: personal view state
+      //  - writer (owner/admin/contributor): category list, their own learned rules, recurring rules
+      //  - manager (owner/admin): everything else (name, budget, roles, featureAccess, purpose, …)
+      const MEMBER_SAFE = new Set(['pinned', 'lastOpenedAt']);
+      const WRITER_SAFE = new Set(['categories', 'userMoneyRules', 'recurringRules']);
+      const keys = Object.keys(patch);
+      const needsManager = keys.some((key) => !MEMBER_SAFE.has(key) && !WRITER_SAFE.has(key));
+      const needsWriter = keys.some((key) => WRITER_SAFE.has(key));
+      let member;
+      if (needsManager) member = await ledgerRequireManager(bookId, user.uid);
+      else if (needsWriter) member = await ledgerRequireWriter(bookId, user.uid);
+      else member = await ledgerRequireMember(bookId, user.uid);
+      if (patch.userMoneyRules !== undefined && member.role !== 'owner' && member.role !== 'admin') {
+        // A contributor may only touch their own learned-rules slot, never other people's.
+        const current = await ledgerGet(`books/${bookId}`) as Record<string, unknown> | null;
+        const existing = current?.userMoneyRules && typeof current.userMoneyRules === 'object' && !Array.isArray(current.userMoneyRules)
+          ? current.userMoneyRules as Record<string, unknown>
+          : {};
+        const incoming = patch.userMoneyRules && typeof patch.userMoneyRules === 'object' && !Array.isArray(patch.userMoneyRules)
+          ? patch.userMoneyRules as Record<string, unknown>
+          : {};
+        patch.userMoneyRules = { ...existing, [user.uid]: incoming[user.uid] };
+      }
       const book = await ledgerUpdateBook(bookId, user.uid, patch);
       apiJson(res, 200, { book });
       return;

@@ -269,6 +269,56 @@ export async function launchUpiPayNative(uri: string, packageName?: string | nul
   }
 }
 
+export type UpiQrPayload = {
+  /** Payee VPA */
+  pa: string;
+  /** Payee display name */
+  pn: string;
+  /** Fixed amount from QR (rupees, as string) — empty when the QR leaves it to the payer. */
+  am: string;
+  cu: string;
+  tn: string;
+  tr: string;
+  mc: string;
+  /** Merchant/static QRs often lock the amount; "sign"ed NPCI QRs carry a signature we simply pass through. */
+  raw: string;
+};
+
+/**
+ * Decode any UPI QR / intent string (upi://pay, upi://collect, gpay://, phonepe://, paytmmp://, or a bare VPA).
+ * Returns null when the text is not a UPI payment target. Never throws.
+ */
+export function parseUpiQr(text: string): UpiQrPayload | null {
+  const raw = String(text || '').trim();
+  if (!raw) return null;
+  // Bare VPA typed/pasted by the user
+  if (!raw.includes('://') && isValidVpa(raw)) {
+    return { pa: normalizeVpa(raw), pn: '', am: '', cu: 'INR', tn: '', tr: '', mc: '', raw };
+  }
+  const m = raw.match(/^([a-z][a-z0-9+.-]*):\/\/([^?]*)\??(.*)$/i);
+  if (!m) return null;
+  const scheme = m[1].toLowerCase();
+  const query = m[3] || '';
+  const known = ['upi', 'tez', 'gpay', 'phonepe', 'paytmmp', 'paytm', 'bhim', 'credpay', 'mobikwik', 'amazonpay'];
+  if (!known.includes(scheme)) return null;
+  let params: URLSearchParams;
+  try { params = new URLSearchParams(query.replace(/\+/g, '%20')); } catch { return null; }
+  const pa = normalizeVpa(params.get('pa') || '');
+  if (!isValidVpa(pa)) return null;
+  const amRaw = String(params.get('am') || '').trim();
+  const am = /^\d+(\.\d{1,2})?$/.test(amRaw) && Number(amRaw) > 0 ? Number(amRaw).toFixed(2) : '';
+  return {
+    pa,
+    pn: String(params.get('pn') || '').trim().slice(0, 80),
+    am,
+    cu: String(params.get('cu') || 'INR').toUpperCase().slice(0, 3) || 'INR',
+    tn: String(params.get('tn') || '').trim().slice(0, 80),
+    tr: String(params.get('tr') || '').trim().slice(0, 35),
+    mc: String(params.get('mc') || '').trim().slice(0, 8),
+    raw,
+  };
+}
+
 export async function copyText(value: string) {
   const text = String(value || '');
   if (!text) return false;

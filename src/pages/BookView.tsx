@@ -6,7 +6,6 @@ import { useAuth } from '../context/AuthContext';
 import { useFeatures } from '../lib/use-features';
 import { useToast } from '../context/ToastContext';
 import { toUserMessage } from '../lib/user-message';
-import { toUserMessage } from '../lib/user-message';
 import {
   addLedgerMailEvent,
   ensureLedgerMailbox,
@@ -23,11 +22,12 @@ import { notifyLedgerMembers } from '../lib/notify-team';
 import { CapacitorService, isWeb } from '../lib/capacitor';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileBarChart, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, Send, Copy, CopyPlus, Paperclip, Mail, Megaphone, Shield, Pin, PinOff, SlidersHorizontal, ArrowUpDown, Star, Wallet, ArrowUpRight, ArrowDownRight, Receipt, History, PieChart, Split, MoreHorizontal, CalendarClock, Check } from 'lucide-react';
+import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, ChevronDown, Send, Copy, CopyPlus, Paperclip, Mail, Megaphone, Shield, Pin, PinOff, SlidersHorizontal, ArrowUpDown, Star, Wallet, ArrowUpRight, ArrowDownRight, Receipt, History, PieChart, Split, MoreHorizontal, CalendarClock, Check, Calendar, CreditCard, Landmark, Tag, StickyNote, Store, User as UserIcon, QrCode, Eye } from 'lucide-react';
+import UpiQrPaySheet from '../components/UpiQrPaySheet';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Tabs from '@radix-ui/react-tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import ReportsDashboard from '../components/money/ReportsDashboard';
 import { format } from 'date-fns';
 import { getCurrencySymbol } from '../lib/currency';
 import { CategoryBadge, CategoryIconMark, EntryFieldLabel, ENTRY_FIELD_ICONS, MONEY_KIND_VISUAL } from '../lib/category-icons';
@@ -234,6 +234,7 @@ export default function BookView() {
   const [loading, setLoading] = useState(true);
   const [upiSetupOpen, setUpiSetupOpen] = useState(false);
   const [voiceOpen, setVoiceOpen] = useState(false);
+  const [qrPayOpen, setQrPayOpen] = useState(false);
   const [evolutionDismissed, setEvolutionDismissed] = useState(false);
   /** Latest Add/Scan/Voice handlers — FAB listener mounts before book loads, so use a ref. */
   const quickActionsRef = useRef<{
@@ -246,7 +247,7 @@ export default function BookView() {
     voice: () => setVoiceOpen(true),
   });
   // Quick action tapped while the book skeleton is still up — replay once handlers are live.
-  const pendingQuickRef = useRef<'scan' | 'add' | 'voice' | null>(null);
+  const pendingQuickRef = useRef<'scan' | 'add' | 'voice' | 'pay' | null>(null);
   const loadingRef = useRef(true);
   const scanBusyRef = useRef(false);
   
@@ -257,6 +258,11 @@ export default function BookView() {
   const [isMembersModalOpen, setIsMembersModalOpen] = useState(() => Boolean((location.state as { openPeople?: boolean } | null)?.openPeople));
   const [inboundAddress, setInboundAddress] = useState('');
   const [editingExpense, setEditingExpense] = useState<any>(null);
+  const [viewExpense, setViewExpense] = useState<any>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; description: string } | null>(null);
+  const [editConfirmOpen, setEditConfirmOpen] = useState(false);
+  const editConfirmedRef = useRef(false);
+  const [moreFields, setMoreFields] = useState(false);
   
   // Form State
   const [entryType, setEntryType] = useState<'in' | 'out' | 'transfer'>('out');
@@ -374,24 +380,8 @@ export default function BookView() {
     const exp = expenses.find((row) => String(row.id) === entryId);
     if (!exp) return;
     openedEntryRef.current = entryId;
-    setEditingExpense(exp);
-    setEntryType(exp.entryType || 'out');
-    setTxType((exp.txType as TxType) || (exp.entryType === 'in' ? 'INCOME' : exp.entryType === 'transfer' ? 'TRANSFER' : 'EXPENSE'));
-    setAmount(exp.amount == null ? '' : String(exp.amount));
-    setDescription(String(exp.description || ''));
-    setCategory(String(exp.category || ''));
-    setCustomCatInput('');
-    setEntryDate(String(exp.paidAt || exp.date || new Date().toISOString().split('T')[0]));
-    setMerchant(String(exp.merchant || ''));
-    setPaymentMethod(String(exp.paymentMethod || 'cash'));
-    setAccountId(String(exp.accountId || 'cash'));
-    setNotes(String(exp.notes || ''));
-    setReimbursable(Boolean(exp.reimbursable));
-    setBillable(Boolean(exp.billable));
-    setSplitWithTeam(Array.isArray(exp.personSplits) && exp.personSplits.length > 0);
-    setTags(String(exp.tags || ''));
-    setReceiptMeta(exp.receiptPath ? { receiptPath: String(exp.receiptPath), receiptName: String(exp.receiptName || '') } : null);
-    setIsExpenseModalOpen(true);
+    // Deep links (inbox, search, notifications) open the read-only view first; Edit is one tap away.
+    setViewExpense(exp);
     const next = new URLSearchParams(searchParams);
     next.delete('entry');
     setSearchParams(next, { replace: true });
@@ -669,6 +659,7 @@ export default function BookView() {
     if (st?.openEntry) setIsExpenseModalOpen(true);
     if (st?.openVoice) setVoiceOpen(true);
     if (st?.openScan) void scanReceiptEntry();
+    if (st?.openPay) setQrPayOpen(true);
     if (st?.openSplitPick) {
       if (!String((userProfile as { upiId?: string } | null)?.upiId || '').trim()) {
         setUpiSetupOpen(true);
@@ -685,7 +676,7 @@ export default function BookView() {
   useEffect(() => {
     const onQuick = (event: Event) => {
       const kind = (event as CustomEvent<string>).detail;
-      if (kind !== 'scan' && kind !== 'add' && kind !== 'voice') return;
+      if (kind !== 'scan' && kind !== 'add' && kind !== 'voice' && kind !== 'pay') return;
       // Book still loading → handlers below the early-return skeleton aren't bound yet. Queue it.
       if (loadingRef.current) {
         pendingQuickRef.current = kind;
@@ -693,6 +684,7 @@ export default function BookView() {
       }
       if (kind === 'scan') void quickActionsRef.current.scan();
       else if (kind === 'add') quickActionsRef.current.add();
+      else if (kind === 'pay') setQrPayOpen(true);
       else quickActionsRef.current.voice();
     };
     window.addEventListener('byjan-quick', onQuick);
@@ -708,6 +700,7 @@ export default function BookView() {
     const t = window.setTimeout(() => {
       if (kind === 'scan') void quickActionsRef.current.scan();
       else if (kind === 'add') quickActionsRef.current.add();
+      else if (kind === 'pay') setQrPayOpen(true);
       else quickActionsRef.current.voice();
     }, 0);
     return () => window.clearTimeout(t);
@@ -970,7 +963,7 @@ export default function BookView() {
   const canSplitEqual = hasFeature('money_split_equal');
   const canEmailTab = hasFeature('money_email') && hasFeature('money_email_tab');
   const canAnnounce = hasFeature('money_announce');
-  const canBookReports = hasFeature('money_book_analytics');
+  const canBookReports = hasFeature('money_book_analytics') || hasFeature('money_reports');
   const canHistory = hasFeature('money_history');
   const canPin = hasFeature('money_pin');
   const canEmailReport = hasFeature('money_email_report');
@@ -1046,7 +1039,7 @@ export default function BookView() {
     setAmount('');
     setDescription(preset?.description || '');
     const presetCat = String(preset?.category || '').trim();
-    setCategory(presetCat || categoryOptions[0] || '');
+    setCategory(presetCat || categoryOptions[0] || 'Other');
     setCustomCatInput(presetCat && !categoryOptions.includes(presetCat) ? presetCat : '');
     setEntryDate(new Date().toISOString().split('T')[0]);
     setMerchant(preset?.merchant || '');
@@ -1192,6 +1185,7 @@ export default function BookView() {
 
   const openEditExpense = (exp: any) => {
     setEditingExpense(exp);
+    setMoreFields(Boolean(exp.tags || exp.notes || exp.reimbursable || exp.billable || (Array.isArray(exp.personSplits) && exp.personSplits.length)));
     setEntryType(exp.entryType || exp.entryType || 'out');
     setTxType((exp.txType as TxType) || (exp.entryType === 'in' ? 'INCOME' : exp.entryType === 'transfer' ? 'TRANSFER' : 'EXPENSE'));
     setAmount(exp.amount == null ? '' : String(exp.amount));
@@ -1308,14 +1302,19 @@ export default function BookView() {
 
   const handleSaveExpense = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canWrite || !bookId) return;
-    setIsSaving(true);
-    const finalCategory = category === '__custom__' ? customCatInput.trim() : category;
-    if (!finalCategory) {
-      setIsSaving(false);
-      addToast('Please specify a category', 'error');
+    // Editing an existing entry changes shared numbers — ask once before writing.
+    if (editingExpense && !editConfirmedRef.current) {
+      setEditConfirmOpen(true);
       return;
     }
+    editConfirmedRef.current = false;
+    await saveExpenseNow();
+  };
+
+  const saveExpenseNow = async () => {
+    if (!canWrite || !bookId) return;
+    setIsSaving(true);
+    const finalCategory = (category === '__custom__' ? customCatInput.trim() : category) || 'Other';
 
     const lockBefore = String(book.lockBefore || '');
     if (lockBefore && entryDate && entryDate < lockBefore) {
@@ -1582,9 +1581,16 @@ export default function BookView() {
     }
   };
 
-  const handleDeleteExpense = async (id: string, description: string) => {
+  const handleDeleteExpense = (id: string, description: string) => {
     if (!canDelete || !currentUser) return;
-    if (confirm('Delete this entry?')) {
+    setDeleteTarget({ id, description });
+  };
+
+  const performDeleteExpense = async (id: string, description: string) => {
+    if (!canDelete || !currentUser) return;
+    setDeleteTarget(null);
+    setViewExpense((curr: any) => (curr && String(curr.id) === id ? null : curr));
+    {
       setIsDeleting(id);
       const gone = expenses.find((row) => row.id === id);
       dropExpensesLocal([id]);
@@ -1826,13 +1832,6 @@ export default function BookView() {
   const monthOut = expenses.filter((e) => e.entryType !== 'in' && e.entryType !== 'transfer' && String(e.date || '').startsWith(monthKey)).reduce((sum, exp) => sum + Number(exp.amount || 0), 0);
   const reimbursableOpen = expenses.filter((e) => e.reimbursable).reduce((sum, exp) => sum + Number(exp.amount || 0), 0);
   const budget = Number(book.monthlyBudget || 0);
-  const chartData = expenses.filter(e => e.entryType !== 'in' && e.entryType !== 'transfer').reduce((acc: any[], exp) => {
-    const existing = acc.find(a => a.name === exp.category);
-    if (existing) existing.total += exp.amount;
-    else acc.push({ name: exp.category, total: exp.amount });
-    return acc;
-  }, []).sort((a, b) => b.total - a.total).slice(0, 5);
-
   const anomalySet = anomalyIds(expenses);
   const dupeSet = nearDupeIds(expenses);
   const staleSet = staleReimburseIds(expenses);
@@ -2002,6 +2001,18 @@ export default function BookView() {
                 <span>Add entry</span>
               </button>
             )}
+            {canWrite && (
+              <button
+                type="button"
+                onClick={() => { void CapacitorService.hapticTick(); setQrPayOpen(true); }}
+                className="book-head-action book-head-pay"
+                title="Scan a UPI QR and pay — the entry is recorded here"
+                data-testid="book-pay-qr"
+              >
+                <QrCode className="w-4 h-4" />
+                <span>Pay</span>
+              </button>
+            )}
             {hasFeature('money_people') && (
               <button
                 type="button"
@@ -2104,7 +2115,7 @@ export default function BookView() {
         <Tabs.List className="book-tabs" aria-label="Book sections">
           <Tabs.Trigger value="ledger" className="book-tab">
             <Wallet className="w-3.5 h-3.5" />
-            <span>Expenses</span>
+            <span>Entries</span>
           </Tabs.Trigger>
           {canSplitTab && (
           <Tabs.Trigger value="splits" className="book-tab">
@@ -2119,9 +2130,9 @@ export default function BookView() {
           </Tabs.Trigger>
           )}
           {canBookReports && (
-          <Tabs.Trigger value="analytics" className="book-tab">
+          <Tabs.Trigger value="analytics" className="book-tab" data-testid="book-tab-summary">
             <PieChart className="w-3.5 h-3.5" />
-            <span>Reports</span>
+            <span>Summary</span>
           </Tabs.Trigger>
           )}
           {canHistory && (
@@ -2509,13 +2520,23 @@ export default function BookView() {
                     paginatedExpenses.map((exp) => (
                       <tr
                         key={exp.id}
+                        role="button"
+                        tabIndex={0}
+                        data-testid="entry-row"
                         className={cn(
-                          'hover:bg-white/40 transition-colors group',
+                          'hover:bg-white/40 transition-colors group cursor-pointer',
                           exp.flagged && 'byjan-row-flag',
                           anomalySet.has(exp.id) && 'byjan-row-anomaly',
                           dupeSet.has(exp.id) && 'byjan-row-dupe',
                           watchSet.has(String(exp.merchant || '').toLowerCase()) && 'byjan-row-watch',
                         )}
+                        onClick={(event) => {
+                          if ((event.target as HTMLElement).closest('button, input, a, [role="menuitem"]')) return;
+                          setViewExpense(exp);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' && event.target === event.currentTarget) setViewExpense(exp);
+                        }}
                       >
                         {canWrite && (
                           <td className="px-3 py-2">
@@ -2591,6 +2612,9 @@ export default function BookView() {
                                 {bulkBusy === exp.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CopyPlus className="w-4 h-4" />}
                               </button>
                               )}
+                              <button type="button" onClick={() => setViewExpense(exp)} className="p-1 hover:text-zinc-600 hover:bg-white/70 rounded transition-colors" title="View" data-testid="entry-row-view">
+                                <Eye className="w-4 h-4" />
+                              </button>
                               <button onClick={() => openEditExpense(exp)} className="p-1 hover:text-zinc-600 hover:bg-white/70 rounded transition-colors" title="Edit">
                                 <PenSquare className="w-4 h-4" />
                               </button>
@@ -2639,11 +2663,21 @@ export default function BookView() {
                   return (
                   <div
                     key={exp.id}
+                    role="button"
+                    tabIndex={0}
+                    data-testid="entry-card"
                     className={cn(
-                      'entry-card-mobile mb-entry',
+                      'entry-card-mobile mb-entry is-tappable',
                       exp.flagged && 'byjan-row-flag',
                       anomalySet.has(exp.id) && 'byjan-row-anomaly',
                     )}
+                    onClick={(event) => {
+                      if ((event.target as HTMLElement).closest('button, input, a, [role="menuitem"]')) return;
+                      setViewExpense(exp);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && event.target === event.currentTarget) setViewExpense(exp);
+                    }}
                   >
                     <div className="flex justify-between items-start gap-3">
                       {canWrite && (
@@ -2706,6 +2740,9 @@ export default function BookView() {
                           {bulkBusy === exp.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CopyPlus className="w-3.5 h-3.5" />}
                         </button>
                         )}
+                        <button type="button" onClick={() => setViewExpense(exp)} className="entry-card-action" title="View" data-testid="entry-card-view">
+                          <Eye className="w-3.5 h-3.5" />
+                        </button>
                         <button type="button" onClick={() => openEditExpense(exp)} className="entry-card-action" title="Edit">
                           <PenSquare className="w-3.5 h-3.5" />
                         </button>
@@ -2840,61 +2877,39 @@ export default function BookView() {
           />
         </Tabs.Content>
 
-        <Tabs.Content value="analytics" className="outline-none space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="byjan-card p-5">
-              <h3 className="font-semibold text-sm text-slate-900 mb-4 flex items-center gap-2">
-                <FileBarChart className="w-4 h-4 text-slate-400" /> Top Categories
-              </h3>
-              {chartData.length > 0 ? (
-                <div className="h-56">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={chartData} layout="vertical" margin={{ top: 0, right: 0, left: 20, bottom: 0 }}>
-                      <XAxis type="number" hide />
-                      <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 11, fontWeight: 500}} width={90} />
-                      <Tooltip 
-                        cursor={{fill: '#f8fafc'}}
-                        contentStyle={{borderRadius: '6px', border: '1px solid #e2e8f0', boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.05)', fontSize: '12px'}} 
-                        formatter={(value: number) => [`${getCurrencySymbol(book.currency)} ${value.toLocaleString()}`, 'Amount']}
-                      />
-                      <Bar dataKey="total" radius={[0, 4, 4, 0]} barSize={24}>
-                        {chartData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={['#2563eb', '#3b82f6', '#60a5fa', '#93c5fd', '#bfdbfe'][index % 5]} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              ) : (
-                <div className="h-56 flex items-center justify-center text-sm text-slate-400">Not enough data to display.</div>
-              )}
-            </div>
-            
-            <div className="byjan-card p-5 flex flex-col">
-              <h3 className="font-semibold text-sm text-slate-900 mb-4 flex items-center gap-2">
-                <FileText className="text-slate-400" /> Export & Reports
-              </h3>
-              <p className="text-xs text-slate-500 mb-6 flex-1">Download this book as PDF or CSV for tax filing, audits, or accounting software.</p>
+        <Tabs.Content value="analytics" className="outline-none">
+          <ReportsDashboard
+            expenses={expenses.map((exp) => ({ ...exp, bookId, bookName: book.name, currency: book.currency }))}
+            books={[{ id: bookId, name: book.name, currency: book.currency, monthlyBudget: Number(book.monthlyBudget || 0) }]}
+            fixedBookId={bookId}
+            onOpenEntry={(id) => { const exp = expenses.find((row) => String(row.id) === id); if (exp) setViewExpense(exp); }}
+          >
+            <section className="rp-card">
+              <header className="rp-card-head">
+                <div><p className="rp-kicker">Take it with you</p><h2>Download this book</h2></div>
+                <FileText className="w-4 h-4 text-slate-400" />
+              </header>
+              <p className="rp-muted mb-3">PDF for sharing, CSV for a spreadsheet or your accountant.</p>
               <div className="grid grid-cols-2 gap-2">
                 <button type="button" onClick={() => void downloadPdf()} disabled={exportingPdf} className="byjan-btn-ghost w-full">
                   {exportingPdf ? <Loader2 className="animate-spin" /> : <Download />} PDF
                 </button>
                 <button type="button" onClick={() => void downloadCsv()} className="byjan-btn w-full">
-                  <FileText /> CSV
+                  <FileText /> Full CSV
                 </button>
               </div>
-            </div>
-          </div>
-          {canBudget && (
-            <div className="byjan-card p-5">
-              <h3 className="font-semibold text-sm text-slate-900 mb-2">Monthly spend budget</h3>
-              <p className="text-xs text-slate-500 mb-3">Compares money-out this calendar month against a target you set for this ledger.</p>
-              <div className="flex gap-2">
-                <input className="byjan-input" type="number" min={0} step="0.01" value={monthlyBudget} onChange={(e) => setMonthlyBudget(e.target.value)} placeholder="0.00" />
-                <button type="button" className="byjan-btn" onClick={() => void saveMonthlyBudget()}>Save</button>
-              </div>
-            </div>
-          )}
+            </section>
+            {canBudget && (
+              <section className="rp-card">
+                <header className="rp-card-head"><div><p className="rp-kicker">Monthly limit</p><h2>How much is okay to spend a month?</h2></div></header>
+                <p className="rp-muted mb-3">We compare this month's money out against this number and warn you when you get close.</p>
+                <div className="flex gap-2">
+                  <input className="byjan-input" type="number" min={0} step="0.01" value={monthlyBudget} onChange={(e) => setMonthlyBudget(e.target.value)} placeholder="0.00" />
+                  <button type="button" className="byjan-btn" onClick={() => void saveMonthlyBudget()}>Save</button>
+                </div>
+              </section>
+            )}
+          </ReportsDashboard>
         </Tabs.Content>
 
         <Tabs.Content value="audit" className="outline-none space-y-3">
@@ -2944,7 +2959,7 @@ export default function BookView() {
               }}
             />
           ) : (
-            <div className="byjan-card p-8 text-center text-sm text-slate-500">Sign in to view split transactions.</div>
+            <div className="byjan-card p-8 text-center text-sm text-slate-500">Sign in to view shared entries.</div>
           )}
         </Tabs.Content>
         </div>
@@ -2953,17 +2968,159 @@ export default function BookView() {
         </PullToRefresh>
       </Tabs.Root>
 
+      {/* Entry detail (view) sheet */}
+      <Dialog.Root open={Boolean(viewExpense)} onOpenChange={(next) => { if (!next) setViewExpense(null); }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-slate-900/45 z-[170] byjan-fade-in" />
+          <Dialog.Content className="record-sheet entry-view fixed z-[180] p-0 max-h-[92vh] overflow-y-auto bg-white border border-slate-200 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)]" onCloseAutoFocus={(event) => event.preventDefault()} data-testid="entry-view">
+            {viewExpense ? (() => {
+              const exp = viewExpense;
+              const kind = moneyKindMeta(exp.entryType, exp.txType);
+              const acct = readAccounts(book).find((a) => a.id === String(exp.accountId || ''));
+              const payLabel = ENTRY_PAY_METHODS.find((m) => m.id === String(exp.paymentMethod || ''))?.label || String(exp.paymentMethod || '');
+              const trail = buildEvidenceTrail(exp);
+              const facts: Array<{ icon: React.ReactNode; label: string; value: string }> = [
+                { icon: <Calendar className="w-3.5 h-3.5" />, label: 'Paid on', value: formatDayLabel(expensePaidDay(exp)) || '—' },
+                { icon: <Store className="w-3.5 h-3.5" />, label: purposeFields.merchantLabel, value: String(exp.merchant || '—') },
+                { icon: <CreditCard className="w-3.5 h-3.5" />, label: 'Paid with', value: payLabel || '—' },
+                { icon: <Landmark className="w-3.5 h-3.5" />, label: 'Account', value: acct?.name || String(exp.accountId || '—') },
+                { icon: <UserIcon className="w-3.5 h-3.5" />, label: 'Added by', value: String(exp.enteredBy || exp.paidByName || 'Unknown') },
+                { icon: <Calendar className="w-3.5 h-3.5" />, label: 'Added on', value: formatDayLabel(expenseCreatedDay(exp)) || '—' },
+              ];
+              if (exp.tags) facts.push({ icon: <Tag className="w-3.5 h-3.5" />, label: purposeFields.tagsLabel, value: String(exp.tags) });
+              return (
+                <>
+                  <div className="record-sheet-handle md:hidden" aria-hidden />
+                  <div className={cn('entry-view-hero', kind.cls)}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={cn('money-kind', kind.cls)}>{kind.label}</span>
+                        {exp.status === 'draft' ? <span className="money-evidence money-evidence-warn">Needs review</span> : null}
+                        {exp.flagged ? <span className="money-evidence"><Star className="w-3 h-3 inline -mt-0.5" fill="currentColor" /> Flagged</span> : null}
+                      </div>
+                      <Dialog.Close className="entry-view-close" aria-label="Close"><X className="w-4 h-4" /></Dialog.Close>
+                    </div>
+                    <p className="entry-view-amount byjan-money">{kind.sign}{getCurrencySymbol(book.currency)}{Number(exp.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+                    <Dialog.Title className="entry-view-title">{String(exp.description || 'Entry')}</Dialog.Title>
+                    <div className="mt-2"><CategoryBadge name={exp.category || 'Uncategorized'} size="md" /></div>
+                  </div>
+                  <div className="entry-view-body">
+                    <dl className="entry-view-facts">
+                      {facts.map((f) => (
+                        <div key={f.label} className="entry-view-fact">
+                          <dt>{f.icon} {f.label}</dt>
+                          <dd>{f.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                    {exp.notes ? (
+                      <div className="entry-view-note"><StickyNote className="w-3.5 h-3.5" /><p>{String(exp.notes)}</p></div>
+                    ) : null}
+                    {Array.isArray(exp.personSplits) && exp.personSplits.length ? (
+                      <div className="entry-view-split">
+                        <p className="rp-kicker">Split between</p>
+                        <ul>
+                          {exp.personSplits.map((s: any, i: number) => (
+                            <li key={`${s.uid || s.name || i}`}><span>{String(s.name || s.email || s.uid || 'Person')}</span><span className="byjan-money">{getCurrencySymbol(book.currency)}{Number(s.amount || 0).toLocaleString('en-IN')}</span></li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                    {trail.length ? (
+                      <div className="entry-view-trail">
+                        <p className="rp-kicker">Why Byjan recorded it this way</p>
+                        {trail.map((step, i) => <p key={`${step.label}-${i}`}><strong>{step.label}:</strong> {step.detail}</p>)}
+                      </div>
+                    ) : null}
+                    {exp.receiptPath ? (
+                      <button type="button" className="byjan-btn-ghost w-full !h-10" onClick={() => void openReceipt(exp)} disabled={openingReceiptId === exp.id}>
+                        {openingReceiptId === exp.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />} Open attachment
+                      </button>
+                    ) : null}
+                  </div>
+                  <div className="entry-view-actions">
+                    {canWrite ? (
+                      <button type="button" className="byjan-btn flex-1" data-testid="entry-view-edit" onClick={() => { setViewExpense(null); openEditExpense(exp); }}>
+                        <PenSquare className="w-4 h-4" /> Edit
+                      </button>
+                    ) : null}
+                    {canSplitEntry && canWrite && peopleFromBook(book).length > 1 && String(exp.entryType || 'out') === 'out' ? (
+                      <button type="button" className="byjan-btn-ghost" onClick={() => { setViewExpense(null); setSplitTarget({ id: String(exp.id), amount: Number(exp.amount || 0), merchant: String(exp.merchant || ''), description: String(exp.description || '') }); }}>
+                        <Users className="w-4 h-4" /> {Array.isArray(exp.personSplits) && exp.personSplits.length ? 'Edit split' : 'Split'}
+                      </button>
+                    ) : null}
+                    {canDuplicate ? (
+                      <button type="button" className="byjan-btn-ghost" title="Duplicate" aria-label="Duplicate" onClick={() => { setViewExpense(null); void duplicateExpense(exp); }}><CopyPlus className="w-4 h-4" /></button>
+                    ) : null}
+                    {canFlag ? (
+                      <button type="button" className={cn('byjan-btn-ghost', exp.flagged && 'text-amber-600')} title={exp.flagged ? 'Unflag' : 'Flag'} aria-label={exp.flagged ? 'Unflag' : 'Flag'} onClick={() => { void updateExpense(bookId!, exp.id, { flagged: !exp.flagged }).then(() => { setViewExpense({ ...exp, flagged: !exp.flagged }); return refreshExpenses(); }); }}><Star className="w-4 h-4" fill={exp.flagged ? 'currentColor' : 'none'} /></button>
+                    ) : null}
+                    {canDelete ? (
+                      <button type="button" className="byjan-btn-ghost text-rose-600" title="Delete" aria-label="Delete" data-testid="entry-view-delete" onClick={() => handleDeleteExpense(exp.id, exp.description)}><Trash2 className="w-4 h-4" /></button>
+                    ) : null}
+                  </div>
+                </>
+              );
+            })() : null}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      {/* Delete entry — always confirm */}
+      <Dialog.Root open={Boolean(deleteTarget)} onOpenChange={(next) => { if (!next) setDeleteTarget(null); }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 z-[190]" />
+          <Dialog.Content className="fixed left-[50%] top-[50%] z-[200] w-[min(100%-1.5rem,24rem)] translate-x-[-50%] translate-y-[-50%] rounded-[22px] bg-white border border-slate-200 p-5 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)] byjan-pop-in" data-testid="entry-delete-confirm">
+            <Dialog.Title className="text-base font-semibold text-slate-900">Delete this entry?</Dialog.Title>
+            <p className="text-sm text-slate-600 mt-2">“{deleteTarget?.description || 'This entry'}” will be removed from {book?.name || 'this book'} for everyone on it. You can undo for a short while after.</p>
+            <div className="flex justify-end gap-2 mt-4">
+              <button type="button" className="byjan-btn-ghost" onClick={() => setDeleteTarget(null)}>Keep it</button>
+              <button type="button" className="byjan-btn !bg-rose-600" data-testid="entry-delete-yes" onClick={() => { if (deleteTarget) void performDeleteExpense(deleteTarget.id, deleteTarget.description); }}>
+                <Trash2 className="w-4 h-4" /> Delete
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      {/* Save changes — confirm edits to shared entries */}
+      <Dialog.Root open={editConfirmOpen} onOpenChange={(next) => { if (!isSaving) setEditConfirmOpen(next); }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 z-[190]" />
+          <Dialog.Content className="fixed left-[50%] top-[50%] z-[200] w-[min(100%-1.5rem,24rem)] translate-x-[-50%] translate-y-[-50%] rounded-[22px] bg-white border border-slate-200 p-5 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)] byjan-pop-in" data-testid="entry-edit-confirm">
+            <Dialog.Title className="text-base font-semibold text-slate-900">Save these changes?</Dialog.Title>
+            {editingExpense ? (
+              <ul className="mt-2 text-sm text-slate-600 space-y-1">
+                {Number(editingExpense.amount || 0) !== Number(amount || 0) ? (
+                  <li>Amount: <s className="text-slate-400">{getCurrencySymbol(book.currency)}{Number(editingExpense.amount || 0).toLocaleString('en-IN')}</s> → <strong className="text-slate-900">{getCurrencySymbol(book.currency)}{Number(amount || 0).toLocaleString('en-IN')}</strong></li>
+                ) : null}
+                {String(editingExpense.description || '') !== description ? <li>Description → <strong className="text-slate-900">{description || '—'}</strong></li> : null}
+                {String(editingExpense.category || '') !== (category === '__custom__' ? customCatInput : category) ? <li>Category → <strong className="text-slate-900">{category === '__custom__' ? customCatInput : category}</strong></li> : null}
+                {String(editingExpense.paidAt || editingExpense.date || '').slice(0, 10) !== entryDate ? <li>Paid date → <strong className="text-slate-900">{formatDayLabel(entryDate)}</strong></li> : null}
+                <li className="text-slate-500">Everyone on {book?.name || 'this book'} will see the updated entry.</li>
+              </ul>
+            ) : null}
+            <div className="flex justify-end gap-2 mt-4">
+              <button type="button" className="byjan-btn-ghost" onClick={() => setEditConfirmOpen(false)}>Keep editing</button>
+              <button type="button" className="byjan-btn" data-testid="entry-edit-yes" disabled={isSaving} onClick={() => { editConfirmedRef.current = true; setEditConfirmOpen(false); void saveExpenseNow(); }}>
+                {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Save changes
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
       {/* Expense Edit/Add Modal */}
       <Dialog.Root open={isExpenseModalOpen} onOpenChange={(next) => { if (!isSaving) setIsExpenseModalOpen(next); }}>
         <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 z-[90]" />
+          <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 z-[170]" />
           <Dialog.Content
-            className="record-sheet fixed z-[100] grid gap-4 p-5 max-h-[90vh] overflow-y-auto bg-white border border-slate-200 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)]"
+            className="record-sheet fixed z-[180] grid gap-3 p-4 max-h-[90vh] overflow-y-auto bg-white border border-slate-200 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)]"
             onCloseAutoFocus={(event) => event.preventDefault()}
           >
             <div className="record-sheet-handle md:hidden" aria-hidden />
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <Dialog.Title className="text-lg font-bold text-slate-900">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+              <Dialog.Title className="text-[17px] font-semibold text-slate-900">
                 {editingExpense
                   ? 'Edit expense'
                   : entryType === 'in'
@@ -2977,42 +3134,43 @@ export default function BookView() {
               </Dialog.Close>
             </div>
             
-                        <form onSubmit={handleSaveExpense} className="space-y-4">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        <form onSubmit={handleSaveExpense} className="entry-form" data-testid="entry-form">
+              <div className="entry-kind-seg" role="tablist" aria-label="What kind of money move">
                 {MONEY_KIND_OPTIONS.map((opt) => {
                   const visual = MONEY_KIND_VISUAL[opt.txType];
                   const KindIcon = visual?.icon;
+                  const on = txType === opt.txType;
                   return (
                   <button
                     key={opt.txType}
                     type="button"
+                    role="tab"
+                    aria-selected={on}
+                    data-on={on}
+                    title={opt.hint}
                     onClick={() => { setTxType(opt.txType); setEntryType(opt.entryType); }}
-                    className={cn(
-                      'rounded-xl border px-2 py-2 text-left text-[12px] font-semibold transition-colors',
-                      txType === opt.txType ? 'border-[#12B8A8] bg-[#12B8A8] text-white' : 'border-slate-200 text-slate-600',
-                    )}
+                    className="entry-kind-btn"
                   >
-                    <span className="flex items-center gap-1.5">
-                      {KindIcon ? <KindIcon className="w-3.5 h-3.5 shrink-0" strokeWidth={2.3} /> : null}
-                      <span>{opt.label}</span>
-                    </span>
-                    <span className={cn('block text-[10px] font-normal mt-0.5', txType === opt.txType ? 'text-white/70' : 'text-slate-400')}>{opt.hint}</span>
+                    {KindIcon ? <KindIcon className="w-4 h-4 shrink-0" strokeWidth={2.2} /> : null}
+                    <span>{opt.label}</span>
                   </button>
                   );
                 })}
               </div>
-              <div>
-                <EntryFieldLabel icon={ENTRY_FIELD_ICONS.amount}>Amount ({getCurrencySymbol(book.currency)})</EntryFieldLabel>
-                <input 
+              <label className={cn('entry-amount-hero', entryType === 'in' ? 'is-in' : entryType === 'transfer' ? 'is-xfer' : 'is-out')}>
+                <span className="entry-amount-ccy" aria-hidden>{getCurrencySymbol(book.currency)}</span>
+                <input
                   type="number" step="0.01" required autoFocus
-                  value={amount} onChange={e=>setAmount(e.target.value)} 
-                  className="byjan-input money-amount-input"
+                  value={amount} onChange={e=>setAmount(e.target.value)}
+                  className="money-amount-input"
                   inputMode="decimal"
-                  placeholder="0.00"
+                  placeholder="0"
+                  aria-label={`Amount in ${getCurrencySymbol(book.currency)}`}
                 />
-              </div>
-              <div>
-                <EntryFieldLabel icon={ENTRY_FIELD_ICONS.description}>Description</EntryFieldLabel>
+                <span className="entry-amount-hint">{MONEY_KIND_OPTIONS.find((o) => o.txType === txType)?.hint || ''}</span>
+              </label>
+              <div className="entry-field">
+                <EntryFieldLabel icon={ENTRY_FIELD_ICONS.description}>What was it for?</EntryFieldLabel>
                 <input 
                   type="text" required 
                   value={description} onChange={e=>setDescription(e.target.value)} 
@@ -3052,7 +3210,7 @@ export default function BookView() {
                 <EntryFieldLabel icon={ENTRY_FIELD_ICONS.category}>{purposeFields.categoryLabel}</EntryFieldLabel>
                 {categoryOptions.length > 0 ? (
                   <div className="purpose-cat-row" role="listbox" aria-label={purposeFields.categoryLabel}>
-                    {categoryOptions.slice(0, 10).map((cat) => (
+                    {categoryOptions.slice(0, 8).map((cat) => (
                       <button
                         key={cat}
                         type="button"
@@ -3064,45 +3222,65 @@ export default function BookView() {
                         {cat}
                       </button>
                     ))}
+                    {category && category !== '__custom__' && !categoryOptions.slice(0, 8).includes(category) ? (
+                      <button type="button" className="purpose-cat-chip" data-on="true">{category}</button>
+                    ) : null}
+                    <button type="button" className="purpose-cat-chip" data-on={category === '__custom__'} onClick={() => setCategory('__custom__')}>
+                      + New
+                    </button>
+                    {categoryOptions.length > 8 ? (
+                      <Select onValueChange={setCategory}>
+                        <SelectTrigger className="purpose-cat-chip !h-8 !w-auto px-2 border-slate-200">
+                          More
+                        </SelectTrigger>
+                        <SelectContent>
+                          {categoryOptions.slice(8).map((cat) => (
+                            <SelectItem key={cat} value={cat}>
+                              <span className="inline-flex min-w-0 items-center gap-2">
+                                <CategoryIconMark name={cat} className="!h-7 !w-7 shrink-0 rounded-lg" />
+                                <span className="truncate">{cat}</span>
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : null}
                   </div>
-                ) : null}
-                <Select value={category} onValueChange={setCategory}>
-                  <SelectTrigger className="w-full mb-2 h-9 border-slate-300">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {categoryOptions.map((cat) => (
-                      <SelectItem key={cat} value={cat}>
-                        <span className="inline-flex min-w-0 items-center gap-2">
-                          <CategoryIconMark name={cat} className="!h-7 !w-7 shrink-0 rounded-lg" />
-                          <span className="truncate">{cat}</span>
-                        </span>
-                      </SelectItem>
-                    ))}
-                    <div className="h-px bg-slate-200 my-1"></div>
-                    <SelectItem value="__custom__" className="font-semibold text-blue-600">-- Add Custom Category --</SelectItem>
-                  </SelectContent>
-                </Select>
+                ) : (
+                  <Select value={category} onValueChange={setCategory}>
+                    <SelectTrigger className="w-full mb-2 h-9 border-slate-300">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__custom__" className="font-semibold text-blue-600">+ New category…</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
                 {category === '__custom__' && (
                   <input 
                     type="text" required
                     value={customCatInput} onChange={e=>setCustomCatInput(e.target.value)}
-                    className="byjan-input"
-                    placeholder="Enter custom category name"
+                    className="byjan-input mt-2"
+                    placeholder="Name the new category"
                   />
                 )}
               </div>
-              <div>
-                <EntryFieldLabel icon={ENTRY_FIELD_ICONS.date}>Paid date</EntryFieldLabel>
-                <input type="date" required value={entryDate} onChange={(e) => setEntryDate(e.target.value)} className="byjan-input" />
-                <p className="mt-1 text-[11px] text-slate-500">
-                  {editingExpense
-                    ? `Receipt / payment date. Created ${formatDayLabel(expenseCreatedDay(editingExpense)) || 'when first saved'}.`
-                    : 'Date on the receipt or when money moved. Record created date is set automatically when you save.'}
-                </p>
+              <div className="entry-row-2">
+                <div className="entry-field">
+                  <EntryFieldLabel icon={ENTRY_FIELD_ICONS.date}>Paid on</EntryFieldLabel>
+                  <input type="date" required value={entryDate} onChange={(e) => setEntryDate(e.target.value)} className="byjan-input" title={editingExpense ? `Created ${formatDayLabel(expenseCreatedDay(editingExpense)) || 'when first saved'}` : 'Date on the receipt or when money moved'} />
+                </div>
+                <div className="entry-field">
+                  <EntryFieldLabel icon={ENTRY_FIELD_ICONS.account}>Account</EntryFieldLabel>
+                  <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="byjan-input">
+                    {readAccounts(book).map((acct) => (
+                      <option key={acct.id} value={acct.id}>{acct.name}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
-              <div>
-                <EntryFieldLabel icon={ENTRY_FIELD_ICONS.payment}>Payment method</EntryFieldLabel>
+              <div className="entry-field">
+                <EntryFieldLabel icon={ENTRY_FIELD_ICONS.payment}>Paid with</EntryFieldLabel>
                 <div className="entry-pay-grid" role="listbox" aria-label="Payment method">
                   {ENTRY_PAY_METHODS.map((m) => (
                     <button
@@ -3127,42 +3305,7 @@ export default function BookView() {
                   ))}
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <EntryFieldLabel icon={ENTRY_FIELD_ICONS.account}>Account</EntryFieldLabel>
-                  <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="byjan-input">
-                    {readAccounts(book).map((acct) => (
-                      <option key={acct.id} value={acct.id}>{acct.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex flex-col justify-end">
-                  <button type="button" className="byjan-btn-ghost !h-10 w-full" disabled={uploadingReceipt} onClick={() => void attachReceiptFromCamera()}>
-                    {uploadingReceipt ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}
-                    {receiptMeta?.receiptPath ? 'Receipt attached' : 'Scan receipt'}
-                  </button>
-                </div>
-              </div>
-              {purposeFields.entities.length > 0 ? (
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">{purposeFields.entityLabel}</label>
-                  <div className="purpose-cat-row">
-                    {purposeFields.entities.map((ent) => (
-                      <button
-                        key={ent}
-                        type="button"
-                        className="purpose-cat-chip"
-                        data-on={purposeEntityType === ent}
-                        onClick={() => setPurposeEntityType(ent)}
-                      >
-                        <CategoryIconMark name={ent} />
-                        {ent}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-              <div className="relative">
+              <div className="entry-field relative">
                 <EntryFieldLabel icon={ENTRY_FIELD_ICONS.merchant}>{purposeFields.merchantLabel}</EntryFieldLabel>
                 <input
                   type="text"
@@ -3190,34 +3333,65 @@ export default function BookView() {
                   </div>
                 )}
               </div>
-              <div>
+              <div className="entry-more-bar">
+                <button type="button" className="byjan-btn-ghost !h-9 text-xs" disabled={uploadingReceipt} onClick={() => void attachReceiptFromCamera()}>
+                  {uploadingReceipt ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}
+                  {receiptMeta?.receiptPath ? 'Receipt attached' : 'Attach receipt'}
+                </button>
+                <button type="button" className="entry-more-toggle" data-testid="entry-more" aria-expanded={moreFields} onClick={() => setMoreFields((v) => !v)}>
+                  {moreFields ? 'Fewer details' : 'More details'}
+                  <ChevronDown className={cn('w-4 h-4 transition-transform', moreFields && 'rotate-180')} />
+                </button>
+              </div>
+              <div className={cn('entry-more', moreFields && 'is-open')} hidden={!moreFields} data-testid="entry-more-panel">
+              {purposeFields.entities.length > 0 ? (
+                <div className="entry-field">
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">{purposeFields.entityLabel}</label>
+                  <div className="purpose-cat-row">
+                    {purposeFields.entities.map((ent) => (
+                      <button
+                        key={ent}
+                        type="button"
+                        className="purpose-cat-chip"
+                        data-on={purposeEntityType === ent}
+                        onClick={() => setPurposeEntityType(ent)}
+                      >
+                        <CategoryIconMark name={ent} />
+                        {ent}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              <div className="entry-field">
                 <EntryFieldLabel icon={ENTRY_FIELD_ICONS.tags}>{purposeFields.tagsLabel}</EntryFieldLabel>
                 <input type="text" value={tags} onChange={(e) => setTags(e.target.value)} className="byjan-input" placeholder="Comma-separated, e.g. trip, gst" />
               </div>
-              <div>
+              <div className="entry-field">
                 <EntryFieldLabel icon={ENTRY_FIELD_ICONS.notes}>Notes</EntryFieldLabel>
-                <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="byjan-input min-h-[72px]" placeholder={purposeFields.notesPlaceholder} />
+                <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="byjan-input min-h-[64px]" placeholder={purposeFields.notesPlaceholder} />
               </div>
-              <div className="flex flex-wrap gap-4 text-sm text-slate-700">
-                <label className="inline-flex items-center gap-2">
+              <div className="entry-toggles">
+                <label className="entry-toggle" data-on={reimbursable}>
                   <input type="checkbox" checked={reimbursable} onChange={(e) => setReimbursable(e.target.checked)} />
-                  Reimbursable
+                  Get this money back
                 </label>
-                <label className="inline-flex items-center gap-2">
+                <label className="entry-toggle" data-on={billable}>
                   <input type="checkbox" checked={billable} onChange={(e) => setBillable(e.target.checked)} />
-                  Billable to client
+                  Bill to a client
                 </label>
                 {canSplitEqual && (
-                <label className="inline-flex items-center gap-2">
+                <label className="entry-toggle" data-on={splitWithTeam}>
                   <input type="checkbox" checked={splitWithTeam} onChange={(e) => setSplitWithTeam(e.target.checked)} />
-                  Split equally with team
+                  Split equally with everyone
                 </label>
                 )}
+              </div>
               </div>
               {mismatchThanks && (receiptOcrText || receiptMeta) && !editingExpense ? (
                 <p className="text-[13px] leading-snug text-slate-600 bg-teal-50 border border-teal-100 rounded-xl px-3 py-2">{mismatchThanks}</p>
               ) : null}
-              <div className="pt-2 flex justify-end gap-2">
+              <div className="entry-form-actions">
                 {(receiptOcrText || receiptMeta) && !editingExpense && !mismatchThanks ? (
                     <button
                       type="button"
@@ -3244,7 +3418,7 @@ export default function BookView() {
                 <Dialog.Close asChild>
                   <button type="button" className="byjan-btn-ghost">Cancel</button>
                 </Dialog.Close>
-                <button type="submit" disabled={isSaving} className="byjan-btn">
+                <button type="submit" disabled={isSaving} className="byjan-btn" data-testid="entry-save">
                   {isSaving && <span className="app-loader-ring app-loader-ring-sm" />}
                   {isSaving ? (editingExpense ? 'Saving…' : 'Adding…') : (editingExpense ? 'Save changes' : 'Add expense')}
                 </button>
@@ -3673,6 +3847,14 @@ export default function BookView() {
           onToast={addToast}
         />
       ) : null}
+
+      <UpiQrPaySheet
+        open={qrPayOpen}
+        bookId={bookId}
+        onClose={() => setQrPayOpen(false)}
+        onToast={(msg, kind) => addToast(msg, kind || 'success')}
+        onRecorded={() => { setQrPayOpen(false); void refreshExpenses(); }}
+      />
 
       <VoiceEntrySheet
         open={voiceOpen}

@@ -7,6 +7,8 @@ export function useFeatures() {
   const map = userProfile?.features;
   return useMemo(() => ({
     map,
+    /** True until /api/me has returned effective features. Show skeletons, never "not turned on" copy. */
+    pending: map === undefined,
     on: (key: FeatureKey) => featureOn(map, key),
     anyOn: anyFeatureOn(map),
     canSeeMoney: featureOn(map, 'money'),

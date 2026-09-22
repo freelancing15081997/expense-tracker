@@ -188,7 +188,7 @@ export default function SettlementsPanel({
         <div className="stx-hero">
           <div>
             <p className="stx-kicker">Split settlements</p>
-            <h3 className="stx-title">Transactions</h3>
+            <h3 className="stx-title">Shared entries</h3>
             <p className="stx-sub">Separate from expenses — pay, retry failed UPI, and track who’s owed.</p>
           </div>
           <button type="button" className="byjan-btn-ghost !h-9 !px-2.5" disabled={loading} onClick={() => void refresh()}>
@@ -291,7 +291,7 @@ export default function SettlementsPanel({
       <div className={variant === 'page' ? 'stx-list' : 'space-y-2'}>
         {(variant === 'page' ? filtered : mine.slice(0, 12)).length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 px-4 py-8 text-center text-sm text-slate-500">
-            {mine.length === 0 ? 'No split transactions yet. Split an expense to see settlements here.' : 'No matches for this filter.'}
+            {mine.length === 0 ? 'No shared entries yet. Split an expense to see settlements here.' : 'No matches for this filter.'}
           </div>
         ) : (
           (variant === 'page' ? filtered : mine.slice(0, 12)).map((row) => {

@@ -3,7 +3,7 @@ import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { logout } from '../lib/firebase';
-import { Bell, CheckCircle2, X, LayoutDashboard, Settings, BookText, Plus, ScanLine, PenLine, Mic, Activity } from 'lucide-react';
+import { Bell, CheckCircle2, X, LayoutDashboard, Settings, BookText, Plus, ScanLine, PenLine, Mic, Activity, QrCode } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { listNotifications, markNotificationRead, notificationPath, notifyTimeAgo } from '../lib/notifications';
@@ -63,7 +63,7 @@ export default function Layout() {
   };
 
   // Quick actions from the raised center button. Dashboard and BookView listen.
-  const fireQuickAction = (kind: 'scan' | 'add' | 'voice') => {
+  const fireQuickAction = (kind: 'scan' | 'add' | 'voice' | 'pay') => {
     void CapacitorService.hapticTick();
     setFabOpen(false);
     const path = location.pathname;
@@ -466,6 +466,20 @@ export default function Layout() {
                       >
                         <span className="dash-fab-btn tone-gold"><ScanLine className="w-5 h-5" strokeWidth={2.4} /></span>
                         <span className="dash-fab-label">Scan</span>
+                      </motion.button>
+                    )}
+                    {canAdd && (
+                      <motion.button
+                        type="button"
+                        className="dash-fab-item is-pay"
+                        initial={reduceMotion ? false : { opacity: 0, x: 0, y: 0, scale: 0.35 }}
+                        animate={{ opacity: 1, x: -88, y: 10, scale: 1 }}
+                        exit={{ opacity: 0, x: 0, y: 0, scale: 0.35 }}
+                        transition={{ ...fabMenuSpring, delay: 0.1 }}
+                        onClick={() => fireQuickAction('pay')}
+                      >
+                        <span className="dash-fab-btn tone-teal"><QrCode className="w-5 h-5" strokeWidth={2.4} /></span>
+                        <span className="dash-fab-label">Pay</span>
                       </motion.button>
                     )}
                   </div>

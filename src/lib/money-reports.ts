@@ -39,23 +39,58 @@ export function periodBounds(period: ReportPeriod, anchor = new Date()) {
   const y = anchor.getFullYear();
   const m = anchor.getMonth();
   const d = anchor.getDate();
+  // Local calendar dates (entries are stored as local YYYY-MM-DD); UTC would shift "today" after 18:30 UTC in IST.
+  const today = iso(anchor);
   if (period === 'week') {
     const start = new Date(anchor);
     start.setDate(d - 6);
-    return { from: start.toISOString().slice(0, 10), to: anchor.toISOString().slice(0, 10) };
+    return { from: iso(start), to: today };
   }
   if (period === 'month') {
-    return { from: `${y}-${String(m + 1).padStart(2, '0')}-01`, to: anchor.toISOString().slice(0, 10) };
+    return { from: `${y}-${pad(m + 1)}-01`, to: today };
   }
   if (period === 'quarter') {
     const qStart = m - (m % 3);
-    return { from: `${y}-${String(qStart + 1).padStart(2, '0')}-01`, to: anchor.toISOString().slice(0, 10) };
+    return { from: `${y}-${pad(qStart + 1)}-01`, to: today };
   }
   if (period === 'year') {
-    return { from: `${y}-01-01`, to: anchor.toISOString().slice(0, 10) };
+    return { from: `${y}-01-01`, to: today };
   }
   return { from: '', to: '' };
 }
+
+/** Bounds of the period immediately before `period` (same length), for delta comparisons. */
+export function previousPeriodBounds(period: ReportPeriod, anchor = new Date()) {
+  const cur = periodBounds(period, anchor);
+  if (!cur.from) return { from: '', to: '' };
+  const start = new Date(`${cur.from}T00:00:00`);
+  const prevEnd = new Date(start);
+  prevEnd.setDate(start.getDate() - 1);
+  if (period === 'week') {
+    const prevStart = new Date(prevEnd);
+    prevStart.setDate(prevEnd.getDate() - 6);
+    return { from: iso(prevStart), to: iso(prevEnd) };
+  }
+  if (period === 'month') {
+    return { from: `${prevEnd.getFullYear()}-${pad(prevEnd.getMonth() + 1)}-01`, to: iso(prevEnd) };
+  }
+  if (period === 'quarter') {
+    const m = prevEnd.getMonth();
+    const qStart = m - (m % 3);
+    return { from: `${prevEnd.getFullYear()}-${pad(qStart + 1)}-01`, to: iso(prevEnd) };
+  }
+  return { from: `${prevEnd.getFullYear()}-01-01`, to: iso(prevEnd) };
+}
+
+/** Percent change from `prev` to `cur`; null when there is nothing to compare against. */
+export function percentDelta(cur: number, prev: number): number | null {
+  if (!Number.isFinite(cur) || !Number.isFinite(prev)) return null;
+  if (prev === 0) return cur === 0 ? 0 : null;
+  return Math.round(((cur - prev) / Math.abs(prev)) * 100);
+}
+
+function iso(d: Date) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
+function pad(n: number) { return String(n).padStart(2, '0'); }
 
 export function filterExpenses(expenses: ExpenseRow[], filters: ReportFilters = {}) {
   return expenses.filter((exp) => {
@@ -151,7 +186,7 @@ export function budgetPerformance(
   monthlyBudgetPaise: number,
   categoryBudgets: Array<{ category: string; monthlyPaise: number }> = [],
 ) {
-  const monthKey = new Date().toISOString().slice(0, 7);
+  const monthKey = iso(new Date()).slice(0, 7);
   const monthOut = expenses
     .filter((e) => isOut(e) && String(e.date || '').startsWith(monthKey))
     .reduce((sum, e) => addPaise(sum, toPaise(e.amount)), 0);
@@ -223,7 +258,7 @@ export function whatIfReduceCategory(
   reducePercent: number,
 ) {
   const pct = Math.min(100, Math.max(0, reducePercent));
-  const monthKey = new Date().toISOString().slice(0, 7);
+  const monthKey = iso(new Date()).slice(0, 7);
   const catSpend = expenses
     .filter((e) => isOut(e) && String(e.category || '').toLowerCase() === category.toLowerCase() && String(e.date || '').startsWith(monthKey))
     .reduce((sum, e) => addPaise(sum, toPaise(e.amount)), 0);

@@ -102,7 +102,7 @@ export function detectLifeEvents(expenses: ExpenseRow[]): LifeEventSuggestion[] 
     const text = rows.map((r) => `${r.description} ${r.merchant} ${r.category}`).join(' ').toLowerCase();
     let kind: LifeEventSuggestion['kind'] = 'other';
     let label = `Activity · ${month}`;
-    let reason = 'Clustered from recent transactions';
+    let reason = 'Clustered from Recent entries';
 
     if ((cats.has('travel') || cats.has('hotel') || /hotel|flight|fuel|parking/.test(text)) && rows.length >= 5) {
       kind = 'trip';
@@ -150,6 +150,7 @@ export type AttentionItem = {
     | 'recurring'
     | 'commitment'
     | 'split'
+    | 'outlier'
     | 'warranty';
   title: string;
   detail: string;
@@ -157,11 +158,15 @@ export type AttentionItem = {
   priority: number;
   amount?: number;
   action?: string;
+  /** Plain-language reason shown under the detail (outliers). */
+  why?: string;
+  severity?: 'low' | 'medium' | 'high';
 };
 
 export function buildAttentionInbox(input: {
   drafts?: ExpenseRow[];
   uncategorized?: ExpenseRow[];
+  outliers?: Array<{ id: string; message: string; severity?: 'low' | 'medium' | 'high'; bookId?: string; amount?: number; label?: string }>;
   duplicates?: Array<{ id: string; message: string; bookId?: string }>;
   recurring?: Array<{ id: string; label: string; amount: number }>;
   commitments?: Array<{ id: string; label: string; nextEstimate: string; amount: number }>;
@@ -192,6 +197,20 @@ export function buildAttentionInbox(input: {
       priority: 70,
     });
   }
+  for (const o of (input.outliers || []).slice(0, 6)) {
+    items.push({
+      id: `out:${o.id}`,
+      kind: 'outlier',
+      title: o.severity === 'high' ? 'Much bigger than usual' : 'Bigger than usual',
+      detail: String(o.label || 'Entry'),
+      why: o.message,
+      severity: o.severity || 'medium',
+      href: o.bookId ? `/book/${o.bookId}?entry=${encodeURIComponent(String(o.id))}` : '/expenses',
+      amount: Number(o.amount || 0) || undefined,
+      action: 'Check',
+      priority: o.severity === 'high' ? 85 : 65,
+    });
+  }
   for (const dup of (input.duplicates || []).slice(0, 5)) {
     items.push({
       id: `dup:${dup.id}`,
@@ -207,7 +226,7 @@ export function buildAttentionInbox(input: {
     items.push({
       id: `rec:${r.id}`,
       kind: 'recurring',
-      title: 'Recurring pattern',
+      title: 'Repeats every month',
       detail: `${r.label} · ~₹${Math.round(r.amount)}`,
       href: '/regular-payments',
       amount: Number(r.amount || 0) || undefined,
@@ -219,7 +238,7 @@ export function buildAttentionInbox(input: {
     items.push({
       id: `com:${c.id}`,
       kind: 'commitment',
-      title: 'Upcoming commitment',
+      title: 'Payment coming up',
       detail: `${c.label} · ${c.nextEstimate || 'soon'}`,
       href: '/regular-payments',
       amount: Number(c.amount || 0) || undefined,
@@ -232,11 +251,11 @@ export function buildAttentionInbox(input: {
       id: 'splits',
       kind: 'split',
       title: `${input.pendingSplits} split request${input.pendingSplits === 1 ? '' : 's'}`,
-      detail: 'Settle shared expenses',
+      detail: 'Money owed between people on your books',
       href: '/expenses',
       action: 'Settle',
       priority: 75,
     });
   }
-  return items.sort((a, b) => b.priority - a.priority).slice(0, 12);
+  return items.sort((a, b) => b.priority - a.priority).slice(0, 18);
 }

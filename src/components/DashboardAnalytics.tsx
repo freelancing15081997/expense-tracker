@@ -357,7 +357,7 @@ export const DashboardAnalytics: React.FC<Props> = ({
                       {formatCurrency(points[hoveredTrendIndex].amount, currency)}
                     </div>
                     <div className="text-[10px] text-slate-300">
-                      {points[hoveredTrendIndex].date} ({points[hoveredTrendIndex].count} transactions)
+                      {points[hoveredTrendIndex].date} ({points[hoveredTrendIndex].count} entries)
                     </div>
                   </div>
                 )}
@@ -536,7 +536,7 @@ export const DashboardAnalytics: React.FC<Props> = ({
                     </div>
                     <div>
                       <div className="font-bold text-xs text-slate-800">{mode}</div>
-                      <div className="text-[11px] text-slate-700 font-medium">{data.count} transactions recorded</div>
+                      <div className="text-[11px] text-slate-700 font-medium">{data.count} entries recorded</div>
                     </div>
                   </div>
                   <div className="text-right">

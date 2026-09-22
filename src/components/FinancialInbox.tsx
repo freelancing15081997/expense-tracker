@@ -43,7 +43,7 @@ export default function FinancialInbox({ items }: { items: AttentionItem[] }) {
               className="home-swipe-slide home-quad-card"
             >
               <span className="home-quad-kind" data-kind={row.kind}>
-                {row.kind.replace('_', ' ')}
+                {row.kind === 'outlier' ? 'Unusual' : row.kind === 'receipt_review' ? 'Receipt' : row.kind === 'categorize' ? 'No category' : row.kind === 'duplicate' ? 'Duplicate' : row.kind === 'recurring' ? 'Repeating' : row.kind === 'commitment' ? 'Coming up' : row.kind === 'split' ? 'Owed' : row.kind.replace('_', ' ')}
               </span>
               <span className="home-quad-copy min-w-0">
                 <span className="home-upcoming-name">{row.title}</span>
