@@ -8696,7 +8696,14 @@ section[aria-label="To pay"] {
 .uq-frame i:nth-child(4) { bottom: 0; right: 0; border-left: 0; border-top: 0; }
 .uq-laser { position: absolute; left: 6%; right: 6%; height: 2px; background: linear-gradient(90deg, transparent, #12B8A8, transparent); animation: uq-laser 1.6s ease-in-out infinite; }
 @keyframes uq-laser { 0% { top: 6%; } 50% { top: 92%; } 100% { top: 6%; } }
-.uq-alt { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 10px; }
+.uq-alt { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.uq-dock-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  height: 48px; border-radius: 16px; border: 1px solid rgba(11, 31, 58, 0.1);
+  background: rgba(255, 255, 255, 0.92); color: #0b1f3a; font-size: 13px; font-weight: 600;
+  box-shadow: 0 10px 24px -20px rgba(11, 31, 58, 0.45);
+}
+.uq-dock-btn:active { transform: scale(0.98); }
 .uq-alt .sp-select-all { display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: 38px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .uq-file { cursor: pointer; }
 .uq-paste { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; margin-top: 8px; }

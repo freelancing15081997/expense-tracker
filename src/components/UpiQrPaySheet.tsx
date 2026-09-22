@@ -197,7 +197,7 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
       if (!video || !stream) {
         stopCamera();
         setCameraLive(false);
-        setScanError('Camera needs another try. Tap below, or upload a photo of the QR.');
+        setScanError('Camera is warming up. Tap Scan, or use a photo / UPI ID.');
         return;
       }
       if (video.srcObject !== stream) {
@@ -239,13 +239,20 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
     } catch (err) {
       stopCamera();
       const msg = err instanceof Error ? err.message : '';
-      setScanError(/denied|permission|NotAllowed/i.test(msg) ? 'Camera permission was not granted. Use gallery or paste the UPI ID.' : 'Could not start the camera. Use gallery or paste the UPI ID.');
+      setScanError(
+        /denied|permission|NotAllowed/i.test(msg)
+          ? 'Allow camera access to scan, or use a photo / UPI ID below.'
+          : isWeb
+            ? 'Use a QR photo or paste a UPI ID — live camera works best in the Byjan app.'
+            : 'Camera is unavailable right now. Use a photo or paste a UPI ID.',
+      );
     }
   };
 
-  // Camera opens with the scanner. Gallery and paste stay as backups.
+  // On native, open the camera immediately. On web, wait for an explicit tap so
+  // desktop/browser sessions never flash a failed-camera error before Photo/UPI.
   useEffect(() => {
-    if (!open || phase !== 'scan' || initialQr) return;
+    if (!open || phase !== 'scan' || initialQr || isWeb) return;
     const id = window.setTimeout(() => { void startLiveScan(); }, 40);
     return () => window.clearTimeout(id);
     // startLiveScan is stable enough for open/phase; cameraKick retries after rescan.
@@ -475,10 +482,19 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
                     <div className="uq-idle-ring" aria-hidden>
                       <QrCode className="w-9 h-9" />
                     </div>
-                    <p className="uq-idle-title">{scanError ? 'Camera needs a moment' : 'Opening camera'}</p>
-                    <p className="uq-idle-copy">{scanError || 'Point at the UPI QR. You can also upload a photo or paste a UPI ID below.'}</p>
+                    <p className="uq-idle-title">
+                      {scanError
+                        ? (isWeb ? 'Scan a UPI QR' : 'Ready when you are')
+                        : (isWeb ? 'Scan a UPI QR' : 'Opening camera')}
+                    </p>
+                    <p className="uq-idle-copy">
+                      {scanError
+                        || (isWeb
+                          ? 'Open the camera, upload a QR photo, or paste a UPI ID.'
+                          : 'Point at the UPI QR. Photo and UPI ID stay available below.')}
+                    </p>
                     <button type="button" className="uq-idle-cta" data-testid="upi-qr-start" onClick={() => { cameraKick.current += 1; stopCamera(); void startLiveScan(); }}>
-                      <Camera className="w-4 h-4" /> {scanError ? 'Open camera' : 'Retry'}
+                      <Camera className="w-4 h-4" /> Scan
                     </button>
                   </div>
                 ) : (
