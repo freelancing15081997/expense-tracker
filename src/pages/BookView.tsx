@@ -1970,14 +1970,14 @@ export default function BookView() {
         <div className="px-4 md:px-6 lg:px-8 pt-2 pb-0 bg-white">
         <div className="max-w-6xl mx-auto">
       <div className="book-head mb-1">
-      <div className="flex flex-col gap-1.5 mb-1">
-        <div className="flex items-start gap-2 min-w-0">
-          <Link to="/expenses" className="mt-0.5 p-1.5 -ml-1 text-slate-400 hover:text-slate-700 rounded-lg" title="Back to money books">
+      <div className="flex flex-col gap-2 mb-1">
+        <div className="book-open-head">
+          <Link to="/expenses" className="p-1.5 -ml-1 text-slate-400 hover:text-slate-700 rounded-lg shrink-0" title="Back to money books">
             <ArrowLeft className="w-5 h-5" />
           </Link>
           <div className="min-w-0 flex-1">
             <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Money book</p>
-            <h1 className="text-[18px] sm:text-[20px] font-display font-semibold text-[#0B1F3A] truncate leading-tight">{book.name}</h1>
+            <h1 className="book-open-name">{String(book.name || 'Money book')}</h1>
             <div className="mt-1 flex items-center gap-1.5 flex-wrap">
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 uppercase">
                 {roleLabel(myRole)}
@@ -1989,7 +1989,8 @@ export default function BookView() {
               )}
             </div>
           </div>
-          <div className="flex items-center gap-1.5 shrink-0">
+        </div>
+          <div className="book-open-actions">
             {canWrite && (
               <button
                 type="button"
@@ -2068,7 +2069,6 @@ export default function BookView() {
               </DropdownMenu.Portal>
             </DropdownMenu.Root>
           </div>
-        </div>
         {evolution && canManageUsers ? (
           <div className="purpose-detect mt-2">
             <span className="flex-1 min-w-0">

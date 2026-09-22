@@ -1428,14 +1428,20 @@ export default function Dashboard() {
           <section className="home-pay-row" aria-label="Pay or scan">
             {hasFeature('money_add') && (
               <button type="button" className="home-pay-act is-pay" data-testid="home-pay-qr" onClick={() => { void CapacitorService.hapticTick(); requestQuick('pay'); }}>
-                <QrCode className="w-4 h-4" strokeWidth={2.2} />
-                <span>Pay</span>
+                <span className="home-pay-ico" aria-hidden><QrCode className="w-5 h-5" strokeWidth={2.2} /></span>
+                <span className="home-pay-copy">
+                  <strong>Pay</strong>
+                  <small>Send money with a QR or UPI ID</small>
+                </span>
               </button>
             )}
             {hasFeature('money_scan') && (
               <button type="button" className="home-pay-act is-scan" onClick={() => { void CapacitorService.hapticTick(); requestQuick('scan'); }}>
-                <ScanLine className="w-4 h-4" strokeWidth={2.2} />
-                <span>Scan</span>
+                <span className="home-pay-ico" aria-hidden><ScanLine className="w-5 h-5" strokeWidth={2.2} /></span>
+                <span className="home-pay-copy">
+                  <strong>Scan</strong>
+                  <small>Save a receipt into a book</small>
+                </span>
               </button>
             )}
           </section>

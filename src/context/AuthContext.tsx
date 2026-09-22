@@ -181,7 +181,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             await logout();
             return;
           }
-          if (!cancelled) setUserProfile(profileFromSnap(user, null));
+          if (!cancelled) {
+            setUserProfile(profileFromSnap(user, null));
+            window.setTimeout(() => {
+              if (!cancelled) void refreshUserProfile();
+            }, 1200);
+          }
         } finally {
           void CapacitorService.bindAccount(user.uid);
         }

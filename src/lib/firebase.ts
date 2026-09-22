@@ -205,7 +205,11 @@ export async function logout() {
   if (Capacitor.isNativePlatform()) {
     try {
       const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
-      await FirebaseAuthentication.signOut();
+      // Native sign-out can hang and leave the account sheet on "Signing out…".
+      await Promise.race([
+        FirebaseAuthentication.signOut(),
+        new Promise((resolve) => setTimeout(resolve, 4000)),
+      ]);
     } catch {
       /* native session may already be empty */
     }

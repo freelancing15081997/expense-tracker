@@ -188,6 +188,22 @@ export default function Layout() {
   const canNotify = hasFeature('app_notifications') && hasFeature('app_notifications_bell');
   // + only on an open money book — home/settings/etc. use their own entry points.
   const showFab = onLedger && hasFeature('money') && (canAdd || canScan || canVoice);
+  const fabActions = [
+    canAdd ? { id: 'pay', kind: 'pay' as const, label: 'Pay', item: 'is-pay', tone: 'tone-teal', icon: <QrCode className="w-5 h-5" strokeWidth={2.4} /> } : null,
+    canVoice ? { id: 'voice', kind: 'voice' as const, label: 'Voice', item: 'is-voice', tone: 'tone-rose', icon: <Mic className="w-5 h-5" strokeWidth={2.4} /> } : null,
+    canAdd ? { id: 'add', kind: 'add' as const, label: 'Add', item: 'is-add', tone: 'tone-brand', icon: <PenLine className="w-5 h-5" strokeWidth={2.4} /> } : null,
+    canScan ? { id: 'scan', kind: 'scan' as const, label: 'Scan', item: 'is-scan', tone: 'tone-gold', icon: <ScanLine className="w-5 h-5" strokeWidth={2.4} /> } : null,
+  ].filter((action) => action !== null);
+  const fabRadius = 122;
+  const fabSpots = fabActions.map((_, index) => {
+    const t = fabActions.length === 1 ? 0.5 : index / (fabActions.length - 1);
+    // Even steps across the upper half-circle. Ends sit just above the bar, not inside it.
+    const deg = (Math.PI * 162) / 180 - ((Math.PI * 144) / 180) * t;
+    return {
+      x: Math.round(fabRadius * Math.cos(deg)),
+      y: Math.round(-fabRadius * Math.sin(deg)),
+    };
+  });
   const showBooksTab = hasFeature('money');
   const showActivityTab = hasFeature('money_activity');
   // Menus only — FAB floats on the bar, it is never a nav column.
@@ -426,62 +442,21 @@ export default function Layout() {
               <AnimatePresence>
                 {fabOpen && (
                   <div className="dash-fab-orbit" role="menu" aria-label="Quick actions">
-                    {canVoice && (
+                    {fabActions.map((action, index) => (
                       <motion.button
+                        key={action.id}
                         type="button"
-                        className="dash-fab-item is-voice"
+                        className={`dash-fab-item ${action.item}`}
                         initial={reduceMotion ? false : { opacity: 0, x: 0, y: 0, scale: 0.35 }}
-                        animate={{ opacity: 1, x: -78, y: -70, scale: 1 }}
+                        animate={{ opacity: 1, x: fabSpots[index].x, y: fabSpots[index].y, scale: 1 }}
                         exit={{ opacity: 0, x: 0, y: 0, scale: 0.35 }}
-                        transition={{ ...fabMenuSpring, delay: 0.02 }}
-                        onClick={() => fireQuickAction('voice')}
+                        transition={{ ...fabMenuSpring, delay: 0.02 + index * 0.03 }}
+                        onClick={() => fireQuickAction(action.kind)}
                       >
-                        <span className="dash-fab-btn tone-rose"><Mic className="w-5 h-5" strokeWidth={2.4} /></span>
-                        <span className="dash-fab-label">Voice</span>
+                        <span className={`dash-fab-btn ${action.tone}`}>{action.icon}</span>
+                        <span className="dash-fab-label">{action.label}</span>
                       </motion.button>
-                    )}
-                    {canAdd && (
-                      <motion.button
-                        type="button"
-                        className="dash-fab-item is-add"
-                        initial={reduceMotion ? false : { opacity: 0, x: 0, y: 0, scale: 0.35 }}
-                        animate={{ opacity: 1, x: 0, y: -102, scale: 1 }}
-                        exit={{ opacity: 0, x: 0, y: 0, scale: 0.35 }}
-                        transition={{ ...fabMenuSpring, delay: 0.05 }}
-                        onClick={() => fireQuickAction('add')}
-                      >
-                        <span className="dash-fab-btn tone-brand"><PenLine className="w-5 h-5" strokeWidth={2.4} /></span>
-                        <span className="dash-fab-label">Add</span>
-                      </motion.button>
-                    )}
-                    {canScan && (
-                      <motion.button
-                        type="button"
-                        className="dash-fab-item is-scan"
-                        initial={reduceMotion ? false : { opacity: 0, x: 0, y: 0, scale: 0.35 }}
-                        animate={{ opacity: 1, x: 78, y: -70, scale: 1 }}
-                        exit={{ opacity: 0, x: 0, y: 0, scale: 0.35 }}
-                        transition={{ ...fabMenuSpring, delay: 0.08 }}
-                        onClick={() => fireQuickAction('scan')}
-                      >
-                        <span className="dash-fab-btn tone-gold"><ScanLine className="w-5 h-5" strokeWidth={2.4} /></span>
-                        <span className="dash-fab-label">Scan</span>
-                      </motion.button>
-                    )}
-                    {canAdd && (
-                      <motion.button
-                        type="button"
-                        className="dash-fab-item is-pay"
-                        initial={reduceMotion ? false : { opacity: 0, x: 0, y: 0, scale: 0.35 }}
-                        animate={{ opacity: 1, x: -88, y: 10, scale: 1 }}
-                        exit={{ opacity: 0, x: 0, y: 0, scale: 0.35 }}
-                        transition={{ ...fabMenuSpring, delay: 0.1 }}
-                        onClick={() => fireQuickAction('pay')}
-                      >
-                        <span className="dash-fab-btn tone-teal"><QrCode className="w-5 h-5" strokeWidth={2.4} /></span>
-                        <span className="dash-fab-label">Pay</span>
-                      </motion.button>
-                    )}
+                    ))}
                   </div>
                 )}
               </AnimatePresence>

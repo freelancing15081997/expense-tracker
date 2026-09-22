@@ -159,9 +159,31 @@ await send('Runtime.enable');
 }
 
 /* ---------- login ---------- */
+async function signedInEmail() {
+  await js(`(() => { const b = document.querySelector('.account-avatar'); if (b) b.click(); return true; })()`);
+  await sleep(700);
+  const email = await js(`(() => {
+    const t = document.body.innerText || '';
+    const m = t.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/i);
+    return m ? m[0].toLowerCase() : '';
+  })()`);
+  await js(`(() => { const b = document.querySelector('button[aria-label="Close account menu"]'); if (b) b.click(); return true; })()`);
+  await sleep(200);
+  return String(email || '');
+}
+
 async function login() {
-  const state = await js(`({ tabs: document.querySelectorAll('.dash-tab').length, t: (document.body.innerText || '').slice(0, 300) })`);
-  if (state.tabs && !/sign in|welcome back/i.test(state.t)) return true;
+  const settled = await waitFor(() => js(`document.querySelectorAll('.dash-tab').length > 0 || Boolean(document.querySelector('input[type="email"]'))`), { timeout: 20000 });
+  if (!settled) return false;
+  const onHome = await js(`document.querySelectorAll('.dash-tab').length > 0 && !document.querySelector('input[type="email"]')`);
+  if (onHome) {
+    const who = await signedInEmail();
+    if (who === EMAIL.toLowerCase()) return true;
+    await js(`(() => { const b = document.querySelector('.account-avatar'); if (b) b.click(); return true; })()`);
+    await sleep(700);
+    await clickText('/^Sign out$/i');
+    await waitFor(() => js(`Boolean(document.querySelector('input[type="email"]'))`), { timeout: 20000 });
+  }
   await clickText('/skip|continue to sign in/i');
   await sleep(500);
   const okEmail = await waitFor(() => js(`Boolean(document.querySelector('input[type="email"]'))`));
@@ -169,7 +191,7 @@ async function login() {
   await setInput('input[type="email"]', EMAIL);
   await setInput('input[type="password"]', PASS);
   await clickText('/^sign in$/i');
-  return Boolean(await waitFor(() => js(`document.querySelectorAll('.dash-tab').length > 0`), { timeout: 15000 }));
+  return Boolean(await waitFor(() => js(`document.querySelectorAll('.dash-tab').length > 0 && !document.querySelector('input[type="email"]')`), { timeout: 20000 }));
 }
 {
   const ok = await login();
@@ -349,8 +371,15 @@ await waitFor(() => js(`document.querySelectorAll('.md3-book').length > 0 || /No
   record('pay', 'Pay QR sheet opens from the book', Boolean(pay), { phase: await js(`document.querySelector('[data-testid="upi-qr-sheet"]')?.getAttribute('data-phase')`) });
   if (pay) {
     await sleep(350);
-    const frame = await js(`(() => { const b = document.querySelector('[data-testid="upi-qr-viewport"]')?.getBoundingClientRect(); if (!b) return null; return { top: Math.round(b.top), height: Math.round(b.height), bottom: Math.round(b.bottom), vh: window.innerHeight }; })()`);
-    record('pay', 'camera fills the screen without scrolling', Boolean(frame) && frame.top >= 0 && frame.top < 160 && frame.bottom <= frame.vh + 8 && frame.height > 180, frame);
+    const frame = await js(`(() => {
+      const cam = document.querySelector('[data-testid="upi-qr-viewport"]')?.getBoundingClientRect();
+      const paste = document.querySelector('[data-testid="upi-qr-paste-toggle"]')?.getBoundingClientRect();
+      const upload = document.querySelector('.uq-file')?.getBoundingClientRect();
+      const vh = window.innerHeight;
+      if (!cam || !paste || !upload) return null;
+      return { camH: Math.round(cam.height), uploadBottom: Math.round(upload.bottom), pasteBottom: Math.round(paste.bottom), vh };
+    })()`);
+    record('pay', 'upload and paste UPI ID stay on screen with the camera', Boolean(frame) && frame.camH > 140 && frame.uploadBottom <= frame.vh - 4 && frame.pasteBottom <= frame.vh - 4, frame);
   }
   if (pay) {
     await click('[data-testid="upi-qr-paste-toggle"]');

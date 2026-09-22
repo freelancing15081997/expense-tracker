@@ -5336,8 +5336,9 @@ html[data-radius="round"] { --ui-radius: 24px; --ui-btn-radius: 999px; }
   background: none;
   padding: 0;
   /* Center on orbit origin without CSS transform (framer owns x/y/scale) */
-  margin: -26px 0 0 -32px;
-  width: 64px;
+  margin: -26px 0 0 -26px;
+  width: 52px;
+  height: 52px;
   cursor: pointer;
   pointer-events: auto;
   will-change: transform, opacity;
@@ -5346,6 +5347,10 @@ html[data-radius="round"] { --ui-radius: 24px; --ui-btn-radius: 999px; }
   filter: brightness(0.96);
 }
 .dash-fab-label {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 6px);
+  transform: translateX(-50%);
   background: linear-gradient(180deg, #143052, #0B1F3A);
   color: #fff;
   font-size: 11px;
@@ -5355,7 +5360,6 @@ html[data-radius="round"] { --ui-radius: 24px; --ui-btn-radius: 999px; }
   border-radius: 999px;
   white-space: nowrap;
   box-shadow: 0 10px 22px -12px rgba(11, 31, 58, 0.7);
-  order: 2;
 }
 .dash-fab-btn {
   width: 52px;
@@ -7605,6 +7609,19 @@ section[aria-label="To pay"] {
   }
 }
 
+.book-open-head { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.book-open-name {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.2;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  color: #0b1f3a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.book-open-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .book-head-action {
   display: inline-flex;
   align-items: center;
@@ -8446,11 +8463,11 @@ section[aria-label="To pay"] {
 
 /* ===================== UPI QR PAY (uq-*) ===================== */
 .uq-root .sp-sheet { max-height: min(94dvh, 860px); }
-.uq-viewport { position: relative; aspect-ratio: 1 / 1; max-height: 46vh; border-radius: 22px; overflow: hidden; background: #0B1F3A; border: 1px solid rgba(11, 31, 58, 0.12); }
+.uq-viewport { position: relative; aspect-ratio: 1 / 1; max-height: 46vh; border-radius: 22px; overflow: hidden; background: linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(236, 253, 250, 0.62)); border: 1px solid rgba(255, 255, 255, 0.72); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 18px 36px -28px rgba(15, 23, 42, 0.4); backdrop-filter: blur(18px); touch-action: none; }
 .uq-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 240ms ease; }
 .uq-viewport.is-live .uq-video { opacity: 1; }
-.uq-viewport-idle { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 20px; text-align: center; color: rgba(255, 255, 255, 0.86); background: radial-gradient(80% 70% at 50% 40%, rgba(18, 184, 168, 0.28), transparent 70%), #0B1F3A; }
-.uq-viewport-idle p { margin: 0; font-size: 13px; line-height: 1.45; max-width: 28ch; color: rgba(255, 255, 255, 0.72); }
+.uq-viewport-idle { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 20px; text-align: center; color: #0b1f3a; background: linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(236, 253, 250, 0.78)); backdrop-filter: blur(18px); }
+.uq-viewport-idle p { margin: 0; font-size: 13px; line-height: 1.45; max-width: 28ch; color: #475569; }
 .uq-viewport-idle .sp-cta { width: auto; min-width: 180px; }
 .uq-frame { position: absolute; inset: 14%; pointer-events: none; }
 .uq-frame i { position: absolute; width: 26px; height: 26px; border: 3px solid #12B8A8; border-radius: 6px; }
@@ -8545,8 +8562,8 @@ section[aria-label="To pay"] {
 }
 .home-feature-reel { height: min(34vw, 132px); width: min(50vw, 190px); opacity: 0.34; }
 
-/* Pay sheet: camera is the whole screen. After a scan, only amount + note. */
-.uq-root { align-items: stretch; justify-content: flex-end; }
+/* Pay sheet: framed camera, upload and paste always on screen. */
+.uq-root { align-items: stretch; justify-content: flex-end; z-index: 260; }
 .uq-root .sp-sheet {
   width: 100%;
   max-width: none;
@@ -8556,6 +8573,14 @@ section[aria-label="To pay"] {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+.uq-lead {
+  margin: 4px 0 0;
+  max-width: 36ch;
+  font-size: 13px;
+  line-height: 1.4;
+  font-weight: 450;
+  color: #64748b;
 }
 .uq-root[data-phase="scan"] {
   align-items: stretch !important;
@@ -8569,71 +8594,114 @@ section[aria-label="To pay"] {
   height: 100% !important;
   max-height: none !important;
   margin: 0 !important;
-  padding: 0 !important;
   border: 0 !important;
   border-radius: 0 !important;
-  background: #07101c;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(244, 247, 251, 0.94));
+  backdrop-filter: blur(22px);
   animation: none !important;
   transform: none !important;
 }
 .uq-root[data-phase="scan"] .sp-handle { display: none; }
 .uq-root[data-phase="scan"] .sp-head {
-  position: absolute;
-  z-index: 4;
-  top: calc(8px + env(safe-area-inset-top));
-  left: 12px;
-  right: 12px;
+  position: relative;
+  z-index: 2;
   margin: 0;
-  pointer-events: none;
+  padding: calc(12px + env(safe-area-inset-top)) 16px 8px;
+  pointer-events: auto;
 }
 .uq-root[data-phase="scan"] .sp-close {
-  pointer-events: auto;
-  background: rgba(7, 16, 28, 0.45);
-  color: #fff;
-  border-color: transparent;
+  background: #fff;
+  color: #0b1f3a;
+  border-color: rgba(11, 31, 58, 0.1);
 }
-.uq-root[data-phase="scan"] .sp-kicker { color: rgba(255, 255, 255, 0.72); }
-.uq-root[data-phase="scan"] .sp-title { color: #fff; font-size: 18px; margin-top: 2px; }
+.uq-root[data-phase="scan"] .sp-kicker { color: #0f766e; }
+.uq-root[data-phase="scan"] .sp-title {
+  color: #0b1f3a;
+  font-family: inherit;
+  font-size: 22px;
+  font-weight: 650;
+  margin-top: 2px;
+  letter-spacing: -0.03em;
+}
 .uq-root .sp-body { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
 .uq-root[data-phase="scan"] .sp-body {
-  position: absolute;
-  inset: 0;
+  position: relative;
+  inset: auto;
   overflow: hidden;
-  display: block;
-  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 14px calc(20px + env(safe-area-inset-bottom));
 }
 .uq-root[data-phase="scan"] .uq-viewport {
-  position: absolute;
-  inset: 0;
+  position: relative;
+  inset: auto;
+  flex: 1 1 0;
   width: 100%;
-  height: 100%;
+  height: auto;
   min-height: 0;
   max-height: none;
   aspect-ratio: auto;
   border: 0;
-  border-radius: 0;
+  border-radius: 22px;
+  box-shadow: 0 16px 32px -24px rgba(11, 31, 58, 0.7);
 }
-.uq-root[data-phase="scan"] .uq-zoom { bottom: calc(108px + env(safe-area-inset-bottom)); }
-.uq-root[data-phase="scan"] .uq-alt,
-.uq-root[data-phase="scan"] .uq-paste,
-.uq-root[data-phase="scan"] .uq-safe {
-  position: absolute;
-  z-index: 4;
-  left: 12px;
-  right: 12px;
+.uq-root[data-phase="scan"] {
+  height: 100dvh !important;
+  max-height: 100dvh !important;
+}
+.uq-root[data-phase="scan"] .sp-sheet {
+  top: 0 !important;
+  bottom: 0 !important;
+  height: auto !important;
+  max-height: none !important;
+}
+.uq-dock {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 20px;
+  background: #fff;
+  border: 1px solid rgba(11, 31, 58, 0.08);
+  box-shadow: 0 10px 24px -20px rgba(11, 31, 58, 0.45);
 }
 .uq-root[data-phase="scan"] .uq-alt {
-  bottom: calc(40px + env(safe-area-inset-bottom));
+  position: relative;
+  left: auto;
+  right: auto;
+  bottom: auto;
   margin: 0;
   grid-template-columns: 1fr 1fr;
+  gap: 8px;
 }
-.uq-root[data-phase="scan"] .uq-alt .sp-select-all { background: rgba(255, 255, 255, 0.94); }
-.uq-root[data-phase="scan"] .uq-paste { bottom: calc(88px + env(safe-area-inset-bottom)); }
+.uq-dock-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(15, 118, 110, 0.18);
+  background: #f3fbf9;
+  color: #0f766e;
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.uq-dock-btn:active { transform: scale(0.98); }
+.uq-root[data-phase="scan"] .uq-paste,
 .uq-root[data-phase="scan"] .uq-safe {
-  bottom: calc(8px + env(safe-area-inset-bottom));
+  position: relative;
+  left: auto;
+  right: auto;
+  bottom: auto;
   margin: 0;
-  color: rgba(255, 255, 255, 0.82);
 }
+.uq-root[data-phase="scan"] .uq-safe { color: #64748b; }
+.uq-root[data-phase="scan"] .uq-zoom { bottom: 12px; }
 .uq-zoom {
   position: absolute;
   left: 12px;
@@ -8641,16 +8709,38 @@ section[aria-label="To pay"] {
   bottom: 12px;
   z-index: 2;
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: rgba(7, 21, 42, 0.55);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 500;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 8px 6px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.78);
+  color: #0b1f3a;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 12px 28px -18px rgba(11, 31, 58, 0.45);
+  backdrop-filter: blur(16px);
 }
-.uq-zoom input { flex: 1; accent-color: #12B8A8; }
+.uq-zoom-row { display: flex; align-items: center; gap: 8px; }
+.uq-zoom button {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.1);
+  color: #0f766e;
+  font-size: 18px;
+  line-height: 1;
+}
+.uq-zoom input { flex: 1; accent-color: #0f766e; min-width: 0; }
+.uq-zoom-read { min-width: 36px; text-align: right; font-size: 13px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.uq-pinch {
+  margin: 0;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 550;
+  letter-spacing: 0.01em;
+  color: #475569;
+  pointer-events: none;
+}
 .uq-video { transform-origin: center center; }
 .uq-note { margin-top: 8px; }
 .uq-note input { width: 100%; }
@@ -8783,27 +8873,43 @@ section[aria-label="To pay"] {
 .home-pay-act {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: 48px;
-  border-radius: 16px;
-  font-size: 14px;
-  font-weight: 560;
-  letter-spacing: -0.01em;
+  justify-content: flex-start;
+  gap: 10px;
+  min-height: 72px;
+  padding: 10px 12px;
+  border-radius: 18px;
+  text-align: left;
   transition: transform 140ms ease, box-shadow 140ms ease;
 }
 .home-pay-act:active { transform: scale(0.98); }
-.home-pay-act.is-pay {
-  background: #0f766e;
-  color: #fff;
-  border: 0;
-  box-shadow: 0 10px 20px -14px rgba(15, 118, 110, 0.9);
+.home-pay-ico {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  flex: 0 0 auto;
 }
+.home-pay-copy { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.home-pay-copy strong { font-size: 15px; font-weight: 650; letter-spacing: -0.02em; line-height: 1.1; }
+.home-pay-copy small { font-size: 11px; font-weight: 500; line-height: 1.25; opacity: 0.82; }
+.home-pay-act.is-pay {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(236, 253, 250, 0.9));
+  color: #0b1f3a;
+  border: 1px solid rgba(15, 118, 110, 0.2);
+  box-shadow: 0 14px 28px -20px rgba(15, 118, 110, 0.4);
+  backdrop-filter: blur(14px);
+}
+.home-pay-act.is-pay .home-pay-ico { background: #0f766e; color: #fff; }
+.home-pay-act.is-pay .home-pay-copy small { color: #0f766e; opacity: 1; }
 .home-pay-act.is-scan {
   background: #fff;
-  color: #0f766e;
-  border: 1px solid rgba(15, 118, 110, 0.28);
+  color: #0b1f3a;
+  border: 1px solid rgba(11, 31, 58, 0.1);
+  box-shadow: 0 10px 20px -18px rgba(11, 31, 58, 0.45);
 }
+.home-pay-act.is-scan .home-pay-ico { background: #f3fbf9; color: #0f766e; }
+.home-pay-act.is-scan .home-pay-copy small { color: #64748b; opacity: 1; }
 .home-pills { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
 .home-pill, .home-qa-tile, .md3-book-cta, .entry-card-action, .rp-seg-btn {
   transition: transform 140ms ease, background 140ms ease;

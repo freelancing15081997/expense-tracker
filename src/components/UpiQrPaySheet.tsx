@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AlertCircle, BookOpen, Camera, CheckCircle2, ChevronDown, ClipboardPaste, HelpCircle, ImagePlus, Loader2, QrCode, RefreshCw, ShieldCheck, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { CapacitorService, isWeb } from '../lib/capacitor';
@@ -83,6 +84,7 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
   const [cameraLive, setCameraLive] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [zoomMax, setZoomMax] = useState(1);
+  const [hardwareZoom, setHardwareZoom] = useState(false);
   const [morePay, setMorePay] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -91,6 +93,10 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
   const recordedOnce = useRef(false);
   const zoomTrack = useRef<MediaStreamTrack | null>(null);
   const cameraKick = useRef(0);
+  const zoomMaxRef = useRef(3);
+  const zoomValue = useRef(1);
+  const pinchRef = useRef<{ dist: number; zoom: number } | null>(null);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
 
   const book = useMemo(() => books.find((b) => b.id === bookId) || books[0], [books, bookId]);
   const symbol = getCurrencySymbol(String(book?.currency || 'INR'));
@@ -106,6 +112,7 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
     streamRef.current = null;
     zoomTrack.current = null;
     setCameraLive(false);
+    setHardwareZoom(false);
   };
 
   // Reset when (re)opened
@@ -156,26 +163,44 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
   };
 
   const startLiveScan = async () => {
-    if (streamRef.current) return;
     setScanError('');
     if (!navigator.mediaDevices?.getUserMedia) {
       setScanError('Live camera is not available here. Take a photo of the QR instead.');
       return;
     }
     try {
-      if (!isWeb) await CapacitorService.requestCameraPermission();
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
-      streamRef.current = stream;
-      setCameraLive(true);
-      const track = stream.getVideoTracks()[0];
-      zoomTrack.current = track || null;
-      const caps = track?.getCapabilities?.() as { zoom?: { min?: number; max?: number } } | undefined;
-      const maxZoom = Number(caps?.zoom?.max || 1);
-      setZoom(Number(caps?.zoom?.min || 1));
-      setZoomMax(maxZoom > 1 ? Math.min(maxZoom, 6) : 3);
-      const video = videoRef.current;
-      if (!video) return;
-      video.srcObject = stream;
+      if (!streamRef.current) {
+        if (!isWeb) await CapacitorService.requestCameraPermission();
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+        streamRef.current = stream;
+        setCameraLive(true);
+        const track = stream.getVideoTracks()[0];
+        zoomTrack.current = track || null;
+        const caps = track?.getCapabilities?.() as { zoom?: { min?: number; max?: number } } | undefined;
+        const maxZoom = Number(caps?.zoom?.max || 1);
+        const nextMax = maxZoom > 1 ? Math.min(maxZoom, 6) : 3;
+        const start = Number(caps?.zoom?.min || 1);
+        zoomMaxRef.current = nextMax;
+        zoomValue.current = start;
+        setHardwareZoom(Boolean(caps?.zoom && maxZoom > 1));
+        setZoom(start);
+        setZoomMax(nextMax);
+      }
+      let video = videoRef.current;
+      for (let i = 0; i < 12 && !video; i += 1) {
+        await new Promise((resolve) => { requestAnimationFrame(() => resolve(undefined)); });
+        video = videoRef.current;
+      }
+      const stream = streamRef.current;
+      if (!video || !stream) {
+        setScanError('The camera is ready, but the preview did not appear. Tap try again.');
+        return;
+      }
+      if (video.srcObject !== stream) {
+        video.srcObject = stream;
+        await video.play();
+      }
+      if (rafRef.current) return;
       await video.play();
       const { default: jsQR } = await import('jsqr');
       const canvas = document.createElement('canvas');
@@ -224,7 +249,8 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
   }, [open, phase, initialQr]);
 
   const setCameraZoom = (value: number) => {
-    const next = Math.min(zoomMax, Math.max(1, value));
+    const next = Math.min(zoomMaxRef.current || zoomMax, Math.max(1, value));
+    zoomValue.current = next;
     setZoom(next);
     const track = zoomTrack.current;
     const caps = track?.getCapabilities?.() as { zoom?: { max?: number } } | undefined;
@@ -232,6 +258,34 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
       void track.applyConstraints({ advanced: [{ zoom: next } as MediaTrackConstraintSet] }).catch(() => { /* visual zoom still applies */ });
     }
   };
+
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el || !cameraLive) return;
+    const distance = (touches: TouchList) => Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
+    const onStart = (event: TouchEvent) => {
+      if (event.touches.length === 2) pinchRef.current = { dist: distance(event.touches), zoom: zoomValue.current };
+    };
+    const onMove = (event: TouchEvent) => {
+      const pinch = pinchRef.current;
+      if (event.touches.length !== 2 || !pinch?.dist) return;
+      event.preventDefault();
+      setCameraZoom(pinch.zoom * (distance(event.touches) / pinch.dist));
+    };
+    const onEnd = (event: TouchEvent) => {
+      if (event.touches.length < 2) pinchRef.current = null;
+    };
+    el.addEventListener('touchstart', onStart, { passive: true });
+    el.addEventListener('touchmove', onMove, { passive: false });
+    el.addEventListener('touchend', onEnd);
+    el.addEventListener('touchcancel', onEnd);
+    return () => {
+      el.removeEventListener('touchstart', onStart);
+      el.removeEventListener('touchmove', onMove);
+      el.removeEventListener('touchend', onEnd);
+      el.removeEventListener('touchcancel', onEnd);
+    };
+  }, [cameraLive]);
 
   const scanFromPhoto = async () => {
     setScanError('');
@@ -377,17 +431,18 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
   const handleLabel = qr ? describeUpiHandle(qr.pa) : null;
   const amountLocked = Boolean(qr?.am);
 
-  return (
+  return createPortal(
     <div className="sp-root uq-root" role="dialog" aria-modal="true" aria-label="Scan and pay" data-testid="upi-qr-sheet" data-phase={phase}>
       <button type="button" className="sp-dim" aria-label="Close" onClick={() => { stopCamera(); onClose(); }} />
       <div className="sp-sheet">
         <div className="sp-handle" aria-hidden />
         <header className="sp-head">
           <div>
-            <p className="sp-kicker">{phase === 'scan' ? 'UPI' : phase === 'recorded' ? 'Done' : 'Pay by UPI'}</p>
+            <p className="sp-kicker">{phase === 'scan' ? 'Pay someone' : phase === 'recorded' ? 'Done' : 'Pay by UPI'}</p>
             <h2 className="sp-title">
-              {phase === 'scan' ? 'Scan a QR to pay' : phase === 'recorded' ? 'Paid & recorded' : phase === 'failed' ? 'Payment did not go through' : phase === 'unclear' ? 'Did the payment go through?' : phase === 'waiting' ? 'Waiting for your UPI app…' : `Pay ${qr?.pn || qr?.pa || ''}`}
+              {phase === 'scan' ? 'Pay a UPI QR' : phase === 'recorded' ? 'Paid & recorded' : phase === 'failed' ? 'Payment did not go through' : phase === 'unclear' ? 'Did the payment go through?' : phase === 'waiting' ? 'Waiting for your UPI app…' : `Pay ${qr?.pn || qr?.pa || ''}`}
             </h2>
+            {phase === 'scan' ? <p className="uq-lead">Scan the code, upload a photo, or paste a UPI ID. You pay in your own UPI app.</p> : null}
           </div>
           <button type="button" className="sp-close" onClick={() => { stopCamera(); onClose(); }} aria-label="Close"><X className="w-4 h-4" /></button>
         </header>
@@ -395,8 +450,8 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
         <div className="sp-body">
           {phase === 'scan' ? (
             <>
-              <div className={`uq-viewport${cameraLive ? ' is-live' : ''}`} data-testid="upi-qr-viewport">
-                <video ref={videoRef} className="uq-video" playsInline muted autoPlay style={zoom > 1 ? { transform: `scale(${zoom})` } : undefined} />
+              <div ref={viewportRef} className={`uq-viewport${cameraLive ? ' is-live' : ''}`} data-testid="upi-qr-viewport">
+                <video ref={videoRef} className="uq-video" playsInline muted autoPlay style={!hardwareZoom && zoom > 1 ? { transform: `scale(${zoom})` } : undefined} />
                 {!cameraLive ? (
                   <div className="uq-viewport-idle">
                     <QrCode className="w-10 h-10" />
@@ -406,30 +461,39 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
                 ) : (
                   <>
                     <div className="uq-frame" aria-hidden><i /><i /><i /><i /><span className="uq-laser" /></div>
-                    <label className="uq-zoom" data-testid="upi-qr-zoom">
-                      <span>Zoom</span>
-                      <input type="range" min={1} max={zoomMax} step={0.1} value={zoom} aria-label="Camera zoom" onChange={(e) => setCameraZoom(Number(e.target.value))} />
-                    </label>
+                    <div className="uq-zoom" data-testid="upi-qr-zoom">
+                      <p className="uq-pinch">Pinch with two fingers</p>
+                      <div className="uq-zoom-row">
+                        <button type="button" aria-label="Zoom out" onClick={() => setCameraZoom(zoom - 0.25)}>−</button>
+                        <input type="range" min={1} max={zoomMax} step={0.05} value={zoom} aria-label="Camera zoom" onChange={(e) => setCameraZoom(Number(e.target.value))} />
+                        <button type="button" aria-label="Zoom in" onClick={() => setCameraZoom(zoom + 0.25)}>+</button>
+                        <span className="uq-zoom-read">{zoom.toFixed(1)}×</span>
+                      </div>
+                    </div>
                   </>
                 )}
               </div>
               {scanError && cameraLive ? <p className="sp-error" role="alert">{scanError}</p> : null}
-              <div className="uq-alt">
-                <label className="sp-select-all uq-file">
-                  <ImagePlus className="w-3.5 h-3.5" /> Gallery
-                  <input type="file" accept="image/*" hidden onChange={(e) => { void pickFromGallery(e.target.files?.[0] || null); e.currentTarget.value = ''; }} />
-                </label>
-                <button type="button" className="sp-select-all" data-testid="upi-qr-paste-toggle" onClick={() => setShowPaste((v) => !v)}>
-                  <ClipboardPaste className="w-3.5 h-3.5" /> Paste UPI ID
-                </button>
+              <div className="uq-dock">
+                <div className="uq-alt">
+                  <label className="uq-dock-btn uq-file">
+                    <ImagePlus className="w-4 h-4" />
+                    <span>Upload photo</span>
+                    <input type="file" accept="image/*" hidden onChange={(e) => { void pickFromGallery(e.target.files?.[0] || null); e.currentTarget.value = ''; }} />
+                  </label>
+                  <button type="button" className="uq-dock-btn" data-testid="upi-qr-paste-toggle" onClick={() => setShowPaste((v) => !v)}>
+                    <ClipboardPaste className="w-4 h-4" />
+                    <span>Paste UPI ID</span>
+                  </button>
+                </div>
+                {showPaste ? (
+                  <form className="uq-paste" onSubmit={(e) => { e.preventDefault(); applyDecoded(paste); }}>
+                    <input value={paste} onChange={(e) => setPaste(e.target.value)} placeholder="name@okbank or upi://pay?pa=…" autoCapitalize="none" autoCorrect="off" data-testid="upi-qr-paste" />
+                    <button type="submit" className="sp-cta" data-testid="upi-qr-paste-go">Continue</button>
+                  </form>
+                ) : null}
+                <p className="uq-safe"><ShieldCheck className="w-3.5 h-3.5" /> Byjan never sees your UPI PIN.</p>
               </div>
-              {showPaste ? (
-                <form className="uq-paste" onSubmit={(e) => { e.preventDefault(); applyDecoded(paste); }}>
-                  <input value={paste} onChange={(e) => setPaste(e.target.value)} placeholder="name@bank or upi://pay?pa=…" autoCapitalize="none" autoCorrect="off" data-testid="upi-qr-paste" />
-                  <button type="submit" className="sp-cta" data-testid="upi-qr-paste-go">Continue</button>
-                </form>
-              ) : null}
-              <p className="uq-safe"><ShieldCheck className="w-3.5 h-3.5" /> You pay inside your UPI app. Byjan never sees your PIN.</p>
             </>
           ) : null}
 
@@ -537,6 +601,7 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
           ) : null}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
