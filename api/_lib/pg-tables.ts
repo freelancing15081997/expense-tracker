@@ -1616,8 +1616,24 @@ export async function ledgerCreateBook(input: {
 
 export async function ledgerUpdateBook(bookId: string, uid: string, patch: Record<string, unknown>) {
   const current = await ledgerGetBookForUser(bookId, uid);
-  const next: Record<string, unknown> = { ...current, ...patch, id: bookId };
-  if (patch.roles && typeof patch.roles === 'object') next.roles = patch.roles;
+  const safePatch = { ...patch };
+  for (const key of ['id', 'ownerId', 'createdBy', 'createdAt', 'deleted', 'deletedAt', 'deletedBy', 'status', 'isMember']) {
+    delete safePatch[key];
+  }
+  if (!Object.keys(safePatch).length) {
+    const err: Error & { status?: number } = new Error('Nothing to update');
+    err.status = 400;
+    throw err;
+  }
+  const next: Record<string, unknown> = {
+    ...current,
+    ...safePatch,
+    id: bookId,
+    ownerId: current.ownerId,
+    createdBy: current.createdBy,
+    createdAt: current.createdAt,
+  };
+  if (safePatch.roles && typeof safePatch.roles === 'object') next.roles = safePatch.roles;
   await ledgerSet(`books/${bookId}`, next);
   await ledgerAudit({
     bookId,
