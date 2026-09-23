@@ -6,6 +6,8 @@ import {
   buildAppSchemeUpiUri,
   buildAppUpiUri,
   buildUpiPayUri,
+  hasUpiMerchantSign,
+  toAppSchemeUri,
   toNpciPayUri,
   canStartPayment,
   isValidVpa,
@@ -38,11 +40,19 @@ assert.match(buildAppUpiUri('phonepe', { pa: 'aa@upi', pn: 'A', am: '10.00' }), 
 assert.match(buildAppSchemeUpiUri('phonepe', { pa: 'aa@upi', pn: 'A', am: '10.00' }), /^phonepe:\/\/pay\?/);
 assert.match(buildAppSchemeUpiUri('gpay', { pa: 'aa@upi', pn: 'A', am: '10.00' }), /^tez:\/\/upi\/pay\?/);
 assert.match(buildAppUpiUri('paytm', { pa: 'aa@upi', pn: 'A', am: '10.00' }), /^upi:\/\/pay\?/);
-const signed = toNpciPayUri('upi://pay?pa=shop@ybl&pn=Cafe&mc=5411&mode=04&sign=abc&am=1.00', { am: '50.00', tn: 'chai' });
-assert.match(String(signed), /^upi:\/\/pay\?/);
-assert.match(String(signed), /mc=5411/);
-assert.match(String(signed), /am=50\.00/);
-assert.match(String(signed), /tn=chai/);
+const signedRaw = 'upi://pay?pa=shop@ybl&pn=Cafe&mc=5411&mode=04&sign=abc&am=1.00';
+assert.equal(hasUpiMerchantSign(signedRaw), true);
+const signedPass = toNpciPayUri(signedRaw, { pa: 'shop@ybl', pn: 'Cafe', am: '1.00' });
+assert.equal(signedPass, signedRaw);
+assert.match(toAppSchemeUri(signedPass || '', 'phonepe'), /^phonepe:\/\/pay\?pa=shop@ybl&pn=Cafe&mc=5411&mode=04&sign=abc&am=1\.00$/);
+const signedMutate = toNpciPayUri(signedRaw, { am: '50.00', tn: 'chai' });
+assert.match(String(signedMutate), /^upi:\/\/pay\?/);
+assert.doesNotMatch(String(signedMutate), /sign=/);
+assert.doesNotMatch(String(signedMutate), /mc=/);
+assert.match(String(signedMutate), /am=50\.00/);
+assert.match(String(signedMutate), /tn=chai/);
+const staticSigned = toNpciPayUri('upi://pay?pa=shop@ybl&pn=Cafe&mc=5411&sign=abc', { am: '80.00' });
+assert.equal(staticSigned, 'upi://pay?pa=shop@ybl&pn=Cafe&mc=5411&sign=abc');
 assert.match(buildAppUpiUri('cred', { pa: 'aa@upi', pn: 'A', am: '10.00' }), /^upi:\/\/pay\?/);
 assert.match(buildAppUpiUri('whatsapp', { pa: 'aa@upi', pn: 'A', am: '10.00' }), /^upi:\/\/pay\?/);
 

@@ -171,26 +171,96 @@ export function buildUpiPayUri(params: UpiPayParams) {
   return `upi://pay?${encodeUpiSearchParams(q)}`;
 }
 
+function upiQueryOf(raw: string) {
+  const qIndex = String(raw || '').indexOf('?');
+  return qIndex >= 0 ? raw.slice(qIndex + 1) : '';
+}
+
+function amountsEqual(a: string, b: string) {
+  const na = Number(a);
+  const nb = Number(b);
+  if (Number.isFinite(na) && Number.isFinite(nb)) return Math.round(na * 100) === Math.round(nb * 100);
+  return String(a || '').trim() === String(b || '').trim();
+}
+
+/** True when the scanned code carries an NPCI / PSP merchant signature. */
+export function hasUpiMerchantSign(raw: string) {
+  const q = upiQueryOf(raw);
+  if (!q) return false;
+  try {
+    return Boolean(new URLSearchParams(q.replace(/\+/g, '%20')).get('sign')?.trim());
+  } catch {
+    return /(?:^|&)sign=/i.test(q);
+  }
+}
+
+/** Swap only the scheme so a retry can target PhonePe/GPay without rebuilding the query. */
+export function toAppSchemeUri(uri: string, app: UpiAppId) {
+  const q = String(uri || '').includes('?') ? String(uri).slice(String(uri).indexOf('?')) : '';
+  if (app === 'gpay') return `tez://upi/pay${q}`;
+  if (app === 'phonepe') return `phonepe://pay${q}`;
+  if (app === 'paytm') return `paytmmp://pay${q}`;
+  if (app === 'bhim') return `bhim://upi/pay${q}`;
+  return uri;
+}
+
 /**
- * Prefer the shop QR as-is (mc / mode / url / sign stay intact) and only overlay
- * the amount and note the user typed. PhonePe declines unsigned rebuilt merchant QRs.
+ * Hand the shop QR to UPI apps the way they already trust it.
+ * Signed merchant codes are passed through unchanged (scheme only → upi://pay).
+ * Changing am / tn / sign on those codes makes PhonePe treat them as forged and
+ * ask for a mobile number. If we must change a signed code, strip merchant flags
+ * and send a plain person-to-person intent.
  */
 export function toNpciPayUri(raw: string, overrides: Partial<UpiPayParams> = {}): string | null {
   const parsed = parseUpiQr(raw);
   if (!parsed) return null;
-  const qIndex = raw.indexOf('?');
-  const params = new URLSearchParams((qIndex >= 0 ? raw.slice(qIndex + 1) : '').replace(/\+/g, '%20'));
-  params.set('pa', normalizeVpa(overrides.pa || parsed.pa));
-  const am = String(overrides.am || parsed.am || '').trim();
-  if (am) params.set('am', am);
-  const tn = String(overrides.tn || parsed.tn || '').trim();
-  if (tn) params.set('tn', tn.slice(0, 80));
-  const pn = String(overrides.pn || parsed.pn || '').trim();
-  if (pn && !/^(merchant|byjan member)$/i.test(pn)) params.set('pn', pn.slice(0, 80));
+  const originalQuery = upiQueryOf(raw);
+  const params = new URLSearchParams(originalQuery.replace(/\+/g, '%20'));
+  const signed = Boolean(params.get('sign')?.trim());
+
+  const nextPa = normalizeVpa(overrides.pa || parsed.pa);
+  const nextAm = String(overrides.am || parsed.am || '').trim();
+  const nextTn = String(overrides.tn || parsed.tn || '').trim();
+  const nextPn = String(overrides.pn || parsed.pn || '').trim();
+  const nextTr = sanitizeUpiTr(overrides.tr || parsed.tr || '');
+  const nextCu = String(overrides.cu || parsed.cu || params.get('cu') || 'INR');
+
+  const origPa = normalizeVpa(params.get('pa') || parsed.pa);
+  const origAm = String(params.get('am') || '').trim();
+  const origTn = String(params.get('tn') || '').trim();
+  const origPn = String(params.get('pn') || '').trim();
+  const origTr = sanitizeUpiTr(params.get('tr') || '');
+  const origCu = String(params.get('cu') || '').trim();
+
+  const mutatingSigned =
+    nextPa !== origPa
+    || (Boolean(origAm) && Boolean(nextAm) && !amountsEqual(nextAm, origAm))
+    || (Boolean(nextTn) && nextTn !== origTn)
+    || (Boolean(nextPn) && !/^(merchant|byjan member)$/i.test(nextPn) && nextPn !== origPn)
+    || (Boolean(nextTr) && nextTr !== origTr)
+    || (Boolean(origCu) && nextCu.toUpperCase() !== origCu.toUpperCase());
+
+  if (signed && !mutatingSigned) {
+    return originalQuery ? `upi://pay?${originalQuery}` : 'upi://pay';
+  }
+  if (signed && mutatingSigned) {
+    return buildUpiPayUri({
+      pa: nextPa,
+      pn: nextPn,
+      am: nextAm || parsed.am,
+      cu: nextCu || 'INR',
+      tn: nextTn || undefined,
+      tr: nextTr || undefined,
+    });
+  }
+
+  params.set('pa', nextPa);
+  if (nextAm) params.set('am', nextAm);
+  if (nextTn) params.set('tn', nextTn.slice(0, 80));
+  if (nextPn && !/^(merchant|byjan member)$/i.test(nextPn)) params.set('pn', nextPn.slice(0, 80));
   else params.delete('pn');
-  params.set('cu', String(overrides.cu || parsed.cu || 'INR'));
-  const tr = sanitizeUpiTr(overrides.tr || parsed.tr || '');
-  if (tr) params.set('tr', tr);
+  params.set('cu', nextCu || 'INR');
+  if (nextTr) params.set('tr', nextTr);
   else params.delete('tr');
   return `upi://pay?${encodeUpiSearchParams(params)}`;
 }
@@ -230,13 +300,7 @@ export function buildAppUpiUri(_app: UpiAppId, params: UpiPayParams) {
 
 /** App-scheme retry only — PhonePe/GPay custom schemes are pickier than `upi://pay`. */
 export function buildAppSchemeUpiUri(app: UpiAppId, params: UpiPayParams) {
-  const base = buildUpiPayUri(params);
-  const qs = base.replace(/^upi:\/\/pay\?/, '');
-  if (app === 'gpay') return `tez://upi/pay?${qs}`;
-  if (app === 'phonepe') return `phonepe://pay?${qs}`;
-  if (app === 'paytm') return `paytmmp://pay?${qs}`;
-  if (app === 'bhim') return `bhim://upi/pay?${qs}`;
-  return base;
+  return toAppSchemeUri(buildUpiPayUri(params), app);
 }
 
 export function paymentStatusLabel(status: string) {

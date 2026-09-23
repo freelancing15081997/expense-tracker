@@ -11,12 +11,13 @@ import { newMoneyId, toPaise } from '../lib/money-core';
 import {
   UPI_APP_PACKAGES,
   UPI_PAY_APPS,
-  buildAppSchemeUpiUri,
   buildUpiPayUri,
   describeUpiHandle,
   launchUpiPayNative,
   launchUpiUri,
   parseUpiQr,
+  hasUpiMerchantSign,
+  toAppSchemeUri,
   toNpciPayUri,
   type UpiAppId,
   type UpiQrPayload,
@@ -437,18 +438,19 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
     setLastApp(app);
     setStatusMsg('');
     attemptRef.current = newMoneyId('upiqr');
+    const signed = hasUpiMerchantSign(qr.raw);
     const params = {
       pa: qr.pa,
       pn: qr.pn,
       am: amt.toFixed(2),
       cu: qr.cu || 'INR',
-      tn: (note || qr.tn || '').slice(0, 80),
+      tn: signed ? qr.tn : (note || qr.tn || '').slice(0, 80),
       tr: qr.tr,
       mc: qr.mc,
     };
     let uri = '';
     try {
-      uri = toNpciPayUri(qr.raw, params) || buildUpiPayUri(params);
+      uri = toNpciPayUri(qr.raw, signed ? { pa: qr.pa, pn: qr.pn } : params) || buildUpiPayUri(params);
     } catch (err) {
       setBusy(false);
       onToast(toUserMessage(err, 'Invalid UPI details'), 'error');
@@ -460,7 +462,7 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
       const pkg = UPI_APP_PACKAGES[app];
       let native = await launchUpiPayNative(uri, pkg);
       if (native?.status === 'NO_UPI_APP' && app !== 'generic') {
-        native = await launchUpiPayNative(buildAppSchemeUpiUri(app, params), pkg);
+        native = await launchUpiPayNative(toAppSchemeUri(uri, app), pkg);
       }
       if (native?.status === 'NO_UPI_APP') native = await launchUpiPayNative(uri);
       if (native && native.status !== 'NO_UPI_APP') {
@@ -605,6 +607,9 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
               <label className="uq-field uq-note">
                 <input value={note} onChange={(e) => setNote(e.target.value)} placeholder={qr.tn || 'Note (optional) — chai, auto, rent'} maxLength={80} data-testid="upi-qr-note" aria-label="Note" />
               </label>
+              {hasUpiMerchantSign(qr.raw) ? (
+                <p className="uq-safe">Shop code opens as printed. PhonePe asks for a mobile number only when that signed code is rewritten.</p>
+              ) : null}
               <button type="button" className="uq-more" aria-expanded={morePay} onClick={() => setMorePay((v) => !v)}>
                 {morePay ? 'Hide book' : `Saving in ${book?.name || 'your book'}`}
               </button>
