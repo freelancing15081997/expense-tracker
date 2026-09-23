@@ -8594,32 +8594,80 @@ section[aria-label="To pay"] {
 .entry-amount-hint { grid-column: 1 / -1; grid-row: 2; font-size: 11px; color: #94a3b8; font-weight: 500; }
 .entry-more-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .entry-more-toggle { display: inline-flex; align-items: center; gap: 4px; height: 36px; padding: 0 10px; border-radius: 999px; border: 0; background: transparent; color: #3654FF; font-size: 12.5px; font-weight: 580; }
-.entry-more {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding-top: 4px;
-  width: 100%;
-  height: auto;
-  min-width: 0;
-  min-height: 0;
-  flex: 1 1 auto;
+.entry-more-panel,
+.record-sheet .entry-more,
+.record-sheet [data-testid="entry-more-panel"] {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 12px !important;
+  padding-top: 8px;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  height: auto !important;
+  min-height: 0 !important;
+  flex: 0 0 auto !important;
+  box-sizing: border-box;
   pointer-events: auto;
+  overflow: visible;
 }
-.entry-more[hidden] { display: none; }
-.entry-more.is-open { animation: byjan-fade 200ms ease both; }
+.entry-more-panel[hidden],
+.record-sheet .entry-more[hidden],
+.record-sheet [data-testid="entry-more-panel"][hidden] { display: none !important; }
+.entry-more-panel.is-open { animation: byjan-fade 200ms ease both; }
+.entry-more-panel .entry-field,
+.record-sheet [data-testid="entry-more-panel"] .entry-field {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+.entry-more-panel .byjan-input,
+.entry-more-panel textarea,
+.record-sheet [data-testid="entry-more-panel"] .byjan-input,
+.record-sheet [data-testid="entry-more-panel"] textarea {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
 .record-sheet,
 .record-sheet .entry-form,
 .record-sheet .entry-more,
+.record-sheet .entry-more-panel,
 .record-sheet input,
 .record-sheet textarea,
 .record-sheet select {
   pointer-events: auto;
 }
-.entry-toggles { display: flex; flex-wrap: wrap; gap: 8px; }
-.entry-toggle { display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid rgba(11, 31, 58, 0.1); background: #fff; font-size: 12.5px; font-weight: 580; color: #475569; cursor: pointer; transition: background 120ms ease, color 120ms ease, border-color 120ms ease; }
+.entry-toggles {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  width: 100%;
+}
+.entry-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  height: auto;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(11, 31, 58, 0.1);
+  background: #fff;
+  font-size: 13px;
+  font-weight: 580;
+  color: #475569;
+  cursor: pointer;
+  box-sizing: border-box;
+  white-space: normal;
+  text-align: left;
+}
 .entry-toggle[data-on="true"] { background: #0B1F3A; color: #fff; border-color: #0B1F3A; }
-.entry-toggle input { accent-color: #12B8A8; width: 14px; height: 14px; margin: 0; }
+.entry-toggle input { accent-color: #12B8A8; width: 16px; height: 16px; margin: 0; flex: 0 0 16px; }
 .entry-toggle[data-on="true"] input { accent-color: #12B8A8; }
 
 /* ===================== FINANCIAL INBOX (fi-*) — outlined cards ===================== */

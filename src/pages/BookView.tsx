@@ -2177,7 +2177,7 @@ export default function BookView() {
           </Tabs.Trigger>
           )}
           {canEmailTab && (
-          <Tabs.Trigger value="email" className="book-tab">
+          <Tabs.Trigger value="email" className="book-tab" data-testid="book-tab-email" onClick={() => setLedgerTab('email')}>
             <Mail className="w-3.5 h-3.5" />
             <span>Email</span>
           </Tabs.Trigger>
@@ -3240,7 +3240,7 @@ export default function BookView() {
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 z-[170]" />
           <Dialog.Content
-            className="record-sheet fixed z-[180] grid gap-3 p-4 max-h-[90vh] overflow-y-auto bg-white border border-slate-200 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)] pointer-events-auto"
+            className="record-sheet fixed z-[180] flex flex-col gap-3 p-4 max-h-[90vh] overflow-y-auto bg-white border border-slate-200 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)] pointer-events-auto"
             onCloseAutoFocus={(event) => event.preventDefault()}
             onPointerDownOutside={(event) => {
               if (isSaving || uploadingReceipt || attachBusyRef.current) event.preventDefault();
@@ -3516,7 +3516,7 @@ export default function BookView() {
                   <ChevronDown className={cn('w-4 h-4 transition-transform', moreFields && 'rotate-180')} />
                 </button>
               </div>
-              <div className={cn('entry-more', moreFields && 'is-open')} hidden={!moreFields} data-testid="entry-more-panel">
+              <div className={cn('entry-more-panel', moreFields && 'is-open')} hidden={!moreFields} data-testid="entry-more-panel">
               {purposeFields.entities.length > 0 ? (
                 <div className="entry-field">
                   <label className="block text-xs font-semibold text-slate-700 mb-1">{purposeFields.entityLabel}</label>

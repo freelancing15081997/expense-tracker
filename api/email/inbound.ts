@@ -58,12 +58,16 @@ function mailFrom() {
   return mailFromAddress(DEFAULT_FROM);
 }
 
+function inboundSecrets() {
+  return [...new Set([
+    process.env.INBOUND_WEBHOOK_SECRET,
+    process.env.WEBHOOK_SECRET,
+    process.env.BREVO_INBOUND_SECRET,
+  ].map((value) => String(value || '').trim()).filter(Boolean))];
+}
+
 function inboundSecret() {
-  return String(
-    process.env.INBOUND_WEBHOOK_SECRET ||
-    process.env.BREVO_INBOUND_SECRET ||
-    '',
-  ).trim();
+  return inboundSecrets()[0] || '';
 }
 
 function header(req: VercelRequest, name: string) {
@@ -80,8 +84,8 @@ function secretsMatch(got: string, expected: string) {
 }
 
 function authorized(req: VercelRequest) {
-  const expected = inboundSecret();
-  if (!expected) return false;
+  const expected = inboundSecrets();
+  if (!expected.length) return false;
   const url = new URL(req.url || '/', 'https://local.invalid');
   const auth = header(req, 'authorization');
   const bearer = auth.toLowerCase().startsWith('bearer ') ? auth.slice(7).trim() : '';
@@ -92,7 +96,7 @@ function authorized(req: VercelRequest) {
     bearer,
     String(url.searchParams.get('secret') || ''),
   ];
-  return candidates.some((value) => secretsMatch(value, expected));
+  return expected.some((secret) => candidates.some((value) => secretsMatch(value, secret)));
 }
 
 function r2Cfg() {
