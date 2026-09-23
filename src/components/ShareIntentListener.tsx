@@ -23,6 +23,12 @@ export type PendingCapture = {
   requireBookPick?: boolean;
   preferredBookId?: string;
   receivedAt: string;
+  batch?: Array<{
+    imageDataUrl: string;
+    fileName?: string;
+    mimeType?: string;
+    text?: string;
+  }>;
 };
 
 const STORAGE_KEY = 'byjan_pending_capture';
@@ -198,7 +204,20 @@ export default function ShareIntentListener() {
     const full = await resolveSharePayload(payload);
     const dataUrl = sharedFileDataUrl(full);
     const text = String(full.text || '').trim();
-    if (!dataUrl && !text) {
+    const extraFiles = Array.isArray(full.files) ? full.files : [];
+    const batch = extraFiles
+      .map((file) => {
+        const url = sharedFileDataUrl({ ...full, ...file, text: undefined });
+        if (!url) return null;
+        return {
+          imageDataUrl: url,
+          fileName: file.fileName || full.fileName,
+          mimeType: file.mimeType || full.mimeType,
+          text: text || undefined,
+        };
+      })
+      .filter((row): row is NonNullable<typeof row> => Boolean(row));
+    if (!dataUrl && !text && !batch.length) {
       addToast('Could not read the shared file — try sharing again', 'error');
       return;
     }
@@ -207,11 +226,12 @@ export default function ShareIntentListener() {
       : new Date().toISOString();
     await routePending({
       text: text || undefined,
-      imageDataUrl: dataUrl || undefined,
-      fileName: full.fileName,
-      mimeType: full.mimeType || (dataUrl?.startsWith('data:') ? dataUrl.slice(5).split(';')[0] : undefined),
+      imageDataUrl: dataUrl || batch[0]?.imageDataUrl,
+      fileName: full.fileName || batch[0]?.fileName,
+      mimeType: full.mimeType || batch[0]?.mimeType || (dataUrl?.startsWith('data:') ? dataUrl.slice(5).split(';')[0] : undefined),
       source: full.source || 'share',
       receivedAt,
+      batch: batch.length > 1 ? batch : undefined,
     });
   };
 

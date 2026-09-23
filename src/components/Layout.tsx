@@ -3,7 +3,7 @@ import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { logout } from '../lib/firebase';
-import { Bell, CheckCircle2, X, LayoutDashboard, Settings, BookText, Plus, ScanLine, PenLine, Mic, Activity, QrCode } from 'lucide-react';
+import { Bell, CheckCircle2, X, LayoutDashboard, Settings, BookText, Plus, ScanLine, PenLine, Mic, Activity, QrCode, FileUp } from 'lucide-react';
 import HelpAskButton from './HelpAskButton';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -64,7 +64,7 @@ export default function Layout() {
   };
 
   // Quick actions from the raised center button. Dashboard and BookView listen.
-  const fireQuickAction = (kind: 'scan' | 'add' | 'voice' | 'pay') => {
+  const fireQuickAction = (kind: 'scan' | 'add' | 'voice' | 'pay' | 'import') => {
     void CapacitorService.hapticTick();
     setFabOpen(false);
     const path = location.pathname;
@@ -193,6 +193,7 @@ export default function Layout() {
     canAdd ? { id: 'pay', kind: 'pay' as const, label: 'Pay', item: 'is-pay', tone: 'tone-teal', icon: <QrCode className="w-5 h-5" strokeWidth={2.4} /> } : null,
     canVoice ? { id: 'voice', kind: 'voice' as const, label: 'Voice', item: 'is-voice', tone: 'tone-rose', icon: <Mic className="w-5 h-5" strokeWidth={2.4} /> } : null,
     canAdd ? { id: 'add', kind: 'add' as const, label: 'Add', item: 'is-add', tone: 'tone-brand', icon: <PenLine className="w-5 h-5" strokeWidth={2.4} /> } : null,
+    canAdd ? { id: 'import', kind: 'import' as const, label: 'Import', item: 'is-import', tone: 'tone-brand', icon: <FileUp className="w-5 h-5" strokeWidth={2.4} /> } : null,
     canScan ? { id: 'scan', kind: 'scan' as const, label: 'Scan', item: 'is-scan', tone: 'tone-gold', icon: <ScanLine className="w-5 h-5" strokeWidth={2.4} /> } : null,
   ].filter((action) => action !== null);
   const fabRadius = 122;

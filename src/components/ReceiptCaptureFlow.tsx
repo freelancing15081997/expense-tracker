@@ -283,6 +283,33 @@ async function parseReceiptNow(
         mimeType: 'application/pdf',
       }).catch(() => null);
 
+      const pdfEntries = pdfText ? extractMoneyEntries(pdfText) : [];
+      if (pdfEntries.length >= 2) {
+        const uploaded = await uploadPromisePdf;
+        if (uploaded) {
+          receiptPath = uploaded.receiptPath || receiptPath;
+          receiptName = uploaded.receiptName || pdfName;
+        }
+        onStatus(`Found ${pdfEntries.length} entries — confirm each…`, 78);
+        const multi = pdfEntries.map((e, i) => scrubPreview({
+          ...draftPreview(launch, {
+            amountPaise: Math.round(e.amount * 100),
+            merchant: e.merchant || '',
+            description: e.description || e.merchant || `Entry ${i + 1}`,
+            paymentMethod: e.paymentMethod || 'cash',
+            direction: e.entryType === 'in' ? 'MONEY_IN' : 'MONEY_OUT',
+            date: e.date,
+            processingStatus: 'READY',
+            confidence: e.confidence || 'high',
+            receiptPath,
+            receiptName,
+            raw: pdfText.slice(0, 8000),
+            reasons: [],
+          }),
+          id: newMoneyId(`cap_${i}`),
+        }));
+        return { preview: multi[0], previews: multi };
+      }
       if (fromPdf && fromPdf.amount > 0) {
         const uploaded = await uploadPromisePdf;
         if (uploaded) {
@@ -361,8 +388,9 @@ async function parseReceiptNow(
 
     onStatus(isPdf ? 'Reading PDF…' : 'Reading receipt…', 22);
     const parseStarted = Date.now();
-    // Hard budget: native OCR self-limits to ~2.6s; past this we stop waiting and open the form.
-    const OCR_MS = 3200;
+    // Share often already has EXTRA_TEXT. Camera photos need the full native OCR window.
+    const fromCamera = launch.source === 'camera' || launch.source === 'batch';
+    const OCR_MS = fromCamera ? 5600 : 3200;
     const elapsed = () => Date.now() - parseStarted;
     // Pass original bytes to native OCR — avoid JS re-encode then native downscale (double lossy).
     const ocrPromise = localParseReceiptImage(
@@ -494,23 +522,24 @@ async function parseReceiptNow(
       });
     }
 
-    // Optional server text re-rank only (OCR text already extracted). No vision / no image.
-    // Only when there is budget left — never make the user wait on network for a number.
+    // Optional server text re-rank. Camera photos also send the image so vision can
+    // fill amount/merchant the same way inbound email does — share stays text-only.
     if (!(Number(preview.amountPaise || 0) > 0)
-      && ocrText.replace(/\s+/g, '').length >= 20
-      && elapsed() < OCR_MS - 500) {
-      onStatus('Checking amount from document…', 62);
+      && (ocrText.replace(/\s+/g, '').length >= 20 || (fromCamera && imageBase64.length > 64))
+      && (fromCamera || elapsed() < OCR_MS - 500)) {
+      onStatus(fromCamera ? 'Reading photo the same way as email…' : 'Checking amount from document…', 62);
       const result = await withTimeout(safeProcess({
         bookId,
         text: ocrText.slice(0, 8000),
         receiptPath,
         receiptName,
-        source: launch.source || 'share',
+        source: fromCamera ? 'camera' : (launch.source || 'share'),
         idempotencyKey: `parse_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
         autoConfirm: true,
         imageMime,
-        skipVision: true,
-      }), Math.min(900, OCR_MS - elapsed()));
+        imageBase64: fromCamera ? imageBase64 : undefined,
+        skipVision: !fromCamera,
+      }), fromCamera ? 12_000 : Math.min(900, OCR_MS - elapsed()));
       const serverPaise = Number(result?.preview?.amountPaise || 0);
       const serverAmt = serverPaise / 100;
       if (result?.preview && serverPaise > 0 && amountGroundedInText(ocrText, serverAmt)) {

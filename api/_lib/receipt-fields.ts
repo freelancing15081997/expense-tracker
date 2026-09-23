@@ -22,14 +22,18 @@ export type ParsedReceipt = {
 };
 
 export const CATEGORY_RULES: Array<{ category: string; pattern: RegExp }> = [
-  { category: 'Fuel', pattern: /\b(petrol|diesel|fuel|cng|hpcl|iocl|bpcl|nayara|indian oil|bharat petroleum|hindustan petroleum|shell|indianOil|pump)\b/i },
-  { category: 'Groceries', pattern: /\b(grocery|groceries|supermarket|dmart|d-mart|big bazaar|reliance fresh|more supermarket|foodgrain)\b/i },
-  { category: 'Meals', pattern: /\b(restaurant|cafe|swiggy|zomato|dining|meal|food|lunch|dinner|breakfast)\b/i },
-  { category: 'Travel', pattern: /\b(uber|ola|rapido|irctc|flight|airline|hotel|metro|taxi|cab|toll|parking)\b/i },
-  { category: 'Utilities', pattern: /\b(electricity|water bill|gas bill|broadband|wifi|internet|rent|maintenance)\b/i },
-  { category: 'Health', pattern: /\b(hospital|pharmacy|medicine|clinic|apollo|diagnostic)\b/i },
-  { category: 'Shopping', pattern: /\b(amazon|flipkart|myntra|ajio|store|mall)\b/i },
-  { category: 'Software Subscriptions', pattern: /\b(subscription|saas|aws|github|google workspace|microsoft 365)\b/i },
+  { category: 'Fuel', pattern: /\b(petrol|diesel|fuel|cng|hpcl|iocl|bpcl|nayara|indian oil|bharat petroleum|hindustan petroleum|shell|indianOil|pump|fastag)\b/i },
+  { category: 'Health', pattern: /\b(hospital|pharmacy|pharma|medicals?|medicine|clinic|apollo|diagnostic|1mg|netmeds|doctor|dental)\b/i },
+  { category: 'Groceries', pattern: /\b(grocery|groceries|supermarket|dmart|d-mart|big bazaar|reliance fresh|more supermarket|foodgrain|blinkit|zepto|bigbasket|kirana|instamart)\b/i },
+  { category: 'Meals', pattern: /\b(restaurant|cafe|swiggy|zomato|dining|meal|lunch|dinner|breakfast|biryani|dominos|mcdonald|starbucks|kfc|subway|pizza|burger)\b/i },
+  { category: 'Travel', pattern: /\b(uber|ola|rapido|irctc|flight|airline|hotel|metro|taxi|cab|toll|parking|makemytrip|indigo|airbnb)\b/i },
+  { category: 'Utilities', pattern: /\b(electricity|water bill|gas bill|broadband|wifi|internet|rent|maintenance|airtel|jio|recharge)\b/i },
+  { category: 'Housing', pattern: /\b(landlord|society|housing|pg\b|hostel)\b/i },
+  { category: 'Education', pattern: /\b(school|tuition|college|course|education|udemy|coursera)\b/i },
+  { category: 'Insurance', pattern: /\b(lic|policybazaar|insurance|premium|hdfc life)\b/i },
+  { category: 'Entertainment', pattern: /\b(movie|pvr|inox|bookmyshow|concert|netflix|spotify|hotstar)\b/i },
+  { category: 'Shopping', pattern: /\b(amazon|flipkart|myntra|ajio|mall|nykaa|meesho|tatacliq)\b/i },
+  { category: 'Software Subscriptions', pattern: /\b(subscription|saas|aws|github|google workspace|microsoft 365|chatgpt|notion)\b/i },
 ];
 
 export function toNumber(raw: string) {
@@ -157,14 +161,30 @@ export function fundSourceFrom(text: string) {
 }
 
 export function paidForFrom(text: string) {
-  const hay = String(text || '').replace(/\s+/g, ' ').trim();
+  const raw = String(text || '').replace(/\r/g, '');
+  const compact = raw.replace(/\s+/g, ' ').trim();
+  const lineHits = raw.split(/\n/).map((line) => line.trim()).filter(Boolean);
+  for (const line of lineHits) {
+    const labeled = line.match(/^(?:message|msg|note|notes|remarks?|narration|description|memo|purpose)\s*[:\-–]?\s*(.+)$/i);
+    if (labeled) {
+      const value = String(labeled[1] || '')
+        .replace(/\b(?:rs\.?|inr|₹)?\s*[0-9][0-9,]*(?:\.[0-9]+)?\b/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .replace(/[.,;:\-–]+$/, '');
+      if (value.length >= 2 && !/^(the|a|an|this|that|from|with|and|upi|phonepe|gpay|paytm)$/i.test(value)) {
+        return value.slice(0, 140);
+      }
+    }
+  }
   const patterns = [
-    /(?:paid\s+for|payment\s+for|expense\s+for|spent\s+on|bought|purchase(?:d)?\s+for|towards|regarding|for)\s*[:\-–]?\s*([^\n.!?]{3,120})/i,
-    /(?:this\s+is\s+for|description|message|note|notes)\s*[:\-–]?\s*([^\n.!?]{3,120})/i,
+    /(?:paid\s+for|payment\s+for|expense\s+for|spent\s+on|bought|purchase(?:d)?\s+for|towards|regarding)\s*[:\-–]?\s*([^\n.!?]{3,120})/i,
+    /(?:paid|spent|bought).{0,60}?\bfor\s+([^\n.!?]{3,80})/i,
+    /(?:this\s+is\s+for|description|message|msg|note|notes|remarks?|narration|memo|purpose)\s*[:\-–]?\s*([^\n.!?]{3,120})/i,
     /(?:return(?:ed)?|refund(?:ed)?)\s+(?:for|of|against)\s*[:\-–]?\s*([^\n.!?]{3,120})/i,
   ];
   for (const pattern of patterns) {
-    const match = hay.match(pattern);
+    const match = compact.match(pattern);
     const value = String(match?.[1] || '')
       .replace(/\b(?:rs\.?|inr|₹)?\s*[0-9][0-9,]*(?:\.[0-9]+)?\b/gi, ' ')
       .replace(/\s+/g, ' ')
@@ -219,7 +239,15 @@ export function summarizeEmailIntent(body: string, subject = ''): ParsedReceipt 
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 140);
+  const summary = [
+    entryType === 'in' ? 'Money in' : 'Paid',
+    amount ? `₹${amount.toLocaleString('en-IN')}` : '',
+    merchant ? `to ${merchant}` : '',
+    paidFor ? `for ${paidFor}` : '',
+    category !== 'Uncategorized' ? `(${category})` : '',
+  ].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
   const notes = composeNotes([
+    summary && summary !== description ? summary : '',
     fundSource ? `Paid from: ${fundSource}` : '',
     adjustments ? `Adjustment: ${adjustments}` : '',
     paidFor && paidFor !== description ? paidFor : '',

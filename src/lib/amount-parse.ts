@@ -1029,23 +1029,37 @@ export function extractNamedMoneyLines(text: string): ParsedMoneyAmount[] {
     });
   };
 
-  // Per line — dash/colon required (handwritten chit style).
+  // Per line — dash/colon, or "Name Rs 1016", or trailing amount on a name row.
   for (const line of repairOcrText(text).split(/\r?\n/)) {
     const t = line.replace(/\s+/g, ' ').trim();
     if (!t) continue;
-    const m = t.match(
-      /^([A-Za-z][A-Za-z0-9 .']{0,40}?)\s*[-–—:]\s*(?:₹|₨|rs\.?|inr)\s*([\d,]+(?:\.\d{1,2})?)/i,
+    const dashed = t.match(
+      /^([A-Za-z][A-Za-z0-9 .']{0,40}?)\s*[-–—:]\s*(?:₹|₨|rs\.?|inr)?\s*([\d,]+(?:\.\d{1,2})?)\s*$/i,
     );
-    if (m) pushNamed(m[1], m[2]);
+    if (dashed) {
+      pushNamed(dashed[1], dashed[2]);
+      continue;
+    }
+    const spaced = t.match(
+      /^([A-Za-z][A-Za-z0-9 .']{2,40}?)\s+(?:₹|₨|rs\.?|inr)\s*([\d,]+(?:\.\d{1,2})?)\s*$/i,
+    );
+    if (spaced) {
+      pushNamed(spaced[1], spaced[2]);
+      continue;
+    }
+    const trailing = t.match(
+      /^([A-Za-z][A-Za-z0-9 .']{2,40}?)\s+([\d,]+(?:\.\d{1,2})?)\s*$/,
+    );
+    if (trailing && !/^(total|amount|qty|date|s\.?no|sr)\b/i.test(trailing[1])) {
+      pushNamed(trailing[1], trailing[2]);
+    }
   }
 
-  // Flattened OCR: "Seenu - Rs 1016 /- Raghu - Rs 5016 /-"
-  if (found.length < 2) {
-    const globalRe = /([A-Za-z][A-Za-z0-9 .']{0,40}?)\s*[-–—:]\s*(?:₹|₨|rs\.?|inr)\s*([\d,]+(?:\.\d{1,2})?)/gi;
-    let m: RegExpExecArray | null;
-    while ((m = globalRe.exec(raw)) !== null) {
-      pushNamed(m[1], m[2]);
-    }
+  // Flattened OCR always — do not stop at the first two per-line hits.
+  const globalRe = /([A-Za-z][A-Za-z0-9 .']{1,40}?)\s*(?:[-–—:]+\s*)?(?:₹|₨|rs\.?|inr)\s*([\d,]+(?:\.\d{1,2})?)/gi;
+  let m: RegExpExecArray | null;
+  while ((m = globalRe.exec(raw)) !== null) {
+    pushNamed(m[1], m[2]);
   }
 
   return found.length >= 2 ? found : [];
@@ -1058,9 +1072,16 @@ export function extractMoneyEntries(text: string): ParsedMoneyAmount[] {
   const learned = fromLearned(text);
   if (learned?.length) return learned;
   const history = extractUpiHistoryEntries(text);
-  if (history.length >= 2) return history;
   const multi = extractNamedMoneyLines(text);
-  if (multi.length >= 2) return multi;
+  const merged: ParsedMoneyAmount[] = [];
+  const seen = new Set<string>();
+  for (const row of [...history, ...multi]) {
+    const key = `${String(row.entryType || 'out')}|${String(row.merchant || row.description || '').toLowerCase()}|${row.amount}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(row);
+  }
+  if (merged.length >= 2) return merged;
   const one = extractMoneyAmount(text);
   if (!one) return [];
   if (/\bpaid\s+to\b/i.test(repairOcrText(text))) {

@@ -1,5 +1,12 @@
 import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core';
 
+export type SharedFile = {
+  mimeType?: string;
+  fileName?: string;
+  dataBase64?: string;
+  byteLength?: number;
+};
+
 export type SharedPayload = {
   text?: string;
   mimeType?: string;
@@ -10,6 +17,8 @@ export type SharedPayload = {
   byteLength?: number;
   hasPending?: boolean;
   error?: string;
+  files?: SharedFile[];
+  fileCount?: number;
 };
 
 type ShareReceiverPlugin = {
@@ -52,6 +61,8 @@ export async function resolveSharePayload(payload: SharedPayload): Promise<Share
         fileName: full.fileName || payload.fileName,
         dataBase64: full.dataBase64 || payload.dataBase64,
         receivedAt: full.receivedAt || payload.receivedAt,
+        files: full.files?.length ? full.files : payload.files,
+        fileCount: full.fileCount || payload.fileCount,
       };
     }
   }

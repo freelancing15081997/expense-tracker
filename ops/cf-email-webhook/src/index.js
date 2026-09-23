@@ -40,7 +40,7 @@ function sleep(ms) {
 }
 
 function shouldRetryStatus(status) {
-  return status === 408 || status === 425 || status === 429 || status >= 500;
+  return status === 408 || status === 413 || status === 425 || status === 429 || status >= 500;
 }
 
 function toBase64(content) {
@@ -67,31 +67,40 @@ function toBase64(content) {
 function isReceiptPart(att) {
   const mime = String(att.mimeType || att.contentType || att.type || '').toLowerCase();
   const name = String(att.filename || att.fileName || '');
-  if (/^image\/(png|jpe?g|jpg|webp|gif)/i.test(mime) || mime === 'application/pdf') return true;
-  if (/\.(png|jpe?g|jpg|webp|gif|pdf)$/i.test(name)) return true;
+  if (/^image\/(png|jpe?g|jpg|webp|gif|heic|heif)/i.test(mime) || mime === 'application/pdf') return true;
+  if (/\.(png|jpe?g|jpg|webp|gif|pdf|heic|heif|xlsx|xls|csv|doc|docx)$/i.test(name)) return true;
+  if (mime.includes('spreadsheet') || mime.includes('excel') || mime === 'text/csv' || mime.includes('msword') || mime.includes('wordprocessingml')) return true;
   return false;
 }
 
 function packAttachments(email) {
-  const maxBytes = 3_500_000;
+  const maxBytes = 1_600_000;
+  const maxTotal = 2_400_000;
   const out = [];
-  for (const att of email.attachments || []) {
-    const mime = String(att.mimeType || att.contentType || att.type || 'application/octet-stream');
-    const rawName = String(att.filename || att.fileName || '').trim();
-    const named = { mimeType: mime, filename: rawName };
-    if (!isReceiptPart(named) && !/^application\/octet-stream$/i.test(mime)) continue;
-    const contentBase64 = toBase64(att.content);
-    if (!contentBase64) continue;
-    const size = Math.floor((contentBase64.length * 3) / 4);
-    if (size < 80 || size > maxBytes) continue;
-    const name = rawName || (mime.includes('pdf') ? 'receipt.pdf' : 'receipt.jpg');
-    out.push({
-      filename: name,
-      mimeType: mime,
-      size,
-      contentBase64,
-    });
-    if (out.length >= 3) break;
+  let total = 0;
+  try {
+    for (const att of email.attachments || []) {
+      const mime = String(att.mimeType || att.contentType || att.type || 'application/octet-stream');
+      const rawName = String(att.filename || att.fileName || '').trim();
+      const named = { mimeType: mime, filename: rawName };
+      if (!isReceiptPart(named) && !/^application\/octet-stream$/i.test(mime)) continue;
+      const contentBase64 = toBase64(att.content);
+      if (!contentBase64) continue;
+      const size = Math.floor((contentBase64.length * 3) / 4);
+      if (size < 80 || size > maxBytes) continue;
+      if (total + size > maxTotal) continue;
+      const name = rawName || (mime.includes('pdf') ? 'receipt.pdf' : 'receipt.jpg');
+      out.push({
+        filename: name,
+        mimeType: mime,
+        size,
+        contentBase64,
+      });
+      total += size;
+      if (out.length >= 2) break;
+    }
+  } catch (err) {
+    console.error('packAttachments failed', err);
   }
   return out;
 }
@@ -156,6 +165,12 @@ export default {
       addrList(message.from)[0] ||
       String(message.from || '');
 
+    let attachments = [];
+    try {
+      attachments = packAttachments(email);
+    } catch (err) {
+      console.error('packAttachments threw', err);
+    }
     const payload = {
       source: 'cloudflare-email',
       from,
@@ -165,7 +180,7 @@ export default {
       html: email.html || '',
       messageId: email.messageId || '',
       receivedAt: new Date().toISOString(),
-      attachments: packAttachments(email),
+      attachments,
     };
     console.log('inbound mail parsed', {
       to: payload.to,

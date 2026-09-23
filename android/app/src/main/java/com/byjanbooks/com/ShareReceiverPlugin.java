@@ -5,11 +5,11 @@ import android.content.ContentResolver;
 import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
-import android.os.Bundle;
 import android.provider.OpenableColumns;
 import android.util.Base64;
 import android.webkit.MimeTypeMap;
 
+import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -75,21 +75,23 @@ public class ShareReceiverPlugin extends Plugin {
             payload.put("text", text.trim());
         }
 
-        Uri stream = null;
+        java.util.ArrayList<Uri> streams = new java.util.ArrayList<>();
         if (Intent.ACTION_SEND.equals(action)) {
-            stream = intent.getParcelableExtra(Intent.EXTRA_STREAM);
+            Uri one = intent.getParcelableExtra(Intent.EXTRA_STREAM);
+            if (one != null) streams.add(one);
         } else {
-            Bundle extras = intent.getExtras();
-            if (extras != null) {
-                Object list = extras.get(Intent.EXTRA_STREAM);
-                if (list instanceof java.util.ArrayList && !((java.util.ArrayList<?>) list).isEmpty()) {
-                    Object first = ((java.util.ArrayList<?>) list).get(0);
-                    if (first instanceof Uri) stream = (Uri) first;
+            java.util.ArrayList<Uri> list = intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
+            if (list != null) {
+                for (Uri uri : list) {
+                    if (uri != null) streams.add(uri);
+                    if (streams.size() >= 8) break;
                 }
             }
         }
 
-        if (stream != null) {
+        JSArray files = new JSArray();
+        for (int i = 0; i < streams.size(); i++) {
+            Uri stream = streams.get(i);
             try {
                 ContentResolver resolver = activity.getContentResolver();
                 String mime = resolver.getType(stream);
@@ -103,14 +105,28 @@ public class ShareReceiverPlugin extends Plugin {
 
                 byte[] bytes = readLimited(resolver, stream, MAX_BYTES);
                 if (bytes != null && bytes.length > 0) {
-                    payload.put("mimeType", mime);
-                    payload.put("fileName", name);
-                    payload.put("dataBase64", Base64.encodeToString(bytes, Base64.NO_WRAP));
-                    payload.put("byteLength", bytes.length);
+                    JSObject file = new JSObject();
+                    file.put("mimeType", mime);
+                    file.put("fileName", name);
+                    file.put("dataBase64", Base64.encodeToString(bytes, Base64.NO_WRAP));
+                    file.put("byteLength", bytes.length);
+                    files.put(file);
+                    if (i == 0) {
+                        payload.put("mimeType", mime);
+                        payload.put("fileName", name);
+                        payload.put("dataBase64", file.getString("dataBase64"));
+                        payload.put("byteLength", bytes.length);
+                    }
                 }
             } catch (Exception err) {
-                payload.put("error", err.getMessage() != null ? err.getMessage() : "Could not read shared file");
+                if (!payload.has("error")) {
+                    payload.put("error", err.getMessage() != null ? err.getMessage() : "Could not read shared file");
+                }
             }
+        }
+        if (files.length() > 0) {
+            payload.put("files", files);
+            payload.put("fileCount", files.length());
         }
 
         if (!payload.has("text") && !payload.has("dataBase64")) {

@@ -20,6 +20,12 @@ import {
 
 export { parseAmount, parseReceiptFields, summarizeEmailIntent };
 
+export const config = {
+  api: {
+    bodyParser: { sizeLimit: '4mb' },
+  },
+};
+
 const R2_REGION = 'auto';
 const R2_SERVICE = 's3';
 const DOC_PREFIX = 'documents/';

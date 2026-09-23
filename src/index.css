@@ -7721,7 +7721,7 @@ section[aria-label="To pay"] {
   border: 1px solid rgba(11, 31, 58, 0.08);
   box-shadow: none;
 }
-.entry-more {
+.entry-card-more {
   width: 32px;
   height: 32px;
   flex: 0 0 auto;
@@ -8592,11 +8592,30 @@ section[aria-label="To pay"] {
 .entry-amount-hero.is-xfer .money-amount-input { color: #1d4ed8; }
 .entry-amount-hero .money-amount-input::placeholder { color: #cbd5e1; }
 .entry-amount-hint { grid-column: 1 / -1; grid-row: 2; font-size: 11px; color: #94a3b8; font-weight: 500; }
-.entry-more-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.entry-more-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .entry-more-toggle { display: inline-flex; align-items: center; gap: 4px; height: 36px; padding: 0 10px; border-radius: 999px; border: 0; background: transparent; color: #3654FF; font-size: 12.5px; font-weight: 580; }
-.entry-more { display: flex; flex-direction: column; gap: 12px; padding-top: 4px; }
+.entry-more {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 4px;
+  width: 100%;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  pointer-events: auto;
+}
 .entry-more[hidden] { display: none; }
 .entry-more.is-open { animation: byjan-fade 200ms ease both; }
+.record-sheet,
+.record-sheet .entry-form,
+.record-sheet .entry-more,
+.record-sheet input,
+.record-sheet textarea,
+.record-sheet select {
+  pointer-events: auto;
+}
 .entry-toggles { display: flex; flex-wrap: wrap; gap: 8px; }
 .entry-toggle { display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid rgba(11, 31, 58, 0.1); background: #fff; font-size: 12.5px; font-weight: 580; color: #475569; cursor: pointer; transition: background 120ms ease, color 120ms ease, border-color 120ms ease; }
 .entry-toggle[data-on="true"] { background: #0B1F3A; color: #fff; border-color: #0B1F3A; }

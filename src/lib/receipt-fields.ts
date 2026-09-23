@@ -28,6 +28,7 @@ export {
 
 import { composeNotes, parseReceiptFields } from '../../api/_lib/receipt-fields';
 import type { CapturePreview } from './money-core';
+import { guessCategoryFromText } from './bridge-automations';
 
 export const RECEIPT_FILE_ACCEPT = [
   'image/*',
@@ -65,12 +66,18 @@ export function enrichPreviewFromText(
     ? Number(preview.amountPaise)
     : Math.round(Number(parsed.amount || 0) * 100);
   const merchant = String(preview.merchant || parsed.merchant || '').trim();
-  const description = GENERIC_DESC.test(String(preview.description || '').trim())
-    ? (parsed.description || merchant || preview.description)
-    : (preview.description || parsed.description || merchant);
-  const category = preview.category && preview.category !== 'Uncategorized'
-    ? preview.category
-    : parsed.category;
+  const existingDesc = String(preview.description || '').trim();
+  const merchantAsDesc = Boolean(existingDesc && merchant && existingDesc.toLowerCase() === merchant.toLowerCase());
+  const preferParsed = GENERIC_DESC.test(existingDesc) || merchantAsDesc || !existingDesc;
+  const paidFor = String(parsed.description || '').trim();
+  const description = preferParsed
+    ? (paidFor || existingDesc || merchant)
+    : (paidFor && paidFor.toLowerCase() !== merchant.toLowerCase() ? paidFor : (existingDesc || paidFor || merchant));
+  const guessed = guessCategoryFromText(merchant, description, parsed.notes, hay);
+  const guessedNorm = guessed === 'Food' ? 'Meals' : guessed;
+  const parsedCat = parsed.category && parsed.category !== 'Uncategorized' ? parsed.category : '';
+  const previewCat = preview.category && preview.category !== 'Uncategorized' ? preview.category : '';
+  const category = guessedNorm || parsedCat || previewCat || 'Uncategorized';
   const notes = composeNotes([preview.notes, parsed.notes]);
   const today = new Date().toISOString().slice(0, 10);
   const date = (preview.date && preview.date !== today)

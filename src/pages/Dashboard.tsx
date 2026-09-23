@@ -12,7 +12,7 @@ import { useBooksTenantMeta } from '../lib/tenant';
 import { getCurrencySymbol } from '../lib/currency';
 import { initials, sparkDays } from '../lib/ledger-advanced';
 import { formatIndianAmount, workspaceBridges } from '../lib/bridge-automations';
-import { Plus, Check, X, Users, ArrowUpRight, ArrowDownRight, RefreshCw, Wallet, Receipt, Shield, ScanLine, BookText, BarChart3, Split, Library, BookPlus, CalendarClock, Activity, Mic, LayoutGrid, List, Rows3, Pin, MoreHorizontal, Pencil, Trash2, UserPlus, QrCode } from 'lucide-react';
+import { Plus, Check, X, Users, ArrowUpRight, ArrowDownRight, RefreshCw, Wallet, Receipt, Shield, ScanLine, BookText, BarChart3, Split, Library, BookPlus, CalendarClock, Activity, Mic, LayoutGrid, List, Rows3, Pin, MoreHorizontal, Pencil, Trash2, UserPlus, QrCode, FileUp } from 'lucide-react';
 import UpiQrPaySheet from '../components/UpiQrPaySheet';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
@@ -570,7 +570,7 @@ export default function Dashboard() {
     next.delete('pay');
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams]);
-  const [bookPickKind, setBookPickKind] = useState<'add' | 'scan' | 'voice' | 'share' | 'split' | 'pay' | null>(null);
+  const [bookPickKind, setBookPickKind] = useState<'add' | 'scan' | 'voice' | 'share' | 'split' | 'pay' | 'import' | null>(null);
   const [sharePending, setSharePending] = useState<PendingCapture | null>(null);
   const [sharePickBooks, setSharePickBooks] = useState<Array<{ id: string; name: string }>>([]);
   const [sharePickLoading, setSharePickLoading] = useState(false);
@@ -579,7 +579,7 @@ export default function Dashboard() {
   useEffect(() => {
     const openFromPending = () => {
       const pending = readPendingCapture();
-      if (!pending?.imageDataUrl && !pending?.text) return;
+      if (!pending?.imageDataUrl && !pending?.text && !pending?.batch?.length) return;
 
       const cached = readCachedMoneyBooks();
       const needPick = pending.requireBookPick !== false;
@@ -590,15 +590,23 @@ export default function Dashboard() {
           setSharePending(null);
           setSharePickBooks([]);
           setSharePickLoading(false);
-          setReceiptLaunch({
-            text: pending.text,
-            imageDataUrl: pending.imageDataUrl,
-            fileName: pending.fileName,
-            mimeType: pending.mimeType,
-            source: pending.source || 'share',
-            preferredBookId: cached[0].id,
-            requireBookPick: false,
-          });
+          setReceiptLaunch(pending.batch && pending.batch.length > 1
+            ? {
+              source: pending.source || 'share',
+              batch: pending.batch,
+              text: pending.text,
+              preferredBookId: cached[0].id,
+              requireBookPick: false,
+            }
+            : {
+              text: pending.text,
+              imageDataUrl: pending.imageDataUrl,
+              fileName: pending.fileName,
+              mimeType: pending.mimeType,
+              source: pending.source || 'share',
+              preferredBookId: cached[0].id,
+              requireBookPick: false,
+            });
           return;
         }
         setSharePending(pending);
@@ -620,15 +628,23 @@ export default function Dashboard() {
               setSharePending(null);
               setSharePickLoading(false);
               rememberMoneyBook(only.id);
-              setReceiptLaunch({
-                text: pending.text,
-                imageDataUrl: pending.imageDataUrl,
-                fileName: pending.fileName,
-                mimeType: pending.mimeType,
-                source: pending.source || 'share',
-                preferredBookId: only.id,
-                requireBookPick: false,
-              });
+              setReceiptLaunch(pending.batch && pending.batch.length > 1
+                ? {
+                  source: pending.source || 'share',
+                  batch: pending.batch,
+                  text: pending.text,
+                  preferredBookId: only.id,
+                  requireBookPick: false,
+                }
+                : {
+                  text: pending.text,
+                  imageDataUrl: pending.imageDataUrl,
+                  fileName: pending.fileName,
+                  mimeType: pending.mimeType,
+                  source: pending.source || 'share',
+                  preferredBookId: only.id,
+                  requireBookPick: false,
+                });
             }
           })
           .catch(() => undefined)
@@ -639,21 +655,29 @@ export default function Dashboard() {
       setSharePending(null);
       setSharePickBooks([]);
       setSharePickLoading(false);
-      setReceiptLaunch({
-        text: pending.text,
-        imageDataUrl: pending.imageDataUrl,
-        fileName: pending.fileName,
-        mimeType: pending.mimeType,
-        source: pending.source || 'share',
-        preferredBookId: pending.preferredBookId,
-        requireBookPick: false,
-      });
+      setReceiptLaunch(pending.batch && pending.batch.length > 1
+        ? {
+          source: pending.source || 'share',
+          batch: pending.batch,
+          text: pending.text,
+          preferredBookId: pending.preferredBookId,
+          requireBookPick: false,
+        }
+        : {
+          text: pending.text,
+          imageDataUrl: pending.imageDataUrl,
+          fileName: pending.fileName,
+          mimeType: pending.mimeType,
+          source: pending.source || 'share',
+          preferredBookId: pending.preferredBookId,
+          requireBookPick: false,
+        });
     };
 
     const params = new URLSearchParams(location.search);
     if (params.get('capture') === '1') {
       const pending = readPendingCapture();
-      if (pending?.imageDataUrl || pending?.text) {
+      if (pending?.imageDataUrl || pending?.text || pending?.batch?.length) {
         openFromPending();
         navigate(location.pathname, { replace: true });
       } else {
@@ -759,6 +783,18 @@ export default function Dashboard() {
     }
   };
 
+  const importHomeDocuments = async (bookId?: string) => {
+    const preferred = bookId || (visibleBooks.length === 1 ? visibleBooks[0].id : '');
+    try {
+      const batch = await CapacitorService.pickDocuments({ limit: 24 });
+      launchScanBatch(batch, preferred);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Could not open documents';
+      if (/cancel/i.test(msg)) return;
+      addToast(msg, 'error');
+    }
+  };
+
   const launchScanBatch = (batch: WebScanFile[], bookId?: string) => {
     const preferred = bookId || (visibleBooks.length === 1 ? visibleBooks[0].id : '');
     if (!batch.length) return;
@@ -795,7 +831,7 @@ export default function Dashboard() {
     else setBookPickKind('voice');
   };
 
-  const requestQuick = (kind: 'add' | 'scan' | 'voice' | 'split' | 'pay') => {
+  const requestQuick = (kind: 'add' | 'scan' | 'voice' | 'split' | 'pay' | 'import') => {
     if (loading) {
       setBookPickKind(kind);
       return;
@@ -825,7 +861,7 @@ export default function Dashboard() {
   useEffect(() => {
     const onQuick = (event: Event) => {
       const kind = (event as CustomEvent<string>).detail;
-      if (kind === 'scan' || kind === 'add' || kind === 'voice' || kind === 'pay') requestQuickRef.current(kind);
+      if (kind === 'scan' || kind === 'add' || kind === 'voice' || kind === 'pay' || kind === 'import') requestQuickRef.current(kind);
     };
     window.addEventListener('byjan-quick', onQuick);
     return () => window.removeEventListener('byjan-quick', onQuick);
@@ -838,8 +874,18 @@ export default function Dashboard() {
     if (kind === 'share') {
       const pending = sharePending || readPendingCapture();
       setSharePending(null);
-      if (!pending?.imageDataUrl && !pending?.text) return;
+      if (!pending?.imageDataUrl && !pending?.text && !pending?.batch?.length) return;
       rememberMoneyBook(bookId);
+      if (pending.batch && pending.batch.length > 1) {
+        setReceiptLaunch({
+          source: pending.source || 'share',
+          batch: pending.batch,
+          text: pending.text,
+          preferredBookId: bookId,
+          requireBookPick: false,
+        });
+        return;
+      }
       setReceiptLaunch({
         text: pending.text,
         imageDataUrl: pending.imageDataUrl,
@@ -852,6 +898,7 @@ export default function Dashboard() {
       return;
     }
     if (kind === 'scan') void scanHomeReceipt(bookId);
+    else if (kind === 'import') void importHomeDocuments(bookId);
     else if (kind === 'add') addHomeEntry(bookId);
     else if (kind === 'split') splitHomeEntry(bookId);
     else if (kind === 'pay') { rememberMoneyBook(bookId); setQrPay({ bookId }); }
@@ -870,6 +917,8 @@ export default function Dashboard() {
 
   const pickSheetTitle = bookPickKind === 'scan'
     ? 'Scan into which book?'
+    : bookPickKind === 'import'
+      ? 'Import into which book?'
     : bookPickKind === 'voice'
       ? 'Voice entry into which book?'
       : bookPickKind === 'share'
@@ -881,6 +930,8 @@ export default function Dashboard() {
             : 'Add entry into which book?';
   const pickSheetSubtitle = bookPickKind === 'scan'
     ? 'Pick several receipts or docs at once — Byjan creates an entry for each.'
+    : bookPickKind === 'import'
+      ? 'Excel, PDF, Word, or photos — each file becomes entries in that book.'
     : bookPickKind === 'share'
       ? 'Pick a money book for this shared receipt'
       : bookPickKind === 'split'
@@ -1455,6 +1506,12 @@ export default function Dashboard() {
                 Add
               </button>
             )}
+            {hasFeature('money_add') && (
+              <button type="button" className="home-pill tone-add" onClick={() => { void CapacitorService.hapticTick(); requestQuick('import'); }}>
+                <FileUp className="w-4 h-4" strokeWidth={2.4} />
+                Import
+              </button>
+            )}
             {hasFeature('money_split') && (
               <button
                 type="button"
@@ -1469,6 +1526,12 @@ export default function Dashboard() {
               <button type="button" className="home-pill tone-voice" onClick={() => { void CapacitorService.hapticTick(); requestQuick('voice'); }}>
                 <Mic className="w-4 h-4" strokeWidth={2.4} />
                 Voice
+              </button>
+            )}
+            {hasFeature('money_add') && (
+              <button type="button" className="home-pill tone-add" onClick={() => { void CapacitorService.hapticTick(); requestQuick('import'); }}>
+                <FileUp className="w-4 h-4" strokeWidth={2.4} />
+                Import
               </button>
             )}
           </section>

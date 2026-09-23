@@ -3,7 +3,7 @@
  * Covers UPI apps, GST invoices, fuel, food, utilities, bank SMS, medical, e‑commerce, etc.
  * Runs: amount-parse + PP-Structure (+ duplicate fingerprint checks).
  */
-import { extractMoneyAmount, extractReceiptDate, learnKeysFromText, reconcileVisionAmount, setLearnedParseLookup } from '../src/lib/amount-parse.ts';
+import { extractMoneyAmount, extractMoneyEntries, extractReceiptDate, learnKeysFromText, reconcileVisionAmount, setLearnedParseLookup } from '../src/lib/amount-parse.ts';
 import { parsePpStructureText, needsPpStructure } from '../api/_lib/paddle-structure.ts';
 import { matchDuplicateExpenses } from '../src/lib/duplicate-match.ts';
 import { guessCategoryFromText, guessedMerchant } from '../src/lib/bridge-automations.ts';
@@ -722,6 +722,28 @@ UTR 590641031504`;
   assert(preview.amountPaise === 59000, `preview paise ${preview.amountPaise}`);
   assert(preview.category === 'Fuel', `preview cat ${preview.category}`);
   assert(preview.paymentMethod === 'cash' || preview.paymentMethod === 'upi', `preview pay ${preview.paymentMethod}`);
+}
+
+{
+  const msg = parseReceiptFields(
+    `Payment Successful\nPaid to Swiggy\n₹349.00\nMessage: dinner with team\nPhonePe`,
+    { fileName: 'phonepe-msg.jpg' },
+  );
+  assert(/dinner/i.test(msg.description), `message desc ${msg.description}`);
+  assert(msg.category === 'Meals', `message cat ${msg.category}`);
+  assert(/₹349|349/.test(String(msg.notes || msg.description)), `summary notes ${msg.notes}`);
+
+  const chit = `Seenu - Rs 1016\nRaghu - Rs 5016\nKiran Rs 2000\nAnu ₹750`;
+  const rows = extractMoneyEntries(chit);
+  assert(rows.length >= 4, `multi chit found ${rows.length}: ${rows.map((r) => r.merchant + r.amount).join(',')}`);
+  assert(rows.some((r) => r.amount === 1016), 'seenu 1016');
+  assert(rows.some((r) => r.amount === 5016), 'raghu 5016');
+  assert(rows.some((r) => r.amount === 2000), 'kiran 2000');
+  assert(rows.some((r) => r.amount === 750), 'anu 750');
+
+  const store = parseReceiptFields('Paid to Kirana Store ₹120\nMessage: rice and oil');
+  assert(store.category !== 'Shopping', `kirana cat ${store.category}`);
+  assert(/rice|oil/i.test(store.description), `kirana desc ${store.description}`);
 }
 
 console.log(`\n=== Result: ${passed} passed, ${failed} failed ===`);

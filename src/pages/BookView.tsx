@@ -22,7 +22,7 @@ import { notifyLedgerMembers } from '../lib/notify-team';
 import { CapacitorService, isWeb } from '../lib/capacitor';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, ChevronDown, Send, Copy, CopyPlus, Paperclip, Mail, Megaphone, Shield, Pin, PinOff, SlidersHorizontal, ArrowUpDown, Star, Wallet, ArrowUpRight, ArrowDownRight, Receipt, History, PieChart, Split, MoreHorizontal, CalendarClock, Check, Calendar, CreditCard, Landmark, Tag, StickyNote, Store, User as UserIcon, QrCode, Eye } from 'lucide-react';
+import { Loader2, ArrowLeft, Plus, Trash2, Users, UserPlus, X, PenSquare, FileText, FileUp, LogOut, UserMinus, Search, Download, Settings2, ChevronLeft, ChevronRight, ChevronDown, Send, Copy, CopyPlus, Paperclip, Mail, Megaphone, Shield, Pin, PinOff, SlidersHorizontal, ArrowUpDown, Star, Wallet, ArrowUpRight, ArrowDownRight, Receipt, History, PieChart, Split, MoreHorizontal, CalendarClock, Check, Calendar, CreditCard, Landmark, Tag, StickyNote, Store, User as UserIcon, QrCode, Eye } from 'lucide-react';
 import UpiQrPaySheet from '../components/UpiQrPaySheet';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Tabs from '@radix-ui/react-tabs';
@@ -242,13 +242,15 @@ export default function BookView() {
     scan: () => void | Promise<void>;
     add: () => void;
     voice: () => void;
+    importDocs: () => void | Promise<void>;
   }>({
     scan: () => undefined,
     add: () => undefined,
     voice: () => setVoiceOpen(true),
+    importDocs: () => undefined,
   });
   // Quick action tapped while the book skeleton is still up — replay once handlers are live.
-  const pendingQuickRef = useRef<'scan' | 'add' | 'voice' | 'pay' | null>(null);
+  const pendingQuickRef = useRef<'scan' | 'add' | 'voice' | 'pay' | 'import' | null>(null);
   const loadingRef = useRef(true);
   const scanBusyRef = useRef(false);
   
@@ -608,7 +610,17 @@ export default function BookView() {
         return;
       }
 
-      if (pending.imageDataUrl || pending.mimeType) {
+      if (pending.batch && pending.batch.length > 1) {
+        setReceiptLaunch({
+          source: pending.source || 'share',
+          batch: pending.batch,
+          text: pending.text,
+          preferredBookId: bookId,
+          requireBookPick: false,
+        });
+        clearPendingCapture();
+        if (wantsCapture) navigate(`/book/${bookId}`, { replace: true });
+      } else if (pending.imageDataUrl || pending.mimeType) {
         setReceiptLaunch({
           text: pending.text,
           imageDataUrl: pending.imageDataUrl,
@@ -679,7 +691,7 @@ export default function BookView() {
   useEffect(() => {
     const onQuick = (event: Event) => {
       const kind = (event as CustomEvent<string>).detail;
-      if (kind !== 'scan' && kind !== 'add' && kind !== 'voice' && kind !== 'pay') return;
+      if (kind !== 'scan' && kind !== 'add' && kind !== 'voice' && kind !== 'pay' && kind !== 'import') return;
       // Book still loading → handlers below the early-return skeleton aren't bound yet. Queue it.
       if (loadingRef.current) {
         pendingQuickRef.current = kind;
@@ -688,6 +700,7 @@ export default function BookView() {
       if (kind === 'scan') void quickActionsRef.current.scan();
       else if (kind === 'add') quickActionsRef.current.add();
       else if (kind === 'pay') setQrPayOpen(true);
+      else if (kind === 'import') void quickActionsRef.current.importDocs();
       else quickActionsRef.current.voice();
     };
     window.addEventListener('byjan-quick', onQuick);
@@ -704,6 +717,7 @@ export default function BookView() {
       if (kind === 'scan') void quickActionsRef.current.scan();
       else if (kind === 'add') quickActionsRef.current.add();
       else if (kind === 'pay') setQrPayOpen(true);
+      else if (kind === 'import') void quickActionsRef.current.importDocs();
       else quickActionsRef.current.voice();
     }, 0);
     return () => window.clearTimeout(t);
@@ -1545,6 +1559,26 @@ export default function BookView() {
     }
   };
 
+  const importDocuments = async () => {
+    if (!bookId) return;
+    if (!canWrite) {
+      addToast('You need write access to import documents', 'error');
+      return;
+    }
+    if (scanBusyRef.current) return;
+    scanBusyRef.current = true;
+    try {
+      const batch = await CapacitorService.pickDocuments({ limit: 24 });
+      launchScanBatch(batch);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Could not open documents';
+      if (/cancel/i.test(msg)) return;
+      addToast(msg, 'error');
+    } finally {
+      scanBusyRef.current = false;
+    }
+  };
+
   /** OCR found no amount inside the budget — open the Add form pre-filled, receipt already attached. */
   const openManualFromReceipt = (draft: ManualFormDraft) => {
     if (!canWrite) {
@@ -1578,6 +1612,7 @@ export default function BookView() {
       }
       openNewExpense();
     },
+    importDocs: () => { void importDocuments(); },
     voice: () => {
       if (!canVoice) {
         addToast('Voice entry is not available for your role', 'error');
@@ -2054,6 +2089,11 @@ export default function BookView() {
                   {canManageUsers && (
                     <DropdownMenu.Item className="book-overflow-item" onSelect={() => setIsMembersModalOpen(true)}>
                       <UserPlus className="w-4 h-4" /> Invite people
+                    </DropdownMenu.Item>
+                  )}
+                  {canWrite && (
+                    <DropdownMenu.Item className="book-overflow-item" onSelect={() => { void importDocuments(); }}>
+                      <FileUp className="w-4 h-4" /> Import Excel, PDF or photos
                     </DropdownMenu.Item>
                   )}
                   {hasFeature('money_recurring') && (
@@ -2802,7 +2842,7 @@ export default function BookView() {
                       {canWrite && (
                         <DropdownMenu.Root>
                           <DropdownMenu.Trigger asChild>
-                            <button type="button" className="entry-more" aria-label="Entry actions">
+                            <button type="button" className="entry-card-more" aria-label="Entry actions">
                               <MoreHorizontal className="w-4 h-4" />
                             </button>
                           </DropdownMenu.Trigger>
@@ -3200,7 +3240,7 @@ export default function BookView() {
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 z-[170]" />
           <Dialog.Content
-            className="record-sheet fixed z-[180] grid gap-3 p-4 max-h-[90vh] overflow-y-auto bg-white border border-slate-200 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)]"
+            className="record-sheet fixed z-[180] grid gap-3 p-4 max-h-[90vh] overflow-y-auto bg-white border border-slate-200 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)] pointer-events-auto"
             onCloseAutoFocus={(event) => event.preventDefault()}
             onPointerDownOutside={(event) => {
               if (isSaving || uploadingReceipt || attachBusyRef.current) event.preventDefault();
@@ -3323,21 +3363,17 @@ export default function BookView() {
                       + New
                     </button>
                     {categoryOptions.length > 8 ? (
-                      <Select onValueChange={setCategory}>
-                        <SelectTrigger className="purpose-cat-chip !h-8 !w-auto px-2 border-slate-200">
-                          More
-                        </SelectTrigger>
-                        <SelectContent>
-                          {categoryOptions.slice(8).map((cat) => (
-                            <SelectItem key={cat} value={cat}>
-                              <span className="inline-flex min-w-0 items-center gap-2">
-                                <CategoryIconMark name={cat} className="!h-7 !w-7 shrink-0 rounded-lg" />
-                                <span className="truncate">{cat}</span>
-                              </span>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <select
+                        className="purpose-cat-chip !h-8 !w-auto max-w-[42vw] px-2 border-slate-200 bg-white"
+                        value={categoryOptions.slice(8).includes(category) ? category : ''}
+                        onChange={(e) => { if (e.target.value) setCategory(e.target.value); }}
+                        aria-label="More categories"
+                      >
+                        <option value="">More</option>
+                        {categoryOptions.slice(8).map((cat) => (
+                          <option key={cat} value={cat}>{cat}</option>
+                        ))}
+                      </select>
                     ) : null}
                   </div>
                 ) : (
@@ -3459,7 +3495,23 @@ export default function BookView() {
                 >
                   Camera
                 </button>
-                <button type="button" className="entry-more-toggle" data-testid="entry-more" aria-expanded={moreFields} onClick={() => setMoreFields((v) => !v)}>
+                <button
+                  type="button"
+                  className="entry-more-toggle"
+                  data-testid="entry-more"
+                  aria-expanded={moreFields}
+                  onClick={() => {
+                    setMoreFields((v) => {
+                      const next = !v;
+                      if (next) {
+                        window.setTimeout(() => {
+                          document.querySelector('[data-testid="entry-more-panel"]')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                        }, 40);
+                      }
+                      return next;
+                    });
+                  }}
+                >
                   {moreFields ? 'Fewer details' : 'More details'}
                   <ChevronDown className={cn('w-4 h-4 transition-transform', moreFields && 'rotate-180')} />
                 </button>

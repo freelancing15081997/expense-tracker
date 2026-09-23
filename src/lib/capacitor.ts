@@ -230,7 +230,7 @@ export class CapacitorService {
     fileName: string;
     mimeType: string;
   }>> {
-    const quality = Math.max(80, Math.min(92, Number(options.quality) || 88));
+    const quality = Math.max(88, Math.min(96, Number(options.quality) || 92));
     const limit = Math.max(2, Math.min(40, Number(options.limit) || 24));
 
     // If caller wants batch multi-select explicitly
@@ -246,8 +246,8 @@ export class CapacitorService {
       const photo = await this.takePicture({
         source: CameraSource.Prompt,
         quality,
-        width: 1600,
-        height: 1600,
+        width: 2400,
+        height: 2400,
         resultType: CameraResultType.DataUrl,
       });
       const dataUrl = photo.dataUrl || (photo.base64String ? `data:image/jpeg;base64,${photo.base64String}` : '');
@@ -277,12 +277,12 @@ export class CapacitorService {
   } = {}) {
     try {
       const image = await Camera.getPhoto({
-        quality: options.quality || 88,
+        quality: options.quality || 92,
         allowEditing: options.allowEditing || false,
         resultType: options.resultType || CameraResultType.DataUrl,
         source: options.source || CameraSource.Prompt,
-        width: options.width || 1600,
-        height: options.height || 1600,
+        width: options.width || 2400,
+        height: options.height || 2400,
         correctOrientation: true,
       });
 
@@ -343,8 +343,8 @@ export class CapacitorService {
             allowMultipleSelection: true,
             quality,
             limit,
-            targetWidth: 1600,
-            targetHeight: 1600,
+            targetWidth: 2400,
+            targetHeight: 2400,
           });
           const rows = Array.isArray(results) ? results : [];
           const out = await Promise.all(rows.slice(0, limit).map(async (row, i) => {
@@ -358,7 +358,7 @@ export class CapacitorService {
           if (cleaned.length) return cleaned;
         }
         if (typeof cam.pickImages === 'function') {
-          const { photos } = await cam.pickImages({ quality, limit, width: 1600, height: 1600 });
+          const { photos } = await cam.pickImages({ quality, limit, width: 2400, height: 2400 });
           const rows = Array.isArray(photos) ? photos : [];
           const out = await Promise.all(rows.slice(0, limit).map(async (row, i) => {
             const path = String(row.webPath || row.path || '');
@@ -377,6 +377,41 @@ export class CapacitorService {
       }
     }
 
+    return await new Promise((resolve, reject) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.multiple = true;
+      input.accept = 'image/*,application/pdf,.pdf,.csv,.xlsx,.xls,.doc,.docx,.txt,.rtf,.gif,.heic,.heif,text/csv,text/plain,application/msword,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      input.style.cssText = 'position:fixed;left:0;top:0;opacity:0;width:1px;height:1px;';
+      const cleanup = () => { try { input.remove(); } catch { /* */ } };
+      input.onchange = () => {
+        const files = Array.from(input.files || []).slice(0, limit);
+        cleanup();
+        if (!files.length) {
+          reject(new Error('cancelled'));
+          return;
+        }
+        void Promise.all(files.map((f) => this.fileToDataUrl(f)))
+          .then((rows) => resolve(rows.map((r) => ({
+            imageDataUrl: r.dataUrl,
+            fileName: r.fileName,
+            mimeType: r.mimeType,
+          }))))
+          .catch(reject);
+      };
+      input.oncancel = () => { cleanup(); reject(new Error('cancelled')); };
+      document.body.appendChild(input);
+      input.click();
+    });
+  }
+
+  /** Always open the system file picker — Excel, PDF, Word, images, any supported doc. */
+  static async pickDocuments(options: { limit?: number } = {}): Promise<Array<{
+    imageDataUrl: string;
+    fileName: string;
+    mimeType: string;
+  }>> {
+    const limit = Math.max(1, Math.min(40, Number(options.limit) || 24));
     return await new Promise((resolve, reject) => {
       const input = document.createElement('input');
       input.type = 'file';
