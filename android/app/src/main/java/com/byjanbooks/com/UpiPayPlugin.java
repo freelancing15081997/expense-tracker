@@ -23,6 +23,31 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 public class UpiPayPlugin extends Plugin {
 
     @PluginMethod
+    public void openApp(PluginCall call) {
+        String pkg = call.getString("packageName", "");
+        if (pkg == null || pkg.trim().isEmpty()) {
+            call.reject("Missing package");
+            return;
+        }
+        try {
+            Intent launch = getContext().getPackageManager().getLaunchIntentForPackage(pkg.trim());
+            if (launch == null) {
+                JSObject out = new JSObject();
+                out.put("ok", false);
+                call.resolve(out);
+                return;
+            }
+            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(launch);
+            JSObject out = new JSObject();
+            out.put("ok", true);
+            call.resolve(out);
+        } catch (Exception e) {
+            call.reject(e.getMessage() != null ? e.getMessage() : "Could not open app");
+        }
+    }
+
+    @PluginMethod
     public void pay(PluginCall call) {
         String uri = call.getString("uri", "");
         if (uri == null || uri.trim().isEmpty()) {
@@ -55,12 +80,21 @@ public class UpiPayPlugin extends Plugin {
 
     private static Intent payIntent(String uri, String pkg) {
         Intent intent = new Intent(Intent.ACTION_VIEW);
-        intent.setData(Uri.parse(uri));
-        intent.addCategory(Intent.CATEGORY_DEFAULT);
+        // encodedQuery keeps + / = inside merchant `sign` — Uri.parse() treats + as space
+        // and PhonePe then rejects the QR as tampered.
+        intent.setData(upiData(uri));
         if (pkg != null && !pkg.trim().isEmpty()) {
             intent.setPackage(pkg.trim());
         }
         return intent;
+    }
+
+    static Uri upiData(String raw) {
+        int q = raw.indexOf('?');
+        if (q < 1) return Uri.parse(raw);
+        Uri base = Uri.parse(raw.substring(0, q));
+        if (base == null || base.getScheme() == null) return Uri.parse(raw);
+        return base.buildUpon().encodedQuery(raw.substring(q + 1)).build();
     }
 
     @ActivityCallback

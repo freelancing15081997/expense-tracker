@@ -7,6 +7,7 @@ import {
   buildAppUpiUri,
   buildUpiPayUri,
   hasUpiMerchantSign,
+  phonepeRejectsExternalPay,
   toAppSchemeUri,
   toNpciPayUri,
   canStartPayment,
@@ -42,6 +43,9 @@ assert.match(buildAppSchemeUpiUri('gpay', { pa: 'aa@upi', pn: 'A', am: '10.00' }
 assert.match(buildAppUpiUri('paytm', { pa: 'aa@upi', pn: 'A', am: '10.00' }), /^upi:\/\/pay\?/);
 const signedRaw = 'upi://pay?pa=shop@ybl&pn=Cafe&mc=5411&mode=04&sign=abc&am=1.00';
 assert.equal(hasUpiMerchantSign(signedRaw), true);
+assert.equal(phonepeRejectsExternalPay(signedRaw), true);
+assert.equal(phonepeRejectsExternalPay('upi://pay?pa=shop@ybl&pn=Cafe&mc=5411'), true);
+assert.equal(phonepeRejectsExternalPay('upi://pay?pa=friend@oksbi&pn=A&am=10.00'), false);
 const signedPass = toNpciPayUri(signedRaw, { pa: 'shop@ybl', pn: 'Cafe', am: '1.00' });
 assert.equal(signedPass, signedRaw);
 assert.match(toAppSchemeUri(signedPass || '', 'phonepe'), /^phonepe:\/\/pay\?pa=shop@ybl&pn=Cafe&mc=5411&mode=04&sign=abc&am=1\.00$/);

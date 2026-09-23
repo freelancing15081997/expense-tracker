@@ -17,6 +17,8 @@ import {
   launchUpiUri,
   parseUpiQr,
   hasUpiMerchantSign,
+  openUpiApp,
+  phonepeRejectsExternalPay,
   toAppSchemeUri,
   toNpciPayUri,
   type UpiAppId,
@@ -28,7 +30,7 @@ import { UpiBrandMark } from './UpiBrandMark';
 import './split-premium.css';
 
 type Book = { id: string; name: string; currency?: string; categories?: string[] };
-type Phase = 'scan' | 'details' | 'waiting' | 'unclear' | 'failed' | 'recorded';
+type Phase = 'scan' | 'details' | 'waiting' | 'phonepe-shop' | 'unclear' | 'failed' | 'recorded';
 
 type Props = {
   open: boolean;
@@ -434,6 +436,18 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
     const amt = Number(amount || 0);
     if (!(amt > 0)) { onToast('Enter the amount to pay', 'error'); return; }
     if (qr.am && Number(qr.am) !== amt) { onToast('This QR has a fixed amount', 'error'); setAmount(qr.am); return; }
+    if (app === 'phonepe' && phonepeRejectsExternalPay(qr.raw)) {
+      setLastApp(app);
+      setPhase('phonepe-shop');
+      setStatusMsg('');
+      beginPaymentFlight();
+      try {
+        await openUpiApp(UPI_APP_PACKAGES.phonepe || '');
+      } finally {
+        endPaymentFlight();
+      }
+      return;
+    }
     setBusy(true);
     setLastApp(app);
     setStatusMsg('');
@@ -515,7 +529,7 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
           <div>
             <p className="sp-kicker">{phase === 'scan' ? 'Pay someone' : phase === 'recorded' ? 'Done' : 'Pay by UPI'}</p>
             <h2 className="sp-title">
-              {phase === 'scan' ? 'Pay a UPI QR' : phase === 'recorded' ? 'Paid & recorded' : phase === 'failed' ? 'Payment did not go through' : phase === 'unclear' ? 'Did the payment go through?' : phase === 'waiting' ? 'Waiting for your UPI app…' : `Pay ${qr?.pn || qr?.pa || ''}`}
+              {phase === 'scan' ? 'Pay a UPI QR' : phase === 'recorded' ? 'Paid & recorded' : phase === 'failed' ? 'Payment did not go through' : phase === 'unclear' ? 'Did the payment go through?' : phase === 'phonepe-shop' ? 'Pay this shop in PhonePe' : phase === 'waiting' ? 'Waiting for your UPI app…' : `Pay ${qr?.pn || qr?.pa || ''}`}
             </h2>
             {phase === 'scan' ? <p className="uq-lead">Scan the code, upload a photo, or paste a UPI ID. You pay in your own UPI app.</p> : null}
           </div>
@@ -607,8 +621,8 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
               <label className="uq-field uq-note">
                 <input value={note} onChange={(e) => setNote(e.target.value)} placeholder={qr.tn || 'Note (optional) — chai, auto, rent'} maxLength={80} data-testid="upi-qr-note" aria-label="Note" />
               </label>
-              {hasUpiMerchantSign(qr.raw) ? (
-                <p className="uq-safe">Shop code opens as printed. PhonePe asks for a mobile number only when that signed code is rewritten.</p>
+              {phonepeRejectsExternalPay(qr.raw) ? (
+                <p className="uq-safe">PhonePe blocks shop codes sent from other apps. Use Google Pay or Paytm here, or scan the printed QR inside PhonePe.</p>
               ) : null}
               <button type="button" className="uq-more" aria-expanded={morePay} onClick={() => setMorePay((v) => !v)}>
                 {morePay ? 'Hide book' : `Saving in ${book?.name || 'your book'}`}
@@ -655,6 +669,27 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
               <Loader2 className="w-8 h-8 animate-spin" />
               <p className="uq-state-title">Complete the payment in your UPI app</p>
               <p className="uq-state-sub">Stay in your UPI app until it shows success. When you return, we read the result — we never guess.</p>
+            </div>
+          ) : null}
+
+          {phase === 'phonepe-shop' && qr ? (
+            <div className="uq-state is-unclear" role="status">
+              <ShieldCheck className="w-8 h-8" />
+              <p className="uq-state-title">PhonePe will not take this shop code from Byjan</p>
+              <p className="uq-state-sub">
+                PhonePe treats shop QRs sent by other apps as untrusted and shows “declined for security reasons”. In PhonePe tap Scan and point at the same printed QR{qr.am ? ` for ${symbol}${Number(qr.am).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : amount ? ` for ${symbol}${Number(amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : ''}. Google Pay and Paytm can still pay from here.
+              </p>
+              <div className="sp-footer">
+                <button type="button" className="sp-cta" disabled={busy} onClick={() => { beginPaymentFlight(); void openUpiApp(UPI_APP_PACKAGES.phonepe || '').finally(() => endPaymentFlight()); }}>
+                  Open PhonePe
+                </button>
+                <button type="button" className="sp-select-all" disabled={busy} onClick={() => void pay('gpay')}>Pay with Google Pay</button>
+                <button type="button" className="sp-select-all" disabled={busy} onClick={() => void pay('paytm')}>Pay with Paytm</button>
+                <button type="button" className="sp-cta" disabled={busy} data-testid="upi-qr-record-phonepe" onClick={() => void recordEntry('unverified')}>
+                  {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} I paid — record it
+                </button>
+                <button type="button" className="sp-select-all" disabled={busy} onClick={() => setPhase('details')}>Choose another app</button>
+              </div>
             </div>
           ) : null}
 

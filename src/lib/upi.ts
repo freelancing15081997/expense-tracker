@@ -194,6 +194,27 @@ export function hasUpiMerchantSign(raw: string) {
   }
 }
 
+/**
+ * PhonePe declines shop / signed merchant QRs that arrive via another app's pay
+ * intent ("security reasons" / "use mobile number"). Scanning the same printed
+ * code inside PhonePe is trusted. Person-to-person VPAs still use the intent.
+ */
+export function phonepeRejectsExternalPay(raw: string) {
+  if (hasUpiMerchantSign(raw)) return true;
+  const q = upiQueryOf(raw);
+  if (!q) return false;
+  try {
+    const p = new URLSearchParams(q.replace(/\+/g, '%20'));
+    if (p.get('mc')?.trim()) return true;
+    const mode = String(p.get('mode') || '').trim();
+    if (mode === '02' || mode === '04' || mode === '05') return true;
+    if (p.get('orgid')?.trim()) return true;
+  } catch {
+    return /(?:^|&)(mc|orgid|sign)=/i.test(q);
+  }
+  return false;
+}
+
 /** Swap only the scheme so a retry can target PhonePe/GPay without rebuilding the query. */
 export function toAppSchemeUri(uri: string, app: UpiAppId) {
   const q = String(uri || '').includes('?') ? String(uri).slice(String(uri).indexOf('?')) : '';
@@ -343,6 +364,21 @@ export async function launchUpiUri(uri: string): Promise<{ opened: boolean; erro
     return { opened: true };
   } catch (err) {
     return { opened: false, error: err instanceof Error ? err.message : 'Could not open UPI app' };
+  }
+}
+
+/** Open a UPI app's home screen without a pay intent (PhonePe shop-QR path). */
+export async function openUpiApp(packageName: string): Promise<boolean> {
+  try {
+    const { Capacitor, registerPlugin } = await import('@capacitor/core');
+    if (!Capacitor.isNativePlatform()) return false;
+    const UpiPay = registerPlugin<{
+      openApp: (opts: { packageName: string }) => Promise<{ ok?: boolean }>;
+    }>('UpiPay');
+    const res = await UpiPay.openApp({ packageName });
+    return Boolean(res?.ok);
+  } catch {
+    return false;
   }
 }
 
