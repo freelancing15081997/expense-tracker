@@ -2,6 +2,23 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { postgresUrl, cleanPath, ledgerGet, ledgerSet, ledgerInsertIfNew, ledgerList, ledgerLiveExpenseByHash, ledgerResolveInboundSlug, ledgerSaveExpense } from '../_pg-tables.js';
 import { mailFromAddress } from '../_lib/smtp-mail.js';
+import { extractMoneyAmount, reconcileVisionAmount } from '../_lib/amount-parse.js';
+import {
+  type ParsedReceipt,
+  clipQuoted,
+  stripHtml,
+  cleanSubject,
+  parseAmount,
+  paymentMethodFrom,
+  paidForFrom,
+  composeNotes,
+  summarizeEmailIntent,
+  parseReceiptFields,
+  toNumber,
+  parseIsoDate,
+} from '../_lib/receipt-fields.js';
+
+export { parseAmount, parseReceiptFields, summarizeEmailIntent };
 
 const R2_REGION = 'auto';
 const R2_SERVICE = 's3';
@@ -219,280 +236,6 @@ function parseBookIdLocal(local: string) {
   return match ? match[1] : '';
 }
 
-type ParsedReceipt = {
-  amount: number;
-  date: string;
-  merchant: string;
-  description: string;
-  category: string;
-  entryType: 'in' | 'out';
-  documentType: 'receipt' | 'bill' | 'invoice';
-  parseSource: 'text' | 'image' | 'mixed' | 'ocr' | 'ai';
-  taxAmount?: number;
-  currency?: string;
-  invoiceNumber?: string;
-  paymentMethod?: string;
-  notes?: string;
-  /** Where the money came from (UPI / bank / cash / named account). */
-  fundSource?: string;
-  /** Free-text amount adjustments or splits mentioned in the email. */
-  adjustments?: string;
-};
-
-const CATEGORY_RULES: Array<{ category: string; pattern: RegExp }> = [
-  { category: 'Fuel', pattern: /\b(petrol|diesel|fuel|cng|hpcl|iocl|bpcl|nayara|indian oil|bharat petroleum|hindustan petroleum|shell|indianOil|pump)\b/i },
-  { category: 'Groceries', pattern: /\b(grocery|groceries|supermarket|dmart|d-mart|big bazaar|reliance fresh|more supermarket|foodgrain)\b/i },
-  { category: 'Meals', pattern: /\b(restaurant|cafe|swiggy|zomato|dining|meal|food|lunch|dinner|breakfast)\b/i },
-  { category: 'Travel', pattern: /\b(uber|ola|rapido|irctc|flight|airline|hotel|metro|taxi|cab|toll|parking)\b/i },
-  { category: 'Utilities', pattern: /\b(electricity|water bill|gas bill|broadband|wifi|internet|rent|maintenance)\b/i },
-  { category: 'Health', pattern: /\b(hospital|pharmacy|medicine|clinic|apollo|diagnostic)\b/i },
-  { category: 'Shopping', pattern: /\b(amazon|flipkart|myntra|ajio|store|mall)\b/i },
-  { category: 'Software Subscriptions', pattern: /\b(subscription|saas|aws|github|google workspace|microsoft 365)\b/i },
-];
-
-function toNumber(raw: string) {
-  const amount = Number(String(raw || '').replace(/,/g, ''));
-  return Number.isFinite(amount) && amount > 0 && amount < 100_000_000 ? amount : 0;
-}
-
-function parseIsoDate(value: string) {
-  const raw = String(value || '').trim();
-  const iso = raw.match(/\b(20\d{2})-(\d{2})-(\d{2})\b/);
-  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
-  const dmy = raw.match(/\b(\d{1,2})[/-](\d{1,2})[/-](20\d{2})\b/);
-  if (dmy) {
-    const day = dmy[1].padStart(2, '0');
-    const month = dmy[2].padStart(2, '0');
-    if (Number(month) <= 12) return `${dmy[3]}-${month}-${day}`;
-  }
-  const named = raw.match(/\b(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?,?\s+(20\d{2})\b/i);
-  if (named) {
-    const months: Record<string, string> = { jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06', jul: '07', aug: '08', sep: '09', sept: '09', oct: '10', nov: '11', dec: '12' };
-    const month = months[named[2].toLowerCase().slice(0, 4)] || months[named[2].toLowerCase().slice(0, 3)];
-    if (month) return `${named[3]}-${month}-${named[1].padStart(2, '0')}`;
-  }
-  return '';
-}
-
-function clipQuoted(text: string) {
-  const cut = String(text || '')
-    .replace(/\r/g, '')
-    .split(/\nOn .+wrote:|\nFrom: .+(\nSent:)?|\n-{2,}\s*Original Message\s*-{2,}|\n-- \n/i)[0];
-  return cut.replace(/\s+/g, ' ').trim().slice(0, 8000);
-}
-
-function stripHtml(value: string) {
-  return String(value || '').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&');
-}
-
-function cleanSubject(subject: string) {
-  return String(subject || '').replace(/^(fwd:|fw:|re:)\s*/ig, '').replace(/\.(jpg|jpeg|png|webp|pdf)$/i, '').trim();
-}
-
-function parseAmount(text: string) {
-  const hay = String(text || '')
-    .replace(/[|]/g, ' ')
-    .replace(/\b(totai|tota1|tota!)\b/gi, 'total')
-    .replace(/\b(arnount|arnout|arnunt)\b/gi, 'amount');
-  const labeled = hay.match(/(?:grand\s*total|net\s*(?:payable|amount|total)|amount\s*(?:paid|due)?|total\s*amount|total|paid(?:\s+for)?)\s*[:\-–]?\s*(?:₹|rs\.?|inr|usd|eur|gbp|\$)?\s*([0-9]{1,3}(?:[,\s][0-9]{2,3})+(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)/i);
-  if (labeled) {
-    const amount = toNumber(labeled[1].replace(/\s/g, ''));
-    if (amount) return amount;
-  }
-  // "amount 1800" / "amt: 1,200" without currency marker
-  const bareAmount = hay.match(/\b(?:amount|amt|total|paid)\s*[:\-–]?\s*([0-9]{1,3}(?:,[0-9]{2,3})+(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)\b/i);
-  if (bareAmount) {
-    const amount = toNumber(bareAmount[1].replace(/\s/g, ''));
-    if (amount) return amount;
-  }
-  const currency = hay.match(/(?:₹|rs\.?\s*|inr\s*)([0-9]{1,3}(?:[,\s][0-9]{2,3})+(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)/i)
-    || hay.match(/\$\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)/);
-  if (currency) {
-    const amount = toNumber(currency[1].replace(/\s/g, ''));
-    if (amount) return amount;
-  }
-  return 0;
-}
-
-export { parseAmount };
-
-function categoryFromText(text: string) {
-  const hay = String(text || '');
-  for (const rule of CATEGORY_RULES) {
-    if (rule.pattern.test(hay)) return rule.category;
-  }
-  return 'Uncategorized';
-}
-
-function merchantFrom(text: string) {
-  const hay = String(text || '');
-  const match =
-    hay.match(/paid to\s+([^\n,]+)/i) ||
-    hay.match(/merchant(?:\s*name)?\s*[:\-]\s*([^\n]+)/i) ||
-    hay.match(/billed by\s*[:\-]?\s*([^\n]+)/i) ||
-    hay.match(/vendor\s*[:\-]\s*([^\n]+)/i) ||
-    hay.match(/sold by\s*[:\-]\s*([^\n]+)/i);
-  const labeled = String(match?.[1] || '').replace(/\s+/g, ' ').trim();
-  if (labeled) return labeled.slice(0, 80);
-  const first = hay
-    .split(/\n/)
-    .map((line) => line.trim())
-    .find((line) => line.length >= 3 && line.length <= 80 && !/^(date|amount|total|volume|qty|invoice|receipt|bill|fwd:|fw:|re:)/i.test(line));
-  return String(first || '').slice(0, 80);
-}
-
-function entryTypeFrom(text: string) {
-  const hay = String(text || '');
-  // Returns / refunds / money-back → money in (even when a receipt image is attached).
-  if (/\b(return(?:ed|ing)?|refund(?:ed|s)?|money\s*back|cash\s*back|credited|received|money\s*in|incoming|reimbursed|reimbursement\s*received)\b/i.test(hay)) {
-    // "return to vendor" / "return purchase" with payment is still out unless clearly refunded.
-    if (/\b(return(?:ed|ing)?\s+to\s+(?:vendor|supplier)|returned\s+purchase\s+without\s+refund)\b/i.test(hay)) {
-      return 'out' as const;
-    }
-    return 'in' as const;
-  }
-  return 'out' as const;
-}
-
-function documentTypeFrom(text: string) {
-  if (/\binvoice\b/i.test(text)) return 'invoice' as const;
-  if (/\bbill\b/i.test(text)) return 'bill' as const;
-  return 'receipt' as const;
-}
-
-function paymentMethodFrom(text: string) {
-  const hay = String(text || '');
-  if (/\b(upi|gpay|google\s*pay|phonepe|paytm|bhim)\b/i.test(hay)) return 'upi';
-  if (/\b(card|visa|mastercard|rupay|debit\s*card|credit\s*card)\b/i.test(hay)) return 'card';
-  if (/\b(wallet|amazon\s*pay|mobikwik)\b/i.test(hay)) return 'wallet';
-  if (/\b(neft|rtgs|imps|bank\s*transfer|net\s*banking|from\s+(?:my\s+)?(?:hdfc|icici|sbi|axis|kotak|yes\s*bank)|account)\b/i.test(hay)) return 'bank';
-  if (/\bcash\b/i.test(hay)) return 'cash';
-  return '';
-}
-
-function fundSourceFrom(text: string) {
-  const hay = String(text || '');
-  const labeled =
-    hay.match(/(?:paid\s+from|from\s+(?:my\s+)?(?:account|a\/c|wallet)|amount\s+from|money\s+from|via|using)\s*[:\-–]?\s*([^\n.,;]{2,80})/i) ||
-    hay.match(/\bfrom\s+((?:hdfc|icici|sbi|axis|kotak|yes\s*bank|upi|gpay|phonepe|paytm|cash|card)[^\n.,;]{0,60})/i);
-  const raw = String(labeled?.[1] || '').replace(/\s+/g, ' ').trim();
-  return raw.slice(0, 80);
-}
-
-function paidForFrom(text: string) {
-  const hay = String(text || '').replace(/\s+/g, ' ').trim();
-  const patterns = [
-    /(?:paid\s+for|payment\s+for|expense\s+for|spent\s+on|bought|purchase(?:d)?\s+for|towards|regarding|for)\s*[:\-–]?\s*([^\n.!?]{3,120})/i,
-    /(?:this\s+is\s+for|description)\s*[:\-–]?\s*([^\n.!?]{3,120})/i,
-    /(?:return(?:ed)?|refund(?:ed)?)\s+(?:for|of|against)\s*[:\-–]?\s*([^\n.!?]{3,120})/i,
-  ];
-  for (const pattern of patterns) {
-    const match = hay.match(pattern);
-    const value = String(match?.[1] || '')
-      .replace(/\b(?:rs\.?|inr|₹)?\s*[0-9][0-9,]*(?:\.[0-9]+)?\b/gi, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .replace(/[.,;:\-–]+$/, '');
-    if (value.length >= 3 && !/^(the|a|an|this|that|from|with|and)$/i.test(value)) {
-      return value.slice(0, 140);
-    }
-  }
-  return '';
-}
-
-function adjustmentsFrom(text: string) {
-  const hay = String(text || '');
-  const chunks: string[] = [];
-  const patterns = [
-    /(?:adjust(?:ment)?|allocate|split|of\s+which|out\s+of\s+this|please\s+adjust|mark\s+[0-9].{0,40}as)\s*[:\-–]?\s*([^\n]{5,200})/gi,
-    /([0-9][0-9,]*(?:\.[0-9]+)?\s*(?:is|for)\s+(?:personal|office|client|other|reimbursable)[^\n]{0,80})/gi,
-  ];
-  for (const pattern of patterns) {
-    let match: RegExpExecArray | null;
-    while ((match = pattern.exec(hay))) {
-      const piece = String(match[0] || '').replace(/\s+/g, ' ').trim();
-      if (piece.length >= 5) chunks.push(piece.slice(0, 200));
-    }
-  }
-  return [...new Set(chunks)].slice(0, 4).join(' · ').slice(0, 400);
-}
-
-function composeNotes(parts: Array<string | undefined | null>) {
-  return [...new Set(parts.map((row) => String(row || '').trim()).filter(Boolean))].join('\n').slice(0, 800);
-}
-
-/**
- * Fast, deterministic summary of the sender's email intent (no model call).
- * Captures what was paid for, where funds came from, returns, and adjustments.
- */
-export function summarizeEmailIntent(body: string, subject = ''): ParsedReceipt {
-  const cleanBody = clipQuoted(body);
-  const subjectClean = cleanSubject(subject);
-  const hay = `${subjectClean}\n${cleanBody}`;
-  const paidFor = paidForFrom(hay);
-  const fundSource = fundSourceFrom(hay);
-  const adjustments = adjustmentsFrom(hay);
-  const merchant = merchantFrom(cleanBody) || merchantFrom(subjectClean);
-  const paymentMethod = paymentMethodFrom(hay) || paymentMethodFrom(fundSource);
-  const amount = parseAmount(hay);
-  const date = parseIsoDate(hay) || new Date().toISOString().split('T')[0];
-  const category = categoryFromText(hay);
-  const entryType = entryTypeFrom(hay);
-  const description = (paidFor || subjectClean || merchant || 'Inbound email')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 140);
-  const notes = composeNotes([
-    fundSource ? `Paid from: ${fundSource}` : '',
-    adjustments ? `Adjustment: ${adjustments}` : '',
-  ]);
-  return {
-    amount,
-    date,
-    merchant,
-    description,
-    category,
-    entryType,
-    documentType: documentTypeFrom(hay),
-    parseSource: 'text',
-    paymentMethod: paymentMethod || undefined,
-    fundSource: fundSource || undefined,
-    adjustments: adjustments || undefined,
-    notes: notes || undefined,
-  };
-}
-
-export function parseReceiptFields(text: string, extras?: { subject?: string; fileName?: string }): ParsedReceipt {
-  const subject = cleanSubject(extras?.subject || '');
-  const fileName = String(extras?.fileName || '').replace(/[_-]+/g, ' ');
-  const intent = summarizeEmailIntent(text, subject);
-  const hay = `${subject}\n${fileName}\n${text}`;
-  const merchant = intent.merchant || merchantFrom(text) || merchantFrom(fileName);
-  const category = intent.category !== 'Uncategorized' ? intent.category : categoryFromText(hay);
-  const amount = intent.amount || parseAmount(hay);
-  const date = intent.date || parseIsoDate(hay) || new Date().toISOString().split('T')[0];
-  const fallback = subject || merchant || cleanSubject(fileName) || 'Inbound document';
-  const description = (intent.description && intent.description !== 'Inbound email'
-    ? intent.description
-    : [merchant, subject && subject.toLowerCase() !== merchant.toLowerCase() ? subject : '']
-        .filter(Boolean)
-        .join(' · ')
-        .slice(0, 140) || fallback.slice(0, 140));
-  return {
-    amount,
-    date,
-    merchant,
-    description,
-    category,
-    entryType: intent.entryType || entryTypeFrom(hay),
-    documentType: documentTypeFrom(hay),
-    parseSource: 'text',
-    paymentMethod: intent.paymentMethod || paymentMethodFrom(hay) || undefined,
-    fundSource: intent.fundSource,
-    adjustments: intent.adjustments,
-    notes: intent.notes,
-  };
-}
 
 function mimeForDocument(contentType: string, fileName = '') {
   const type = String(contentType || '').toLowerCase();
@@ -969,22 +712,17 @@ async function enrichFromDocument(
         if (!preview) preview = text.slice(0, 500);
         const merged = parseReceiptFields(`${subject}\n${body}\n${text}`, { subject, fileName });
         let amountBoost = merged;
-        try {
-          const { extractMoneyAmount } = await import('../_lib/amount-parse.js');
-          const hit = extractMoneyAmount(`${subject}\n${body}\n${text}`);
-          if (hit && hit.amount > 0 && (!merged.amount || hit.score >= 48)) {
-            amountBoost = {
-              ...merged,
-              amount: hit.amount,
-              merchant: hit.merchant || merged.merchant,
-              description: hit.description || merged.description,
-              paymentMethod: (hit.paymentMethod as ParsedReceipt['paymentMethod']) || merged.paymentMethod,
-              entryType: hit.entryType === 'in' ? 'in' : merged.entryType,
-              parseSource: 'ocr',
-            };
-          }
-        } catch {
-          /* optional */
+        const hit = extractMoneyAmount(`${subject}\n${body}\n${text}`);
+        if (hit && hit.amount > 0 && (!merged.amount || hit.score >= 48)) {
+          amountBoost = {
+            ...merged,
+            amount: hit.amount,
+            merchant: hit.merchant || merged.merchant,
+            description: hit.description || merged.description,
+            paymentMethod: (hit.paymentMethod as ParsedReceipt['paymentMethod']) || merged.paymentMethod,
+            entryType: hit.entryType === 'in' ? 'in' : merged.entryType,
+            parseSource: 'ocr',
+          };
         }
         if (amountBoost.amount > 0) {
           best = preferParsed({ ...amountBoost, parseSource: 'ocr' }, best);
@@ -998,7 +736,6 @@ async function enrichFromDocument(
 
   // Corroborate Gemini against ₹-labeled OCR/email text (masked UPI tails, etc.).
   try {
-    const { reconcileVisionAmount, extractMoneyAmount } = await import('../_lib/amount-parse.js');
     const hay = `${subject}\n${body}\n${preview || ''}`;
     const textParsed = extractMoneyAmount(hay);
     const fixed = reconcileVisionAmount(best.amount || 0, hay, textParsed);
@@ -1182,14 +919,32 @@ function matchMember(mailbox: Mailbox, fromEmail: string) {
   };
 }
 
-function fileExt(name: string, contentType: string) {
-  const fromName = String(name || '').split('.').pop()?.toLowerCase() || '';
-  if (['png', 'jpg', 'jpeg', 'webp', 'pdf'].includes(fromName)) return fromName === 'jpeg' ? 'jpg' : fromName;
-  if (contentType.includes('png')) return 'png';
-  if (contentType.includes('webp')) return 'webp';
-  if (contentType.includes('pdf')) return 'pdf';
-  if (contentType.includes('jpeg') || contentType.includes('jpg')) return 'jpg';
+function sniffExt(bytes: Buffer) {
+  if (!bytes?.length) return '';
+  if (bytes[0] === 0x25 && bytes[1] === 0x50) return 'pdf';
+  if (bytes[0] === 0xff && bytes[1] === 0xd8) return 'jpg';
+  if (bytes[0] === 0x89 && bytes[1] === 0x50) return 'png';
+  if (bytes.length >= 12 && bytes.slice(0, 4).toString('ascii') === 'RIFF' && bytes.slice(8, 12).toString('ascii') === 'WEBP') return 'webp';
   return '';
+}
+
+function fileExt(name: string, contentType: string, bytes?: Buffer | null) {
+  const fromName = String(name || '').split('.').pop()?.toLowerCase() || '';
+  if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'pdf', 'csv', 'txt', 'xlsx', 'xls', 'doc', 'docx', 'heic', 'heif', 'rtf'].includes(fromName)) {
+    if (fromName === 'jpeg') return 'jpg';
+    if (fromName === 'heif') return 'heic';
+    return fromName;
+  }
+  const type = String(contentType || '').toLowerCase();
+  if (type.includes('png')) return 'png';
+  if (type.includes('webp')) return 'webp';
+  if (type.includes('pdf')) return 'pdf';
+  if (type.includes('csv')) return 'csv';
+  if (type.includes('spreadsheet') || type.includes('excel')) return type.includes('ms-excel') ? 'xls' : 'xlsx';
+  if (type.includes('wordprocessingml') || type.includes('msword')) return type.includes('msword') && !type.includes('openxml') ? 'doc' : 'docx';
+  if (type.includes('heic') || type.includes('heif')) return 'heic';
+  if (type.includes('jpeg') || type.includes('jpg') || type.includes('gif')) return 'jpg';
+  return sniffExt(bytes || Buffer.alloc(0));
 }
 
 function attachmentBytes(attachment: Record<string, unknown>) {
@@ -1226,11 +981,8 @@ async function fetchAttachment(token: string) {
 
 async function storeReceipt(bookId: string, attachment: Record<string, unknown>) {
   const name = String(attachment.Name || attachment.filename || attachment.fileName || attachment.name || 'receipt');
-  const contentType = String(attachment.ContentType || attachment.contentType || attachment.type || 'application/octet-stream');
-  const ext = fileExt(name, contentType);
-  if (!ext) return null;
+  const contentType = String(attachment.ContentType || attachment.contentType || attachment.mimeType || attachment.type || 'application/octet-stream');
 
-  // Prefer inline bytes from Haraka (fast, no third-party download).
   let bytes = attachmentBytes(attachment);
   let resolvedType = contentType;
   if (!bytes) {
@@ -1241,13 +993,34 @@ async function storeReceipt(bookId: string, attachment: Record<string, unknown>)
     resolvedType = downloaded.contentType || contentType;
   }
 
+  const ext = fileExt(name, resolvedType, bytes);
+  if (!ext || !bytes?.length) return null;
+
   const id = newId();
   const path = `books/${bookId}/files/${id}.${ext}`;
-  await r2PutBytes(path, bytes, resolvedType || `image/${ext}`);
+  const storedType = resolvedType.includes('/') && !resolvedType.includes('octet-stream')
+    ? resolvedType
+    : ({
+        pdf: 'application/pdf',
+        png: 'image/png',
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        webp: 'image/webp',
+        gif: 'image/gif',
+        csv: 'text/csv',
+        txt: 'text/plain',
+        xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        xls: 'application/vnd.ms-excel',
+        doc: 'application/msword',
+        docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        heic: 'image/heic',
+        rtf: 'application/rtf',
+      } as Record<string, string>)[ext] || `application/octet-stream`;
+  await r2PutBytes(path, bytes, storedType);
   return {
     path,
     name: name.includes('.') ? name : `receipt.${ext}`,
-    contentType: resolvedType || `image/${ext}`,
+    contentType: storedType,
     bytes,
   };
 }

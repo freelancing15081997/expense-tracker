@@ -76,14 +76,26 @@ function isSupportedShareMime(mime: string, fileName = '', dataBase64 = '') {
     || m.includes('excel')
     || m === 'text/csv'
     || m === 'application/csv'
+    || m === 'text/plain'
+    || m.includes('msword')
+    || m.includes('wordprocessingml')
+    || m === 'application/rtf'
+    || m === 'text/rtf'
+    || m === 'application/octet-stream'
     || name.endsWith('.xlsx')
     || name.endsWith('.xls')
     || name.endsWith('.csv')
+    || name.endsWith('.doc')
+    || name.endsWith('.docx')
+    || name.endsWith('.txt')
+    || name.endsWith('.rtf')
+    || name.endsWith('.heic')
+    || name.endsWith('.heif')
   ) return true;
   return false;
 }
 
-/** Build a data URL for any supported shared file (image / PDF / Excel / CSV). */
+/** Build a data URL for any supported shared file (image / PDF / Office / CSV / text). */
 export function sharedFileDataUrl(payload: SharedPayload): string | null {
   if (!payload.dataBase64) return null;
   const mime = String(payload.mimeType || 'application/octet-stream').split(';')[0].trim();
@@ -96,10 +108,16 @@ export function sharedFileDataUrl(payload: SharedPayload): string | null {
     resolved = 'application/vnd.ms-excel';
   } else if (fileName.endsWith('.csv') && !mime.includes('csv')) {
     resolved = 'text/csv';
+  } else if (fileName.endsWith('.docx') && !mime.includes('wordprocessingml')) {
+    resolved = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  } else if (fileName.endsWith('.doc') && !mime.includes('msword')) {
+    resolved = 'application/msword';
   } else if (fileName.endsWith('.pdf') && mime !== 'application/pdf') {
     resolved = 'application/pdf';
   } else if (/^JVBER/i.test(String(payload.dataBase64 || '').slice(0, 16))) {
     resolved = 'application/pdf';
+  } else if (fileName.endsWith('.heic') && !mime.startsWith('image/')) {
+    resolved = 'image/heic';
   }
   return `data:${resolved};base64,${payload.dataBase64}`;
 }

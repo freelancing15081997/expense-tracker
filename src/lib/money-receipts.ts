@@ -295,7 +295,8 @@ export async function uploadLedgerReceipt(bookId: string, file: {
   if (!file?.dataUrl && !file?.prepared) throw new Error('No receipt image to upload');
 
   const mime = String(file.mimeType || file.prepared?.mime || 'image/jpeg');
-  if (!mime.startsWith('image/') && !file.prepared) {
+  const looksHeic = /heic|heif/i.test(mime) || /\.hei[cf]$/i.test(String(file.fileName || ''));
+  if ((!mime.startsWith('image/') || looksHeic) && !file.prepared) {
     return uploadLedgerFile(bookId, file as { dataUrl: string; fileName?: string; mimeType?: string });
   }
 

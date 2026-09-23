@@ -20,6 +20,7 @@ import { ENTRY_PAY_METHODS } from './UpiBrandMark';
 import type { MoneyContextOption } from '../lib/money-flow';
 import { ContextSelector } from './money/MoneyUi';
 import { confirmMismatchGold, lookupLearnedParse, reportParseMismatch } from '../lib/parse-feedback';
+import { enrichPreviewFromText } from '../lib/receipt-fields';
 import './share-reading.css';
 
 export type ReceiptLaunch = {
@@ -173,11 +174,16 @@ async function parseReceiptNow(
     new Promise<null>((resolve) => { window.setTimeout(() => resolve(null), Math.max(0, ms)); }),
   ]);
 
-  const scrubPreview = (preview: CapturePreview): CapturePreview => ensurePreviewCategory({
-    ...preview,
-    reasons: [],
-    parseEngine: undefined,
-  } as CapturePreview);
+  const scrubPreview = (preview: CapturePreview): CapturePreview => {
+    const cleaned = ensurePreviewCategory({
+      ...preview,
+      reasons: [],
+      parseEngine: undefined,
+    } as CapturePreview);
+    return enrichPreviewFromText(cleaned, String(cleaned.raw || launch.text || ''), {
+      fileName: receiptName || launch.fileName,
+    });
+  };
 
   const safeProcess = async (input: Parameters<typeof processReceiptJob>[0]) => {
     try {
@@ -577,6 +583,19 @@ async function parseReceiptNow(
         receiptName: preview.receiptName || receiptName,
       });
     }
+
+    if (!preview.receiptPath && pendingUploadRef.current) {
+      const late = await withTimeout(pendingUploadRef.current, 4500);
+      if (late?.receiptPath) {
+        receiptPath = late.receiptPath || receiptPath;
+        receiptName = late.receiptName || receiptName;
+      }
+    }
+    preview = {
+      ...preview,
+      receiptPath: preview.receiptPath || receiptPath,
+      receiptName: preview.receiptName || receiptName,
+    };
 
     return withOcr({ preview, previews: [preview] });
   }
@@ -1650,6 +1669,25 @@ export default function ReceiptCaptureFlow({
                     />
                   </label>
                 ) : null}
+                {row.fundSource ? (
+                  <label className="sr-field-label">
+                    Paid from
+                    <input
+                      className="byjan-input mt-1"
+                      value={String(row.fundSource || '')}
+                      onChange={(e) => patchReviewRow(idx, { fundSource: e.target.value })}
+                    />
+                  </label>
+                ) : null}
+                <label className="sr-field-label">
+                  Notes
+                  <textarea
+                    className="byjan-input mt-1"
+                    rows={2}
+                    value={String(row.notes || '')}
+                    onChange={(e) => patchReviewRow(idx, { notes: e.target.value })}
+                  />
+                </label>
               </div>
               );
             })}

@@ -8,6 +8,7 @@ import { parsePpStructureText, needsPpStructure } from '../api/_lib/paddle-struc
 import { matchDuplicateExpenses } from '../src/lib/duplicate-match.ts';
 import { guessCategoryFromText, guessedMerchant } from '../src/lib/bridge-automations.ts';
 import { ensurePreviewCategory } from '../src/lib/money-capture.ts';
+import { parseReceiptFields, summarizeEmailIntent, enrichPreviewFromText } from '../src/lib/receipt-fields.ts';
 
 type Case = {
   id: string;
@@ -675,6 +676,52 @@ UTR 590641031504`;
   const drifted = extractMoneyAmount('Paid to APOLLO garbled 71000 PhonePe UTR 590641031504');
   assert(drifted?.amount === 164, `UTR learn replay ${drifted?.amount}`);
   setLearnedParseLookup(null);
+}
+
+{
+  const email = parseReceiptFields(
+    `Hi, paid ₹1,250 to HPCL pump for diesel on 12/09/2026 from HDFC UPI. Please mark 400 as personal.`,
+    { subject: 'Fuel receipt', fileName: 'hpcl.jpg' },
+  );
+  assert(email.amount === 1250, `email amount ${email.amount}`);
+  assert(email.category === 'Fuel', `email category ${email.category}`);
+  assert(/diesel/i.test(email.description), `email description ${email.description}`);
+  assert(email.paymentMethod === 'upi', `email pay ${email.paymentMethod}`);
+  assert(/hdfc/i.test(String(email.fundSource || '')), `email fund ${email.fundSource}`);
+  assert(/personal/i.test(String(email.adjustments || email.notes || '')), `email adjust ${email.adjustments}`);
+
+  const share = parseReceiptFields(
+    `Payment Successful\nPaid to Swiggy\n₹349.00\n26/09/2024 18:42\nUPI Ref No. 424242424242\nPhonePe\npaid for dinner`,
+    { fileName: 'phonepe-swiggy.jpg' },
+  );
+  assert(share.amount === 349, `share amount ${share.amount}`);
+  assert(share.category === 'Meals', `share category ${share.category}`);
+  assert(/swiggy/i.test(share.merchant) || /dinner/i.test(share.description), `share desc ${share.merchant} ${share.description}`);
+  assert(share.paymentMethod === 'upi', `share pay ${share.paymentMethod}`);
+
+  const refund = summarizeEmailIntent('Refund received ₹500 from Amazon for returned shoes', 'Refund Amazon');
+  assert(refund.entryType === 'in', `refund type ${refund.entryType}`);
+  assert(refund.amount === 500, `refund amount ${refund.amount}`);
+  assert(refund.category === 'Shopping', `refund category ${refund.category}`);
+
+  const preview = enrichPreviewFromText({
+    source: 'share',
+    direction: 'MONEY_OUT',
+    amountPaise: 0,
+    description: 'Shared receipt',
+    merchant: '',
+    category: 'Uncategorized',
+    paymentMethod: 'cash',
+    date: new Date().toISOString().slice(0, 10),
+    processingStatus: 'REVIEW_REQUIRED',
+    financialStatus: 'DRAFT',
+    confidence: 'low',
+    reasons: [],
+    raw: 'Paid to IndianOil Amount(Rs) : 590.00 Date:06/05/2026 Petrol from cash',
+  }, 'Paid to IndianOil Amount(Rs) : 590.00 Date:06/05/2026 Petrol from cash', { fileName: 'iocl.jpg' });
+  assert(preview.amountPaise === 59000, `preview paise ${preview.amountPaise}`);
+  assert(preview.category === 'Fuel', `preview cat ${preview.category}`);
+  assert(preview.paymentMethod === 'cash' || preview.paymentMethod === 'upi', `preview pay ${preview.paymentMethod}`);
 }
 
 console.log(`\n=== Result: ${passed} passed, ${failed} failed ===`);

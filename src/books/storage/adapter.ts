@@ -1,5 +1,5 @@
 const MAX_BYTES = 8 * 1024 * 1024;
-const ALLOWED = new Set(['pdf', 'png', 'jpg', 'jpeg', 'webp', 'csv', 'txt', 'xlsx']);
+const ALLOWED = new Set(['pdf', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'csv', 'txt', 'xlsx', 'xls', 'doc', 'docx', 'heic', 'heif', 'rtf']);
 
 const EXT_MIME: Record<string, string[]> = {
   pdf: ['application/pdf'],
@@ -7,9 +7,16 @@ const EXT_MIME: Record<string, string[]> = {
   jpg: ['image/jpeg'],
   jpeg: ['image/jpeg'],
   webp: ['image/webp'],
+  gif: ['image/gif'],
   csv: ['text/csv', 'application/vnd.ms-excel', 'text/plain'],
   txt: ['text/plain'],
-  xlsx: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+  xlsx: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/octet-stream'],
+  xls: ['application/vnd.ms-excel', 'application/octet-stream'],
+  doc: ['application/msword', 'application/octet-stream'],
+  docx: ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/octet-stream'],
+  heic: ['image/heic', 'image/heif', 'application/octet-stream'],
+  heif: ['image/heif', 'image/heic', 'application/octet-stream'],
+  rtf: ['application/rtf', 'text/rtf', 'text/plain'],
 };
 
 function safeId(value: string) {
@@ -22,7 +29,8 @@ export function inspectFile(file: File) {
   if (!ALLOWED.has(ext)) throw new Error(`File type .${ext || 'unknown'} is not allowed`);
   if (file.size <= 0 || file.size > MAX_BYTES) throw new Error('File must be between 1 byte and 8 MB');
   const declared = (file.type || '').toLowerCase();
-  if (declared && !EXT_MIME[ext].includes(declared)) {
+  const allowedTypes = EXT_MIME[ext] || [];
+  if (declared && declared !== 'application/octet-stream' && allowedTypes.length && !allowedTypes.includes(declared)) {
     throw new Error('File extension does not match its type');
   }
   return { name, ext, size: file.size, contentType: declared || EXT_MIME[ext][0] };

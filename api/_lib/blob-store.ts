@@ -3,16 +3,23 @@ import { applyCors, requireUser } from './helpers.js';
 import { r2Del, r2FileKey, r2PutBytes } from './r2.js';
 
 const MAX_BYTES = 8 * 1024 * 1024;
-const ALLOWED_EXT = new Set(['pdf', 'png', 'jpg', 'jpeg', 'webp', 'csv', 'txt', 'xlsx']);
+const ALLOWED_EXT = new Set(['pdf', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'csv', 'txt', 'xlsx', 'xls', 'doc', 'docx', 'heic', 'heif', 'rtf']);
 const ALLOWED_MIME: Record<string, string[]> = {
   pdf: ['application/pdf'],
   png: ['image/png'],
   jpg: ['image/jpeg'],
   jpeg: ['image/jpeg'],
   webp: ['image/webp'],
+  gif: ['image/gif'],
   csv: ['text/csv', 'application/vnd.ms-excel', 'text/plain'],
   txt: ['text/plain'],
-  xlsx: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+  xlsx: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/octet-stream'],
+  xls: ['application/vnd.ms-excel', 'application/octet-stream'],
+  doc: ['application/msword', 'application/octet-stream'],
+  docx: ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/octet-stream'],
+  heic: ['image/heic', 'image/heif', 'application/octet-stream'],
+  heif: ['image/heif', 'image/heic', 'application/octet-stream'],
+  rtf: ['application/rtf', 'text/rtf', 'text/plain'],
 };
 
 function header(headers: IncomingHttpHeaders, name: string) {
@@ -157,7 +164,13 @@ export async function handleBlobUploadRequest(
       sendJson(res, 400, { error: 'File type is not allowed' });
       return;
     }
-    if (contentType && !ALLOWED_MIME[ext].includes(contentType)) {
+    const allowedTypes = ALLOWED_MIME[ext] || [];
+    if (
+      contentType
+      && contentType !== 'application/octet-stream'
+      && allowedTypes.length
+      && !allowedTypes.includes(contentType)
+    ) {
       sendJson(res, 400, { error: 'File extension does not match its type' });
       return;
     }

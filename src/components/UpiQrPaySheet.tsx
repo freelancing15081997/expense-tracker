@@ -378,10 +378,14 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
   /** Creates exactly one entry per payment attempt (idempotency key = attempt id). */
   const recordEntry = async (outcome: 'success' | 'unverified', ref?: string) => {
     if (recordedOnce.current || !qr || !book || !currentUser) return;
+    const amt = Number(amount || 0);
+    if (!(amt > 0)) {
+      onToast('Enter the amount you paid in PhonePe, then save.', 'error');
+      return;
+    }
     recordedOnce.current = true;
     setBusy(true);
     try {
-      const amt = Number(amount || 0);
       const payee = qr.pn || qr.pa;
       const finalCategory = category || 'Other';
       const description = note.trim() || `Paid ${payee}`;
@@ -434,20 +438,16 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
   const pay = async (app: UpiAppId) => {
     if (!qr || !book) return;
     const amt = Number(amount || 0);
-    if (!(amt > 0)) { onToast('Enter the amount to pay', 'error'); return; }
-    if (qr.am && Number(qr.am) !== amt) { onToast('This QR has a fixed amount', 'error'); setAmount(qr.am); return; }
+    if (qr.am && amt > 0 && Number(qr.am) !== amt) { onToast('This QR has a fixed amount', 'error'); setAmount(qr.am); return; }
     if (app === 'phonepe' && phonepeRejectsExternalPay(qr.raw)) {
+      if (qr.am) setAmount(qr.am);
       setLastApp(app);
+      if (!attemptRef.current) attemptRef.current = newMoneyId('upiqr');
       setPhase('phonepe-shop');
       setStatusMsg('');
-      beginPaymentFlight();
-      try {
-        await openUpiApp(UPI_APP_PACKAGES.phonepe || '');
-      } finally {
-        endPaymentFlight();
-      }
       return;
     }
+    if (!(amt > 0)) { onToast('Enter the amount to pay', 'error'); return; }
     setBusy(true);
     setLastApp(app);
     setStatusMsg('');
@@ -616,13 +616,19 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
               <label className={`uq-amount${amountLocked ? ' is-locked' : ''}`}>
                 <span className="uq-amount-ccy">{symbol}</span>
                 <input type="number" inputMode="decimal" step="0.01" min="1" value={amount} readOnly={amountLocked} onChange={(e) => setAmount(e.target.value)} placeholder="0" aria-label="Amount" data-testid="upi-qr-amount" />
-                <span className="uq-amount-hint">{amountLocked ? 'Amount is on the QR' : 'Amount'}</span>
+                <span className="uq-amount-hint">
+                  {amountLocked
+                    ? 'Amount is on the QR — PhonePe will show it too'
+                    : phonepeRejectsExternalPay(qr.raw)
+                      ? 'For Google Pay / Paytm. Skip this for PhonePe — you type the amount there.'
+                      : 'Amount'}
+                </span>
               </label>
               <label className="uq-field uq-note">
                 <input value={note} onChange={(e) => setNote(e.target.value)} placeholder={qr.tn || 'Note (optional) — chai, auto, rent'} maxLength={80} data-testid="upi-qr-note" aria-label="Note" />
               </label>
               {phonepeRejectsExternalPay(qr.raw) ? (
-                <p className="uq-safe">PhonePe blocks shop codes sent from other apps. Use Google Pay or Paytm here, or scan the printed QR inside PhonePe.</p>
+                <p className="uq-safe">PhonePe cannot take this shop amount from Byjan. Scan the printed QR in PhonePe. Google Pay and Paytm still use the amount above.</p>
               ) : null}
               <button type="button" className="uq-more" aria-expanded={morePay} onClick={() => setMorePay((v) => !v)}>
                 {morePay ? 'Hide book' : `Saving in ${book?.name || 'your book'}`}
@@ -673,22 +679,36 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
           ) : null}
 
           {phase === 'phonepe-shop' && qr ? (
-            <div className="uq-state is-unclear" role="status">
-              <ShieldCheck className="w-8 h-8" />
-              <p className="uq-state-title">PhonePe will not take this shop code from Byjan</p>
+            <div className="uq-state" role="status">
+              <p className="uq-state-title">{amountLocked ? 'PhonePe already has the amount' : 'Type the amount only in PhonePe'}</p>
               <p className="uq-state-sub">
-                PhonePe treats shop QRs sent by other apps as untrusted and shows “declined for security reasons”. In PhonePe tap Scan and point at the same printed QR{qr.am ? ` for ${symbol}${Number(qr.am).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : amount ? ` for ${symbol}${Number(amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : ''}. Google Pay and Paytm can still pay from here.
+                {amountLocked
+                  ? `Scan the printed shop QR in PhonePe. It will show ${symbol}${Number(qr.am).toLocaleString('en-IN', { minimumFractionDigits: 2 })} — you do not type it again.`
+                  : 'Scan the printed shop QR in PhonePe and enter the amount there. When you come back, type that same amount below to save the book entry. We cannot send the amount into PhonePe.'}
               </p>
+              <dl className="uq-map" data-testid="upi-qr-phonepe-map">
+                <div><dt>Payee</dt><dd>{qr.pn || 'Shop'}</dd></div>
+                <div><dt>UPI ID</dt><dd>{qr.pa}</dd></div>
+                <div><dt>Note</dt><dd>{note.trim() || qr.tn || 'Paid ' + (qr.pn || qr.pa)}</dd></div>
+                <div><dt>Book</dt><dd>{book?.name || '—'}</dd></div>
+                <div><dt>Category</dt><dd>{category || 'Other'}</dd></div>
+                <div><dt>Added by</dt><dd>{userProfile?.displayName || currentUser?.email || 'You'}</dd></div>
+              </dl>
+              <label className={`uq-amount${amountLocked ? ' is-locked' : ''}`} style={{ width: '100%', textAlign: 'left' }}>
+                <span className="uq-amount-ccy">{symbol}</span>
+                <input type="number" inputMode="decimal" step="0.01" min="1" value={amount} readOnly={amountLocked} onChange={(e) => setAmount(e.target.value)} placeholder="0" aria-label="Amount paid in PhonePe" data-testid="upi-qr-phonepe-amount" />
+                <span className="uq-amount-hint">{amountLocked ? 'From the printed QR' : 'After PhonePe — amount you actually paid'}</span>
+              </label>
               <div className="sp-footer">
                 <button type="button" className="sp-cta" disabled={busy} onClick={() => { beginPaymentFlight(); void openUpiApp(UPI_APP_PACKAGES.phonepe || '').finally(() => endPaymentFlight()); }}>
-                  Open PhonePe
+                  Open PhonePe — scan the printed QR
                 </button>
-                <button type="button" className="sp-select-all" disabled={busy} onClick={() => void pay('gpay')}>Pay with Google Pay</button>
-                <button type="button" className="sp-select-all" disabled={busy} onClick={() => void pay('paytm')}>Pay with Paytm</button>
                 <button type="button" className="sp-cta" disabled={busy} data-testid="upi-qr-record-phonepe" onClick={() => void recordEntry('unverified')}>
-                  {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} I paid — record it
+                  {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} I paid — save this entry
                 </button>
-                <button type="button" className="sp-select-all" disabled={busy} onClick={() => setPhase('details')}>Choose another app</button>
+                <button type="button" className="sp-select-all" disabled={busy} onClick={() => void pay('gpay')}>Pay with Google Pay instead</button>
+                <button type="button" className="sp-select-all" disabled={busy} onClick={() => void pay('paytm')}>Pay with Paytm instead</button>
+                <button type="button" className="sp-select-all" disabled={busy} onClick={() => setPhase('details')}>Change book</button>
               </div>
             </div>
           ) : null}

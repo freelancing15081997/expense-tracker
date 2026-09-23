@@ -381,7 +381,7 @@ export class CapacitorService {
       const input = document.createElement('input');
       input.type = 'file';
       input.multiple = true;
-      input.accept = 'image/*,application/pdf,.pdf,.csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      input.accept = 'image/*,application/pdf,.pdf,.csv,.xlsx,.xls,.doc,.docx,.txt,.rtf,.gif,.heic,.heif,text/csv,text/plain,application/msword,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
       input.style.cssText = 'position:fixed;left:0;top:0;opacity:0;width:1px;height:1px;';
       const cleanup = () => { try { input.remove(); } catch { /* */ } };
       input.onchange = () => {

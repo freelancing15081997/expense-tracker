@@ -111,6 +111,8 @@ export type CapturePreview = {
   upiRef?: string;
   vpa?: string;
   notes?: string;
+  fundSource?: string;
+  adjustments?: string;
   receiptPath?: string;
   receiptName?: string;
   processingStatus: ProcessingStatus;

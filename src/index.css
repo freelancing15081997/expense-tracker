@@ -8738,6 +8738,19 @@ section[aria-label="To pay"] {
 .uq-state-title { margin: 4px 0 0; font-size: 16px; font-weight: 600; }
 .uq-state-sub { margin: 0; font-size: 13px; color: #64748b; max-width: 34ch; }
 .uq-state .sp-footer { width: 100%; margin-top: 12px; }
+.uq-map {
+  width: 100%;
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(11, 31, 58, 0.1);
+  background: #f6f8fb;
+  text-align: left;
+}
+.uq-map > div { display: grid; grid-template-columns: 7.5rem minmax(0, 1fr); gap: 8px; padding: 6px 0; border-top: 1px solid rgba(11, 31, 58, 0.06); }
+.uq-map > div:first-child { border-top: 0; padding-top: 2px; }
+.uq-map dt { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #94a3b8; }
+.uq-map dd { margin: 0; font-size: 13px; font-weight: 560; color: #0B1F3A; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) { .uq-laser { animation: none; top: 50%; } }
 
 /* Home quick actions: 5 pills incl. Pay (UPI QR) */

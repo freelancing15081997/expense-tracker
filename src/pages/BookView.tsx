@@ -60,6 +60,7 @@ import { roleLabel } from '../lib/plain-language';
 import { MONEY_KIND_OPTIONS, newMoneyId, readAccounts, readSettlements, readUserRules, toPaise, type TxType } from '../lib/money-core';
 import { buildEvidenceTrail, learnRuleFromCorrection } from '../lib/money-helpers';
 import { uploadLedgerReceipt } from '../lib/money-receipts';
+import { RECEIPT_FILE_ACCEPT } from '../lib/receipt-fields';
 import { buildEqualPersonSplits, formatSettlementLine, peopleFromBook, suggestSettlements } from '../lib/money-splits';
 import { enqueueOfflineExpense, flushOfflineQueue, isLikelyOfflineError, listOfflineQueue } from '../lib/money-offline';
 import { buildCapturePreview } from '../lib/money-capture';
@@ -294,6 +295,8 @@ export default function BookView() {
   const [splitTarget, setSplitTarget] = useState<{ id: string; amount: number; merchant?: string; description?: string } | null>(null);
   const [splitPickOpen, setSplitPickOpen] = useState(false);
   const [uploadingReceipt, setUploadingReceipt] = useState(false);
+  const receiptFileRef = useRef<HTMLInputElement | null>(null);
+  const attachBusyRef = useRef(false);
   const [offlineCount, setOfflineCount] = useState(0);
   const [typeFilter, setTypeFilter] = useState('all');
   const [personFilter, setPersonFilter] = useState('all');
@@ -1381,7 +1384,26 @@ export default function BookView() {
           const nextBook = await updateLedger(bookId, { userMoneyRules: map });
           setBook(nextBook);
         }
-        applyExpenseLocal(updated || { ...editingExpense, amount: Number(amount), description, category: finalCategory, entryType, txType, date: entryDate, merchant, paymentMethod, accountId, notes, reimbursable, billable, tags, personSplits, status: nextStatus });
+        applyExpenseLocal(updated || {
+          ...editingExpense,
+          amount: Number(amount),
+          description,
+          category: finalCategory,
+          entryType,
+          txType,
+          date: entryDate,
+          merchant,
+          paymentMethod,
+          accountId,
+          notes,
+          reimbursable,
+          billable,
+          tags,
+          personSplits,
+          status: nextStatus,
+          receiptPath: receiptMeta?.receiptPath || editingExpense.receiptPath,
+          receiptName: receiptMeta?.receiptName || editingExpense.receiptName,
+        });
         setIsExpenseModalOpen(false);
         addToast('Entry updated', 'success');
         persistLedgerCategory(finalCategory).catch(console.error);
@@ -1437,7 +1459,13 @@ export default function BookView() {
             throw err;
           }
         }
-        if (created) applyExpenseLocal(created);
+        if (created) {
+          applyExpenseLocal({
+            ...created,
+            receiptPath: created.receiptPath || receiptMeta?.receiptPath,
+            receiptName: created.receiptName || receiptMeta?.receiptName,
+          });
+        }
         if (receiptOcrText && Number(amount) > 0) {
           void confirmMismatchGold({
             id: mismatchIdRef.current,
@@ -1559,8 +1587,31 @@ export default function BookView() {
     },
   };
 
+  const attachReceiptFiles = async (files: FileList | File[] | null) => {
+    if (!bookId || !canWrite) return;
+    const list = Array.from(files || []).filter(Boolean);
+    if (!list.length) return;
+    attachBusyRef.current = true;
+    setUploadingReceipt(true);
+    try {
+      const file = list[0];
+      const { dataUrl, fileName, mimeType } = await CapacitorService.fileToDataUrl(file);
+      const uploaded = await uploadLedgerReceipt(bookId, { dataUrl, fileName, mimeType });
+      setReceiptMeta(uploaded);
+      addToast(list.length > 1 ? 'First file attached — one document per entry' : 'Document attached', 'success');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Could not attach document';
+      if (!/cancel/i.test(msg)) addToast(msg, 'error');
+    } finally {
+      attachBusyRef.current = false;
+      setUploadingReceipt(false);
+      if (receiptFileRef.current) receiptFileRef.current.value = '';
+    }
+  };
+
   const attachReceiptFromCamera = async (source: CameraSource = CameraSource.Prompt) => {
     if (!bookId || !canWrite) return;
+    attachBusyRef.current = true;
     setUploadingReceipt(true);
     try {
       await CapacitorService.requestCameraPermission();
@@ -1575,8 +1626,10 @@ export default function BookView() {
       setReceiptMeta(uploaded);
       addToast('Receipt attached', 'success');
     } catch (err) {
-      addToast(err instanceof Error ? err.message : 'Could not attach receipt', 'error');
+      const msg = err instanceof Error ? err.message : 'Could not attach receipt';
+      if (!/cancel/i.test(msg)) addToast(msg, 'error');
     } finally {
+      attachBusyRef.current = false;
       setUploadingReceipt(false);
     }
   };
@@ -3140,12 +3193,24 @@ export default function BookView() {
       </Dialog.Root>
 
       {/* Expense Edit/Add Modal */}
-      <Dialog.Root open={isExpenseModalOpen} onOpenChange={(next) => { if (!isSaving) setIsExpenseModalOpen(next); }}>
+      <Dialog.Root open={isExpenseModalOpen} onOpenChange={(next) => {
+        if (!next && (isSaving || uploadingReceipt || attachBusyRef.current)) return;
+        setIsExpenseModalOpen(next);
+      }}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 z-[170]" />
           <Dialog.Content
             className="record-sheet fixed z-[180] grid gap-3 p-4 max-h-[90vh] overflow-y-auto bg-white border border-slate-200 shadow-[0_28px_72px_-18px_rgba(30,45,120,0.42)]"
             onCloseAutoFocus={(event) => event.preventDefault()}
+            onPointerDownOutside={(event) => {
+              if (isSaving || uploadingReceipt || attachBusyRef.current) event.preventDefault();
+            }}
+            onInteractOutside={(event) => {
+              if (isSaving || uploadingReceipt || attachBusyRef.current) event.preventDefault();
+            }}
+            onFocusOutside={(event) => {
+              if (isSaving || uploadingReceipt || attachBusyRef.current) event.preventDefault();
+            }}
           >
             <div className="record-sheet-handle md:hidden" aria-hidden />
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
@@ -3363,9 +3428,36 @@ export default function BookView() {
                 )}
               </div>
               <div className="entry-more-bar">
-                <button type="button" className="byjan-btn-ghost !h-9 text-xs" disabled={uploadingReceipt} onClick={() => void attachReceiptFromCamera()}>
+                <input
+                  ref={receiptFileRef}
+                  type="file"
+                  accept={RECEIPT_FILE_ACCEPT}
+                  className="absolute w-px h-px overflow-hidden opacity-0 pointer-events-none"
+                  data-testid="entry-receipt-file"
+                  tabIndex={-1}
+                  onChange={(event) => { void attachReceiptFiles(event.target.files); }}
+                />
+                <button
+                  type="button"
+                  className="byjan-btn-ghost !h-9 text-xs"
+                  data-testid="entry-attach-receipt"
+                  disabled={uploadingReceipt}
+                  onClick={() => {
+                    attachBusyRef.current = true;
+                    window.setTimeout(() => { if (!uploadingReceipt) attachBusyRef.current = false; }, 12_000);
+                    receiptFileRef.current?.click();
+                  }}
+                >
                   {uploadingReceipt ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}
-                  {receiptMeta?.receiptPath ? 'Receipt attached' : 'Attach receipt'}
+                  {receiptMeta?.receiptPath ? (receiptMeta.receiptName || 'Document attached') : 'Attach document'}
+                </button>
+                <button
+                  type="button"
+                  className="byjan-btn-ghost !h-9 text-xs"
+                  disabled={uploadingReceipt}
+                  onClick={() => void attachReceiptFromCamera()}
+                >
+                  Camera
                 </button>
                 <button type="button" className="entry-more-toggle" data-testid="entry-more" aria-expanded={moreFields} onClick={() => setMoreFields((v) => !v)}>
                   {moreFields ? 'Fewer details' : 'More details'}
@@ -3447,7 +3539,7 @@ export default function BookView() {
                 <Dialog.Close asChild>
                   <button type="button" className="byjan-btn-ghost">Cancel</button>
                 </Dialog.Close>
-                <button type="submit" disabled={isSaving} className="byjan-btn" data-testid="entry-save">
+                <button type="submit" disabled={isSaving || uploadingReceipt} className="byjan-btn" data-testid="entry-save">
                   {isSaving && <span className="app-loader-ring app-loader-ring-sm" />}
                   {isSaving ? (editingExpense ? 'Saving…' : 'Adding…') : (editingExpense ? 'Save changes' : 'Add expense')}
                 </button>

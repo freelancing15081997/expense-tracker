@@ -30,6 +30,7 @@ import {
   startUpiPayment,
 } from './settlement-upi.js';
 import { extractMoneyAmount, learnKeysFromText, ocrFingerprint, reconcileVisionAmount } from './amount-parse.js';
+import { composeNotes, parseReceiptFields } from './receipt-fields.js';
 import { validateSplitPayload } from './split-validate.js';
 
 async function ensureMoneySchema() {
@@ -761,15 +762,19 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
             }
           : null),
       ) || structured?.amount || textParsed?.amount || 0;
+      const fieldParsed = parseReceiptFields(`${docText || text}\n${receiptName}`, { fileName: receiptName });
+      const amountFinal = amount || fieldParsed.amount || 0;
       const merchant = (
-        (amount > 0 && vision && vision.amount === amount ? vision.merchant : '')
+        (amountFinal > 0 && vision && vision.amount === amountFinal ? vision.merchant : '')
         || structured?.merchant
         || textParsed?.merchant
+        || fieldParsed.merchant
         || vision?.merchant
         || ''
       ).trim();
       const description = (
-        (amount > 0 && vision && vision.amount === amount ? vision.description : '')
+        (amountFinal > 0 && vision && vision.amount === amountFinal ? vision.description : '')
+        || fieldParsed.description
         || structured?.description
         || textParsed?.description
         || vision?.description
@@ -778,26 +783,30 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
         || 'Shared receipt'
       ).trim();
       const category = (
-        (vision?.category && vision.category !== 'Uncategorized' && vision.amount === amount ? vision.category : '')
+        (vision?.category && vision.category !== 'Uncategorized' && vision.amount === amountFinal ? vision.category : '')
         || (structured?.category && structured.category !== 'Uncategorized' ? structured.category : '')
         || (textParsed as { category?: string } | null)?.category
+        || (fieldParsed.category && fieldParsed.category !== 'Uncategorized' ? fieldParsed.category : '')
         || vision?.category
         || 'Uncategorized'
       );
       const paymentMethod = (
-        (amount > 0 && vision && vision.amount === amount ? vision.paymentMethod : '')
+        (amountFinal > 0 && vision && vision.amount === amountFinal ? vision.paymentMethod : '')
         || structured?.paymentMethod
+        || fieldParsed.paymentMethod
         || vision?.paymentMethod
         || textParsed?.paymentMethod
         || 'cash'
       );
-      const date = (vision?.date && /^\d{4}-\d{2}-\d{2}$/.test(vision.date) && vision.amount === amount ? vision.date : null)
+      const date = (vision?.date && /^\d{4}-\d{2}-\d{2}$/.test(vision.date) && vision.amount === amountFinal ? vision.date : null)
         || structured?.date
         || textParsed?.date
+        || fieldParsed.date
         || new Date().toISOString().slice(0, 10);
-      const entryType = (vision && vision.amount === amount ? vision.entryType : null)
+      const entryType = (vision && vision.amount === amountFinal ? vision.entryType : null)
         || structured?.entryType
         || textParsed?.entryType
+        || fieldParsed.entryType
         || 'out';
 
       push('receipt.classifying', 'CLASSIFYING');
@@ -809,20 +818,23 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
         id: idempotencyKey,
         source,
         direction: entryType === 'in' ? 'MONEY_IN' : entryType === 'transfer' ? 'TRANSFER' : 'MONEY_OUT',
-        amountPaise: Math.round(Number(amount || 0) * 100),
+        amountPaise: Math.round(Number(amountFinal || 0) * 100),
         description,
         merchant,
         category,
         paymentMethod,
         date,
+        fundSource: fieldParsed.fundSource || undefined,
+        adjustments: fieldParsed.adjustments || undefined,
+        notes: composeNotes([fieldParsed.notes]) || undefined,
         receiptPath: receiptPath || undefined,
         receiptName: receiptName || undefined,
         invoiceNumber: structured?.invoiceNumber || undefined,
         gstin: structured?.gstin || undefined,
         taxAmount: structured?.taxAmount || undefined,
-        processingStatus: amount > 0 ? 'READY' : 'REVIEW_REQUIRED',
+        processingStatus: amountFinal > 0 ? 'READY' : 'REVIEW_REQUIRED',
         financialStatus: 'DRAFT',
-        confidence: amount > 0
+        confidence: amountFinal > 0
           ? (structured?.confidence === 'high' || merchant ? 'high' : 'medium')
           : 'low',
         reasons,

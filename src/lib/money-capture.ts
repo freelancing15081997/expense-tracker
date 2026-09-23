@@ -170,6 +170,8 @@ export function capturePreviewToExpense(preview: CapturePreview, extras: Record<
     upiRef: ready.upiRef,
     vpa: ready.vpa,
     notes: ready.notes,
+    fundSource: ready.fundSource,
+    adjustments: ready.adjustments,
     captureId: ready.id,
     captureSource: ready.source,
     processingStatus: ready.processingStatus,

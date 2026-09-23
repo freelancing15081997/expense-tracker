@@ -10,7 +10,7 @@
     "api/migrate.ts": { "maxDuration": 60, "includeFiles": "api/_pg-tables.js" },
     "api/email/send.ts": { "maxDuration": 60 },
     "api/auth/otp.ts": { "maxDuration": 30, "includeFiles": "api/{_pg-tables.js,_lib/**}" },
-    "api/email/inbound.ts": { "maxDuration": 60, "includeFiles": "api/_pg-tables.js" },
+    "api/email/inbound.ts": { "maxDuration": 60, "includeFiles": "api/{_pg-tables.js,_lib/**}" },
     "api/blob/upload.ts": { "maxDuration": 30, "includeFiles": "api/{_pg-tables.js,_lib/**}" },
     "api/blob/delete.ts": { "maxDuration": 15, "includeFiles": "api/{_pg-tables.js,_lib/**}" },
     "api/blob/file.ts": { "maxDuration": 15, "includeFiles": "api/_lib/**" }

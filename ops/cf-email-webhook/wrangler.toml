@@ -3,6 +3,9 @@ main = "src/index.js"
 compatibility_date = "2025-09-01"
 account_id = "8e7d49dfafd69eee09c8ee39e9b18c0e"
 
+# Email Routing: keep *@in.easypado.com → this Worker enabled in the dashboard.
+# Deploying the Worker does not change that custom-address rule.
+
 # Secrets (set with wrangler secret put):
 #   WEBHOOK_URL      → https://www.easypado.com/api/email/inbound
 #   WEBHOOK_SECRET   → same as Vercel INBOUND_WEBHOOK_SECRET

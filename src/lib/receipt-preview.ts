@@ -14,7 +14,7 @@ export function sniffAttachmentKind(
   const pathHint = n.endsWith('.pdf') || /\.pdf$/i.test(n);
   const t = String(blobType || '').toLowerCase();
   if (pathHint || t.includes('pdf')) return 'pdf';
-  if (t.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp)$/i.test(n)) return 'image';
+  if (t.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|heic|heif)$/i.test(n)) return 'image';
   // JPEG magic
   if (u8.length >= 3 && u8[0] === 0xff && u8[1] === 0xd8 && u8[2] === 0xff) return 'image';
   // PNG magic
@@ -41,8 +41,8 @@ export function blobUrlForAttachment(
   return URL.createObjectURL(new Blob([bytes], { type: mime }));
 }
 
-/** Open PDF on native (Android WebView cannot render blob PDFs in iframe). */
-export async function openNativePdfPreview(blobUrl: string, fileName: string): Promise<boolean> {
+/** Open a stored attachment on native (WebView cannot render blob PDFs / Office files). */
+export async function openNativeFilePreview(blobUrl: string, fileName: string): Promise<boolean> {
   const { Capacitor } = await import('@capacitor/core');
   if (!Capacitor.isNativePlatform()) return false;
   try {
@@ -54,15 +54,20 @@ export async function openNativePdfPreview(blobUrl: string, fileName: string): P
       binary += String.fromCharCode(...buf.subarray(i, i + chunk));
     }
     const base64 = btoa(binary);
-    const safeName = String(fileName || 'receipt.pdf').replace(/[^\w.-]+/g, '_');
-    const path = `preview_${Date.now()}_${safeName.endsWith('.pdf') ? safeName : `${safeName}.pdf`}`;
+    const safeName = String(fileName || 'attachment').replace(/[^\w.-]+/g, '_');
+    const path = `preview_${Date.now()}_${safeName}`;
     const { Filesystem, Directory } = await import('@capacitor/filesystem');
     const { Share } = await import('@capacitor/share');
     await Filesystem.writeFile({ path, data: base64, directory: Directory.Cache });
     const uri = await Filesystem.getUri({ path, directory: Directory.Cache });
-    await Share.share({ title: fileName || 'PDF receipt', url: uri.uri, dialogTitle: 'Open PDF' });
+    await Share.share({ title: fileName || 'Attachment', url: uri.uri, dialogTitle: 'Open attachment' });
     return true;
   } catch {
     return false;
   }
+}
+
+/** @deprecated use openNativeFilePreview */
+export async function openNativePdfPreview(blobUrl: string, fileName: string): Promise<boolean> {
+  return openNativeFilePreview(blobUrl, fileName);
 }

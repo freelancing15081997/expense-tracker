@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Capacitor } from '@capacitor/core';
 import { X, Download, FileText, CheckCircle2, ExternalLink } from 'lucide-react';
-import { openNativePdfPreview } from '../lib/receipt-preview';
+import { openNativeFilePreview } from '../lib/receipt-preview';
 
 export type AttachmentKind = 'image' | 'pdf' | 'file';
 
@@ -79,7 +79,7 @@ export const ReceiptModal: React.FC<Props> = ({
     if (!imageUrl || openingNativePdf) return;
     setOpeningNativePdf(true);
     try {
-      const opened = await openNativePdfPreview(imageUrl, downloadName);
+      const opened = await openNativeFilePreview(imageUrl, downloadName);
       if (!opened && !isNative) handleDownload();
     } finally {
       setOpeningNativePdf(false);
@@ -197,11 +197,19 @@ export const ReceiptModal: React.FC<Props> = ({
           )}
           {kind === 'file' && imageUrl && !loading && (
             <div className="text-center space-y-3 py-8">
-              <p className="text-sm text-slate-600">This file cannot be previewed here.</p>
-              <button type="button" onClick={handleDownload} className="byjan-btn">
-                <Download className="w-4 h-4" />
-                Download {fileName || 'file'}
-              </button>
+              <FileText className="w-12 h-12 text-slate-400 mx-auto" />
+              <p className="text-sm text-slate-600">This file opens in your device viewer.</p>
+              {isNative ? (
+                <button type="button" onClick={() => void handleOpenPdf()} disabled={openingNativePdf} className="byjan-btn">
+                  <ExternalLink className="w-4 h-4" />
+                  {openingNativePdf ? 'Opening…' : `Open ${fileName || 'file'}`}
+                </button>
+              ) : (
+                <button type="button" onClick={handleDownload} className="byjan-btn">
+                  <Download className="w-4 h-4" />
+                  Download {fileName || 'file'}
+                </button>
+              )}
             </div>
           )}
         </div>
