@@ -59,27 +59,44 @@ export function extractReceiptDate(text: string): string {
   const raw = String(text || '');
   if (!raw.trim()) return todayIso();
 
-  const named = raw.match(/\b(\d{1,2})\s*([A-Za-z]{3,9})\.?\s*,?\s*(\d{4})\b/);
-  if (named) {
-    const iso = ymd(Number(named[3]), monthFromName(named[2]), Number(named[1]));
-    if (iso) return iso;
+  type Hit = { iso: string; score: number; idx: number };
+  const hits: Hit[] = [];
+  const push = (iso: string | null, score: number, idx: number) => {
+    if (!iso) return;
+    hits.push({ iso, score, idx });
+  };
+  const around = (idx: number) => raw.slice(Math.max(0, idx - 28), idx + 48);
+  const footerPenalty = (idx: number) => (/share\s+receipt|screenshot|battery|wifi|status\s+bar/i.test(around(idx)) ? 18 : 0);
+
+  for (const m of raw.matchAll(/\b(\d{1,2})\s*([A-Za-z]{3,9})\.?\s*,?\s*(\d{4})(?:\s*(?:at)?\s*\d{1,2}:\d{2})?/gi)) {
+    const iso = ymd(Number(m[3]), monthFromName(m[2]), Number(m[1]));
+    const labeled = /(?:paid\s+on|date|dated|on)\s*[:\-]?\s*$/i.test(raw.slice(Math.max(0, (m.index || 0) - 16), m.index || 0));
+    const timed = /\d{1,2}:\d{2}/.test(m[0]);
+    push(iso, (labeled ? 46 : timed ? 38 : 28) - footerPenalty(m.index || 0), m.index || 0);
   }
-  const namedRev = raw.match(/\b([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?\s*,?\s*(\d{4})\b/);
-  if (namedRev) {
-    const iso = ymd(Number(namedRev[3]), monthFromName(namedRev[1]), Number(namedRev[2]));
-    if (iso) return iso;
+  for (const m of raw.matchAll(/\b(\d{1,2})([A-Za-z]{3,9})[.,]?(\d{4})\b/g)) {
+    const iso = ymd(Number(m[3]), monthFromName(m[2]), Number(m[1]));
+    push(iso, 30 - footerPenalty(m.index || 0), m.index || 0);
   }
-  const labeled = raw.match(/\b(?:date|dated|on)\s*[:\-]?\s*(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})\b/i);
-  if (labeled) {
-    const iso = ymd(Number(labeled[3]), Number(labeled[2]), Number(labeled[1]));
-    if (iso) return iso;
+  for (const m of raw.matchAll(/\b([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?\s*,?\s*(\d{4})\b/g)) {
+    const iso = ymd(Number(m[3]), monthFromName(m[1]), Number(m[2]));
+    push(iso, 26 - footerPenalty(m.index || 0), m.index || 0);
   }
-  const dm = raw.match(/\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})\b/);
-  if (dm) {
-    const iso = ymd(Number(dm[3]), Number(dm[2]), Number(dm[1]));
-    if (iso) return iso;
+  for (const m of raw.matchAll(/\b(?:date|dated|paid\s+on|on)\s*[:\-]?\s*(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})\b/gi)) {
+    const iso = ymd(Number(m[3]), Number(m[2]), Number(m[1]));
+    push(iso, 44 - footerPenalty(m.index || 0), m.index || 0);
   }
-  return todayIso();
+  for (const m of raw.matchAll(/\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})\b/g)) {
+    const y = Number(m[3]);
+    const a = Number(m[1]);
+    const b = Number(m[2]);
+    const iso = a > 12 ? ymd(y, b, a) : b > 12 ? ymd(y, a, b) : ymd(y, b, a);
+    push(iso, 16 - footerPenalty(m.index || 0), m.index || 0);
+  }
+
+  if (!hits.length) return todayIso();
+  hits.sort((a, b) => b.score - a.score || a.idx - b.idx);
+  return hits[0].iso;
 }
 
 function toNum(raw: string) {
@@ -838,7 +855,6 @@ export function cleanMerchantName(raw: string): string {
   }
   // Cut at VPA / amount / debit chrome
   s = s.split(/@/)[0] || s;
-  s = s.split(/\./)[0] || s;
   s = s.replace(/\s*(?:₹|₨|rs\.?|inr|rupees?|rm|egp|npr|mmk|\$|€|£)\s*[\d,].*$/i, '');
   s = s.replace(/\s+(?:debited|credited|upi|phonepe|gpay|paytm|transaction|payment\s+details|message|utr|bill\s*amount|a\/c|paid|essay|product|receipt\w*|bank\w*|agreement\w*)\b.*$/i, '');
   s = s.replace(/\s+(?:rs\.?|inr)\s*\d.*$/i, '');

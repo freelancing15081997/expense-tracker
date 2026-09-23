@@ -65,7 +65,6 @@ public class UpiPayPlugin extends Plugin {
 
     @ActivityCallback
     private void upiPayResult(PluginCall call, ActivityResult result) {
-        if (call == null) return;
         JSObject out = new JSObject();
         int code = result.getResultCode();
         out.put("resultCode", code);
@@ -75,6 +74,7 @@ public class UpiPayPlugin extends Plugin {
         String txnRef = null;
         String approvalRef = null;
         String txnId = null;
+        boolean hasExtras = false;
         if (data != null) {
             status = firstExtra(data, "Status", "status", "STATUS");
             response = firstExtra(data, "responseCode", "ResponseCode", "response", "StatusCode");
@@ -82,15 +82,23 @@ public class UpiPayPlugin extends Plugin {
             approvalRef = firstExtra(data, "ApprovalRefNo", "approvalRefNo", "txnId", "TxnId");
             txnId = firstExtra(data, "txnId", "TxnId", "transactionId");
             Bundle extras = data.getExtras();
-            if (extras != null) {
+            if (extras != null && extras.size() > 0) {
+                hasExtras = true;
                 JSObject raw = new JSObject();
                 for (String key : extras.keySet()) {
                     Object val = extras.get(key);
                     if (val == null) continue;
                     String s = String.valueOf(val);
-                    // Never forward anything that looks like a PIN.
                     if (key.toLowerCase().contains("pin")) continue;
                     raw.put(key, s);
+                    if (s.contains("=") && (s.contains("&") || s.contains("Status") || s.contains("txnId"))) {
+                        applyBlob(s, out);
+                        if (status == null) status = pickFromBlob(s, "Status", "status", "STATUS");
+                        if (response == null) response = pickFromBlob(s, "responseCode", "ResponseCode", "StatusCode");
+                        if (txnRef == null) txnRef = pickFromBlob(s, "txnRef", "TxnRef", "tr");
+                        if (approvalRef == null) approvalRef = pickFromBlob(s, "ApprovalRefNo", "approvalRefNo");
+                        if (txnId == null) txnId = pickFromBlob(s, "txnId", "TxnId", "transactionId");
+                    }
                 }
                 out.put("raw", raw);
             }
@@ -101,10 +109,31 @@ public class UpiPayPlugin extends Plugin {
         if (approvalRef != null) out.put("approvalRefNo", approvalRef);
         if (txnId != null) out.put("txnId", txnId);
 
-        String outcome = classify(status, response, code, data != null);
+        String outcome = classify(status, response, code, hasExtras);
         out.put("outcome", outcome);
         out.put("ok", "success".equals(outcome));
-        call.resolve(out);
+        if (call != null) {
+            call.resolve(out);
+        }
+    }
+
+    private static void applyBlob(String blob, JSObject out) {
+        if (out.has("responseBlob")) return;
+        out.put("responseBlob", blob);
+    }
+
+    private static String pickFromBlob(String blob, String... keys) {
+        String[] parts = blob.split("&");
+        for (String part : parts) {
+            int eq = part.indexOf('=');
+            if (eq < 1) continue;
+            String k = part.substring(0, eq).trim();
+            String v = part.substring(eq + 1).trim();
+            for (String want : keys) {
+                if (want.equalsIgnoreCase(k) && !v.isEmpty()) return v;
+            }
+        }
+        return null;
     }
 
     private static String firstExtra(Intent data, String... keys) {
@@ -115,15 +144,18 @@ public class UpiPayPlugin extends Plugin {
         return null;
     }
 
-    private static String classify(String status, String responseCode, int resultCode, boolean hasData) {
+    private static String classify(String status, String responseCode, int resultCode, boolean hasExtras) {
         String s = status == null ? "" : status.trim().toUpperCase();
         String rc = responseCode == null ? "" : responseCode.trim().toUpperCase();
+        if (rc.contains("RESPONSECODE=00") || rc.contains("STATUS=SUCCESS")) return "success";
         if (s.contains("SUCCESS") || "00".equals(rc) || "0".equals(rc)) return "success";
         if (s.contains("FAIL") || s.contains("FAILURE") || "01".equals(rc)) return "failed";
         if (s.contains("SUBMIT")) return "submitted";
-        if (resultCode == Activity.RESULT_CANCELED && !hasData) return "cancelled";
         if (s.contains("CANCEL")) return "cancelled";
-        if (!hasData && resultCode != Activity.RESULT_OK) return "cancelled";
+        // PhonePe often returns RESULT_CANCELED with empty extras after a real debit.
+        // Treat that as unknown so the user can record the payment — never as a hard cancel.
+        if (resultCode == Activity.RESULT_CANCELED && !hasExtras) return "unknown";
+        if (!hasExtras && resultCode != Activity.RESULT_OK) return "unknown";
         return "unknown";
     }
 }

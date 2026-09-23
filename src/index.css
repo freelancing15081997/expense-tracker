@@ -8792,16 +8792,30 @@ section[aria-label="To pay"] {
 .home-feature-reel { height: min(34vw, 132px); width: min(50vw, 190px); opacity: 0.34; }
 
 /* Pay sheet: framed camera, upload and paste always on screen. */
-.uq-root { align-items: stretch; justify-content: flex-end; z-index: 260; }
+.uq-root { align-items: stretch; justify-content: flex-end; z-index: 260; --kb: 0px; }
 .uq-root .sp-sheet {
   width: 100%;
   max-width: none;
   height: auto;
-  max-height: 100dvh;
+  max-height: calc(100dvh - var(--kb, 0px));
   border-radius: 22px 22px 0 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.uq-root[data-phase="details"] .sp-sheet,
+.uq-root[data-phase="unclear"] .sp-sheet,
+.uq-root[data-phase="failed"] .sp-sheet,
+.uq-root[data-phase="waiting"] .sp-sheet {
+  height: min(92dvh, 100%);
+  max-height: calc(100dvh - var(--kb, 0px));
+}
+.uq-root[data-phase="details"] .sp-body {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: calc(28px + var(--kb, 0px));
+  overscroll-behavior: contain;
 }
 .uq-lead {
   margin: 4px 0 0;

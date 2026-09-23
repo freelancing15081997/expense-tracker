@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import {
   UPI_APP_PACKAGES,
   UPI_PAY_APPS,
+  buildAppSchemeUpiUri,
   buildAppUpiUri,
   buildUpiPayUri,
+  toNpciPayUri,
   canStartPayment,
   isValidVpa,
   normalizeVpa,
@@ -31,9 +33,16 @@ assert.match(uri, /am=100\.50/);
 assert.match(uri, /cu=INR/);
 
 const gpay = buildAppUpiUri('gpay', { pa: 'aa@upi', pn: 'A', am: '10.00' });
-assert.match(gpay, /^tez:\/\/upi\/pay\?/);
-assert.match(buildAppUpiUri('phonepe', { pa: 'aa@upi', pn: 'A', am: '10.00' }), /^phonepe:\/\/pay\?/);
-assert.match(buildAppUpiUri('paytm', { pa: 'aa@upi', pn: 'A', am: '10.00' }), /^paytmmp:\/\/pay\?/);
+assert.match(gpay, /^upi:\/\/pay\?/);
+assert.match(buildAppUpiUri('phonepe', { pa: 'aa@upi', pn: 'A', am: '10.00' }), /^upi:\/\/pay\?/);
+assert.match(buildAppSchemeUpiUri('phonepe', { pa: 'aa@upi', pn: 'A', am: '10.00' }), /^phonepe:\/\/pay\?/);
+assert.match(buildAppSchemeUpiUri('gpay', { pa: 'aa@upi', pn: 'A', am: '10.00' }), /^tez:\/\/upi\/pay\?/);
+assert.match(buildAppUpiUri('paytm', { pa: 'aa@upi', pn: 'A', am: '10.00' }), /^upi:\/\/pay\?/);
+const signed = toNpciPayUri('upi://pay?pa=shop@ybl&pn=Cafe&mc=5411&mode=04&sign=abc&am=1.00', { am: '50.00', tn: 'chai' });
+assert.match(String(signed), /^upi:\/\/pay\?/);
+assert.match(String(signed), /mc=5411/);
+assert.match(String(signed), /am=50\.00/);
+assert.match(String(signed), /tn=chai/);
 assert.match(buildAppUpiUri('cred', { pa: 'aa@upi', pn: 'A', am: '10.00' }), /^upi:\/\/pay\?/);
 assert.match(buildAppUpiUri('whatsapp', { pa: 'aa@upi', pn: 'A', am: '10.00' }), /^upi:\/\/pay\?/);
 

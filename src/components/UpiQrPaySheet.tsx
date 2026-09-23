@@ -11,15 +11,17 @@ import { newMoneyId, toPaise } from '../lib/money-core';
 import {
   UPI_APP_PACKAGES,
   UPI_PAY_APPS,
-  buildAppUpiUri,
+  buildAppSchemeUpiUri,
   buildUpiPayUri,
   describeUpiHandle,
   launchUpiPayNative,
   launchUpiUri,
   parseUpiQr,
+  toNpciPayUri,
   type UpiAppId,
   type UpiQrPayload,
 } from '../lib/upi';
+import { beginPaymentFlight, endPaymentFlight } from '../lib/payment-flight';
 import { toUserMessage } from '../lib/user-message';
 import { UpiBrandMark } from './UpiBrandMark';
 import './split-premium.css';
@@ -98,6 +100,7 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
   const zoomValue = useRef(1);
   const pinchRef = useRef<{ dist: number; zoom: number } | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const sheetRef = useRef<HTMLDivElement | null>(null);
 
   const book = useMemo(() => books.find((b) => b.id === bookId) || books[0], [books, bookId]);
   const symbol = getCurrencySymbol(String(book?.currency || 'INR'));
@@ -259,6 +262,28 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, phase, initialQr]);
 
+  useEffect(() => {
+    const root = sheetRef.current;
+    const vv = window.visualViewport;
+    if (!open || !root || !vv) return;
+    const apply = () => {
+      const kb = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+      root.style.setProperty('--kb', `${kb}px`);
+      if (kb > 80 && phase === 'details') {
+        const partners = root.querySelector('.sp-partners');
+        partners?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    };
+    apply();
+    vv.addEventListener('resize', apply);
+    vv.addEventListener('scroll', apply);
+    return () => {
+      vv.removeEventListener('resize', apply);
+      vv.removeEventListener('scroll', apply);
+      root.style.removeProperty('--kb');
+    };
+  }, [open, phase]);
+
   const setCameraZoom = (value: number) => {
     const next = Math.min(zoomMaxRef.current || zoomMax, Math.max(1, value));
     zoomValue.current = next;
@@ -412,26 +437,49 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
     setLastApp(app);
     setStatusMsg('');
     attemptRef.current = newMoneyId('upiqr');
-    const params = { pa: qr.pa, pn: qr.pn || 'Merchant', am: amt.toFixed(2), cu: qr.cu || 'INR', tn: (note || qr.tn || 'Byjan payment').slice(0, 80), tr: qr.tr || attemptRef.current.slice(0, 35) };
+    const params = {
+      pa: qr.pa,
+      pn: qr.pn,
+      am: amt.toFixed(2),
+      cu: qr.cu || 'INR',
+      tn: (note || qr.tn || '').slice(0, 80),
+      tr: qr.tr,
+      mc: qr.mc,
+    };
     let uri = '';
-    try { uri = app === 'generic' ? buildUpiPayUri(params) : buildAppUpiUri(app, params); } catch (err) { setBusy(false); onToast(toUserMessage(err, 'Invalid UPI details'), 'error'); return; }
+    try {
+      uri = toNpciPayUri(qr.raw, params) || buildUpiPayUri(params);
+    } catch (err) {
+      setBusy(false);
+      onToast(toUserMessage(err, 'Invalid UPI details'), 'error');
+      return;
+    }
     setPhase('waiting');
+    beginPaymentFlight();
     try {
       const pkg = UPI_APP_PACKAGES[app];
       let native = await launchUpiPayNative(uri, pkg);
-      if (native?.status === 'NO_UPI_APP' && app !== 'generic') native = await launchUpiPayNative(buildUpiPayUri(params), pkg);
-      if (native?.status === 'NO_UPI_APP') native = await launchUpiPayNative(buildUpiPayUri(params));
+      if (native?.status === 'NO_UPI_APP' && app !== 'generic') {
+        native = await launchUpiPayNative(buildAppSchemeUpiUri(app, params), pkg);
+      }
+      if (native?.status === 'NO_UPI_APP') native = await launchUpiPayNative(uri);
       if (native && native.status !== 'NO_UPI_APP') {
         const ref = native.approvalRefNo || native.txnId || native.txnRef || '';
         setNativeRef(ref);
         if (native.outcome === 'success') { await recordEntry('success', ref); return; }
-        if (native.outcome === 'failed' || native.outcome === 'cancelled') {
+        if (native.outcome === 'failed') {
           setPhase('failed');
-          setStatusMsg(native.outcome === 'cancelled' ? 'You cancelled in the UPI app. Nothing was recorded.' : (native.message || 'The UPI app reported a failure. Nothing was recorded.'));
+          setStatusMsg(native.message || 'The UPI app reported a failure. If money still left your account, record it below.');
           return;
         }
         setPhase('unclear');
-        setStatusMsg(native.outcome === 'submitted' ? 'The UPI app says the payment was submitted but not yet confirmed.' : 'The UPI app did not return a clear result.');
+        setStatusMsg(
+          native.outcome === 'cancelled'
+            ? 'You came back without a confirmed result. If PhonePe asked you to pay with a mobile number, that is PhonePe’s check — not Byjan. If the money left, record it.'
+            : native.outcome === 'submitted'
+              ? 'The UPI app says the payment was submitted but not yet confirmed.'
+              : 'The UPI app did not confirm the result. Check PhonePe/GPay. If you paid, record it.',
+        );
         return;
       }
       if (native?.status === 'NO_UPI_APP') {
@@ -439,7 +487,6 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
         setStatusMsg('No UPI app found on this phone. Install PhonePe, Google Pay, Paytm or BHIM and try again.');
         return;
       }
-      // Web / no native bridge: open the link, result cannot be read back.
       const launched = await launchUpiUri(uri);
       if (!launched.opened) { setPhase('failed'); setStatusMsg(launched.error || 'Could not open a UPI app.'); return; }
       setPhase('unclear');
@@ -448,6 +495,7 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
       setPhase('failed');
       setStatusMsg(toUserMessage(err, 'Could not start the payment.'));
     } finally {
+      endPaymentFlight();
       setBusy(false);
     }
   };
@@ -457,7 +505,7 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
   const amountLocked = Boolean(qr?.am);
 
   return createPortal(
-    <div className="sp-root uq-root" role="dialog" aria-modal="true" aria-label="Scan and pay" data-testid="upi-qr-sheet" data-phase={phase}>
+    <div ref={sheetRef} className="sp-root uq-root" role="dialog" aria-modal="true" aria-label="Scan and pay" data-testid="upi-qr-sheet" data-phase={phase}>
       <button type="button" className="sp-dim" aria-label="Close" onClick={() => { stopCamera(); onClose(); }} />
       <div className="sp-sheet">
         <div className="sp-handle" aria-hidden />
@@ -551,7 +599,7 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
               </div>
               <label className={`uq-amount${amountLocked ? ' is-locked' : ''}`}>
                 <span className="uq-amount-ccy">{symbol}</span>
-                <input type="number" inputMode="decimal" step="0.01" min="1" value={amount} readOnly={amountLocked} onChange={(e) => setAmount(e.target.value)} placeholder="0" autoFocus={!amountLocked} aria-label="Amount" data-testid="upi-qr-amount" />
+                <input type="number" inputMode="decimal" step="0.01" min="1" value={amount} readOnly={amountLocked} onChange={(e) => setAmount(e.target.value)} placeholder="0" aria-label="Amount" data-testid="upi-qr-amount" />
                 <span className="uq-amount-hint">{amountLocked ? 'Amount is on the QR' : 'Amount'}</span>
               </label>
               <label className="uq-field uq-note">
@@ -601,7 +649,7 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
             <div className="uq-state">
               <Loader2 className="w-8 h-8 animate-spin" />
               <p className="uq-state-title">Complete the payment in your UPI app</p>
-              <p className="uq-state-sub">Byjan reads success or failure when you come back. Nothing is recorded yet.</p>
+              <p className="uq-state-sub">Stay in your UPI app until it shows success. When you return, we read the result — we never guess.</p>
             </div>
           ) : null}
 
@@ -626,7 +674,10 @@ export default function UpiQrPaySheet({ open, bookId: preferredBookId, initialQr
               <p className="sp-fail-title">Nothing was recorded</p>
               <p className="sp-fail-detail">{statusMsg || 'The UPI app reported a failure or cancel.'}</p>
               <div className="sp-footer" style={{ marginTop: 14 }}>
-                <button type="button" className="sp-cta" disabled={busy} onClick={() => void pay(lastApp)}><RefreshCw className="w-4 h-4" /> Retry</button>
+                <button type="button" className="sp-cta" disabled={busy} data-testid="upi-qr-record-failed" onClick={() => void recordEntry('unverified', nativeRef)}>
+                  {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} I paid — record it
+                </button>
+                <button type="button" className="sp-select-all" disabled={busy} onClick={() => void pay(lastApp)}><RefreshCw className="w-4 h-4" /> Retry</button>
                 <button type="button" className="sp-select-all" disabled={busy} onClick={() => setPhase('details')}>Choose another app</button>
                 <button type="button" className="sp-select-all" onClick={() => { stopCamera(); onClose(); }}>Close</button>
               </div>

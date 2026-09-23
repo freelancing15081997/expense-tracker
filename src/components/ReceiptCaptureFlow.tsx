@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { createExpense, checkDuplicateExpense } from '../lib/expenses';
 import { buildCapturePreview, captureAuthorFields, capturePreviewToExpense, ensurePreviewCategory } from '../lib/money-capture';
 import { auth } from '../lib/firebase';
+import { useAuth } from '../context/AuthContext';
 import { processReceiptJob } from '../lib/money-api';
 import { uploadLedgerReceipt } from '../lib/money-receipts';
 import {
@@ -677,12 +678,13 @@ export default function ReceiptCaptureFlow({
   onConfirmed,
   onManualForm,
 }: Props) {
+  const { userProfile } = useAuth();
   const authorExtras = () => {
     const u = auth.currentUser;
     return captureAuthorFields({
-      displayName: u?.displayName,
-      email: u?.email,
-      uid: u?.uid,
+      displayName: userProfile?.displayName || u?.displayName,
+      email: userProfile?.email || u?.email,
+      uid: userProfile?.uid || u?.uid,
     });
   };
   const [phase, setPhase] = useState<Phase>('working');

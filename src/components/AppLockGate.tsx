@@ -13,6 +13,7 @@ import {
   remainingLockMs,
   verifyLockPin,
 } from '../lib/app-lock';
+import { isPaymentInFlight } from '../lib/payment-flight';
 
 function shuffledDigits() {
   const n = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
@@ -55,7 +56,7 @@ export default function AppLockGate({ children }: { children: React.ReactNode })
     const onVis = () => {
       if (document.visibilityState === 'hidden') bgAt.current = Date.now();
       if (document.visibilityState === 'visible' && bgAt.current && Date.now() - bgAt.current >= autoMs) {
-        setLocked(true);
+        if (!isPaymentInFlight()) setLocked(true);
       }
     };
     document.addEventListener('visibilitychange', onVis);
@@ -63,7 +64,7 @@ export default function AppLockGate({ children }: { children: React.ReactNode })
     if (Capacitor.isNativePlatform()) {
       void App.addListener('appStateChange', ({ isActive }) => {
         if (!isActive) bgAt.current = Date.now();
-        else if (bgAt.current && Date.now() - bgAt.current >= autoMs) setLocked(true);
+        else if (bgAt.current && Date.now() - bgAt.current >= autoMs && !isPaymentInFlight()) setLocked(true);
       }).then((h) => { handle = h; });
     }
     return () => {
@@ -144,12 +145,13 @@ export default function AppLockGate({ children }: { children: React.ReactNode })
     }
   };
 
-  if (!locked) return <>{children}</>;
-
   const pad = digits.slice(0, 9);
   const zero = digits[9];
 
   return (
+    <>
+      {children}
+      {locked ? (
     <div className="lock-3d">
       <div className="lock-3d-bg" aria-hidden />
       <div className="lock-3d-orb" aria-hidden />
@@ -199,5 +201,7 @@ export default function AppLockGate({ children }: { children: React.ReactNode })
         </button>
       </div>
     </div>
+      ) : null}
+    </>
   );
 }

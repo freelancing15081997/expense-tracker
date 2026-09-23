@@ -120,7 +120,8 @@ export async function localParseReceiptImage(
       && (Number(fromAlt.score || 0) - Number(fromPrimary?.score || 0)) >= 12;
     // PP-OCRv4 has no ₹ glyph (₹1,000 → "71000"); ML Kit does. A text that actually contains ₹
     // beats one where the parser had to guess which digit used to be the rupee sign.
-    const altHasRupee = /₹/.test(ocr.altText) && !/₹/.test(ocr.text);
+    const altHasRupee = /₹|(?<![A-Za-z])(?:rs\.?|inr)(?![A-Za-z])/i.test(ocr.altText)
+      && !/₹|(?<![A-Za-z])(?:rs\.?|inr)(?![A-Za-z])/i.test(ocr.text);
     if (primaryWeak || altStronger || altHasRupee) {
       fromOcr = fromAlt;
       ocrText = ocr.altText;

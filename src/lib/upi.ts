@@ -68,7 +68,25 @@ export type UpiPayParams = {
   cu?: string;
   tn?: string;
   tr?: string;
+  mc?: string;
+  mode?: string;
+  url?: string;
+  sign?: string;
 };
+
+function sanitizeUpiTr(raw: string) {
+  return String(raw || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 35);
+}
+
+/** NPCI-safe query encoding — spaces as %20, not +. */
+function encodeUpiSearchParams(params: URLSearchParams) {
+  const out: string[] = [];
+  params.forEach((value, key) => {
+    if (!String(value || '').trim()) return;
+    out.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
+  });
+  return out.join('&');
+}
 
 export function normalizeVpa(raw: string) {
   return String(raw || '').trim().toLowerCase().replace(/\s+/g, '');
@@ -139,12 +157,42 @@ export function buildUpiPayUri(params: UpiPayParams) {
   if (!isValidVpa(pa)) throw new Error('Recipient UPI ID is invalid');
   const q = new URLSearchParams();
   q.set('pa', pa);
-  q.set('pn', String(params.pn || 'Byjan member').slice(0, 80));
+  const pn = String(params.pn || '').trim();
+  if (pn && !/^(merchant|byjan member)$/i.test(pn)) q.set('pn', pn.slice(0, 80));
   q.set('am', params.am);
   q.set('cu', params.cu || 'INR');
   if (params.tn) q.set('tn', String(params.tn).slice(0, 80));
-  if (params.tr) q.set('tr', String(params.tr).slice(0, 35));
-  return `upi://pay?${q.toString()}`;
+  const tr = sanitizeUpiTr(params.tr || '');
+  if (tr) q.set('tr', tr);
+  if (params.mc) q.set('mc', String(params.mc).slice(0, 8));
+  if (params.mode) q.set('mode', String(params.mode).slice(0, 16));
+  if (params.url) q.set('url', String(params.url).slice(0, 200));
+  if (params.sign) q.set('sign', String(params.sign).slice(0, 512));
+  return `upi://pay?${encodeUpiSearchParams(q)}`;
+}
+
+/**
+ * Prefer the shop QR as-is (mc / mode / url / sign stay intact) and only overlay
+ * the amount and note the user typed. PhonePe declines unsigned rebuilt merchant QRs.
+ */
+export function toNpciPayUri(raw: string, overrides: Partial<UpiPayParams> = {}): string | null {
+  const parsed = parseUpiQr(raw);
+  if (!parsed) return null;
+  const qIndex = raw.indexOf('?');
+  const params = new URLSearchParams((qIndex >= 0 ? raw.slice(qIndex + 1) : '').replace(/\+/g, '%20'));
+  params.set('pa', normalizeVpa(overrides.pa || parsed.pa));
+  const am = String(overrides.am || parsed.am || '').trim();
+  if (am) params.set('am', am);
+  const tn = String(overrides.tn || parsed.tn || '').trim();
+  if (tn) params.set('tn', tn.slice(0, 80));
+  const pn = String(overrides.pn || parsed.pn || '').trim();
+  if (pn && !/^(merchant|byjan member)$/i.test(pn)) params.set('pn', pn.slice(0, 80));
+  else params.delete('pn');
+  params.set('cu', String(overrides.cu || parsed.cu || 'INR'));
+  const tr = sanitizeUpiTr(overrides.tr || parsed.tr || '');
+  if (tr) params.set('tr', tr);
+  else params.delete('tr');
+  return `upi://pay?${encodeUpiSearchParams(params)}`;
 }
 
 
@@ -175,18 +223,19 @@ export const UPI_PAY_APPS: Array<{ id: UpiAppId; label: string }> = [
   { id: 'generic', label: 'Any UPI app' },
 ];
 
-/** Optional app-specific intents. May be unsupported — callers must handle fallback. */
-export function buildAppUpiUri(app: UpiAppId, params: UpiPayParams) {
+/** Always NPCI `upi://pay`. The chosen app is selected with Android `setPackage`. */
+export function buildAppUpiUri(_app: UpiAppId, params: UpiPayParams) {
+  return buildUpiPayUri(params);
+}
+
+/** App-scheme retry only — PhonePe/GPay custom schemes are pickier than `upi://pay`. */
+export function buildAppSchemeUpiUri(app: UpiAppId, params: UpiPayParams) {
   const base = buildUpiPayUri(params);
   const qs = base.replace(/^upi:\/\/pay\?/, '');
   if (app === 'gpay') return `tez://upi/pay?${qs}`;
   if (app === 'phonepe') return `phonepe://pay?${qs}`;
   if (app === 'paytm') return `paytmmp://pay?${qs}`;
   if (app === 'bhim') return `bhim://upi/pay?${qs}`;
-  if (app === 'cred') return `upi://pay?${qs}`;
-  if (app === 'whatsapp') return `upi://pay?${qs}`;
-  if (app === 'amazonpay') return `upi://pay?${qs}`;
-  if (app === 'mobikwik') return `upi://pay?${qs}`;
   return base;
 }
 

@@ -18,6 +18,7 @@ import {
   paiseToUpiAmount,
   paymentStatusLabel,
 } from '../lib/upi';
+import { beginPaymentFlight, endPaymentFlight } from '../lib/payment-flight';
 import { UpiBrandMark } from './UpiBrandMark';
 import './split-premium.css';
 
@@ -140,6 +141,7 @@ export default function SettlementPaySheet({
     setBusy(true);
     setStatusMsg('');
     setLastApp(app);
+    beginPaymentFlight();
     try {
       const res = await startUpiPayment(bookId, settlement.id, app);
       if (!res.attemptId) throw new Error(res.message || 'Could not start payment');
@@ -230,6 +232,7 @@ export default function SettlementPaySheet({
       setStatusMsg(msg);
       onToast(msg, 'error');
     } finally {
+      endPaymentFlight();
       setBusy(false);
     }
   };

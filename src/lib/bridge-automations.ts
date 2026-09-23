@@ -113,6 +113,7 @@ export const DESCRIPTION_CATEGORY_RULES: Array<{ match: RegExp; category: string
   { match: /\b(salary|payroll|stipend|income|credited|refund|freelance|invoice paid)\b/i, category: 'Income' },
   { match: /\b(neft|imps|rtgs|bank transfer|internal fund transfer)\b/i, category: 'Transfers' },
   { match: /\b(movie|pvr|inox|bookmyshow|entertainment|concert)\b/i, category: 'Entertainment' },
+  { match: /\b(cred|credit\s*card|bill\s+payment\s+receipt|card\s+bill|indusind\s+bank\s+card)\b/i, category: 'Bills' },
   { match: /\b(gym|cult\.?fit|fitness|yoga|sports)\b/i, category: 'Health' },
 ];
 
