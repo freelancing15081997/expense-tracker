@@ -1,0 +1,44 @@
+# Cloudflare Pages configuration for Byjan Business frontend
+
+name = "byjan-business-frontend"
+compatibility_date = "2026-09-28"
+compatibility_flags = ["nodejs_compat"]
+
+# Build configuration
+build = {
+    command = "npm run build",
+    cwd = "apps/frontend",
+}
+
+# Environment variables
+[vars]
+VITE_API_URL = "https://api.easypado.com"
+VITE_APP_URL = "https://business.easypado.com"
+VITE_ENV = "production"
+
+# Custom domain
+[vars.custom_domains]
+business = "business.easypado.com"
+app = "app.easypado.com"
+
+# Routes
+routes = [
+    { pattern = "business.easypado.com", zone_name = "easypado.com" },
+    { pattern = "app.easypado.com", zone_name = "easypado.com" },
+]
+
+# Headers
+headers = {
+    "/*" = {
+        "X-Frame-Options" = "DENY",
+        "X-Content-Type-Options" = "nosniff",
+        "X-XSS-Protection" = "1; mode=block",
+        "Referrer-Policy" = "strict-origin-when-cross-origin",
+        "Permissions-Policy" = "camera=(), microphone=(), geolocation=()",
+    },
+}
+
+# Redirects
+redirects = [
+    { from = "/old-path/*", to = "/new-path/:splat", status = 301 },
+]
