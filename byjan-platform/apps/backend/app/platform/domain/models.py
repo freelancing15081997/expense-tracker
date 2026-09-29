@@ -114,8 +114,8 @@ class Session:
     """Session entity"""
     id: str
     user_id: str
-    family_id: Optional[str] = None
     refresh_hash: str
+    family_id: Optional[str] = None
     device: Optional[str] = None
     ip: Optional[str] = None
     city: Optional[str] = None
@@ -139,3 +139,61 @@ class Principal:
     session_id: Optional[str] = None
     is_super: bool = False
     view_as_role: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class Invite:
+    id: str
+    tenant_id: str
+    email: str = ""
+    role_id: Optional[str] = None
+    status: str = "pending"
+
+
+@dataclass(frozen=True)
+class File:
+    id: str
+    tenant_id: Optional[str] = None
+    name: str = ""
+
+
+@dataclass(frozen=True)
+class Notification:
+    id: str
+    tenant_id: Optional[str] = None
+    user_id: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class AuditLog:
+    id: str
+    tenant_id: Optional[str] = None
+    action: str = ""
+
+
+@dataclass(frozen=True)
+class Job:
+    id: str
+    tenant_id: Optional[str] = None
+    kind: str = ""
+    status: str = "queued"
+
+
+@dataclass(frozen=True)
+class UndoToken:
+    id: str
+    tenant_id: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class WebhookSub:
+    id: str
+    tenant_id: Optional[str] = None
+    url: str = ""
+
+
+@dataclass(frozen=True)
+class Export:
+    id: str
+    tenant_id: Optional[str] = None
+    status: str = "queued"

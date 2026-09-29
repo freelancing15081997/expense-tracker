@@ -3,7 +3,7 @@ Alembic environment configuration
 """
 
 from logging.config import fileConfig
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, pool, text
 from alembic import context
 import sys
 from pathlib import Path
@@ -24,10 +24,17 @@ from app.shared.ids import UUIDv7
 config = context.config
 
 # Override sqlalchemy.url from settings
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL.replace("+asyncpg", ""))
+sync_url = (
+    settings.DATABASE_URL
+    .replace("postgresql+asyncpg://", "postgresql+psycopg://")
+    .replace("ssl=require", "sslmode=require")
+)
+if sync_url.startswith("postgresql://"):
+    sync_url = "postgresql+psycopg://" + sync_url[len("postgresql://"):]
+config.set_main_option("sqlalchemy.url", sync_url.replace("%", "%%"))
 
 # Interpret the config file for Python logging
-if config.config_file_name is not None:
+if config.config_file_name is not None and config.file_config.has_section("formatters"):
     fileConfig(config.config_file_name)
 
 # Target metadata for autogenerate support
@@ -43,6 +50,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
+        version_table_schema="core",
     )
 
     with context.begin_transaction():
@@ -58,10 +66,14 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
+        # Keep Alembic's version table out of public, beside the platform tables.
+        connection.execute(text("CREATE SCHEMA IF NOT EXISTS core"))
+        connection.commit()
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
             compare_type=True,
+            version_table_schema="core",
         )
 
         with context.begin_transaction():

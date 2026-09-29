@@ -14,6 +14,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update && apt-get install -y \
     gcc \
     postgresql-client \
+    libmagic1 \
+    libcairo2 \
+    libpango-1.0-0 \
+    libpangocairo-1.0-0 \
+    libgdk-pixbuf-2.0-0 \
+    libffi8 \
+    shared-mime-info \
+    fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
@@ -26,16 +34,13 @@ RUN pip install --no-cache-dir -e .
 COPY . .
 
 # Create non-root user
-RUN useradd -m -u 1000 appuser && \
+RUN chmod +x /app/start.sh && \
+    useradd -m -u 1000 appuser && \
     chown -R appuser:appuser /app
 USER appuser
 
-# Expose port
+# Render sets PORT. Local docker uses 8000.
 EXPOSE 8000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
-
-# Run application
-CMD ["gunicorn", "app.main:app", "--bind", "0.0.0.0:8000", "--workers", "4", "--worker-class", "uvicorn.workers.UvicornWorker", "--timeout", "120"]
+# Run the API. The worker starts in the background when REDIS_URL is set.
+CMD ["./start.sh"]

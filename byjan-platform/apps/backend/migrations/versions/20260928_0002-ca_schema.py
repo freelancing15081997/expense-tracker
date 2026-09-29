@@ -22,8 +22,8 @@ def upgrade() -> None:
 
     # Clients table
     op.create_table(
-        'ca.clients',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'clients',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('tenant_id', sa.UUID(), nullable=False),
         sa.Column('name', sa.String(255), nullable=False),
         sa.Column('type', sa.String(50), nullable=False),
@@ -43,8 +43,8 @@ def upgrade() -> None:
 
     # Compliance items table
     op.create_table(
-        'ca.compliance_items',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'compliance_items',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('tenant_id', sa.UUID(), nullable=False),
         sa.Column('client_id', sa.UUID(), nullable=False),
         sa.Column('return_type', sa.String(50), nullable=False),
@@ -61,8 +61,8 @@ def upgrade() -> None:
 
     # Tasks table
     op.create_table(
-        'ca.tasks',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'tasks',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('tenant_id', sa.UUID(), nullable=False),
         sa.Column('client_id', sa.UUID(), nullable=True),
         sa.Column('title', sa.String(255), nullable=False),
@@ -79,8 +79,8 @@ def upgrade() -> None:
 
     # Review items table
     op.create_table(
-        'ca.review_items',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'review_items',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('tenant_id', sa.UUID(), nullable=False),
         sa.Column('client_id', sa.UUID(), nullable=False),
         sa.Column('rule_key', sa.String(100), nullable=False),
@@ -95,8 +95,8 @@ def upgrade() -> None:
 
     # Team members table
     op.create_table(
-        'ca.team_members',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'team_members',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('tenant_id', sa.UUID(), nullable=False),
         sa.Column('user_id', sa.UUID(), nullable=False),
         sa.Column('title', sa.String(255), nullable=True),
@@ -109,8 +109,8 @@ def upgrade() -> None:
 
     # Time entries table
     op.create_table(
-        'ca.time_entries',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'time_entries',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('tenant_id', sa.UUID(), nullable=False),
         sa.Column('client_id', sa.UUID(), nullable=False),
         sa.Column('staff_id', sa.UUID(), nullable=False),
@@ -125,34 +125,34 @@ def upgrade() -> None:
     )
 
     # Create indexes
-    op.create_index('ix_clients_tenant_id', 'ca.clients', ['tenant_id'])
-    op.create_index('ix_clients_staff_id', 'ca.clients', ['staff_id'])
-    op.create_index('ix_clients_health', 'ca.clients', ['health'])
-    op.create_index('ix_clients_archived_at', 'ca.clients', ['archived_at'])
+    op.create_index('ix_clients_tenant_id', 'clients', ['tenant_id'], schema='ca')
+    op.create_index('ix_clients_staff_id', 'clients', ['staff_id'], schema='ca')
+    op.create_index('ix_clients_health', 'clients', ['health'], schema='ca')
+    op.create_index('ix_clients_archived_at', 'clients', ['archived_at'], schema='ca')
 
-    op.create_index('ix_compliance_items_tenant_id', 'ca.compliance_items', ['tenant_id'])
-    op.create_index('ix_compliance_items_client_id', 'ca.compliance_items', ['client_id'])
-    op.create_index('ix_compliance_items_due_date', 'ca.compliance_items', ['due_date'])
-    op.create_index('ix_compliance_items_status', 'ca.compliance_items', ['status'])
+    op.create_index('ix_compliance_items_tenant_id', 'compliance_items', ['tenant_id'], schema='ca')
+    op.create_index('ix_compliance_items_client_id', 'compliance_items', ['client_id'], schema='ca')
+    op.create_index('ix_compliance_items_due_date', 'compliance_items', ['due_date'], schema='ca')
+    op.create_index('ix_compliance_items_status', 'compliance_items', ['status'], schema='ca')
 
-    op.create_index('ix_tasks_tenant_id', 'ca.tasks', ['tenant_id'])
-    op.create_index('ix_tasks_client_id', 'ca.tasks', ['client_id'])
-    op.create_index('ix_tasks_assignee_id', 'ca.tasks', ['assignee_id'])
-    op.create_index('ix_tasks_column', 'ca.tasks', ['column'])
-    op.create_index('ix_tasks_due', 'ca.tasks', ['due'])
+    op.create_index('ix_tasks_tenant_id', 'tasks', ['tenant_id'], schema='ca')
+    op.create_index('ix_tasks_client_id', 'tasks', ['client_id'], schema='ca')
+    op.create_index('ix_tasks_assignee_id', 'tasks', ['assignee_id'], schema='ca')
+    op.create_index('ix_tasks_column', 'tasks', ['column'], schema='ca')
+    op.create_index('ix_tasks_due', 'tasks', ['due'], schema='ca')
 
-    op.create_index('ix_review_items_tenant_id', 'ca.review_items', ['tenant_id'])
-    op.create_index('ix_review_items_client_id', 'ca.review_items', ['client_id'])
-    op.create_index('ix_review_items_status', 'ca.review_items', ['status'])
+    op.create_index('ix_review_items_tenant_id', 'review_items', ['tenant_id'], schema='ca')
+    op.create_index('ix_review_items_client_id', 'review_items', ['client_id'], schema='ca')
+    op.create_index('ix_review_items_status', 'review_items', ['status'], schema='ca')
 
-    op.create_index('ix_team_members_tenant_id', 'ca.team_members', ['tenant_id'])
-    op.create_index('ix_team_members_user_id', 'ca.team_members', ['user_id'])
+    op.create_index('ix_team_members_tenant_id', 'team_members', ['tenant_id'], schema='ca')
+    op.create_index('ix_team_members_user_id', 'team_members', ['user_id'], schema='ca')
 
-    op.create_index('ix_time_entries_tenant_id', 'ca.time_entries', ['tenant_id'])
-    op.create_index('ix_time_entries_client_id', 'ca.time_entries', ['client_id'])
-    op.create_index('ix_time_entries_staff_id', 'ca.time_entries', ['staff_id'])
-    op.create_index('ix_time_entries_date', 'ca.time_entries', ['date'])
-    op.create_index('ix_time_entries_billed', 'ca.time_entries', ['billed_invoice_id'])
+    op.create_index('ix_time_entries_tenant_id', 'time_entries', ['tenant_id'], schema='ca')
+    op.create_index('ix_time_entries_client_id', 'time_entries', ['client_id'], schema='ca')
+    op.create_index('ix_time_entries_staff_id', 'time_entries', ['staff_id'], schema='ca')
+    op.create_index('ix_time_entries_date', 'time_entries', ['date'], schema='ca')
+    op.create_index('ix_time_entries_billed', 'time_entries', ['billed_invoice_id'], schema='ca')
 
 
 def downgrade() -> None:
@@ -182,12 +182,12 @@ def downgrade() -> None:
     op.execute("DROP INDEX IF EXISTS ca.ix_time_entries_billed")
 
     # Drop tables
-    op.drop_table('ca.time_entries')
-    op.drop_table('ca.team_members')
-    op.drop_table('ca.review_items')
-    op.drop_table('ca.tasks')
-    op.drop_table('ca.compliance_items')
-    op.drop_table('ca.clients')
+    op.drop_table('time_entries', schema='ca')
+    op.drop_table('team_members', schema='ca')
+    op.drop_table('review_items', schema='ca')
+    op.drop_table('tasks', schema='ca')
+    op.drop_table('compliance_items', schema='ca')
+    op.drop_table('clients', schema='ca')
 
     # Drop schema
     op.execute("DROP SCHEMA IF EXISTS ca")

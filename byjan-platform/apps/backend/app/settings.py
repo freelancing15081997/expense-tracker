@@ -2,6 +2,7 @@
 Application settings
 """
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional, List
 from pathlib import Path
@@ -30,8 +31,27 @@ class Settings(BaseSettings):
 
     # Database
     DATABASE_URL: str
-    DB_POOL_SIZE: int = 10
-    DB_MAX_OVERFLOW: int = 20
+    DB_POOL_SIZE: int = 5
+    DB_MAX_OVERFLOW: int = 5
+
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def _asyncpg_url(cls, value: str) -> str:
+        """Accept a normal Neon URL and make it usable by asyncpg."""
+        if not isinstance(value, str):
+            return value
+        url = value.strip()
+        if url.startswith("postgres://"):
+            url = "postgresql://" + url[len("postgres://"):]
+        if url.startswith("postgresql://"):
+            url = "postgresql+asyncpg://" + url[len("postgresql://"):]
+        # asyncpg rejects libpq-only query params
+        for token in ("sslmode=require", "sslmode=verify-full", "sslmode=prefer", "channel_binding=require"):
+            url = url.replace(token, "")
+        url = url.replace("?&", "?").replace("&&", "&").rstrip("?&")
+        if url.startswith("postgresql+asyncpg://") and "ssl=" not in url:
+            url += "&ssl=require" if "?" in url else "?ssl=require"
+        return url
     DB_POOL_TIMEOUT: int = 30
     DB_POOL_RECYCLE: int = 3600
 

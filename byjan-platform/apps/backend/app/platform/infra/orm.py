@@ -3,10 +3,10 @@ Platform ORM models - SQLAlchemy models for platform entities
 """
 
 from sqlalchemy import (
-    Column, String, Integer, Boolean, DateTime, Text, JSONB,
+    Column, String, Integer, Boolean, DateTime, Text,
     ForeignKey, UniqueConstraint, Index, CheckConstraint, Date, Numeric
 )
-from sqlalchemy.dialects.postgresql import UUID, ARRAY
+from sqlalchemy.dialects.postgresql import UUID, ARRAY, JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.shared.database import Base

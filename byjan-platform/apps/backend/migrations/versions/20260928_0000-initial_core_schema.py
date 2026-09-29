@@ -23,13 +23,30 @@ def upgrade() -> None:
     op.execute("CREATE SCHEMA IF NOT EXISTS ca")
     op.execute("CREATE SCHEMA IF NOT EXISTS console")
 
-    # Enable UUID extension
-    op.execute("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"")
+    # UUID v7 lives in the core schema so public stays untouched.
+    op.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
+    op.execute(
+        """
+        CREATE OR REPLACE FUNCTION core.uuid_generate_v7() RETURNS uuid
+        AS $$
+        DECLARE
+          unix_ts_ms bytea;
+          uuid_bytes bytea;
+        BEGIN
+          unix_ts_ms = substring(int8send(floor(extract(epoch from clock_timestamp()) * 1000)::bigint) from 3);
+          uuid_bytes = unix_ts_ms || gen_random_bytes(10);
+          uuid_bytes = set_byte(uuid_bytes, 6, (b'0111' || get_byte(uuid_bytes, 6)::bit(4))::bit(8)::int);
+          uuid_bytes = set_byte(uuid_bytes, 8, (b'10' || get_byte(uuid_bytes, 8)::bit(6))::bit(8)::int);
+          RETURN encode(uuid_bytes, 'hex')::uuid;
+        END
+        $$ LANGUAGE plpgsql VOLATILE
+        """
+    )
 
     # Core tables
     op.create_table(
-        'core.users',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'users',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('firebase_uid', sa.String(255), unique=True, nullable=False),
         sa.Column('email', sa.String(255), unique=True, nullable=True),
         sa.Column('phone_enc', sa.String(255), nullable=True),
@@ -46,8 +63,8 @@ def upgrade() -> None:
     )
 
     op.create_table(
-        'core.tenants',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'tenants',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('kind', sa.String(50), nullable=False),  # business, practice, dhani
         sa.Column('name', sa.String(255), nullable=False),
         sa.Column('legal', postgresql.JSONB(), nullable=True),
@@ -64,7 +81,7 @@ def upgrade() -> None:
     )
 
     op.create_table(
-        'core.memberships',
+        'memberships',
         sa.Column('tenant_id', sa.UUID(), nullable=False),
         sa.Column('user_id', sa.UUID(), nullable=False),
         sa.Column('role_id', sa.UUID(), nullable=True),
@@ -78,8 +95,8 @@ def upgrade() -> None:
     )
 
     op.create_table(
-        'core.roles',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'roles',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('tenant_id', sa.UUID(), nullable=False),
         sa.Column('name', sa.String(255), nullable=False),
         sa.Column('system', sa.Boolean(), default=False),
@@ -92,7 +109,7 @@ def upgrade() -> None:
     )
 
     op.create_table(
-        'core.role_permissions',
+        'role_permissions',
         sa.Column('role_id', sa.UUID(), nullable=False),
         sa.Column('module', sa.String(100), nullable=False),
         sa.Column('action', sa.String(100), nullable=False),
@@ -102,8 +119,8 @@ def upgrade() -> None:
     )
 
     op.create_table(
-        'core.sessions',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'sessions',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('user_id', sa.UUID(), nullable=False),
         sa.Column('family_id', sa.UUID(), nullable=True),
         sa.Column('refresh_hash', sa.String(255), unique=True, nullable=False),
@@ -120,8 +137,8 @@ def upgrade() -> None:
     )
 
     op.create_table(
-        'core.audit_log',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'audit_log',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('tenant_id', sa.UUID(), nullable=False),
         sa.Column('actor_id', sa.UUID(), nullable=False),
         sa.Column('act_as', sa.UUID(), nullable=True),
@@ -140,8 +157,8 @@ def upgrade() -> None:
     )
 
     op.create_table(
-        'core.outbox',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'outbox',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('tenant_id', sa.UUID(), nullable=False),
         sa.Column('type', sa.String(100), nullable=False),
         sa.Column('payload', postgresql.JSONB(), nullable=False),
@@ -152,11 +169,11 @@ def upgrade() -> None:
         schema='core'
     )
 
-    op.create_index('ix_core_outbox_published_at', 'core.outbox', ['published_at'], unique=False, postgresql_where=sa.text('published_at IS NULL'))
+    op.create_index('ix_core_outbox_published_at', 'outbox', ['published_at'], unique=False, postgresql_where=sa.text('published_at IS NULL'), schema='core')
 
     op.create_table(
-        'core.console_issues',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'console_issues',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('sev', sa.String(20), nullable=False),  # critical, warning, info
         sa.Column('title', sa.String(255), nullable=False),
         sa.Column('module', sa.String(100), nullable=True),
@@ -170,20 +187,20 @@ def upgrade() -> None:
     )
 
     # Create indexes
-    op.create_index('ix_core_users_firebase_uid', 'core.users', ['firebase_uid'], unique=True)
-    op.create_index('ix_core_users_email', 'core.users', ['email'], unique=True)
-    op.create_index('ix_core_tenants_kind', 'core.tenants', ['kind'])
-    op.create_index('ix_core_memberships_user_id', 'core.memberships', ['user_id'])
-    op.create_index('ix_core_memberships_role_id', 'core.memberships', ['role_id'])
-    op.create_index('ix_core_roles_tenant_id', 'core.roles', ['tenant_id'])
-    op.create_index('ix_core_sessions_user_id', 'core.sessions', ['user_id'])
-    op.create_index('ix_core_sessions_family_id', 'core.sessions', ['family_id'])
-    op.create_index('ix_core_audit_log_tenant_id', 'core.audit_log', ['tenant_id'])
-    op.create_index('ix_core_audit_log_actor_id', 'core.audit_log', ['actor_id'])
-    op.create_index('ix_core_audit_log_created_at', 'core.audit_log', ['created_at'])
-    op.create_index('ix_core_outbox_tenant_id', 'core.outbox', ['tenant_id'])
-    op.create_index('ix_core_console_issues_tenant_id', 'core.console_issues', ['tenant_id'])
-    op.create_index('ix_core_console_issues_status', 'core.console_issues', ['status'])
+    op.create_index('ix_core_users_firebase_uid', 'users', ['firebase_uid'], unique=True, schema='core')
+    op.create_index('ix_core_users_email', 'users', ['email'], unique=True, schema='core')
+    op.create_index('ix_core_tenants_kind', 'tenants', ['kind'], schema='core')
+    op.create_index('ix_core_memberships_user_id', 'memberships', ['user_id'], schema='core')
+    op.create_index('ix_core_memberships_role_id', 'memberships', ['role_id'], schema='core')
+    op.create_index('ix_core_roles_tenant_id', 'roles', ['tenant_id'], schema='core')
+    op.create_index('ix_core_sessions_user_id', 'sessions', ['user_id'], schema='core')
+    op.create_index('ix_core_sessions_family_id', 'sessions', ['family_id'], schema='core')
+    op.create_index('ix_core_audit_log_tenant_id', 'audit_log', ['tenant_id'], schema='core')
+    op.create_index('ix_core_audit_log_actor_id', 'audit_log', ['actor_id'], schema='core')
+    op.create_index('ix_core_audit_log_created_at', 'audit_log', ['created_at'], schema='core')
+    op.create_index('ix_core_outbox_tenant_id', 'outbox', ['tenant_id'], schema='core')
+    op.create_index('ix_core_console_issues_tenant_id', 'console_issues', ['tenant_id'], schema='core')
+    op.create_index('ix_core_console_issues_status', 'console_issues', ['status'], schema='core')
 
 
 def downgrade() -> None:
@@ -204,15 +221,17 @@ def downgrade() -> None:
     op.drop_index('ix_core_users_firebase_uid', schema='core')
 
     # Drop tables
-    op.drop_table('core.console_issues')
-    op.drop_table('core.outbox')
-    op.drop_table('core.audit_log')
-    op.drop_table('core.sessions')
-    op.drop_table('core.role_permissions')
-    op.drop_table('core.roles')
-    op.drop_table('core.memberships')
-    op.drop_table('core.tenants')
-    op.drop_table('core.users')
+    op.drop_table('console_issues', schema='core')
+    op.drop_table('outbox', schema='core')
+    op.drop_table('audit_log', schema='core')
+    op.drop_table('sessions', schema='core')
+    op.drop_table('role_permissions', schema='core')
+    op.drop_table('roles', schema='core')
+    op.drop_table('memberships', schema='core')
+    op.drop_table('tenants', schema='core')
+    op.drop_table('users', schema='core')
+
+    op.execute("DROP FUNCTION IF EXISTS core.uuid_generate_v7()")
 
     # Drop schemas
     op.execute("DROP SCHEMA IF EXISTS console")
@@ -220,5 +239,4 @@ def downgrade() -> None:
     op.execute("DROP SCHEMA IF EXISTS biz")
     op.execute("DROP SCHEMA IF EXISTS core")
 
-    # Drop extension
-    op.execute("DROP EXTENSION IF EXISTS \"uuid-ossp\"")
+    # Leave extensions in place. This database is shared with the live app.

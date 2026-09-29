@@ -2,16 +2,22 @@
 Database session and unit of work management
 """
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.orm import DeclarativeBase
 from typing import AsyncGenerator
 from app.settings import settings
 
-# Create async engine
+
+class Base(DeclarativeBase):
+    """Shared declarative base for ORM models."""
+
+# Create async engine. Free-tier hosts only have 512 MB, so the pool stays small.
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.DEBUG,
-    pool_size=10,
-    max_overflow=20,
+    pool_size=settings.DB_POOL_SIZE,
+    max_overflow=settings.DB_MAX_OVERFLOW,
     pool_pre_ping=True,
 )
 
@@ -53,3 +59,13 @@ class UnitOfWork:
         else:
             await self.session.commit()
         await self.session.close()
+
+
+async def init_db() -> None:
+    """Check that Postgres answers. Schema changes go through Alembic, not here."""
+    async with engine.connect() as conn:
+        await conn.execute(text("SELECT 1"))
+
+
+async def close_db() -> None:
+    await engine.dispose()

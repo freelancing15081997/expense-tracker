@@ -1,109 +1,36 @@
+# Free-tier blueprint. Do not add Render Postgres, Render Redis, or a
+# separate worker here: those are paid. The database is the existing Neon
+# project (schemas core, biz, ca, console). Redis is Redis Cloud's free 30 MB
+# database. The web process also starts the Arq worker. Scale later by moving
+# this service from Free to a paid instance and splitting the worker out.
 services:
-  # Web Service - Byjan Business API
   - type: web
     name: byjan-business-api
     runtime: docker
-    repo: https://github.com/yourusername/byjan-business
+    plan: free
     branch: byjan_business
-    dockerfilePath: ./apps/backend/Dockerfile
-    dockerContext: ./apps/backend
+    rootDir: byjan-platform/apps/backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     healthCheckPath: /health
     envVars:
       - key: APP_ENV
         value: production
       - key: APP_NAME
         value: Byjan Business
-      - key: APP_VERSION
-        value: 1.0.0
       - key: DEBUG
         value: "false"
+      - key: WEB_CONCURRENCY
+        value: "1"
       - key: SECRET_KEY
         generateValue: true
-      - key: DATABASE_URL
-        fromService:
-          type: postgres
-          name: byjan-postgres
-          property: connectionString
-      - key: REDIS_URL
-        fromService:
-          type: redis
-          name: byjan-redis
-          property: connectionString
       - key: JWT_SECRET_KEY
         generateValue: true
-      - key: FIREBASE_PROJECT_ID
-        sync: false  # Set via environment
-      - key: WHATSAPP_ACCESS_TOKEN
-        sync: false  # Set via environment
-      - key: GSP_API_KEY
-        sync: false  # Set via environment
-      - key: S3_ENDPOINT
-        sync: false  # Set via environment
-      - key: S3_ACCESS_KEY_ID
-        sync: false  # Set via environment
-      - key: S3_SECRET_ACCESS_KEY
-        sync: false  # Set via environment
-      - key: EMAIL_API_KEY
-        sync: false  # Set via environment
-      - key: ALLOWED_ORIGINS
-        value: "https://business.easypado.com,https://app.easypado.com"
-
-  # Worker Service - Background Jobs
-  - type: worker
-    name: byjan-business-worker
-    runtime: docker
-    repo: https://github.com/yourusername/byjan-business
-    branch: byjan_business
-    dockerfilePath: ./apps/backend/Dockerfile
-    dockerContext: ./apps/backend
-    envVars:
-      - key: APP_ENV
-        value: production
-      - key: APP_NAME
-        value: Byjan Business
-      - key: APP_VERSION
-        value: 1.0.0
       - key: DATABASE_URL
-        fromService:
-          type: postgres
-          name: byjan-postgres
-          property: connectionString
+        sync: false
       - key: REDIS_URL
-        fromService:
-          type: redis
-          name: byjan-redis
-          property: connectionString
-      - key: JWT_SECRET_KEY
-        generateValue: true
+        sync: false
+      - key: REDIS_ENABLED
+        value: "true"
       - key: FIREBASE_PROJECT_ID
         sync: false
-      - key: WHATSAPP_ACCESS_TOKEN
-        sync: false
-      - key: GSP_API_KEY
-        sync: false
-      - key: S3_ENDPOINT
-        sync: false
-      - key: S3_ACCESS_KEY_ID
-        sync: false
-      - key: S3_SECRET_ACCESS_KEY
-        sync: false
-      - key: EMAIL_API_KEY
-        sync: false
-
-  # PostgreSQL Database
-  - type: postgres
-    name: byjan-postgres
-    plan: starter  # Free tier
-    postgresMajorVersion: 16
-    databaseName: byjan_business
-    user: byjan_user
-    ipAllowList: []
-
-  # Redis Cache
-  - type: redis
-    name: byjan-redis
-    plan: starter  # Free tier
-    maxmemoryPolicy: allkeys-lru
-
-# Frontend - Cloudflare Pages (configured separately)
-# DNS: GoDaddy → Cloudflare → Render (API) + Cloudflare Pages (Frontend)

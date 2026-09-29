@@ -22,8 +22,8 @@ def upgrade() -> None:
 
     # Accounts table
     op.create_table(
-        'biz.accounts',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'accounts',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('tenant_id', sa.UUID(), nullable=False),
         sa.Column('code', sa.String(50), nullable=False),
         sa.Column('name', sa.String(255), nullable=False),
@@ -41,8 +41,8 @@ def upgrade() -> None:
 
     # Periods table
     op.create_table(
-        'biz.periods',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'periods',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('tenant_id', sa.UUID(), nullable=False),
         sa.Column('fy', sa.String(10), nullable=False),
         sa.Column('month', sa.Integer(), nullable=False),
@@ -58,8 +58,8 @@ def upgrade() -> None:
 
     # Journals table
     op.create_table(
-        'biz.journals',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'journals',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('tenant_id', sa.UUID(), nullable=False),
         sa.Column('source_type', sa.String(100), nullable=True),
         sa.Column('source_id', sa.UUID(), nullable=True),
@@ -75,8 +75,8 @@ def upgrade() -> None:
 
     # GL entries table (partitioned by month - will add partitioning separately)
     op.create_table(
-        'biz.gl_entries',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'gl_entries',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('tenant_id', sa.UUID(), nullable=False),
         sa.Column('journal_id', sa.UUID(), nullable=False),
         sa.Column('account_id', sa.UUID(), nullable=False),
@@ -93,7 +93,7 @@ def upgrade() -> None:
 
     # GL balances table (projection)
     op.create_table(
-        'biz.gl_balances',
+        'gl_balances',
         sa.Column('account_id', sa.UUID(), primary_key=True),
         sa.Column('period_id', sa.UUID(), primary_key=True),
         sa.Column('org_unit_id', sa.UUID(), primary_key=True),
@@ -107,8 +107,8 @@ def upgrade() -> None:
 
     # Parties table
     op.create_table(
-        'biz.parties',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'parties',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('tenant_id', sa.UUID(), nullable=False),
         sa.Column('kind', sa.String(50), nullable=False),
         sa.Column('name', sa.String(255), nullable=False),
@@ -131,8 +131,8 @@ def upgrade() -> None:
 
     # Party categories table
     op.create_table(
-        'biz.party_categories',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'party_categories',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('tenant_id', sa.UUID(), nullable=False),
         sa.Column('kind', sa.String(50), nullable=False),
         sa.Column('name', sa.String(255), nullable=False),
@@ -144,7 +144,7 @@ def upgrade() -> None:
 
     # Party balances table (projection)
     op.create_table(
-        'biz.party_balances',
+        'party_balances',
         sa.Column('party_id', sa.UUID(), primary_key=True),
         sa.Column('tenant_id', sa.UUID(), nullable=False),
         sa.Column('receivable', sa.Integer(), default=0),
@@ -158,8 +158,8 @@ def upgrade() -> None:
 
     # Items table
     op.create_table(
-        'biz.items',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'items',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('tenant_id', sa.UUID(), nullable=False),
         sa.Column('type', sa.String(50), nullable=False),
         sa.Column('sku', sa.String(100), nullable=True),
@@ -178,8 +178,8 @@ def upgrade() -> None:
 
     # Locations table
     op.create_table(
-        'biz.locations',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'locations',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('tenant_id', sa.UUID(), nullable=False),
         sa.Column('name', sa.String(255), nullable=False),
         sa.Column('address', sa.Text(), nullable=True),
@@ -190,8 +190,8 @@ def upgrade() -> None:
 
     # Stock moves table
     op.create_table(
-        'biz.stock_moves',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'stock_moves',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('tenant_id', sa.UUID(), nullable=False),
         sa.Column('item_id', sa.UUID(), nullable=False),
         sa.Column('location_id', sa.UUID(), nullable=False),
@@ -206,7 +206,7 @@ def upgrade() -> None:
 
     # Stock levels table (projection)
     op.create_table(
-        'biz.stock_levels',
+        'stock_levels',
         sa.Column('item_id', sa.UUID(), primary_key=True),
         sa.Column('location_id', sa.UUID(), primary_key=True),
         sa.Column('tenant_id', sa.UUID(), nullable=False),
@@ -219,8 +219,8 @@ def upgrade() -> None:
 
     # Documents table (14 types)
     op.create_table(
-        'biz.documents',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'documents',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('tenant_id', sa.UUID(), nullable=False),
         sa.Column('type', sa.String(100), nullable=False),
         sa.Column('number', sa.String(100), nullable=False),
@@ -251,8 +251,8 @@ def upgrade() -> None:
 
     # Document lines table
     op.create_table(
-        'biz.document_lines',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'document_lines',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('document_id', sa.UUID(), nullable=False),
         sa.Column('position', sa.Integer(), default=0),
         sa.Column('item_id', sa.UUID(), nullable=True),
@@ -272,8 +272,8 @@ def upgrade() -> None:
 
     # Payments table
     op.create_table(
-        'biz.payments',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'payments',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('tenant_id', sa.UUID(), nullable=False),
         sa.Column('direction', sa.String(10), nullable=False),
         sa.Column('party_id', sa.UUID(), nullable=False),
@@ -290,8 +290,8 @@ def upgrade() -> None:
 
     # Payment allocations table
     op.create_table(
-        'biz.payment_allocations',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'payment_allocations',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('payment_id', sa.UUID(), nullable=False),
         sa.Column('document_id', sa.UUID(), nullable=False),
         sa.Column('amount_paise', sa.Integer(), nullable=False),
@@ -302,8 +302,8 @@ def upgrade() -> None:
 
     # Payment runs table
     op.create_table(
-        'biz.payment_runs',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'payment_runs',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('tenant_id', sa.UUID(), nullable=False),
         sa.Column('status', sa.String(50), default='draft'),
         sa.Column('approver_id', sa.UUID(), nullable=True),
@@ -315,8 +315,8 @@ def upgrade() -> None:
 
     # Bank connections table
     op.create_table(
-        'biz.bank_connections',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'bank_connections',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('tenant_id', sa.UUID(), nullable=False),
         sa.Column('account_id', sa.UUID(), nullable=False),
         sa.Column('provider', sa.String(100), nullable=False),
@@ -329,8 +329,8 @@ def upgrade() -> None:
 
     # Bank lines table
     op.create_table(
-        'biz.bank_lines',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'bank_lines',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('tenant_id', sa.UUID(), nullable=False),
         sa.Column('account_id', sa.UUID(), nullable=False),
         sa.Column('date', sa.Date(), nullable=False),
@@ -347,8 +347,8 @@ def upgrade() -> None:
 
     # Bank rules table
     op.create_table(
-        'biz.bank_rules',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'bank_rules',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('tenant_id', sa.UUID(), nullable=False),
         sa.Column('match', postgresql.JSONB(), nullable=False),
         sa.Column('action', postgresql.JSONB(), nullable=False),
@@ -359,8 +359,8 @@ def upgrade() -> None:
 
     # Assets table
     op.create_table(
-        'biz.assets',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'assets',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('tenant_id', sa.UUID(), nullable=False),
         sa.Column('category', sa.String(100), nullable=False),
         sa.Column('acquired_on', sa.Date(), nullable=False),
@@ -378,8 +378,8 @@ def upgrade() -> None:
 
     # Projects table
     op.create_table(
-        'biz.projects',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'projects',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('tenant_id', sa.UUID(), nullable=False),
         sa.Column('name', sa.String(255), nullable=False),
         sa.Column('budget', postgresql.JSONB(), nullable=True),
@@ -394,8 +394,8 @@ def upgrade() -> None:
 
     # Budgets table
     op.create_table(
-        'biz.budgets',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'budgets',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('tenant_id', sa.UUID(), nullable=False),
         sa.Column('fy', sa.String(10), nullable=False),
         sa.Column('account_id', sa.UUID(), nullable=False),
@@ -408,8 +408,8 @@ def upgrade() -> None:
 
     # Tax returns table
     op.create_table(
-        'biz.tax_returns',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'tax_returns',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('tenant_id', sa.UUID(), nullable=False),
         sa.Column('type', sa.String(50), nullable=False),
         sa.Column('period', sa.String(10), nullable=False),
@@ -424,8 +424,8 @@ def upgrade() -> None:
 
     # Approvals table
     op.create_table(
-        'biz.approvals',
-        sa.Column('id', sa.UUID(), server_default=sa.text('uuid_generate_v7()'), primary_key=True),
+        'approvals',
+        sa.Column('id', sa.UUID(), server_default=sa.text('core.uuid_generate_v7()'), primary_key=True),
         sa.Column('tenant_id', sa.UUID(), nullable=False),
         sa.Column('source_type', sa.String(100), nullable=False),
         sa.Column('source_id', sa.UUID(), nullable=False),
@@ -440,109 +440,109 @@ def upgrade() -> None:
     )
 
     # Create indexes for performance
-    op.create_index('ix_accounts_tenant_id', 'biz.accounts', ['tenant_id'])
-    op.create_index('ix_accounts_code', 'biz.accounts', ['code'])
-    op.create_index('ix_accounts_type', 'biz.accounts', ['type'])
-    op.create_index('ix_accounts_archived_at', 'biz.accounts', ['archived_at'])
+    op.create_index('ix_accounts_tenant_id', 'accounts', ['tenant_id'], schema='biz')
+    op.create_index('ix_accounts_code', 'accounts', ['code'], schema='biz')
+    op.create_index('ix_accounts_type', 'accounts', ['type'], schema='biz')
+    op.create_index('ix_accounts_archived_at', 'accounts', ['archived_at'], schema='biz')
 
-    op.create_index('ix_periods_tenant_id', 'biz.periods', ['tenant_id'])
-    op.create_index('ix_periods_fy_month', 'biz.periods', ['tenant_id', 'fy', 'month'], unique=True)
-    op.create_index('ix_periods_status', 'biz.periods', ['status'])
+    op.create_index('ix_periods_tenant_id', 'periods', ['tenant_id'], schema='biz')
+    op.create_index('ix_periods_fy_month', 'periods', ['tenant_id', 'fy', 'month'], unique=True, schema='biz')
+    op.create_index('ix_periods_status', 'periods', ['status'], schema='biz')
 
-    op.create_index('ix_journals_tenant_id', 'biz.journals', ['tenant_id'])
-    op.create_index('ix_journals_date', 'biz.journals', ['date'])
-    op.create_index('ix_journals_source', 'biz.journals', ['source_type', 'source_id'])
+    op.create_index('ix_journals_tenant_id', 'journals', ['tenant_id'], schema='biz')
+    op.create_index('ix_journals_date', 'journals', ['date'], schema='biz')
+    op.create_index('ix_journals_source', 'journals', ['source_type', 'source_id'], schema='biz')
 
-    op.create_index('ix_gl_entries_tenant_id', 'biz.gl_entries', ['tenant_id'])
-    op.create_index('ix_gl_entries_journal_id', 'biz.gl_entries', ['journal_id'])
-    op.create_index('ix_gl_entries_account_id', 'biz.gl_entries', ['account_id'])
-    op.create_index('ix_gl_entries_tenant_account_date', 'biz.gl_entries', ['tenant_id', 'account_id', 'date'])
+    op.create_index('ix_gl_entries_tenant_id', 'gl_entries', ['tenant_id'], schema='biz')
+    op.create_index('ix_gl_entries_journal_id', 'gl_entries', ['journal_id'], schema='biz')
+    op.create_index('ix_gl_entries_account_id', 'gl_entries', ['account_id'], schema='biz')
+    op.create_index('ix_gl_entries_tenant_account_date', 'gl_entries', ['tenant_id', 'account_id', 'date'], schema='biz')
 
-    op.create_index('ix_gl_balances_tenant_id', 'biz.gl_balances', ['tenant_id'])
-    op.create_index('ix_gl_balances_account_id', 'biz.gl_balances', ['account_id'])
-    op.create_index('ix_gl_balances_period_id', 'biz.gl_balances', ['period_id'])
+    op.create_index('ix_gl_balances_tenant_id', 'gl_balances', ['tenant_id'], schema='biz')
+    op.create_index('ix_gl_balances_account_id', 'gl_balances', ['account_id'], schema='biz')
+    op.create_index('ix_gl_balances_period_id', 'gl_balances', ['period_id'], schema='biz')
 
-    op.create_index('ix_parties_tenant_id', 'biz.parties', ['tenant_id'])
-    op.create_index('ix_parties_kind', 'biz.parties', ['kind'])
-    op.create_index('ix_parties_name', 'biz.parties', ['name'])
-    op.create_index('ix_parties_gstin', 'biz.parties', ['gstin'])
-    op.create_index('ix_parties_archived_at', 'biz.parties', ['archived_at'])
+    op.create_index('ix_parties_tenant_id', 'parties', ['tenant_id'], schema='biz')
+    op.create_index('ix_parties_kind', 'parties', ['kind'], schema='biz')
+    op.create_index('ix_parties_name', 'parties', ['name'], schema='biz')
+    op.create_index('ix_parties_gstin', 'parties', ['gstin'], schema='biz')
+    op.create_index('ix_parties_archived_at', 'parties', ['archived_at'], schema='biz')
 
-    op.create_index('ix_party_categories_tenant_id', 'biz.party_categories', ['tenant_id'])
-    op.create_index('ix_party_categories_kind', 'biz.party_categories', ['kind'])
+    op.create_index('ix_party_categories_tenant_id', 'party_categories', ['tenant_id'], schema='biz')
+    op.create_index('ix_party_categories_kind', 'party_categories', ['kind'], schema='biz')
 
-    op.create_index('ix_party_balances_tenant_id', 'biz.party_balances', ['tenant_id'])
-    op.create_index('ix_party_balances_party_id', 'biz.party_balances', ['party_id'])
+    op.create_index('ix_party_balances_tenant_id', 'party_balances', ['tenant_id'], schema='biz')
+    op.create_index('ix_party_balances_party_id', 'party_balances', ['party_id'], schema='biz')
 
-    op.create_index('ix_items_tenant_id', 'biz.items', ['tenant_id'])
-    op.create_index('ix_items_sku', 'biz.items', ['sku'])
-    op.create_index('ix_items_type', 'biz.items', ['type'])
-    op.create_index('ix_items_hsn', 'biz.items', ['hsn'])
+    op.create_index('ix_items_tenant_id', 'items', ['tenant_id'], schema='biz')
+    op.create_index('ix_items_sku', 'items', ['sku'], schema='biz')
+    op.create_index('ix_items_type', 'items', ['type'], schema='biz')
+    op.create_index('ix_items_hsn', 'items', ['hsn'], schema='biz')
 
-    op.create_index('ix_locations_tenant_id', 'biz.locations', ['tenant_id'])
-    op.create_index('ix_locations_name', 'biz.locations', ['name'])
+    op.create_index('ix_locations_tenant_id', 'locations', ['tenant_id'], schema='biz')
+    op.create_index('ix_locations_name', 'locations', ['name'], schema='biz')
 
-    op.create_index('ix_stock_moves_tenant_id', 'biz.stock_moves', ['tenant_id'])
-    op.create_index('ix_stock_moves_item_id', 'biz.stock_moves', ['item_id'])
-    op.create_index('ix_stock_moves_location_id', 'biz.stock_moves', ['location_id'])
-    op.create_index('ix_stock_moves_date', 'biz.stock_moves', ['date'])
+    op.create_index('ix_stock_moves_tenant_id', 'stock_moves', ['tenant_id'], schema='biz')
+    op.create_index('ix_stock_moves_item_id', 'stock_moves', ['item_id'], schema='biz')
+    op.create_index('ix_stock_moves_location_id', 'stock_moves', ['location_id'], schema='biz')
+    op.create_index('ix_stock_moves_date', 'stock_moves', ['date'], schema='biz')
 
-    op.create_index('ix_stock_levels_tenant_id', 'biz.stock_levels', ['tenant_id'])
-    op.create_index('ix_stock_levels_item_id', 'biz.stock_levels', ['item_id'])
+    op.create_index('ix_stock_levels_tenant_id', 'stock_levels', ['tenant_id'], schema='biz')
+    op.create_index('ix_stock_levels_item_id', 'stock_levels', ['item_id'], schema='biz')
 
-    op.create_index('ix_documents_tenant_id', 'biz.documents', ['tenant_id'])
-    op.create_index('ix_documents_type', 'biz.documents', ['type'])
-    op.create_index('ix_documents_number', 'biz.documents', ['number'])
-    op.create_index('ix_documents_tenant_type', 'biz.documents', ['tenant_id', 'type'])
-    op.create_index('ix_documents_status', 'biz.documents', ['status'])
-    op.create_index('ix_documents_date', 'biz.documents', ['date'])
-    op.create_index('ix_documents_party_id', 'biz.documents', ['party_id'])
+    op.create_index('ix_documents_tenant_id', 'documents', ['tenant_id'], schema='biz')
+    op.create_index('ix_documents_type', 'documents', ['type'], schema='biz')
+    op.create_index('ix_documents_number', 'documents', ['number'], schema='biz')
+    op.create_index('ix_documents_tenant_type', 'documents', ['tenant_id', 'type'], schema='biz')
+    op.create_index('ix_documents_status', 'documents', ['status'], schema='biz')
+    op.create_index('ix_documents_date', 'documents', ['date'], schema='biz')
+    op.create_index('ix_documents_party_id', 'documents', ['party_id'], schema='biz')
 
-    op.create_index('ix_document_lines_document_id', 'biz.document_lines', ['document_id'])
-    op.create_index('ix_document_lines_position', 'biz.document_lines', ['document_id', 'position'])
+    op.create_index('ix_document_lines_document_id', 'document_lines', ['document_id'], schema='biz')
+    op.create_index('ix_document_lines_position', 'document_lines', ['document_id', 'position'], schema='biz')
 
-    op.create_index('ix_payments_tenant_id', 'biz.payments', ['tenant_id'])
-    op.create_index('ix_payments_party_id', 'biz.payments', ['party_id'])
-    op.create_index('ix_payments_date', 'biz.payments', ['date'])
-    op.create_index('ix_payments_status', 'biz.payments', ['status'])
+    op.create_index('ix_payments_tenant_id', 'payments', ['tenant_id'], schema='biz')
+    op.create_index('ix_payments_party_id', 'payments', ['party_id'], schema='biz')
+    op.create_index('ix_payments_date', 'payments', ['date'], schema='biz')
+    op.create_index('ix_payments_status', 'payments', ['status'], schema='biz')
 
-    op.create_index('ix_payment_allocations_payment_id', 'biz.payment_allocations', ['payment_id'])
-    op.create_index('ix_payment_allocations_document_id', 'biz.payment_allocations', ['document_id'])
+    op.create_index('ix_payment_allocations_payment_id', 'payment_allocations', ['payment_id'], schema='biz')
+    op.create_index('ix_payment_allocations_document_id', 'payment_allocations', ['document_id'], schema='biz')
 
-    op.create_index('ix_payment_runs_tenant_id', 'biz.payment_runs', ['tenant_id'])
-    op.create_index('ix_payment_runs_status', 'biz.payment_runs', ['status'])
+    op.create_index('ix_payment_runs_tenant_id', 'payment_runs', ['tenant_id'], schema='biz')
+    op.create_index('ix_payment_runs_status', 'payment_runs', ['status'], schema='biz')
 
-    op.create_index('ix_bank_connections_tenant_id', 'biz.bank_connections', ['tenant_id'])
-    op.create_index('ix_bank_connections_account_id', 'biz.bank_connections', ['account_id'])
+    op.create_index('ix_bank_connections_tenant_id', 'bank_connections', ['tenant_id'], schema='biz')
+    op.create_index('ix_bank_connections_account_id', 'bank_connections', ['account_id'], schema='biz')
 
-    op.create_index('ix_bank_lines_tenant_id', 'biz.bank_lines', ['tenant_id'])
-    op.create_index('ix_bank_lines_account_id', 'biz.bank_lines', ['account_id'])
-    op.create_index('ix_bank_lines_date', 'biz.bank_lines', ['date'])
-    op.create_index('ix_bank_lines_status', 'biz.bank_lines', ['status'])
-    op.create_index('ix_bank_lines_ext_id', 'biz.bank_lines', ['ext_id'], unique=True)
+    op.create_index('ix_bank_lines_tenant_id', 'bank_lines', ['tenant_id'], schema='biz')
+    op.create_index('ix_bank_lines_account_id', 'bank_lines', ['account_id'], schema='biz')
+    op.create_index('ix_bank_lines_date', 'bank_lines', ['date'], schema='biz')
+    op.create_index('ix_bank_lines_status', 'bank_lines', ['status'], schema='biz')
+    op.create_index('ix_bank_lines_ext_id', 'bank_lines', ['ext_id'], unique=True, schema='biz')
 
-    op.create_index('ix_bank_rules_tenant_id', 'biz.bank_rules', ['tenant_id'])
-    op.create_index('ix_bank_rules_priority', 'biz.bank_rules', ['priority'])
+    op.create_index('ix_bank_rules_tenant_id', 'bank_rules', ['tenant_id'], schema='biz')
+    op.create_index('ix_bank_rules_priority', 'bank_rules', ['priority'], schema='biz')
 
-    op.create_index('ix_assets_tenant_id', 'biz.assets', ['tenant_id'])
-    op.create_index('ix_assets_category', 'biz.assets', ['category'])
-    op.create_index('ix_assets_status', 'biz.assets', ['status'])
+    op.create_index('ix_assets_tenant_id', 'assets', ['tenant_id'], schema='biz')
+    op.create_index('ix_assets_category', 'assets', ['category'], schema='biz')
+    op.create_index('ix_assets_status', 'assets', ['status'], schema='biz')
 
-    op.create_index('ix_projects_tenant_id', 'biz.projects', ['tenant_id'])
-    op.create_index('ix_projects_status', 'biz.projects', ['status'])
+    op.create_index('ix_projects_tenant_id', 'projects', ['tenant_id'], schema='biz')
+    op.create_index('ix_projects_status', 'projects', ['status'], schema='biz')
 
-    op.create_index('ix_budgets_tenant_id', 'biz.budgets', ['tenant_id'])
-    op.create_index('ix_budgets_fy', 'biz.budgets', ['fy'])
-    op.create_index('ix_budgets_account_id', 'biz.budgets', ['account_id'])
+    op.create_index('ix_budgets_tenant_id', 'budgets', ['tenant_id'], schema='biz')
+    op.create_index('ix_budgets_fy', 'budgets', ['fy'], schema='biz')
+    op.create_index('ix_budgets_account_id', 'budgets', ['account_id'], schema='biz')
 
-    op.create_index('ix_tax_returns_tenant_id', 'biz.tax_returns', ['tenant_id'])
-    op.create_index('ix_tax_returns_period', 'biz.tax_returns', ['period'])
-    op.create_index('ix_tax_returns_status', 'biz.tax_returns', ['status'])
+    op.create_index('ix_tax_returns_tenant_id', 'tax_returns', ['tenant_id'], schema='biz')
+    op.create_index('ix_tax_returns_period', 'tax_returns', ['period'], schema='biz')
+    op.create_index('ix_tax_returns_status', 'tax_returns', ['status'], schema='biz')
 
-    op.create_index('ix_approvals_tenant_id', 'biz.approvals', ['tenant_id'])
-    op.create_index('ix_approvals_source', 'biz.approvals', ['source_type', 'source_id'])
-    op.create_index('ix_approvals_status', 'biz.approvals', ['status'])
-    op.create_index('ix_approvals_requested_by', 'biz.approvals', ['requested_by'])
+    op.create_index('ix_approvals_tenant_id', 'approvals', ['tenant_id'], schema='biz')
+    op.create_index('ix_approvals_source', 'approvals', ['source_type', 'source_id'], schema='biz')
+    op.create_index('ix_approvals_status', 'approvals', ['status'], schema='biz')
+    op.create_index('ix_approvals_requested_by', 'approvals', ['requested_by'], schema='biz')
 
 
 def downgrade() -> None:
@@ -558,31 +558,31 @@ def downgrade() -> None:
         # ... (drop all other indexes)
 
     # Drop tables
-    op.drop_table('biz.approvals')
-    op.drop_table('biz.tax_returns')
-    op.drop_table('biz.budgets')
-    op.drop_table('biz.projects')
-    op.drop_table('biz.assets')
-    op.drop_table('biz.bank_rules')
-    op.drop_table('biz.bank_lines')
-    op.drop_table('biz.bank_connections')
-    op.drop_table('biz.payment_runs')
-    op.drop_table('biz.payment_allocations')
-    op.drop_table('biz.payments')
-    op.drop_table('biz.document_lines')
-    op.drop_table('biz.documents')
-    op.drop_table('biz.stock_levels')
-    op.drop_table('biz.stock_moves')
-    op.drop_table('biz.locations')
-    op.drop_table('biz.items')
-    op.drop_table('biz.party_balances')
-    op.drop_table('biz.party_categories')
-    op.drop_table('biz.parties')
-    op.drop_table('biz.gl_balances')
-    op.drop_table('biz.gl_entries')
-    op.drop_table('biz.journals')
-    op.drop_table('biz.periods')
-    op.drop_table('biz.accounts')
+    op.drop_table('approvals', schema='biz')
+    op.drop_table('tax_returns', schema='biz')
+    op.drop_table('budgets', schema='biz')
+    op.drop_table('projects', schema='biz')
+    op.drop_table('assets', schema='biz')
+    op.drop_table('bank_rules', schema='biz')
+    op.drop_table('bank_lines', schema='biz')
+    op.drop_table('bank_connections', schema='biz')
+    op.drop_table('payment_runs', schema='biz')
+    op.drop_table('payment_allocations', schema='biz')
+    op.drop_table('payments', schema='biz')
+    op.drop_table('document_lines', schema='biz')
+    op.drop_table('documents', schema='biz')
+    op.drop_table('stock_levels', schema='biz')
+    op.drop_table('stock_moves', schema='biz')
+    op.drop_table('locations', schema='biz')
+    op.drop_table('items', schema='biz')
+    op.drop_table('party_balances', schema='biz')
+    op.drop_table('party_categories', schema='biz')
+    op.drop_table('parties', schema='biz')
+    op.drop_table('gl_balances', schema='biz')
+    op.drop_table('gl_entries', schema='biz')
+    op.drop_table('journals', schema='biz')
+    op.drop_table('periods', schema='biz')
+    op.drop_table('accounts', schema='biz')
 
     # Drop schema
     op.execute("DROP SCHEMA IF EXISTS biz")
