@@ -84,6 +84,10 @@ async function main() {
           name: `1.0.${upload.data.versionCode}`,
           versionCodes: [String(upload.data.versionCode)],
           status: draft ? 'draft' : 'completed',
+          releaseNotes: [{
+            language: 'en-US',
+            text: 'Import reads PDF and Word files into entries. Home and More are clearer.',
+          }],
         },
       ],
     },

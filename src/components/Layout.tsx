@@ -3,7 +3,7 @@ import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { logout } from '../lib/firebase';
-import { Bell, CheckCircle2, X, LayoutDashboard, Settings, BookText, Plus, ScanLine, PenLine, Mic, Activity, QrCode, FileUp } from 'lucide-react';
+import { Bell, CheckCircle2, X, LayoutDashboard, BookText, Plus, ScanLine, PenLine, Mic, Activity, QrCode, FileUp, LayoutGrid } from 'lucide-react';
 import HelpAskButton from './HelpAskButton';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -180,7 +180,7 @@ export default function Layout() {
 
   const unreadCount = notifications.filter((n) => !n.read).length;
   const onHome = location.pathname === '/';
-  const onSettings = location.pathname === '/settings' || location.pathname === '/help' || location.pathname.startsWith('/access');
+  const onSettings = location.pathname === '/more' || location.pathname === '/settings' || location.pathname === '/help' || location.pathname.startsWith('/access');
   const onLedger = location.pathname.startsWith('/book/');
   const onLedgers = location.pathname === '/expenses' || onLedger;
   const onActivity = location.pathname === '/activity';
@@ -426,8 +426,8 @@ export default function Layout() {
               Activity
             </MotionLink>
           ) : null}
-          <MotionLink to="/settings" className="dash-tab dash-tab-more" data-on={onSettings} onClick={pulseNav} whileTap={reduceMotion ? undefined : { scale: 0.9, rotateX: 16 }} transition={tabSpring} style={{ transformPerspective: 700 }}>
-            <Settings className="w-5 h-5" />
+          <MotionLink to="/more" className="dash-tab dash-tab-more" data-on={onSettings} onClick={pulseNav} whileTap={reduceMotion ? undefined : { scale: 0.9, rotateX: 16 }} transition={tabSpring} style={{ transformPerspective: 700 }}>
+            <LayoutGrid className="w-5 h-5" />
             More
           </MotionLink>
         </div>

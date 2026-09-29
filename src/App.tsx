@@ -12,6 +12,7 @@ import Dashboard from './pages/Dashboard';
 import BookView from './pages/BookView';
 import InviteAccept from './pages/InviteAccept';
 import Settings from './pages/Settings';
+import MoreHub from './pages/MoreHub';
 import HelpPage from './pages/HelpPage';
 import AccessControl from './pages/AccessControl';
 import TraceOps from './pages/TraceOps';
@@ -75,6 +76,7 @@ export default function App() {
                 <Route path="regular-payments" element={<FeatureGate feature="money_recurring"><RegularPayments /></FeatureGate>} />
                 <Route path="book/:bookId" element={<FeatureGate feature="money"><BookView /></FeatureGate>} />
                 <Route path="reports" element={<FeatureGate feature="money_reports"><MoneyReports /></FeatureGate>} />
+                <Route path="more" element={<MoreHub />} />
                 <Route path="settings" element={<Settings />} />
                 <Route path="help" element={<HelpPage />} />
                 <Route path="books/*" element={<FeatureGate feature="business"><Suspense fallback={<AppLoader title="Business" message="Opening your company accounts." />}><BooksApp /></Suspense></FeatureGate>} />

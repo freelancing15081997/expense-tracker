@@ -60,7 +60,7 @@ function AutoFitAmount({ children, className }: { children: React.ReactNode; cla
       let size = max;
       text.style.fontSize = `${size}px`;
       text.style.whiteSpace = 'nowrap';
-      text.style.letterSpacing = '-0.06em';
+      text.style.letterSpacing = '-0.03em';
       while (size > min && text.scrollWidth > wrap.clientWidth - 4) {
         size -= 0.5;
         text.style.fontSize = `${size}px`;
@@ -1063,7 +1063,6 @@ export default function Dashboard() {
           {canSeeMoney && member ? (
             <>
               <p className={`byjan-money md3-book-amt ${netNeg ? 'is-out' : 'is-in'}`}>
-                <CurrencyMark code={book.currency} size="sm" className="md3-book-ccy" />
                 {stat ? `${netNeg ? '−' : ''}${symbol}${netVal.toLocaleString()}` : '·'}
               </p>
               {stat && booksView === 'list' ? (
@@ -1469,10 +1468,11 @@ export default function Dashboard() {
         {createDialog}
         {bookManageDialogs}
         <div className="home-desk">
-        <section className="home-hero">
+        <section className="home-hero home-fintech">
           <div className="home-hero-top">
             <div className="home-hero-main min-w-0">
-              <h1 className="home-name home-name-inline"><span className="home-greet">{hello},</span> {firstName}</h1>
+              <p className="home-fintech-greet">{hello}</p>
+              <h1 className="home-fintech-name">{firstName}</h1>
               {featuresPending ? (
                 <div className="home-hero-skel" aria-busy="true" aria-label="Loading your workspace">
                   <span className="home-skel-balance byjan-skel" />
@@ -1483,16 +1483,13 @@ export default function Dashboard() {
                   </div>
                 </div>
               ) : !hasAnyFeature ? (
-                <p className="home-lead-light">Your admin has not turned on Money or Business yet.</p>
+                <p className="home-fintech-note">Your admin has not turned on Money or Business yet.</p>
               ) : canSeeMoney ? (
                 <>
-                  <p className="home-left-label">Money left</p>
-                  <div className="home-amount-row">
-                    <CurrencyMark code={currencyCode} size="lg" />
-                    <AutoFitAmount className="home-amount byjan-money">
-                      {loading || !statsReady ? <span className="home-skel-balance byjan-skel" /> : formatIndianAmount(net, currency)}
-                    </AutoFitAmount>
-                  </div>
+                  <p className="home-fintech-label">Money left</p>
+                  <AutoFitAmount className="home-fintech-amount byjan-money">
+                    {loading || !statsReady ? <span className="home-skel-balance byjan-skel" /> : formatIndianAmount(net, currency)}
+                  </AutoFitAmount>
                   <div className="home-hero-chips" aria-label="Snapshot">
                     <span className="home-hero-chip is-in">In {loading || !statsReady ? '…' : formatIndianAmount(globalStats.totalIn, currency)}</span>
                     <span className="home-hero-chip is-out">Out {loading || !statsReady ? '…' : formatIndianAmount(globalStats.totalOut, currency)}</span>
@@ -1505,7 +1502,7 @@ export default function Dashboard() {
                   </div>
                 </>
               ) : (
-                <p className="home-lead-light">Open Business when you need invoices and GST.</p>
+                <p className="home-fintech-note">Open Business when you need invoices and GST.</p>
               )}
             </div>
             <div className="home-hero-aside">
@@ -1578,12 +1575,6 @@ export default function Dashboard() {
               <button type="button" className="home-pill tone-voice" onClick={() => { void CapacitorService.hapticTick(); requestQuick('voice'); }}>
                 <Mic className="w-4 h-4" strokeWidth={2.4} />
                 Voice
-              </button>
-            )}
-            {hasFeature('money_add') && (
-              <button type="button" className="home-pill tone-add" onClick={() => { void CapacitorService.hapticTick(); requestQuick('import'); }}>
-                <FileUp className="w-4 h-4" strokeWidth={2.4} />
-                Import
               </button>
             )}
           </section>
@@ -1773,8 +1764,7 @@ export default function Dashboard() {
         <div className="dash-hero-compact-row">
           <div className="min-w-0">
             <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Money books</p>
-            <p className="dash-hero-balance byjan-money !mt-1 inline-flex items-center gap-2">
-              <CurrencyMark code={currencyCode} size="sm" />
+            <p className="dash-hero-balance byjan-money !mt-1">
               {formatIndianAmount(statsReady ? net : 0, currency)}
             </p>
           </div>

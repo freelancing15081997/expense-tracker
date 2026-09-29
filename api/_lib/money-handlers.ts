@@ -591,6 +591,49 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
         }
       }
 
+      const { extractOfficeText, isOfficeTextFile } = await import('./office-text.js');
+      const officeFile = isOfficeTextFile(imageMime, receiptName);
+      if (!pdfLayer && officeFile && imageBase64.length > 64) {
+        const office = extractOfficeText(Buffer.from(imageBase64, 'base64'), imageMime, receiptName);
+        if (office) docText = [docText, office].filter(Boolean).join('\n').slice(0, 16_000);
+      }
+
+      // Documents are read from their own text. Receipt photos keep the vision path below.
+      if ((isPdfDoc || officeFile) && docText.trim()) {
+        const { extractMoneyEntries } = await import('./amount-parse.js');
+        const entries = extractMoneyEntries(docText);
+        if (entries.length) {
+          const previews = entries.map((row, idx) => ({
+            id: `${idempotencyKey}_${idx}`,
+            source,
+            direction: row.entryType === 'in' ? 'MONEY_IN' : row.entryType === 'transfer' ? 'TRANSFER' : 'MONEY_OUT',
+            amountPaise: Math.round(Number(row.amount || 0) * 100),
+            description: row.description || row.merchant || receiptName || 'Document',
+            merchant: row.merchant || '',
+            category: 'Uncategorized',
+            paymentMethod: row.paymentMethod || 'cash',
+            date: row.date,
+            receiptPath: receiptPath || undefined,
+            receiptName: receiptName || undefined,
+            processingStatus: row.amount > 0 ? 'READY' : 'REVIEW_REQUIRED',
+            financialStatus: 'DRAFT',
+            confidence: row.confidence || 'medium',
+            reasons: [],
+            raw: docText,
+            entryType: row.entryType,
+          }));
+          apiJson(res, 200, {
+            flowState: 'READY',
+            copy: flowCopy('READY'),
+            preview: previews[0],
+            previews,
+            timeline,
+            autoConfirm: Boolean(body.autoConfirm),
+          });
+          return;
+        }
+      }
+
       const { isSpreadsheetMime, parseSpreadsheetBuffer } = await import('./excel-ledger.js');
       if (isSpreadsheetMime(imageMime, receiptName) && imageBase64 && imageBase64.length > 64) {
         const sheet = await parseSpreadsheetBuffer({

@@ -118,6 +118,16 @@ function isSpreadsheet(mime?: string, name?: string) {
   return m.includes('sheet') || m.includes('excel') || m.includes('csv') || /\.(xlsx|xls|csv)$/i.test(n);
 }
 
+function isWordDocument(mime?: string, name?: string) {
+  const m = String(mime || '').toLowerCase();
+  const n = String(name || '').toLowerCase();
+  return m.includes('wordprocessing')
+    || m.includes('msword')
+    || m.includes('rtf')
+    || m.startsWith('text/')
+    || /\.(docx?|rtf|txt)$/i.test(n);
+}
+
 function draftPreview(launch: ReceiptLaunch, extra?: Partial<CapturePreview>): CapturePreview {
   const text = String(extra?.raw || launch.text || '').trim();
   if (text) {
@@ -161,16 +171,25 @@ async function parseReceiptNow(
   let receiptPath = launch.receiptPath || '';
   let receiptName = launch.receiptName || launch.fileName || `receipt-${Date.now()}.jpg`;
   let imageBase64 = '';
-  let imageMime = launch.mimeType || 'image/jpeg';
-  const sheet = isSpreadsheet(imageMime, receiptName);
+  let imageMime = String(launch.mimeType || '').split(';')[0].trim();
   const rawB64 = String(launch.imageDataUrl || '').replace(/^data:[^;]+;base64,/i, '').replace(/\s+/g, '');
   const isPdf = imageMime === 'application/pdf'
     || /\.pdf$/i.test(receiptName)
     || /^JVBER/i.test(rawB64.slice(0, 16));
-  // Spreadsheets → structured server import. Large camera photos still go through
-  // on-device OCR + compressed vision (Play full-res used to skip OCR entirely).
-  const useStructuredPath = sheet;
-
+  const sheet = isSpreadsheet(imageMime, receiptName);
+  if (!imageMime || imageMime === 'application/octet-stream') {
+    if (isPdf) imageMime = 'application/pdf';
+    else if (isWordDocument(imageMime, receiptName)) {
+      imageMime = /\.docx$/i.test(receiptName)
+        ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        : /\.doc$/i.test(receiptName)
+          ? 'application/msword'
+          : /\.rtf$/i.test(receiptName)
+            ? 'application/rtf'
+            : 'text/plain';
+    } else if (sheet) imageMime = 'text/csv';
+    else imageMime = 'image/jpeg';
+  }
   const withTimeout = <T,>(p: Promise<T>, ms: number): Promise<T | null> => Promise.race([
     p,
     new Promise<null>((resolve) => { window.setTimeout(() => resolve(null), Math.max(0, ms)); }),
@@ -204,7 +223,9 @@ async function parseReceiptNow(
   if (launch.imageDataUrl || launch.filePath) {
     onStatus(sheet ? 'Reading spreadsheet…' : 'Preparing…', 16);
 
-    if (launch.imageDataUrl && (useStructuredPath || (!imageMime.startsWith('image/') && !isPdf))) {
+    const word = isWordDocument(imageMime, receiptName);
+    // PDF, Word, and spreadsheets are documents. Photo scan and share stay on the receipt path below.
+    if (launch.imageDataUrl && !imageMime.startsWith('image/') && (sheet || word || isPdf)) {
       imageBase64 = String(launch.imageDataUrl).replace(/^data:[^;]+;base64,/i, '').replace(/\s+/g, '');
       try {
         const uploaded = await uploadLedgerReceipt(bookId, {
@@ -217,45 +238,85 @@ async function parseReceiptNow(
       } catch {
         // Continue without upload — still try to parse inline bytes.
       }
-      onStatus(sheet ? 'Importing rows…' : 'Reading document…', 48);
+      onStatus(sheet ? 'Importing rows…' : isPdf ? 'Reading PDF…' : 'Reading document…', 48);
+      let documentText = String(launch.text || '');
+      if (isPdf && imageBase64.length > 64) {
+        const { extractPdfTextClient } = await import('../lib/pdf-text-client');
+        const layer = await extractPdfTextClient(imageBase64);
+        if (layer) documentText = [documentText, layer].filter(Boolean).join('\n').slice(0, 16_000);
+      }
+      if ((isPdf || word) && documentText.trim()) {
+        const { extractMoneyEntries } = await import('../lib/amount-parse');
+        const entries = extractMoneyEntries(documentText);
+        if (entries.length) {
+          const previews = entries.map((entry, i) => scrubPreview(draftPreview(
+            { ...launch, text: documentText },
+            {
+              id: newMoneyId(`doc_${i}`),
+              amountPaise: Math.round(entry.amount * 100),
+              merchant: entry.merchant || '',
+              description: entry.description || entry.merchant || receiptName,
+              paymentMethod: entry.paymentMethod || 'cash',
+              direction: entry.entryType === 'in' ? 'MONEY_IN' : 'MONEY_OUT',
+              date: entry.date,
+              processingStatus: 'READY',
+              confidence: entry.confidence || 'medium',
+              receiptPath,
+              receiptName,
+              raw: documentText,
+              reasons: [],
+            },
+          )));
+          return { preview: previews[0], previews };
+        }
+      }
       const result = await safeProcess({
         bookId,
-        text: launch.text || '',
+        text: documentText,
         receiptPath,
         receiptName,
         source: launch.source || 'share',
         idempotencyKey: `parse_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
         autoConfirm: true,
-        imageBase64: (sheet || isPdf) ? (imageBase64 || undefined) : undefined,
+        imageBase64: imageBase64 || undefined,
         imageMime,
-        skipVision: !sheet,
+        skipVision: true,
       });
-      if (result.previews?.length) {
-        const previews = result.previews.map((p, i) => scrubPreview({
-          ...p,
-          id: p.id || `${newMoneyId('cap')}_${i}`,
-          receiptPath: p.receiptPath || receiptPath,
-          receiptName: p.receiptName || receiptName,
-          reasons: [],
-        }));
-        return { preview: previews[0], previews };
-      }
-      if (result.preview) {
-        return {
-          preview: scrubPreview({
+      const packaged = (): { preview: CapturePreview; previews: CapturePreview[] } | null => {
+        if (result.previews?.length) {
+          const previews = result.previews.map((p, i) => scrubPreview({
+            ...p,
+            id: p.id || `${newMoneyId('cap')}_${i}`,
+            receiptPath: p.receiptPath || receiptPath,
+            receiptName: p.receiptName || receiptName,
+            reasons: [],
+          }));
+          return { preview: previews[0], previews };
+        }
+        if (result.preview) {
+          const preview = scrubPreview({
             ...result.preview,
             id: result.preview.id || newMoneyId('cap'),
             receiptPath: result.preview.receiptPath || receiptPath,
             receiptName: result.preview.receiptName || receiptName,
             reasons: [],
-          }),
-          previews: [result.preview],
+          });
+          return { preview, previews: [preview] };
+        }
+        return null;
+      };
+      const outcome = packaged();
+      const anyAmount = Number(outcome?.preview?.amountPaise || 0) > 0
+        || Boolean(outcome?.previews?.some((p) => Number(p.amountPaise || 0) > 0));
+      // A PDF with no text layer still uses the existing receipt reader below.
+      // Word and spreadsheets have no photo path — return whatever the document reader found.
+      if (!isPdf || anyAmount) {
+        if (outcome) return outcome;
+        return {
+          preview: scrubPreview(draftPreview(launch, { receiptPath, receiptName, reasons: [] })),
+          previews: [],
         };
       }
-      return {
-        preview: scrubPreview(draftPreview(launch, { receiptPath, receiptName, reasons: [] })),
-        previews: [],
-      };
     }
 
     // Image or PDF → on-device PP-OCRv4 (PDF pages rendered via PdfRenderer) + ₹ rules.

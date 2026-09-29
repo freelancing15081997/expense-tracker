@@ -67,7 +67,7 @@
 .sp-confirm-lead {
   margin: 0;
   font-size: 14px;
-  font-weight: 750;
+  font-weight: 700;
   color: #0f172a;
   letter-spacing: -0.02em;
 }
@@ -97,7 +97,7 @@
 .sp-done-title {
   margin: 0;
   font-size: 20px;
-  font-weight: 750;
+  font-weight: 700;
   color: #0f172a;
 }
 
@@ -135,7 +135,7 @@
   margin-top: 4px;
   font-family: var(--font-display), Fraunces, ui-serif, Georgia, serif;
   font-size: 22px;
-  font-weight: 650;
+  font-weight: 700;
   letter-spacing: -0.03em;
   line-height: 1.15;
   max-width: 18ch;
@@ -170,7 +170,7 @@
 .sp-hero-label {
   position: relative;
   font-size: 11px;
-  font-weight: 650;
+  font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: #94a3b8;
@@ -380,7 +380,7 @@
 .sp-fill-opt strong {
   display: block;
   font-size: 11px;
-  font-weight: 750;
+  font-weight: 700;
   color: #0f172a;
 }
 
@@ -648,7 +648,7 @@
 
 .sp-name {
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 700;
   letter-spacing: -0.01em;
   color: #0f172a;
 }
@@ -730,7 +730,7 @@
   background: #0f172a;
   color: #fff;
   font-size: 14px;
-  font-weight: 750;
+  font-weight: 700;
   letter-spacing: 0.02em;
   display: inline-flex;
   align-items: center;
