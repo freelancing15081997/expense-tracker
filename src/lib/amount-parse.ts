@@ -5,6 +5,8 @@
  * When any ₹ / Rs / INR mark exists, ONLY currency-marked amounts are candidates.
  */
 
+import { receiptName, resolveReceiptText, summarizeReceiptMeaning } from './receipt-resolve';
+
 export type AmountHit = {
   amount: number;
   score: number;
@@ -122,7 +124,7 @@ function hasIndianGrouping(token: string) {
   return /^\d{1,2}(,\d{2})+,\d{3}(?:\.\d{1,2})?$/.test(String(token || '').trim());
 }
 
-function isPlausibleAmount(n: number, opts?: { labeled?: boolean; hasDecimals?: boolean; hasCurrency?: boolean; token?: string }) {
+function isPlausibleAmount(n: number, opts?: { labeled?: boolean; hasDecimals?: boolean; hasCurrency?: boolean; token?: string; repeated?: boolean }) {
   // Allow up to ₹10 crore when currency/label present (GPay hero); else keep 50L ceiling.
   const max = (opts?.hasCurrency || opts?.labeled) ? 100_000_000 : 5_000_000;
   if (!Number.isFinite(n) || n < 1 || n >= max) return false;
@@ -131,8 +133,9 @@ function isPlausibleAmount(n: number, opts?: { labeled?: boolean; hasDecimals?: 
   if (intDigits >= 12) return false;
   // Years / OCR junk
   if (n >= 1900 && n <= 2100 && Number.isInteger(n) && !opts?.hasCurrency && !opts?.labeled) return false;
-  // Calendar day / month fragments (e.g. "26 Sep") — never treat as rupees unless currency.
-  if (!opts?.hasCurrency && !opts?.labeled && Number.isInteger(n) && n <= 31 && !opts?.hasDecimals) return false;
+  // Calendar day / month fragments (e.g. "26 Sep") — never treat as rupees unless currency,
+  // labelled, or the same figure is printed twice (PhonePe ₹1 on both party rows).
+  if (!opts?.hasCurrency && !opts?.labeled && Number.isInteger(n) && n <= 31 && !opts?.hasDecimals && !opts?.repeated) return false;
   return true;
 }
 
@@ -555,10 +558,17 @@ export function extractMoneyAmount(text: string): ParsedMoneyAmount | null {
   const docHasRupee = textHasRupeeMark(raw);
 
   const hits: AmountHit[] = [];
+  const tokenRepeatCount = (n: number) => {
+    const body = String(Math.trunc(n));
+    if (!body) return 0;
+    const re = new RegExp(`(?<!\\d)${body}(?!\\d)`, 'g');
+    return (raw.match(re) || []).length;
+  };
   const push = (token: string, score: number, index: number, labeled: boolean, hasCurrency: boolean) => {
     const n = toNum(token);
     const hasDecimals = /\.\d{1,2}$/.test(token);
-    if (!isPlausibleAmount(n, { labeled, hasDecimals, hasCurrency, token })) return;
+    const repeated = Number.isInteger(n) && n <= 31 && tokenRepeatCount(n) >= 2;
+    if (!isPlausibleAmount(n, { labeled, hasDecimals, hasCurrency, token, repeated })) return;
     // OCR of ₹ as “4” / “2” must not become a ₹4 labeled total.
     if (labeled && !hasCurrency && !hasDecimals && Number.isInteger(n) && n <= 9) return;
     if (isDecoyAmountContext(raw, index, token)) return;
@@ -573,8 +583,8 @@ export function extractMoneyAmount(text: string): ParsedMoneyAmount | null {
     const around = raw.slice(Math.max(0, index - 4), Math.min(raw.length, index + token.length + 4));
     if (/\d{1,2}:\d{2}/.test(around)) return;
 
-    // Calendar day next to “Payment successful 26” — never ₹26 unless labeled or currency.
-    if (Number.isInteger(n) && n <= 31 && !hasDecimals && !hasCurrency && !labeled) {
+    // Calendar day next to “Payment successful 26” — never ₹26 unless labeled, currency, or duplicated.
+    if (Number.isInteger(n) && n <= 31 && !hasDecimals && !hasCurrency && !labeled && !repeated) {
       return;
     }
 
@@ -680,10 +690,27 @@ export function extractMoneyAmount(text: string): ParsedMoneyAmount | null {
     while ((m = loose.exec(raw)) !== null) {
       const n = toNum(m[1]);
       if (n >= 32 && n <= 200_000) push(m[1], 4, m.index, false, false);
+      else if (n >= 1 && n <= 31 && tokenRepeatCount(n) >= 2) push(m[1], 10, m.index, false, false);
     }
   }
 
-  if (!hits.length) return null;
+  if (!hits.length) {
+    const resolvedEarly = resolveReceiptText(text);
+    if (resolvedEarly.amount > 0) {
+      const who = receiptName(resolvedEarly);
+      return {
+        amount: resolvedEarly.amount,
+        entryType: resolvedEarly.direction === 'money_in' ? 'in' : 'out',
+        description: summarizeReceiptMeaning(resolvedEarly),
+        merchant: who,
+        paymentMethod: /\bupi\b|phonepe|gpay|paytm/i.test(raw) ? 'upi' : 'cash',
+        date: extractReceiptDate(text),
+        confidence: resolvedEarly.amountHow === 'bare' ? 'low' : 'medium',
+        score: resolvedEarly.amountHow === 'bare' ? 20 : 44,
+      };
+    }
+    return null;
+  }
 
   // Prefer strong labeled totals; never let weak "Total" beat Grand Total / Net Payable.
   const strongLabeled = hits.filter((h) => h.labeled && h.score >= 48);
@@ -830,11 +857,19 @@ export function extractMoneyAmount(text: string): ParsedMoneyAmount | null {
         ? 'medium'
         : 'low';
 
+  const resolved = resolveReceiptText(text);
+  const resolvedName = receiptName(resolved);
+  if (resolvedName) finalMerchant = resolvedName;
+  const resolvedDesc = summarizeReceiptMeaning(resolved);
+  const entryFromResolved = resolved.direction === 'money_in' ? 'in' : entryType;
+
   return {
-    amount: best.amount,
-    entryType,
-    description: (descriptionOverride || finalMerchant || raw.slice(0, 80)).slice(0, 200),
-    merchant: finalMerchant.slice(0, 120),
+    amount: resolved.amount > 0 && (resolved.amountHow === 'labeled' || resolved.amountHow === 'paid_to' || resolved.amountHow === 'currency' || resolved.amountHow === 'after_payee')
+      ? resolved.amount
+      : best.amount,
+    entryType: entryFromResolved,
+    description: (descriptionOverride || resolvedDesc || '').slice(0, 200),
+    merchant: (resolvedName || finalMerchant).slice(0, 120),
     paymentMethod,
     date: extractReceiptDate(text),
     confidence,
@@ -872,6 +907,33 @@ export function cleanMerchantName(raw: string): string {
   if (/\.(?:jpe?g|png|webp|heic|pdf)$/i.test(s)) return '';
   if (/^(?:img[-_\s]?\d|image|screenshot|whatsapp)/i.test(s)) return '';
   return s.slice(0, 48);
+}
+
+const UPI_SUCCESS_BANNER_RE = /\b(?:transaction successful|payment successful|paid successfully|money received)\b/i;
+const UPI_HISTORY_LIST_RE = /\b(?:payment history|transaction history|recent (?:payments|transactions)|balance\s*&\s*history)\b/i;
+const UPI_SELF_WALLET_RE = /\b(?:credited\s+to|debited\s+from|paid\s+from|sent\s+from|received\s+in)\b/i;
+
+function partyVerbCount(text: string): number {
+  return (String(text || '').match(/\b(?:paid\s+to|pald\s+to|money\s+sent\s+to|received\s+from)\b/gi) || []).length;
+}
+
+/** One PhonePe/Paytm success screen — not a History list. "View History" is a button. */
+function isSingleUpiSuccessScreen(text: string): boolean {
+  const t = String(text || '');
+  if (UPI_HISTORY_LIST_RE.test(t)) return false;
+  if (/\b(?:paid via cred|bill payment(?: receipt)?)\b/i.test(t) && /\bcred\b|biller name|customer id/i.test(t)) return true;
+  if (!UPI_SUCCESS_BANNER_RE.test(t)) return false;
+  const verbs = partyVerbCount(t);
+  const banners = (t.match(/\b(?:transaction successful|payment successful|paid successfully|money received)\b/gi) || []).length;
+  const utrs = (t.match(/\butr\b/gi) || []).length;
+  if (banners >= 2 && verbs >= 2 && utrs >= 2) return false;
+  return true;
+}
+
+function asSinglePayable(text: string): ParsedMoneyAmount[] {
+  const one = extractMoneyAmount(text);
+  if (!one) return [];
+  return [{ ...one, merchant: cleanMerchantName(one.merchant) || one.merchant }];
 }
 
 /**
@@ -979,8 +1041,10 @@ export function extractUpiHistoryEntries(text: string): ParsedMoneyAmount[] {
   }
 
   found.sort((a, b) => a._i - b._i);
-  const verbHits = (repairOcrText(text).match(/\b(?:paid\s+to|money\s+sent\s+to|received\s+from)\b/gi) || []).length;
-  const looksLikeHistory = /\bhistory\b/i.test(text) || verbHits >= 2;
+  const verbHits = partyVerbCount(text);
+  // "View History" is a detail-screen button. Only a real list heading or 2+ party verbs.
+  const looksLikeHistory = UPI_HISTORY_LIST_RE.test(text)
+    || (verbHits >= 2 && !isSingleUpiSuccessScreen(text));
   return found.length >= 2 && looksLikeHistory
     ? found.map(({ _i, ...rest }) => rest)
     : [];
@@ -1010,6 +1074,7 @@ export function extractNamedMoneyLines(text: string): ParsedMoneyAmount[] {
     if (!(amount > 0) || amount >= 5_000_000) return;
     if (!name || name.length < 3 || name.length > 48) return;
     if (SKIP_NAME_RE.test(name)) return;
+    if (/\b(?:cashback|expires?|claim)\b/i.test(name)) return;
     if (/^(?:am|pm)$/i.test(name)) return;
     if (/^\d+$/.test(name)) return;
     // Reject qty-looking names ("2 HANDI", "Paneer 2")
@@ -1030,9 +1095,18 @@ export function extractNamedMoneyLines(text: string): ParsedMoneyAmount[] {
   };
 
   // Per line — dash/colon, or "Name Rs 1016", or trailing amount on a name row.
+  let skipSelfWallet = false;
   for (const line of repairOcrText(text).split(/\r?\n/)) {
     const t = line.replace(/\s+/g, ' ').trim();
     if (!t) continue;
+    if (/^(?:credited\s+to|debited\s+from|paid\s+from|sent\s+from|received\s+in)\b/i.test(t)) {
+      skipSelfWallet = !/\d/.test(t);
+      continue;
+    }
+    if (skipSelfWallet) {
+      skipSelfWallet = false;
+      continue;
+    }
     const dashed = t.match(
       /^([A-Za-z][A-Za-z0-9 .']{0,40}?)\s*[-–—:]\s*(?:₹|₨|rs\.?|inr)?\s*([\d,]+(?:\.\d{1,2})?)\s*$/i,
     );
@@ -1059,6 +1133,8 @@ export function extractNamedMoneyLines(text: string): ParsedMoneyAmount[] {
   const globalRe = /([A-Za-z][A-Za-z0-9 .']{1,40}?)\s*(?:[-–—:]+\s*)?(?:₹|₨|rs\.?|inr)\s*([\d,]+(?:\.\d{1,2})?)/gi;
   let m: RegExpExecArray | null;
   while ((m = globalRe.exec(raw)) !== null) {
+    const before = raw.slice(Math.max(0, m.index - 28), m.index);
+    if (UPI_SELF_WALLET_RE.test(before)) continue;
     pushNamed(m[1], m[2]);
   }
 
@@ -1071,7 +1147,11 @@ export function extractNamedMoneyLines(text: string): ParsedMoneyAmount[] {
 export function extractMoneyEntries(text: string): ParsedMoneyAmount[] {
   const learned = fromLearned(text);
   if (learned?.length) return learned;
+  // PhonePe prints ₹ twice (Received from / Paid to, then Credited to / Debited from).
+  // That is one transaction — never two confirm cards.
+  if (isSingleUpiSuccessScreen(text)) return asSinglePayable(text);
   const history = extractUpiHistoryEntries(text);
+  if (history.length >= 2) return history;
   const multi = extractNamedMoneyLines(text);
   const merged: ParsedMoneyAmount[] = [];
   const seen = new Set<string>();
@@ -1081,7 +1161,14 @@ export function extractMoneyEntries(text: string): ParsedMoneyAmount[] {
     seen.add(key);
     merged.push(row);
   }
-  if (merged.length >= 2) return merged;
+  if (merged.length >= 2) {
+    const sameAmount = merged.every((r) => r.amount === merged[0].amount);
+    if (sameAmount && UPI_SELF_WALLET_RE.test(text) && partyVerbCount(text) <= 1) {
+      const one = asSinglePayable(text);
+      if (one.length) return one;
+    }
+    return merged;
+  }
   const one = extractMoneyAmount(text);
   if (!one) return [];
   if (/\bpaid\s+to\b/i.test(repairOcrText(text))) {

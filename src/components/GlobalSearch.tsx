@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, Receipt, BookOpen, LayoutGrid, Loader2, FileText } from 'lucide-react';
+import { Search, X, Receipt, BookOpen, LayoutGrid, FileText } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { getRuntimePrefs } from '../lib/app-prefs';
-import { querySearchCatalog, warmSearchCatalog, type CatalogHit } from '../lib/search-catalog';
+import { querySearchCatalog, seedSearchCatalog, warmSearchCatalog, type CatalogHit } from '../lib/search-catalog';
 import { getCurrencySymbol } from '../lib/currency';
 import { useFeatures } from '../lib/use-features';
 
@@ -69,7 +69,6 @@ export default function GlobalSearch() {
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [results, setResults] = useState<CatalogHit[]>([]);
-  const [loading, setLoading] = useState(false);
   const { currentUser } = useAuth();
   const { allowsHref } = useFeatures();
   const navigate = useNavigate();
@@ -80,7 +79,10 @@ export default function GlobalSearch() {
   const open = () => {
     ignoreClose.current = Date.now();
     setIsOpen(true);
-    if (currentUser?.uid) void warmSearchCatalog(currentUser.uid);
+    if (currentUser?.uid) {
+      seedSearchCatalog(currentUser.uid);
+      void warmSearchCatalog(currentUser.uid);
+    }
     setTimeout(() => inputRef.current?.focus(), 30);
   };
 
@@ -112,20 +114,15 @@ export default function GlobalSearch() {
 
   useEffect(() => {
     if (!isOpen) return;
-    const q = searchQuery.trim();
-    if (!q) {
-      setResults([]);
-      setLoading(false);
-      return;
-    }
-    setResults(querySearchCatalog(searchQuery).filter((hit) => allowsHref(hit.href)));
-    if (currentUser?.uid) {
-      setLoading(true);
-      void warmSearchCatalog(currentUser.uid).then(() => {
-        setResults(querySearchCatalog(searchQuery).filter((hit) => allowsHref(hit.href)));
-        setLoading(false);
-      }).catch(() => setLoading(false));
-    }
+    if (currentUser?.uid) seedSearchCatalog(currentUser.uid);
+    const show = () => setResults(querySearchCatalog(searchQuery).filter((hit) => allowsHref(hit.href)));
+    show();
+    if (!currentUser?.uid) return;
+    let cancelled = false;
+    void warmSearchCatalog(currentUser.uid).then(() => {
+      if (!cancelled) show();
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
   }, [searchQuery, isOpen, currentUser?.uid, allowsHref]);
 
   return (
@@ -147,13 +144,12 @@ export default function GlobalSearch() {
             className="flex-1 text-sm outline-none text-slate-900 placeholder:text-slate-400"
             autoFocus
           />
-          {loading && <Loader2 className="w-4 h-4 text-slate-400 animate-spin" />}
           <button type="button" onClick={() => setIsOpen(false)} className="p-1 text-slate-400 hover:text-slate-700 rounded">
             <X className="w-4 h-4" />
           </button>
         </div>
         <div className="max-h-[60vh] overflow-y-auto">
-          {results.length === 0 && !loading ? (
+          {results.length === 0 ? (
             <div className="p-8 text-center text-sm text-slate-500">{searchQuery.trim() ? `No results for “${searchQuery}”` : 'Start typing. Only books and features you can open will appear.'}</div>
           ) : (
             <div className="py-1">

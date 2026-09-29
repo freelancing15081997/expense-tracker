@@ -26,6 +26,9 @@ import { useFeatures } from '../lib/use-features';
 import ReceiptCaptureFlow, { type ReceiptLaunch } from '../components/ReceiptCaptureFlow';
 import { cacheMoneyBooks, readPendingCapture, clearPendingCapture, rememberMoneyBook, readCachedMoneyBooks, lastMoneyBookId, type PendingCapture } from '../components/ShareIntentListener';
 import { readUserJson, writeUserJson } from '../lib/user-cache';
+import { readDashBooks, writeBookSnapshots, writeDashBooks, writeExpenseSnap } from '../lib/book-snap';
+import { presentShare } from '../lib/capture-session';
+import { auth } from '../lib/firebase';
 import PendingPayStrip from '../components/PendingPayStrip';
 import { CapacitorService, isWeb } from '../lib/capacitor';
 import BookPickSheet from '../components/BookPickSheet';
@@ -119,7 +122,7 @@ export default function Dashboard() {
   const [searchParams, setSearchParams] = useSearchParams();
   const tenant = useBooksTenantMeta();
   const expensesOnly = location.pathname.startsWith('/expenses');
-  const [books, setBooks] = useState<BookItem[]>([]);
+  const [books, setBooks] = useState<BookItem[]>(() => readDashBooks<BookItem>(auth.currentUser?.uid));
   const [globalStats, setGlobalStats] = useState({
     totalIn: 0,
     totalOut: 0,
@@ -131,7 +134,7 @@ export default function Dashboard() {
     userActivity: {} as Record<string, number>,
   });
   const [invites, setInvites] = useState<InviteItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => readDashBooks<BookItem>(auth.currentUser?.uid).length === 0);
   const [statsReady, setStatsReady] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [showNewBook, setShowNewBook] = useState(false);
@@ -179,7 +182,12 @@ export default function Dashboard() {
     if (!currentUser || !userProfile) return;
     const uid = currentUser.uid;
     try {
-      if (!opts?.silent) {
+      const localBooks = readDashBooks<BookItem>(uid);
+      if (localBooks.length) {
+        setBooks((curr) => (curr.length ? curr : localBooks));
+        setLoading(false);
+      }
+      if (!opts?.silent && !localBooks.length) {
         setLoading(true);
         setStatsReady(false);
         // Paint last-known totals for THIS user only.
@@ -235,6 +243,8 @@ export default function Dashboard() {
         })).sort(sortBooks);
         setBooks(paintedBooks);
         setLoading(false);
+        writeDashBooks(paintedBooks, uid);
+        writeBookSnapshots(paintedBooks, uid);
       }
       const [allExp, inviteRows] = await Promise.all([expensesSoon, invitesSoon]);
 
@@ -259,6 +269,16 @@ export default function Dashboard() {
       setInvites(inviteRows);
       setLoading(false);
       cacheMoneyBooks(nextBooks.map((b) => ({ id: b.id, name: b.name, currency: b.currency })));
+      writeDashBooks(nextBooks, uid);
+      writeBookSnapshots(nextBooks, uid);
+      const snapByBook: Record<string, Array<Record<string, unknown>>> = {};
+      for (const row of (Array.isArray(allExp.expenses) ? allExp.expenses : [])) {
+        const id = String((row as { bookId?: string }).bookId || '');
+        if (!id) continue;
+        if (!snapByBook[id]) snapByBook[id] = [];
+        snapByBook[id].push(row as Record<string, unknown>);
+      }
+      Object.entries(snapByBook).forEach(([id, rows]) => writeExpenseSnap(id, rows, uid));
 
       try {
       let tIn = 0; let tOut = 0; let monthIn = 0; let monthOut = 0; let reimbursable = 0; let uncategorized = 0;
@@ -405,6 +425,15 @@ export default function Dashboard() {
       setStatsReady(true);
     }
   };
+
+  useEffect(() => {
+    const uid = currentUser?.uid;
+    if (!uid) return;
+    const local = readDashBooks<BookItem>(uid);
+    if (!local.length) return;
+    setBooks((curr) => (curr.length ? curr : local));
+    setLoading(false);
+  }, [currentUser?.uid]);
 
   useEffect(() => {
     void fetchData();
@@ -574,12 +603,16 @@ export default function Dashboard() {
   const [sharePending, setSharePending] = useState<PendingCapture | null>(null);
   const [sharePickBooks, setSharePickBooks] = useState<Array<{ id: string; name: string }>>([]);
   const [sharePickLoading, setSharePickLoading] = useState(false);
+  const shareOnceRef = useRef('');
   const [decliningId, setDecliningId] = useState<string | null>(null);
 
   useEffect(() => {
     const openFromPending = () => {
       const pending = readPendingCapture();
-      if (!pending?.imageDataUrl && !pending?.text && !pending?.batch?.length) return;
+      if (!pending?.imageDataUrl && !pending?.text && !pending?.batch?.length && !pending?.filePath) return;
+      const shareKey = String(pending.receivedAt || '');
+      if (shareKey && (shareOnceRef.current === shareKey || shareOnceRef.current === `go:${shareKey}`)) return;
+      if (shareKey) shareOnceRef.current = shareKey;
 
       const cached = readCachedMoneyBooks();
       const needPick = pending.requireBookPick !== false;
@@ -587,23 +620,27 @@ export default function Dashboard() {
       // Prefer the reliable BookPickSheet (same as Add entry) when a book must be chosen.
       if (needPick) {
         if (cached.length === 1) {
+          if (shareKey) shareOnceRef.current = `go:${shareKey}`;
           setSharePending(null);
           setSharePickBooks([]);
           setSharePickLoading(false);
-          setReceiptLaunch(pending.batch && pending.batch.length > 1
+          presentShare(pending.batch && pending.batch.length > 1
             ? {
               source: pending.source || 'share',
               batch: pending.batch,
               text: pending.text,
+              receivedAt: pending.receivedAt,
               preferredBookId: cached[0].id,
               requireBookPick: false,
             }
             : {
               text: pending.text,
               imageDataUrl: pending.imageDataUrl,
+              filePath: pending.filePath,
               fileName: pending.fileName,
               mimeType: pending.mimeType,
               source: pending.source || 'share',
+              receivedAt: pending.receivedAt,
               preferredBookId: cached[0].id,
               requireBookPick: false,
             });
@@ -613,8 +650,7 @@ export default function Dashboard() {
         setSharePickBooks(cached.map((b) => ({ id: b.id, name: b.name })));
         setBookPickKind('share');
         setSharePickLoading(cached.length === 0);
-        void fetchData({ silent: true });
-        // Always refresh ledger list so the sheet is not stuck empty/loading.
+        // Book names only. A full expense download here reopened the picker mid-read.
         void listLedgers()
           .then((rows) => {
             const visible = (rows || [])
@@ -622,26 +658,30 @@ export default function Dashboard() {
               .map((b) => ({ id: String(b.id), name: String(b.name || 'Money book'), currency: String(b.currency || 'INR') }));
             cacheMoneyBooks(visible);
             setSharePickBooks(visible.map((b) => ({ id: b.id, name: b.name })));
-            if (visible.length === 1) {
+            if (visible.length === 1 && shareOnceRef.current !== `go:${shareKey}`) {
+              if (shareKey) shareOnceRef.current = `go:${shareKey}`;
               const only = visible[0];
               setBookPickKind(null);
               setSharePending(null);
               setSharePickLoading(false);
               rememberMoneyBook(only.id);
-              setReceiptLaunch(pending.batch && pending.batch.length > 1
+              presentShare(pending.batch && pending.batch.length > 1
                 ? {
                   source: pending.source || 'share',
                   batch: pending.batch,
                   text: pending.text,
+                  receivedAt: pending.receivedAt,
                   preferredBookId: only.id,
                   requireBookPick: false,
                 }
                 : {
                   text: pending.text,
                   imageDataUrl: pending.imageDataUrl,
+                  filePath: pending.filePath,
                   fileName: pending.fileName,
                   mimeType: pending.mimeType,
                   source: pending.source || 'share',
+                  receivedAt: pending.receivedAt,
                   preferredBookId: only.id,
                   requireBookPick: false,
                 });
@@ -652,23 +692,27 @@ export default function Dashboard() {
         return;
       }
 
+      if (shareKey) shareOnceRef.current = `go:${shareKey}`;
       setSharePending(null);
       setSharePickBooks([]);
       setSharePickLoading(false);
-      setReceiptLaunch(pending.batch && pending.batch.length > 1
+      presentShare(pending.batch && pending.batch.length > 1
         ? {
           source: pending.source || 'share',
           batch: pending.batch,
           text: pending.text,
+          receivedAt: pending.receivedAt,
           preferredBookId: pending.preferredBookId,
           requireBookPick: false,
         }
         : {
           text: pending.text,
           imageDataUrl: pending.imageDataUrl,
+          filePath: pending.filePath,
           fileName: pending.fileName,
           mimeType: pending.mimeType,
           source: pending.source || 'share',
+          receivedAt: pending.receivedAt,
           preferredBookId: pending.preferredBookId,
           requireBookPick: false,
         });
@@ -677,13 +721,13 @@ export default function Dashboard() {
     const params = new URLSearchParams(location.search);
     if (params.get('capture') === '1') {
       const pending = readPendingCapture();
-      if (pending?.imageDataUrl || pending?.text || pending?.batch?.length) {
+      if (pending?.imageDataUrl || pending?.text || pending?.batch?.length || pending?.filePath) {
         openFromPending();
         navigate(location.pathname, { replace: true });
       } else {
         const t = window.setTimeout(() => {
           const again = readPendingCapture();
-          if (again?.imageDataUrl || again?.text) {
+          if (again?.imageDataUrl || again?.text || again?.filePath) {
             openFromPending();
             navigate(location.pathname, { replace: true });
           } else {
@@ -766,7 +810,6 @@ export default function Dashboard() {
       return;
     }
     try {
-      await CapacitorService.requestCameraPermission();
       let batch: Array<{ imageDataUrl: string; fileName: string; mimeType: string }> = [];
       try {
         batch = await CapacitorService.captureScanReceipts({ limit: 24, quality: 88 });
@@ -832,15 +875,19 @@ export default function Dashboard() {
   };
 
   const requestQuick = (kind: 'add' | 'scan' | 'voice' | 'split' | 'pay' | 'import') => {
-    if (loading) {
+    const known = visibleBooks.length ? visibleBooks : readCachedMoneyBooks();
+    if (kind === 'scan' && known.length === 1) {
+      void scanHomeReceipt(known[0].id);
+      return;
+    }
+    if (!known.length && loading) {
       setBookPickKind(kind);
       return;
     }
-    if (!visibleBooks.length) {
+    if (!known.length) {
       setShowNewBook(true);
       return;
     }
-    // Always let the user pick when more than one book; single book still confirms via sheet.
     setBookPickKind(kind);
   };
 
@@ -874,11 +921,14 @@ export default function Dashboard() {
     if (kind === 'share') {
       const pending = sharePending || readPendingCapture();
       setSharePending(null);
-      if (!pending?.imageDataUrl && !pending?.text && !pending?.batch?.length) return;
+      if (!pending?.imageDataUrl && !pending?.text && !pending?.batch?.length && !pending?.filePath) return;
+      const shareKey = String(pending.receivedAt || '');
+      if (shareKey) shareOnceRef.current = `go:${shareKey}`;
       rememberMoneyBook(bookId);
       if (pending.batch && pending.batch.length > 1) {
-        setReceiptLaunch({
+        presentShare({
           source: pending.source || 'share',
+          receivedAt: pending.receivedAt,
           batch: pending.batch,
           text: pending.text,
           preferredBookId: bookId,
@@ -886,12 +936,14 @@ export default function Dashboard() {
         });
         return;
       }
-      setReceiptLaunch({
+      presentShare({
         text: pending.text,
         imageDataUrl: pending.imageDataUrl,
+        filePath: pending.filePath,
         fileName: pending.fileName,
         mimeType: pending.mimeType,
         source: pending.source || 'share',
+        receivedAt: pending.receivedAt,
         preferredBookId: bookId,
         requireBookPick: false,
       });

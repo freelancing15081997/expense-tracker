@@ -1,4 +1,5 @@
 import { apiPost } from './api';
+import { auth } from './firebase';
 import { clearExpensesListCache } from './expenses';
 
 export type LedgerBook = {
@@ -14,9 +15,35 @@ export type LedgerBook = {
   [key: string]: unknown;
 };
 
+const LEDGER_LIST_MS = 12_000;
+let ledgerMem: { uid: string; at: number; books: LedgerBook[] } | null = null;
+let ledgerInflight: { uid: string; promise: Promise<LedgerBook[]> } | null = null;
+
+export function clearLedgerListCache() {
+  ledgerMem = null;
+  ledgerInflight = null;
+}
+
 export async function listLedgers() {
-  const payload = await apiPost<{ books?: LedgerBook[] }>('/api/ledgers', { op: 'list' });
-  return Array.isArray(payload.books) ? payload.books : [];
+  const uid = String(auth.currentUser?.uid || '');
+  const now = Date.now();
+  if (uid && ledgerMem && ledgerMem.uid === uid && now - ledgerMem.at < LEDGER_LIST_MS) {
+    return ledgerMem.books;
+  }
+  if (uid && ledgerInflight?.uid === uid) return ledgerInflight.promise;
+  const promise = (async () => {
+    const payload = await apiPost<{ books?: LedgerBook[] }>('/api/ledgers', { op: 'list' });
+    const books = Array.isArray(payload.books) ? payload.books : [];
+    const still = String(auth.currentUser?.uid || '');
+    if (uid && still === uid) ledgerMem = { uid, at: Date.now(), books };
+    return books;
+  })();
+  if (uid) ledgerInflight = { uid, promise };
+  try {
+    return await promise;
+  } finally {
+    if (ledgerInflight?.promise === promise) ledgerInflight = null;
+  }
 }
 
 export async function getLedger(bookId: string) {
@@ -26,6 +53,7 @@ export async function getLedger(bookId: string) {
 
 export async function forgetLedger(bookId: string) {
   clearExpensesListCache();
+  clearLedgerListCache();
   await apiPost('/api/ledgers', { op: 'forgetBook', bookId });
 }
 
@@ -58,6 +86,7 @@ export async function createLedger(input: {
     }
   }
   clearExpensesListCache();
+  clearLedgerListCache();
   return book;
 }
 
@@ -66,17 +95,20 @@ export async function updateLedger(bookId: string, patch: Record<string, unknown
   // Book metadata (name, pin, budget, purpose…) rides along with the expenses list; drop the cached copy
   // so the next screen shows the change instead of a 60s-stale snapshot.
   clearExpensesListCache();
+  clearLedgerListCache();
   return payload.book;
 }
 
 export async function removeLedgerMember(bookId: string, uidToRemove: string) {
   clearExpensesListCache();
+  clearLedgerListCache();
   const payload = await apiPost<{ book: LedgerBook }>('/api/ledgers', { op: 'removeMember', bookId, uidToRemove });
   return payload.book;
 }
 
 export async function softDeleteLedger(bookId: string) {
   clearExpensesListCache();
+  clearLedgerListCache();
   await apiPost('/api/ledgers', { op: 'softDelete', bookId });
 }
 

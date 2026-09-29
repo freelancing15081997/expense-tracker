@@ -66,6 +66,7 @@ import { enqueueOfflineExpense, flushOfflineQueue, isLikelyOfflineError, listOff
 import { buildCapturePreview } from '../lib/money-capture';
 import CapturePreviewSheet from '../components/CapturePreviewSheet';
 import ReceiptCaptureFlow, { type ManualFormDraft, type ReceiptLaunch } from '../components/ReceiptCaptureFlow';
+import { presentShare, takeShareManual, takeShareSaved } from '../lib/capture-session';
 import WebScanSheet, { type WebScanFile } from '../components/WebScanSheet';
 import { confirmMismatchGold, reportParseMismatch } from '../lib/parse-feedback';
 import SplitExpenseSheet from '../components/SplitExpenseSheet';
@@ -76,6 +77,8 @@ import SettlementsPanel from '../components/SettlementsPanel';
 import PullToRefresh from '../components/money/PullToRefresh';
 import VoiceEntrySheet from '../components/VoiceEntrySheet';
 import { rememberMoneyBook } from '../components/ShareIntentListener';
+import { mergeExpenseRows, peekBookShell, readExpenseSnap, writeBookSnapshot, writeExpenseSnap } from '../lib/book-snap';
+import { auth } from '../lib/firebase';
 import { guessCategoryFromText } from '../lib/bridge-automations';
 import UpiSetupSheet from '../components/UpiSetupSheet';
 import { ExpenseSuccessCard, MoneySheet } from '../components/money/MoneyUi';
@@ -230,9 +233,9 @@ export default function BookView() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { currentUser, userProfile, refreshUserProfile } = useAuth();
   const { on: hasFeature } = useFeatures();
-  const [book, setBook] = useState<any>(null);
-  const [expenses, setExpenses] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [book, setBook] = useState<any>(() => peekBookShell(bookId, currentUser?.uid || auth.currentUser?.uid));
+  const [expenses, setExpenses] = useState<any[]>(() => readExpenseSnap(String(bookId || ''), currentUser?.uid || auth.currentUser?.uid));
+  const [loading, setLoading] = useState(() => !peekBookShell(bookId, currentUser?.uid || auth.currentUser?.uid) && readExpenseSnap(String(bookId || ''), currentUser?.uid || auth.currentUser?.uid).length === 0);
   const [upiSetupOpen, setUpiSetupOpen] = useState(false);
   const [voiceOpen, setVoiceOpen] = useState(false);
   const [qrPayOpen, setQrPayOpen] = useState(false);
@@ -253,6 +256,8 @@ export default function BookView() {
   const pendingQuickRef = useRef<'scan' | 'add' | 'voice' | 'pay' | 'import' | null>(null);
   const loadingRef = useRef(true);
   const scanBusyRef = useRef(false);
+  const shareManualRef = useRef<(draft: ManualFormDraft) => void>(() => {});
+  const shareManualReadyRef = useRef(false);
   
   // Modals state
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(() => Boolean((location.state as { openEntry?: boolean } | null)?.openEntry));
@@ -449,17 +454,28 @@ export default function BookView() {
   useEffect(() => {
     if (!bookId || !currentUser) return;
     let alive = true;
+    const shell = peekBookShell(bookId, currentUser.uid);
+    const snapped = readExpenseSnap(bookId, currentUser.uid);
+    if (shell) setBook((curr: any) => (curr && !curr._fromCache ? curr : shell));
+    if (snapped.length) setExpenses((curr) => (curr.length ? curr : snapped));
+    if (shell || snapped.length) setLoading(false);
+    const showRows = (rows: any[], local: any[] = []) => mergeExpenseRows(
+      rows.filter((row) => row && !row.deleted && !row.deletedAt && row.status !== 'deleted' && !hiddenExpenseIds.current.has(String(row.id))),
+      local,
+    ).sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt));
     const start = async () => {
       try {
+        const listPromise = listExpenses(bookId);
         const next = await getLedger(bookId);
         if (!alive) return;
         setBook(next);
+        writeBookSnapshot(next, currentUser.uid);
         setMonthlyBudget((next as any).monthlyBudget != null ? String((next as any).monthlyBudget) : '');
         setInboundAddress(bookInboundAddress(next));
+        setLoading(false);
         const isMember = next.isMember !== false && Boolean(next.roles?.[currentUser.uid]?.role || next.ownerId === currentUser.uid);
         if (!isMember) {
           setExpenses([]);
-          setLoading(false);
           return;
         }
         if (!String(next.inboundAddress || next.inboundSlug || '').trim()) {
@@ -468,8 +484,10 @@ export default function BookView() {
             if (payload.book) setBook(payload.book);
           }).catch(() => undefined);
         }
-        let rows = await listExpenses(bookId);
+        const listed = await listPromise;
         if (!alive) return;
+        let rows = listed;
+        setExpenses((curr) => showRows(rows, curr));
         const myRoleNow = next.roles?.[currentUser.uid]?.role || (next.ownerId === currentUser.uid ? 'owner' : 'viewer');
         if (['owner', 'admin', 'contributor'].includes(String(myRoleNow))) {
           const { posts, nextRules } = dueRecurringPosts(readRecurring(next), rows);
@@ -486,15 +504,13 @@ export default function BookView() {
             const updated = await updateLedger(bookId, { recurringRules: nextRules });
             if (!alive) return;
             setBook(updated);
+            writeBookSnapshot(updated, currentUser.uid);
             rows = await listExpenses(bookId);
+            if (!alive) return;
+            setExpenses((curr) => showRows(rows, curr));
             addToast(`Posted ${posts.length} recurring ${posts.length === 1 ? 'entry' : 'entries'}.`, 'success');
           }
         }
-        if (!alive) return;
-        setExpenses(rows
-          .filter((row) => row && !row.deleted && !row.deletedAt && row.status !== 'deleted')
-          .sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt)));
-        setLoading(false);
       } catch (err: any) {
         if (!alive) return;
         addToast(err?.message || 'You do not have access to this ledger.', 'error');
@@ -507,9 +523,7 @@ export default function BookView() {
       if (!bookId || document.visibilityState !== 'visible') return;
       listExpenses(bookId).then((rows) => {
         if (!alive) return;
-        setExpenses(rows
-          .filter((row) => row && !row.deleted && !row.deletedAt && row.status !== 'deleted' && !hiddenExpenseIds.current.has(String(row.id)))
-          .sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt)));
+        setExpenses((curr) => showRows(rows, curr));
       }).catch(() => undefined);
     }, 45000);
     return () => {
@@ -517,6 +531,11 @@ export default function BookView() {
       window.clearInterval(timer);
     };
   }, [bookId, currentUser?.uid]);
+
+  useEffect(() => {
+    if (!bookId || !currentUser?.uid || loading) return;
+    writeExpenseSnap(bookId, expenses, currentUser.uid);
+  }, [bookId, currentUser?.uid, expenses, loading]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -596,14 +615,8 @@ export default function BookView() {
     const pending = readPendingCapture();
     const wantsCapture = location.search.includes('capture=1');
 
-    if (pending && (pending.imageDataUrl || pending.text)) {
-      // Share with 2+ books must use Dashboard choose-book — never auto-save here
-      // just because preferredBookId happens to match this book.
-      if (pending.requireBookPick === true) {
-        navigate(`/?capture=1&s=${Date.now().toString(36)}`, { replace: true });
-        return;
-      }
-
+    // Only a share link (?capture=1) starts a read. A normal book open must show the list.
+    if (wantsCapture && pending && (pending.imageDataUrl || pending.text || pending.filePath)) {
       const preferred = String(pending.preferredBookId || '');
       if (preferred && preferred !== bookId) {
         navigate(`/book/${preferred}?capture=1&s=${Date.now().toString(36)}`, { replace: true });
@@ -611,8 +624,9 @@ export default function BookView() {
       }
 
       if (pending.batch && pending.batch.length > 1) {
-        setReceiptLaunch({
+        presentShare({
           source: pending.source || 'share',
+          receivedAt: pending.receivedAt,
           batch: pending.batch,
           text: pending.text,
           preferredBookId: bookId,
@@ -620,13 +634,15 @@ export default function BookView() {
         });
         clearPendingCapture();
         if (wantsCapture) navigate(`/book/${bookId}`, { replace: true });
-      } else if (pending.imageDataUrl || pending.mimeType) {
-        setReceiptLaunch({
+      } else if (pending.imageDataUrl || pending.mimeType || pending.filePath) {
+        presentShare({
           text: pending.text,
           imageDataUrl: pending.imageDataUrl,
+          filePath: pending.filePath,
           fileName: pending.fileName,
           mimeType: pending.mimeType,
           source: pending.source || 'share',
+          receivedAt: pending.receivedAt,
           preferredBookId: bookId,
           requireBookPick: false,
         });
@@ -658,6 +674,44 @@ export default function BookView() {
   }, [bookId, location.search]);
 
   useEffect(() => {
+    if (!bookId) return;
+    const pull = () => {
+      const row = takeShareSaved(bookId);
+      const expense = row?.expense;
+      if (!expense?.id) return;
+      hiddenExpenseIds.current.delete(String(expense.id));
+      const key = String(expense.idempotencyKey || '');
+      setExpenses((curr) => {
+        const filtered = curr.filter((exp) => {
+          if (String(exp.id) === String(expense.id)) return false;
+          if (key && (String(exp.id) === key || String(exp.idempotencyKey || '') === key)) return false;
+          return true;
+        });
+        return [expense, ...filtered].sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt));
+      });
+      if (!row?.extras?.duplicate && !row?.extras?.needsEdit) {
+        setSuccessCount(Number(row?.extras?.count || 1));
+        setSuccessExpense({ ...expense, bookId });
+      }
+    };
+    pull();
+    window.addEventListener('byjan-share-saved', pull);
+    return () => window.removeEventListener('byjan-share-saved', pull);
+  }, [bookId]);
+
+  useEffect(() => {
+    if (!bookId || loading || !book) return;
+    const pull = () => {
+      if (!shareManualReadyRef.current) return;
+      const draft = takeShareManual(bookId);
+      if (draft) shareManualRef.current(draft);
+    };
+    pull();
+    window.addEventListener('byjan-share-manual', pull);
+    return () => window.removeEventListener('byjan-share-manual', pull);
+  }, [bookId, loading, book]);
+
+  useEffect(() => {
     const st = location.state as {
       openPeople?: boolean;
       openEdit?: boolean;
@@ -687,17 +741,59 @@ export default function BookView() {
     }
   }, [location.state, bookId]);
 
+  const openScanChooser = async () => {
+    if (!bookId) return;
+    const uid = currentUser?.uid || '';
+    const role = book?.roles?.[uid]?.role || (book?.ownerId === uid ? 'owner' : '');
+    if (book && role && !['owner', 'admin', 'contributor'].includes(String(role))) {
+      addToast('You need write access to scan receipts', 'error');
+      return;
+    }
+    if (scanBusyRef.current) return;
+    scanBusyRef.current = true;
+    try {
+      if (isWeb) {
+        setWebScanOpen(true);
+        return;
+      }
+      const batch = await CapacitorService.captureScanReceipts({ limit: 24, quality: 88 });
+      if (!batch.length) return;
+      if (batch.length === 1) {
+        setReceiptLaunch({
+          source: 'camera',
+          imageDataUrl: batch[0].imageDataUrl,
+          fileName: batch[0].fileName,
+          mimeType: batch[0].mimeType,
+          receivedAt: String(Date.now()),
+        });
+      } else {
+        setReceiptLaunch({ source: 'batch', batch, receivedAt: String(Date.now()) });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Could not open camera or photos';
+      if (!/cancel/i.test(msg)) addToast(msg, 'error');
+    } finally {
+      scanBusyRef.current = false;
+    }
+  };
+
+  const openScanRef = useRef(openScanChooser);
+  openScanRef.current = openScanChooser;
+
   // Raised center + button on the tab bar fires these while a book is open.
   useEffect(() => {
     const onQuick = (event: Event) => {
       const kind = (event as CustomEvent<string>).detail;
       if (kind !== 'scan' && kind !== 'add' && kind !== 'voice' && kind !== 'pay' && kind !== 'import') return;
-      // Book still loading → handlers below the early-return skeleton aren't bound yet. Queue it.
+      // Camera sheet must open now. Waiting for the entry list made Scan look frozen.
+      if (kind === 'scan') {
+        void openScanRef.current();
+        return;
+      }
       if (loadingRef.current) {
         pendingQuickRef.current = kind;
         return;
       }
-      if (kind === 'scan') void quickActionsRef.current.scan();
       else if (kind === 'add') quickActionsRef.current.add();
       else if (kind === 'pay') setQrPayOpen(true);
       else if (kind === 'import') void quickActionsRef.current.importDocs();
@@ -1359,7 +1455,29 @@ export default function BookView() {
       if (editingExpense) {
         const nextStatus = Number(amount) > 0 ? 'recorded' : 'draft';
         const beforeCategory = String(editingExpense.category || '');
-        const updated = await updateExpense(bookId, editingExpense.id, {
+        const previous = editingExpense;
+        const localRow = {
+          ...editingExpense,
+          amount: Number(amount),
+          amountPaise,
+          description,
+          category: finalCategory,
+          entryType,
+          txType,
+          date: entryDate,
+          merchant,
+          paymentMethod,
+          accountId,
+          notes,
+          reimbursable,
+          billable,
+          tags,
+          personSplits,
+          status: nextStatus,
+          receiptPath: receiptMeta?.receiptPath || editingExpense.receiptPath,
+          receiptName: receiptMeta?.receiptName || editingExpense.receiptName,
+        };
+        const patch = {
           amount: Number(amount),
           amountPaise,
           description,
@@ -1377,51 +1495,44 @@ export default function BookView() {
           billable,
           tags,
           personSplits,
-          receiptPath: receiptMeta?.receiptPath || editingExpense.receiptPath,
-          receiptName: receiptMeta?.receiptName || editingExpense.receiptName,
+          receiptPath: localRow.receiptPath,
+          receiptName: localRow.receiptName,
           evidenceReasons,
           financialStatus: nextStatus === 'draft' ? 'DRAFT' : 'CONFIRMED',
           processingStatus: 'COMPLETED',
           status: nextStatus,
           lastEditedBy: userProfile?.displayName || currentUser?.email,
           lastEditedByUid: currentUser?.uid || '',
-        });
-        if (beforeCategory && beforeCategory !== finalCategory && currentUser?.uid) {
-          const nextRules = learnRuleFromCorrection({
-            beforeCategory,
-            afterCategory: finalCategory,
-            merchant,
-            description,
-            existing: readUserRules(book, currentUser.uid),
-          });
-          const map = { ...(book.userMoneyRules && typeof book.userMoneyRules === 'object' ? book.userMoneyRules as Record<string, unknown> : {}), [currentUser.uid]: nextRules };
-          const nextBook = await updateLedger(bookId, { userMoneyRules: map });
-          setBook(nextBook);
-        }
-        applyExpenseLocal(updated || {
-          ...editingExpense,
-          amount: Number(amount),
-          description,
-          category: finalCategory,
-          entryType,
-          txType,
-          date: entryDate,
-          merchant,
-          paymentMethod,
-          accountId,
-          notes,
-          reimbursable,
-          billable,
-          tags,
-          personSplits,
-          status: nextStatus,
-          receiptPath: receiptMeta?.receiptPath || editingExpense.receiptPath,
-          receiptName: receiptMeta?.receiptName || editingExpense.receiptName,
-        });
+        };
+        applyExpenseLocal(localRow);
         setIsExpenseModalOpen(false);
         addToast('Entry updated', 'success');
-        persistLedgerCategory(finalCategory).catch(console.error);
-        notifyTeamMembers('Edited an entry', `Updated ${entryType === 'in' ? 'money in' : 'money out'} for "${description}" to ${getCurrencySymbol(book.currency)} ${amount} in category "${finalCategory}"`, `${userProfile?.displayName || currentUser?.email} updated "${description}" to ${getCurrencySymbol(book.currency)}${amount} in ${book.name}`).catch(console.error);
+        const editId = String(editingExpense.id);
+        const actor = userProfile?.displayName || currentUser?.email;
+        const rulesUid = currentUser?.uid || '';
+        void (async () => {
+          try {
+            const updated = await updateExpense(bookId, editId, patch);
+            if (updated) applyExpenseLocal(updated);
+            if (beforeCategory && beforeCategory !== finalCategory && rulesUid) {
+              const nextRules = learnRuleFromCorrection({
+                beforeCategory,
+                afterCategory: finalCategory,
+                merchant,
+                description,
+                existing: readUserRules(book, rulesUid),
+              });
+              const map = { ...(book.userMoneyRules && typeof book.userMoneyRules === 'object' ? book.userMoneyRules as Record<string, unknown> : {}), [rulesUid]: nextRules };
+              const nextBook = await updateLedger(bookId, { userMoneyRules: map });
+              setBook(nextBook);
+            }
+            persistLedgerCategory(finalCategory).catch(console.error);
+            notifyTeamMembers('Edited an entry', `Updated ${entryType === 'in' ? 'money in' : 'money out'} for "${description}" to ${getCurrencySymbol(book.currency)} ${amount} in category "${finalCategory}"`, `${actor} updated "${description}" to ${getCurrencySymbol(book.currency)}${amount} in ${book.name}`).catch(console.error);
+          } catch (err) {
+            applyExpenseLocal(previous);
+            addToast(err instanceof Error ? err.message : 'Could not update that entry', 'error');
+          }
+        })();
       } else {
         const payload = {
           amount: Number(amount),
@@ -1454,41 +1565,18 @@ export default function BookView() {
           status: Number(amount) > 0 ? 'recorded' : 'draft',
           idempotencyKey: newMoneyId('exp'),
         };
-        let created: any = null;
-        try {
-          created = await createExpense(bookId, payload, { idempotencyKey: String(payload.idempotencyKey) });
-        } catch (err: any) {
-          if (isLikelyOfflineError(err)) {
-            enqueueOfflineExpense(bookId, payload);
-            setOfflineCount(listOfflineQueue(bookId).length);
-            applyExpenseLocal({ ...payload, id: payload.idempotencyKey, offlineQueued: true });
-            setIsExpenseModalOpen(false);
-            addToast('Saved offline — will sync when you are back online', 'success');
-            setIsSaving(false);
-            return;
-          }
-          if (err?.status === 409 && window.confirm('A similar entry already exists on this ledger. Save it anyway?')) {
-            created = await createExpense(bookId, payload, { force: true, idempotencyKey: String(payload.idempotencyKey) });
-          } else {
-            throw err;
-          }
-        }
-        if (created) {
-          applyExpenseLocal({
-            ...created,
-            receiptPath: created.receiptPath || receiptMeta?.receiptPath,
-            receiptName: created.receiptName || receiptMeta?.receiptName,
-          });
-        }
-        if (receiptOcrText && Number(amount) > 0) {
-          void confirmMismatchGold({
-            id: mismatchIdRef.current,
-            bookId,
-            ocrText: receiptOcrText,
-            gold: { amount: Number(amount), merchant },
-            saved: true,
-          });
-        }
+        const optimisticId = String(payload.idempotencyKey);
+        const optimistic = {
+          ...payload,
+          id: optimisticId,
+          bookId,
+          createdAt: new Date().toISOString(),
+          _optimistic: true,
+        };
+        const ocrText = receiptOcrText;
+        const mismatchId = mismatchIdRef.current;
+        const keptReceipt = { receiptPath: receiptMeta?.receiptPath, receiptName: receiptMeta?.receiptName };
+        applyExpenseLocal(optimistic);
         setIsExpenseModalOpen(false);
         setAmount('');
         setDescription('');
@@ -1500,13 +1588,59 @@ export default function BookView() {
         mismatchIdRef.current = '';
         setCurrentPage(1);
         setSuccessCount(1);
-        setSuccessExpense(created || { ...payload, id: payload.idempotencyKey, bookId });
-        persistLedgerCategory(finalCategory).catch(console.error);
+        setSuccessExpense(optimistic);
         void CapacitorService.hapticImpact();
-        notifyTeamMembers('Added a new entry', `Recorded ${entryType === 'in' ? 'money in' : 'money out'} of ${getCurrencySymbol(book.currency)} ${amount} for "${description}" in category "${finalCategory}"`, `${userProfile?.displayName || currentUser?.email} added "${description}" (${getCurrencySymbol(book.currency)}${amount}) to ${book.name}`).catch(console.error);
+        const actor = userProfile?.displayName || currentUser?.email;
+        void (async () => {
+          try {
+            let created: any = null;
+            try {
+              created = await createExpense(bookId, payload, { idempotencyKey: optimisticId });
+            } catch (err: any) {
+              if (isLikelyOfflineError(err)) {
+                enqueueOfflineExpense(bookId, payload);
+                setOfflineCount(listOfflineQueue(bookId).length);
+                applyExpenseLocal({ ...payload, id: payload.idempotencyKey, offlineQueued: true, bookId });
+                addToast('Saved offline — will sync when you are back online', 'success');
+                return;
+              }
+              if (err?.status === 409 && window.confirm('A similar entry already exists on this ledger. Save it anyway?')) {
+                created = await createExpense(bookId, payload, { force: true, idempotencyKey: String(payload.idempotencyKey) });
+              } else {
+                throw err;
+              }
+            }
+            if (created) {
+              const saved = {
+                ...created,
+                bookId: created.bookId || bookId,
+                receiptPath: created.receiptPath || keptReceipt.receiptPath,
+                receiptName: created.receiptName || keptReceipt.receiptName,
+              };
+              applyExpenseLocal(saved);
+              setSuccessExpense(saved);
+            }
+            if (ocrText && Number(payload.amount) > 0) {
+              void confirmMismatchGold({
+                id: mismatchId,
+                bookId,
+                ocrText,
+                gold: { amount: Number(payload.amount), merchant: String(payload.merchant || '') },
+                saved: true,
+              });
+            }
+            persistLedgerCategory(finalCategory).catch(console.error);
+            notifyTeamMembers('Added a new entry', `Recorded ${entryType === 'in' ? 'money in' : 'money out'} of ${getCurrencySymbol(book.currency)} ${amount} for "${description}" in category "${finalCategory}"`, `${actor} added "${description}" (${getCurrencySymbol(book.currency)}${amount}) to ${book.name}`).catch(console.error);
+          } catch (err) {
+            setExpenses((curr) => curr.filter((exp) => String(exp.id) !== optimisticId && !exp._optimistic));
+            setSuccessExpense(null);
+            addToast(err instanceof Error ? err.message : 'Error saving expense', 'error');
+          }
+        })();
       }
     } catch (err) {
       console.error(err);
+      setExpenses((curr) => curr.filter((exp) => !exp._optimistic));
       addToast(err instanceof Error ? err.message : 'Error saving expense', 'error');
     } finally { setIsSaving(false); }
   };
@@ -1533,14 +1667,12 @@ export default function BookView() {
     }
     if (scanBusyRef.current) return;
     scanBusyRef.current = true;
-    window.setTimeout(() => { scanBusyRef.current = false; }, 1500);
     if (isWeb) {
       setWebScanOpen(true);
       scanBusyRef.current = false;
       return;
     }
     try {
-      await CapacitorService.requestCameraPermission();
       let batch: Array<{ imageDataUrl: string; fileName: string; mimeType: string }> = [];
       try {
         batch = await CapacitorService.captureScanReceipts({ limit: 24, quality: 88 });
@@ -1601,6 +1733,8 @@ export default function BookView() {
     setReceiptOcrText(String(draft.ocrText || ''));
     addToast('Could not read the amount — type it in, receipt is attached', 'error');
   };
+  shareManualRef.current = openManualFromReceipt;
+  shareManualReadyRef.current = true;
 
   // Keep FAB actions pointed at live handlers (hooks above run before book is ready).
   quickActionsRef.current = {
@@ -1697,9 +1831,10 @@ export default function BookView() {
   const refreshExpenses = async () => {
     if (!bookId) return;
     const rows = await listExpenses(bookId);
-    setExpenses(rows
-      .filter((row) => row && !row.deleted && !row.deletedAt && row.status !== 'deleted' && !hiddenExpenseIds.current.has(String(row.id)))
-      .sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt)));
+    setExpenses((curr) => mergeExpenseRows(
+      rows.filter((row) => row && !row.deleted && !row.deletedAt && row.status !== 'deleted' && !hiddenExpenseIds.current.has(String(row.id))),
+      curr,
+    ).sort((a, b) => expenseMillis(b.createdAt) - expenseMillis(a.createdAt)));
   };
 
   const duplicateExpense = async (exp: any) => {

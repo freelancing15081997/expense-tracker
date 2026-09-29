@@ -4,6 +4,7 @@ export type SharedFile = {
   mimeType?: string;
   fileName?: string;
   dataBase64?: string;
+  filePath?: string;
   byteLength?: number;
 };
 
@@ -12,6 +13,7 @@ export type SharedPayload = {
   mimeType?: string;
   fileName?: string;
   dataBase64?: string;
+  filePath?: string;
   source?: string;
   receivedAt?: string | number;
   byteLength?: number;
@@ -39,7 +41,7 @@ export async function checkPendingShare(): Promise<SharedPayload | null> {
   if (!shareReceiverAvailable()) return null;
   try {
     const payload = await ShareReceiver.checkPending();
-    if (!payload?.text && !payload?.dataBase64) return null;
+    if (!payload?.text && !payload?.dataBase64 && !payload?.filePath) return null;
     return payload;
   } catch {
     return null;
@@ -50,15 +52,17 @@ export async function checkPendingShare(): Promise<SharedPayload | null> {
 export async function resolveSharePayload(payload: SharedPayload): Promise<SharedPayload> {
   if (payload.error) return payload;
   // Always drain native pending when flagged — avoids stale/partial bridge payloads on 2nd share.
-  if (payload.hasPending || !(payload.dataBase64 && payload.dataBase64.length > 64)) {
+  const missingBytes = !(payload.dataBase64 && payload.dataBase64.length > 64);
+  if (payload.hasPending || (missingBytes && !payload.filePath)) {
     const full = await checkPendingShare();
-    if (full && (full.dataBase64 || full.text)) {
+    if (full && (full.dataBase64 || full.text || full.filePath)) {
       return {
         ...payload,
         ...full,
         text: full.text || payload.text,
         mimeType: full.mimeType || payload.mimeType,
         fileName: full.fileName || payload.fileName,
+        filePath: full.filePath || payload.filePath,
         dataBase64: full.dataBase64 || payload.dataBase64,
         receivedAt: full.receivedAt || payload.receivedAt,
         files: full.files?.length ? full.files : payload.files,

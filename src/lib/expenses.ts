@@ -20,29 +20,38 @@ let listAllInflight: { uid: string; promise: Promise<ListAllValue> } | null = nu
 const listByBook = new Map<string, { at: number; rows: LedgerExpense[]; inflight?: Promise<LedgerExpense[]> }>();
 let listEpoch = 0;
 
+function bookListKey(bookId: string) {
+  const uid = String(auth.currentUser?.uid || '');
+  if (!uid) return '';
+  return `${uid}:${bookId}`;
+}
+
 export async function listExpenses(bookId: string, opts?: { force?: boolean }) {
   const now = Date.now();
-  const hit = listByBook.get(bookId);
-  if (!opts?.force && hit && now - hit.at < 8_000) return hit.rows;
+  const key = bookListKey(bookId);
+  const hit = key ? listByBook.get(key) : undefined;
+  if (!opts?.force && hit && hit.at > 0 && now - hit.at < 45_000) return hit.rows;
   if (!opts?.force && hit?.inflight) return hit.inflight;
 
   const epoch = listEpoch;
   const promise = (async () => {
     const payload = await apiPost<{ expenses?: LedgerExpense[] }>('/api/expenses', { op: 'list', bookId });
     const rows = Array.isArray(payload.expenses) ? payload.expenses : [];
-    if (epoch === listEpoch) listByBook.set(bookId, { at: Date.now(), rows });
+    const still = bookListKey(bookId);
+    if (epoch === listEpoch && still && still === key) listByBook.set(still, { at: Date.now(), rows });
     return rows;
   })();
 
-  if (epoch === listEpoch) {
-    listByBook.set(bookId, { at: hit?.at || 0, rows: hit?.rows || [], inflight: promise });
+  if (epoch === listEpoch && key) {
+    listByBook.set(key, { at: hit?.at || 0, rows: hit?.rows || [], inflight: promise });
   }
   try {
     return await promise;
   } finally {
-    const cur = listByBook.get(bookId);
+    if (!key) return;
+    const cur = listByBook.get(key);
     if (cur?.inflight === promise) {
-      listByBook.set(bookId, { at: cur.at, rows: cur.rows });
+      listByBook.set(key, { at: cur.at, rows: cur.rows });
     }
   }
 }

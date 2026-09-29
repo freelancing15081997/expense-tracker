@@ -29,6 +29,7 @@ export {
 import { composeNotes, parseReceiptFields } from '../../api/_lib/receipt-fields';
 import type { CapturePreview } from './money-core';
 import { guessCategoryFromText } from './bridge-automations';
+import { overlayReceiptFields } from './receipt-ui';
 
 export const RECEIPT_FILE_ACCEPT = [
   'image/*',
@@ -53,51 +54,53 @@ export const RECEIPT_FILE_ACCEPT = [
 ].join(',');
 
 const GENERIC_DESC = /^(shared receipt|receipt|inbound document|inbound email|needs review)$/i;
+const FILE_LABEL = /\.(jpe?g|png|webp|heic|pdf)$/i;
 
 export function enrichPreviewFromText(
   preview: CapturePreview,
   text: string,
   extras?: { fileName?: string; subject?: string },
 ): CapturePreview {
-  const hay = [text, preview.raw, extras?.fileName, extras?.subject].filter(Boolean).join('\n');
-  if (!String(hay || '').replace(/\s+/g, '')) return preview;
+  const mapped = overlayReceiptFields(preview, String(text || preview.raw || ''));
+  const hay = [text, mapped.raw].filter(Boolean).join('\n');
+  if (!String(hay || '').replace(/\s+/g, '')) return mapped;
   const parsed = parseReceiptFields(hay, extras);
-  const amountPaise = Number(preview.amountPaise || 0) > 0
-    ? Number(preview.amountPaise)
+  const amountPaise = Number(mapped.amountPaise || 0) > 0
+    ? Number(mapped.amountPaise)
     : Math.round(Number(parsed.amount || 0) * 100);
-  const merchant = String(preview.merchant || parsed.merchant || '').trim();
-  const existingDesc = String(preview.description || '').trim();
-  const merchantAsDesc = Boolean(existingDesc && merchant && existingDesc.toLowerCase() === merchant.toLowerCase());
-  const preferParsed = GENERIC_DESC.test(existingDesc) || merchantAsDesc || !existingDesc;
+  const merchant = String(mapped.merchant || parsed.merchant || '').trim();
+  const existingDesc = String(mapped.description || '').trim();
   const paidFor = String(parsed.description || '').trim();
-  const description = preferParsed
-    ? (paidFor || existingDesc || merchant)
-    : (paidFor && paidFor.toLowerCase() !== merchant.toLowerCase() ? paidFor : (existingDesc || paidFor || merchant));
+  const paidForIsGeneric = !paidFor || GENERIC_DESC.test(paidFor) || FILE_LABEL.test(paidFor)
+    || (merchant && paidFor.toLowerCase() === merchant.toLowerCase());
+  const description = existingDesc && !GENERIC_DESC.test(existingDesc) && !FILE_LABEL.test(existingDesc)
+    ? existingDesc
+    : (!paidForIsGeneric ? paidFor : existingDesc);
   const guessed = guessCategoryFromText(merchant, description, parsed.notes, hay);
   const guessedNorm = guessed === 'Food' ? 'Meals' : guessed;
   const parsedCat = parsed.category && parsed.category !== 'Uncategorized' ? parsed.category : '';
-  const previewCat = preview.category && preview.category !== 'Uncategorized' ? preview.category : '';
+  const previewCat = mapped.category && mapped.category !== 'Uncategorized' ? mapped.category : '';
   const category = guessedNorm || parsedCat || previewCat || 'Uncategorized';
-  const notes = composeNotes([preview.notes, parsed.notes]);
+  const notes = composeNotes([mapped.notes, parsed.notes]);
   const today = new Date().toISOString().slice(0, 10);
-  const date = (preview.date && preview.date !== today)
-    ? preview.date
-    : (parsed.date || preview.date || today);
+  const date = (mapped.date && mapped.date !== today)
+    ? mapped.date
+    : (parsed.date || mapped.date || today);
   return {
-    ...preview,
+    ...mapped,
     amountPaise,
     merchant,
     description: String(description || '').slice(0, 140),
     category,
-    paymentMethod: (preview.paymentMethod && preview.paymentMethod !== 'cash')
-      ? preview.paymentMethod
-      : (parsed.paymentMethod || preview.paymentMethod || 'cash'),
+    paymentMethod: (mapped.paymentMethod && mapped.paymentMethod !== 'cash')
+      ? mapped.paymentMethod
+      : (parsed.paymentMethod || mapped.paymentMethod || 'cash'),
     date,
-    notes: notes || preview.notes,
-    fundSource: preview.fundSource || parsed.fundSource,
-    adjustments: preview.adjustments || parsed.adjustments,
-    direction: preview.direction === 'MONEY_IN' || preview.direction === 'TRANSFER'
-      ? preview.direction
-      : (parsed.entryType === 'in' ? 'MONEY_IN' : (preview.direction || 'MONEY_OUT')),
+    notes: notes || mapped.notes,
+    fundSource: mapped.fundSource || parsed.fundSource,
+    adjustments: mapped.adjustments || parsed.adjustments,
+    direction: mapped.direction === 'MONEY_IN' || mapped.direction === 'TRANSFER'
+      ? mapped.direction
+      : (parsed.entryType === 'in' ? 'MONEY_IN' : (mapped.direction || 'MONEY_OUT')),
   };
 }

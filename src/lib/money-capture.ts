@@ -13,6 +13,7 @@ import {
 import type { CategoryRule } from './ledger-advanced';
 import type { UserMoneyRule } from './money-core';
 import type { ExpenseRow } from './money-reports';
+import { previewFromReceiptText } from './receipt-ui';
 
 function directionFromEntry(entryType?: string): CaptureDirection {
   const t = String(entryType || 'out').toLowerCase();
@@ -30,15 +31,20 @@ export function buildCapturePreview(
   userRules: UserMoneyRule[] = [],
 ): CapturePreview {
   const text = String(raw || '').trim();
+  const mapped = previewFromReceiptText(text, { source });
   const parsed = parseBankSms(text) || parseQuickLine(text);
   const reasons: string[] = [];
+  const amount = Number(mapped.amountPaise || 0) > 0
+    ? mapped.amountPaise / 100
+    : Number(parsed?.amount || 0);
 
-  if (!parsed || !parsed.amount) {
+  if (!(amount > 0)) {
     return {
+      ...mapped,
       source,
-      direction: 'UNKNOWN',
       amountPaise: 0,
-      description: text.slice(0, 120) || 'Needs review',
+      description: mapped.description || '',
+      merchant: mapped.merchant || '',
       processingStatus: 'REVIEW_REQUIRED',
       financialStatus: 'DRAFT',
       confidence: 'low',
@@ -48,15 +54,15 @@ export function buildCapturePreview(
   }
 
   let draft: Record<string, unknown> = {
-    amount: parsed.amount,
-    description: parsed.description || parsed.merchant || 'Entry',
-    merchant: parsed.merchant || '',
+    amount,
+    description: mapped.description || parsed?.description || '',
+    merchant: mapped.merchant || parsed?.merchant || '',
     category: 'Uncategorized',
-    entryType: parsed.entryType || 'out',
-    paymentMethod: parsed.paymentMethod || 'cash',
-    date: parsed.date || isoDay(),
-    upiRef: (parsed as { upiRef?: string }).upiRef || '',
-    vpa: (parsed as { vpa?: string }).vpa || '',
+    entryType: mapped.direction === 'MONEY_IN' ? 'in' : (parsed?.entryType || 'out'),
+    paymentMethod: mapped.paymentMethod || parsed?.paymentMethod || 'cash',
+    date: mapped.date || parsed?.date || isoDay(),
+    upiRef: (parsed as { upiRef?: string } | null)?.upiRef || '',
+    vpa: (parsed as { vpa?: string } | null)?.vpa || '',
     source,
   };
 

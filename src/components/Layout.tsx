@@ -15,6 +15,7 @@ import AppSidebar from './AppSidebar';
 import AccountMenu from './AccountMenu';
 import WorkspaceSwitcher from './WorkspaceSwitcher';
 import FeatureTour from './FeatureTour';
+import ShareCaptureHost from './ShareCaptureHost';
 import { useBooksTenantMeta } from '../lib/tenant';
 import { CapacitorService, isMobile } from '../lib/capacitor';
 import { useFeatures } from '../lib/use-features';
@@ -313,6 +314,7 @@ export default function Layout() {
       </div>
 
       <FeatureTour />
+      <ShareCaptureHost />
 
       {notificationsPanelOpen && (
         <>

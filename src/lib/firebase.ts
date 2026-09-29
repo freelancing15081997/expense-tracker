@@ -173,6 +173,8 @@ export async function logout() {
   try {
     const { clearExpensesListCache } = await import('./expenses');
     clearExpensesListCache();
+    const { clearLedgerListCache } = await import('./ledgers');
+    clearLedgerListCache();
   } catch { /* ignore */ }
   try {
     const { clearSearchCatalog } = await import('./search-catalog');

@@ -977,7 +977,8 @@ export function extractUpiHistoryEntries(text: string): ParsedMoneyAmount[] {
 
   found.sort((a, b) => a._i - b._i);
   const verbHits = (repairOcrText(text).match(/\b(?:paid\s+to|money\s+sent\s+to|received\s+from)\b/gi) || []).length;
-  const looksLikeHistory = /\bhistory\b/i.test(text) || verbHits >= 2;
+  const looksLikeHistory = /\b(?:payment history|transaction history|recent (?:payments|transactions)|balance\s*&\s*history)\b/i.test(text)
+    || verbHits >= 2;
   return found.length >= 2 && looksLikeHistory
     ? found.map(({ _i, ...rest }) => rest)
     : [];

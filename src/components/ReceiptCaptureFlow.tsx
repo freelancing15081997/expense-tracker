@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { createExpense, checkDuplicateExpense } from '../lib/expenses';
-import { buildCapturePreview, captureAuthorFields, capturePreviewToExpense, ensurePreviewCategory } from '../lib/money-capture';
+import { captureAuthorFields, capturePreviewToExpense, ensurePreviewCategory } from '../lib/money-capture';
+import { overlayReceiptFields, previewFromReceiptText } from '../lib/receipt-ui';
 import { auth } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { processReceiptJob } from '../lib/money-api';
@@ -26,6 +27,7 @@ import './share-reading.css';
 export type ReceiptLaunch = {
   text?: string;
   imageDataUrl?: string;
+  filePath?: string;
   fileName?: string;
   mimeType?: string;
   receiptPath?: string;
@@ -33,6 +35,7 @@ export type ReceiptLaunch = {
   source?: string;
   preferredBookId?: string;
   requireBookPick?: boolean;
+  receivedAt?: string;
   /** Multiple images/docs → create one entry per file, in parallel. */
   batch?: Array<{
     imageDataUrl: string;
@@ -116,26 +119,25 @@ function isSpreadsheet(mime?: string, name?: string) {
 }
 
 function draftPreview(launch: ReceiptLaunch, extra?: Partial<CapturePreview>): CapturePreview {
-  const text = String(launch.text || '').trim();
+  const text = String(extra?.raw || launch.text || '').trim();
   if (text) {
-    const preview = buildCapturePreview(text, launch.source === 'share' ? 'share' : 'receipt');
+    const preview = previewFromReceiptText(text, {
+      source: launch.source === 'share' ? 'share' : 'receipt',
+      ...extra,
+    });
     return {
       ...preview,
-      ...extra,
       id: extra?.id || preview.id || newMoneyId('cap'),
       receiptPath: extra?.receiptPath || launch.receiptPath,
       receiptName: extra?.receiptName || launch.receiptName || launch.fileName,
     };
   }
-  const name = String(launch.fileName || '').replace(/\.[a-z0-9]+$/i, '').replace(/[_-]+/g, ' ').trim();
-  const looksLikeFile = /\.(jpe?g|png|webp|heic|pdf)$/i.test(String(launch.fileName || ''))
-    || /^(?:img[-_\s]?\d|image|screenshot|receipt[-_\s]?\d|download|whatsapp|file)/i.test(name);
   return {
     id: newMoneyId('cap'),
     source: (launch.source === 'share' ? 'share' : 'receipt') as CapturePreview['source'],
     direction: 'MONEY_OUT',
     amountPaise: 0,
-    description: looksLikeFile || !name ? 'Shared receipt' : name,
+    description: '',
     merchant: '',
     category: 'Uncategorized',
     paymentMethod: 'cash',
@@ -175,12 +177,14 @@ async function parseReceiptNow(
   ]);
 
   const scrubPreview = (preview: CapturePreview): CapturePreview => {
-    const cleaned = ensurePreviewCategory({
+    const raw = String(preview.raw || launch.text || '');
+    const mapped = overlayReceiptFields({
       ...preview,
       reasons: [],
       parseEngine: undefined,
-    } as CapturePreview);
-    return enrichPreviewFromText(cleaned, String(cleaned.raw || launch.text || ''), {
+    } as CapturePreview, raw);
+    const cleaned = ensurePreviewCategory(mapped);
+    return enrichPreviewFromText(cleaned, raw, {
       fileName: receiptName || launch.fileName,
     });
   };
@@ -197,10 +201,10 @@ async function parseReceiptNow(
     }
   };
 
-  if (launch.imageDataUrl) {
+  if (launch.imageDataUrl || launch.filePath) {
     onStatus(sheet ? 'Reading spreadsheet…' : 'Preparing…', 16);
 
-    if (useStructuredPath || (!imageMime.startsWith('image/') && !isPdf)) {
+    if (launch.imageDataUrl && (useStructuredPath || (!imageMime.startsWith('image/') && !isPdf))) {
       imageBase64 = String(launch.imageDataUrl).replace(/^data:[^;]+;base64,/i, '').replace(/\s+/g, '');
       try {
         const uploaded = await uploadLedgerReceipt(bookId, {
@@ -265,142 +269,27 @@ async function parseReceiptNow(
       reasons: [],
     }));
 
-    // PDFs: read the text layer on-device first. Never OCR ₹ (that becomes 4 / ~400).
-    if (isPdf) {
-      onStatus('Reading PDF…', 22);
-      imageMime = 'application/pdf';
-      imageBase64 = rawB64 || String(launch.imageDataUrl || '').replace(/^data:[^;]+;base64,/i, '').replace(/\s+/g, '');
-      const pdfName = /\.pdf$/i.test(receiptName) ? receiptName : `${String(receiptName || 'receipt').replace(/\.\w+$/, '')}.pdf`;
-      const { extractPdfTextClient } = await import('../lib/pdf-text-client');
-      const pdfText = await extractPdfTextClient(imageBase64);
-      const pdfKeys = [...learnKeysFromText(pdfText || ''), bytesFingerprint(imageBase64)];
-      pendingLearnKeysRef.current = pdfKeys;
-      await withTimeout(lookupLearnedParse({ keys: pdfKeys, ocrText: pdfText || '' }).catch(() => null), 400);
-      const fromPdf = pdfText ? extractMoneyAmount(pdfText) : null;
-      const uploadPromisePdf = uploadLedgerReceipt(bookId, {
-        dataUrl: launch.imageDataUrl?.startsWith('data:') ? launch.imageDataUrl : `data:application/pdf;base64,${imageBase64}`,
-        fileName: pdfName,
-        mimeType: 'application/pdf',
-      }).catch(() => null);
-
-      const pdfEntries = pdfText ? extractMoneyEntries(pdfText) : [];
-      if (pdfEntries.length >= 2) {
-        const uploaded = await uploadPromisePdf;
-        if (uploaded) {
-          receiptPath = uploaded.receiptPath || receiptPath;
-          receiptName = uploaded.receiptName || pdfName;
-        }
-        onStatus(`Found ${pdfEntries.length} entries — confirm each…`, 78);
-        const multi = pdfEntries.map((e, i) => scrubPreview({
-          ...draftPreview(launch, {
-            amountPaise: Math.round(e.amount * 100),
-            merchant: e.merchant || '',
-            description: e.description || e.merchant || `Entry ${i + 1}`,
-            paymentMethod: e.paymentMethod || 'cash',
-            direction: e.entryType === 'in' ? 'MONEY_IN' : 'MONEY_OUT',
-            date: e.date,
-            processingStatus: 'READY',
-            confidence: e.confidence || 'high',
-            receiptPath,
-            receiptName,
-            raw: pdfText.slice(0, 8000),
-            reasons: [],
-          }),
-          id: newMoneyId(`cap_${i}`),
-        }));
-        return { preview: multi[0], previews: multi };
-      }
-      if (fromPdf && fromPdf.amount > 0) {
-        const uploaded = await uploadPromisePdf;
-        if (uploaded) {
-          receiptPath = uploaded.receiptPath || receiptPath;
-          receiptName = uploaded.receiptName || pdfName;
-        }
-        preview = scrubPreview({
-          ...draftPreview(launch, {
-            amountPaise: Math.round(fromPdf.amount * 100),
-            merchant: fromPdf.merchant || '',
-            description: fromPdf.description || receiptName,
-            paymentMethod: fromPdf.paymentMethod || 'upi',
-            direction: fromPdf.entryType === 'in' ? 'MONEY_IN' : 'MONEY_OUT',
-            date: fromPdf.date,
-            processingStatus: 'READY',
-            confidence: fromPdf.confidence,
-            receiptPath,
-            receiptName,
-            raw: pdfText.slice(0, 8000),
-            reasons: [],
-          }),
-          id: newMoneyId('cap'),
-        });
-        onStatus('Almost ready…', 78);
-        return { preview, previews: [preview] };
-      }
-
-      onStatus('Reading PDF amount…', 62);
-      const uploaded = await uploadPromisePdf;
-      if (uploaded) {
-        receiptPath = uploaded.receiptPath || receiptPath;
-        receiptName = uploaded.receiptName || pdfName;
-      }
-      const result = await safeProcess({
-        bookId,
-        text: [String(launch.text || ''), pdfText].filter(Boolean).join('\n').slice(0, 8000),
-        receiptPath,
-        receiptName,
-        source: launch.source || 'share',
-        idempotencyKey: `parse_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
-        autoConfirm: true,
-        imageMime: 'application/pdf',
-        imageBase64: imageBase64 || undefined,
-        skipVision: true,
-      });
-      const serverPaise = Number(result.preview?.amountPaise || 0);
-      if (result.preview && serverPaise > 0) {
-        preview = scrubPreview({
-          ...result.preview,
-          id: result.preview.id || newMoneyId('cap'),
-          receiptPath: result.preview.receiptPath || receiptPath,
-          receiptName: result.preview.receiptName || receiptName,
-          reasons: [],
-        });
-        onStatus('Almost ready…', 78);
-        preview = scrubPreview({
-          ...preview,
-          receiptPath: preview.receiptPath || receiptPath,
-          receiptName: preview.receiptName || receiptName,
-          reasons: [],
-        });
-        return { preview, previews: [preview] };
-      }
-      const uploadedLate = await uploadPromisePdf;
-      preview = scrubPreview({
-        ...preview,
-        processingStatus: 'REVIEW_REQUIRED',
-        financialStatus: 'DRAFT',
-        confidence: 'low',
-        receiptPath: uploadedLate?.receiptPath || receiptPath,
-        receiptName: uploadedLate?.receiptName || pdfName,
-        reasons: [],
-      });
-      return { preview, previews: [preview] };
-    }
+    // PDFs use the same native OCR as images (embedded text + page render).
+    // The old pdf.js worker was never in the APK, so CRED/Files PDFs opened empty.
 
     onStatus(isPdf ? 'Reading PDF…' : 'Reading receipt…', 22);
     const parseStarted = Date.now();
-    // Share often already has EXTRA_TEXT. Camera photos need the full native OCR window.
     const fromCamera = launch.source === 'camera' || launch.source === 'batch';
-    const OCR_MS = fromCamera ? 5600 : 3200;
+    const OCR_MS = 5600;
     const elapsed = () => Date.now() - parseStarted;
+    if (isPdf) imageMime = 'application/pdf';
     // Pass original bytes to native OCR — avoid JS re-encode then native downscale (double lossy).
     const ocrPromise = localParseReceiptImage(
       String(launch.imageDataUrl || '').replace(/^data:[^;]+;base64,/i, '').replace(/\s+/g, ''),
       imageMime,
       launch.text || '',
+      launch.filePath || '',
     ).catch(() => null);
-    const preparedPromise = prepareReceiptImage(launch.imageDataUrl, imageMime, false);
+    const preparedPromise = launch.imageDataUrl
+      ? prepareReceiptImage(launch.imageDataUrl, imageMime, false)
+      : Promise.resolve({ bytes: new Uint8Array(), mime: imageMime, dataUrl: '' });
 
-    const [local, prepared] = await Promise.all([withTimeout(ocrPromise, OCR_MS), preparedPromise]);
+    const [local, prepared] = await Promise.all([ocrPromise, preparedPromise]);
     imageMime = isPdf ? 'application/pdf' : (prepared.mime || 'image/jpeg');
     imageBase64 = String(prepared.dataUrl || '')
       .replace(/^data:[^;]+;base64,/i, '')
@@ -480,7 +369,7 @@ async function parseReceiptNow(
         ...draftPreview(launch, stamp({
           amountPaise: Math.round(textHit.amount * 100),
           merchant: textHit.merchant || '',
-          description: textHit.description || textHit.merchant || receiptName,
+          description: textHit.description || '',
           paymentMethod: textHit.paymentMethod || 'upi',
           direction: textHit.entryType === 'in' ? 'MONEY_IN' : 'MONEY_OUT',
           date: textHit.date,
@@ -508,7 +397,7 @@ async function parseReceiptNow(
         ...draftPreview(launch, stamp({
           amountPaise: Math.round(localAmt * 100),
           merchant: local?.merchant || '',
-          description: local?.description || local?.merchant || receiptName,
+          description: local?.description || '',
           paymentMethod: local?.paymentMethod || 'upi',
           direction: local?.entryType === 'in' ? 'MONEY_IN' : 'MONEY_OUT',
           date: local?.date,
@@ -522,24 +411,25 @@ async function parseReceiptNow(
       });
     }
 
-    // Optional server text re-rank. Camera photos also send the image so vision can
-    // fill amount/merchant the same way inbound email does — share stays text-only.
+    // Same vision path for a shared payment screenshot and a camera photo.
+    // Share used to stay text-only, so a screenshot scan could read and a share could not.
+    const hasPhoto = imageBase64.length > 64 && String(imageMime || '').startsWith('image/');
     if (!(Number(preview.amountPaise || 0) > 0)
-      && (ocrText.replace(/\s+/g, '').length >= 20 || (fromCamera && imageBase64.length > 64))
-      && (fromCamera || elapsed() < OCR_MS - 500)) {
-      onStatus(fromCamera ? 'Reading photo the same way as email…' : 'Checking amount from document…', 62);
+      && (ocrText.replace(/\s+/g, '').length >= 20 || hasPhoto)
+      && (hasPhoto || elapsed() < OCR_MS - 500)) {
+      onStatus('Reading photo…', 62);
       const result = await withTimeout(safeProcess({
         bookId,
         text: ocrText.slice(0, 8000),
         receiptPath,
         receiptName,
-        source: fromCamera ? 'camera' : (launch.source || 'share'),
+        source: launch.source || (fromCamera ? 'camera' : 'share'),
         idempotencyKey: `parse_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
         autoConfirm: true,
         imageMime,
-        imageBase64: fromCamera ? imageBase64 : undefined,
-        skipVision: !fromCamera,
-      }), fromCamera ? 12_000 : Math.min(900, OCR_MS - elapsed()));
+        imageBase64: hasPhoto ? imageBase64 : undefined,
+        skipVision: !hasPhoto,
+      }), hasPhoto ? 1600 : Math.min(900, Math.max(0, OCR_MS - elapsed())));
       const serverPaise = Number(result?.preview?.amountPaise || 0);
       const serverAmt = serverPaise / 100;
       if (result?.preview && serverPaise > 0 && amountGroundedInText(ocrText, serverAmt)) {
@@ -558,7 +448,7 @@ async function parseReceiptNow(
           ...draftPreview(launch, stamp({
             amountPaise: Math.round(localAmt * 100),
             merchant: local?.merchant || '',
-            description: local?.description || local?.merchant || receiptName,
+            description: local?.description || '',
             paymentMethod: local?.paymentMethod || 'upi',
             direction: local?.entryType === 'in' ? 'MONEY_IN' : 'MONEY_OUT',
             date: local?.date,
@@ -580,7 +470,7 @@ async function parseReceiptNow(
           ...draftPreview(launch, stamp({
             amountPaise: Math.round(fromText.amount * 100),
             merchant: fromText.merchant || '',
-            description: fromText.description || receiptName,
+            description: fromText.description || '',
             paymentMethod: fromText.paymentMethod || 'upi',
             direction: fromText.entryType === 'in' ? 'MONEY_IN' : 'MONEY_OUT',
             date: fromText.date,
@@ -631,6 +521,16 @@ async function parseReceiptNow(
 
   // Text-only share (no image)
   onStatus(sheet ? 'Importing rows…' : 'Reading amount, merchant & date…', 40);
+  if (launch.text && !sheet) {
+    const localText = scrubPreview(previewFromReceiptText(launch.text, {
+      source: launch.source === 'share' ? 'share' : 'receipt',
+      receiptPath,
+      receiptName,
+    }));
+    if (Number(localText.amountPaise || 0) > 0) {
+      return { preview: localText, previews: [localText] };
+    }
+  }
   const result = await safeProcess({
     bookId,
     text: launch.text || '',
@@ -766,7 +666,33 @@ export default function ReceiptCaptureFlow({
   const ocrTextRef = useRef('');
   const savingRef = useRef(false);
   const doneRef = useRef(false);
+  const parseGenRef = useRef(0);
   const tickRef = useRef<number | null>(null);
+  const stageKeyRef = useRef('');
+  const launchKey = launch
+    ? [
+      launch.receivedAt || '',
+      launch.source || '',
+      launch.fileName || '',
+      launch.mimeType || '',
+      String(launch.filePath || ''),
+      String(launch.imageDataUrl || '').length,
+      String(launch.imageDataUrl || '').slice(64, 128),
+      String(launch.text || '').slice(0, 160),
+      String(launch.batch?.length || 0),
+    ].join('|')
+    : '';
+
+  const discardAndClose = () => {
+    parseGenRef.current += 1;
+    doneRef.current = true;
+    savingRef.current = false;
+    setReview(null);
+    setPendingDup(null);
+    clearPendingCapture();
+    try { window.dispatchEvent(new CustomEvent('byjan-capture-discarded')); } catch { /* ignore */ }
+    onClose();
+  };
 
   const setProgress = (line: string, nextPct?: number) => {
     setStatusLine(line);
@@ -1078,13 +1004,17 @@ export default function ReceiptCaptureFlow({
     }
   };
 
-  const saveNow = async (bookId: string) => {
+  const saveNow = async (bookId: string, gen?: number) => {
+    const myGen = gen ?? parseGenRef.current;
+    const stillMine = () => parseGenRef.current === myGen;
     if (launch?.batch?.length) {
+      if (!stillMine()) return;
       await saveBatch(bookId);
       return;
     }
-    if (!launch || !bookId || savingRef.current || doneRef.current) return;
+    if (!launch || !bookId || !stillMine()) return;
     savingRef.current = true;
+    doneRef.current = false;
     setActiveBookId(bookId);
     rememberMoneyBook(bookId);
     setBusy(true);
@@ -1095,7 +1025,7 @@ export default function ReceiptCaptureFlow({
     setProgress('Preparing…', 18);
     try {
       // Keep pending until save succeeds so a failed second attempt can still retry the image.
-      if (!launch.imageDataUrl && !launch.text) {
+      if (!launch.imageDataUrl && !launch.text && !launch.filePath) {
         throw new Error('Shared image was lost — share the receipt again');
       }
 
@@ -1130,6 +1060,7 @@ export default function ReceiptCaptureFlow({
       }
 
       const { preview, previews } = await parseReceiptNow(bookId, launch, setProgress);
+      if (!stillMine()) return;
       const rows = previews.length ? previews : [preview];
       const anyAmount = rows.some((r) => Number(r.amountPaise || 0) > 0);
       const needsEdit = Boolean(
@@ -1323,25 +1254,38 @@ export default function ReceiptCaptureFlow({
       setPhase('failed');
       setStatusLine('Couldn’t finish — retry');
     } finally {
-      savingRef.current = false;
-      setBusy(false);
+      if (stillMine()) {
+        savingRef.current = false;
+        setBusy(false);
+      }
     }
   };
 
   useEffect(() => {
-    if (!open || !launch) return;
+    if (!open || !launch) {
+      stageKeyRef.current = '';
+      return;
+    }
     let cancelled = false;
+    const gen = parseGenRef.current + 1;
+    parseGenRef.current = gen;
     savingRef.current = false;
     doneRef.current = false;
-    setError('');
-    setPendingDup(null);
-    setReview(null);
-    setThanksLine('');
-    mismatchIdRef.current = '';
-    predictedRef.current = [];
-    ocrTextRef.current = '';
-    setPct(6);
-    setStatusLine('Opening your share…');
+    const received = String(launch.receivedAt || '');
+    const keepStage = stageKeyRef.current === launchKey
+      || (received.length > 0 && stageKeyRef.current.startsWith(`${received}|`));
+    stageKeyRef.current = launchKey;
+    if (!keepStage) {
+      setError('');
+      setPendingDup(null);
+      setReview(null);
+      setThanksLine('');
+      mismatchIdRef.current = '';
+      predictedRef.current = [];
+      ocrTextRef.current = '';
+      setPct(6);
+      setStatusLine('Opening your share…');
+    }
 
     tickRef.current = window.setInterval(() => {
       setPct((p) => (p < 22 ? p + 1.2 : p));
@@ -1387,7 +1331,7 @@ export default function ReceiptCaptureFlow({
         const lockedBook = launch.preferredBookId || initialBookId || (cached.length === 1 ? cached[0].id : '');
         if (lockedBook) {
           setPhase('working');
-          await saveNow(lockedBook);
+          await saveNow(lockedBook, gen);
           return;
         }
       }
@@ -1395,7 +1339,7 @@ export default function ReceiptCaptureFlow({
       try {
         const { listLedgers } = await import('../lib/ledgers');
         const ledgers = await listLedgers();
-        if (cancelled) return;
+        if (cancelled || savingRef.current || doneRef.current) return;
         const bookRows: MoneyContextOption[] = (ledgers || [])
           .filter((b) => b && !b.deleted && !b.deletedAt && !b.archived)
           .map((b) => ({
@@ -1411,7 +1355,7 @@ export default function ReceiptCaptureFlow({
         cacheMoneyBooks(bookRows.map((b) => ({ id: b.id, name: b.name, currency: b.currency })));
 
         if (!wantPick && bookRows.length === 1) {
-          await saveNow(bookRows[0].id);
+          await saveNow(bookRows[0].id, gen);
           return;
         }
         if (!bookRows.length && !cached.length) {
@@ -1427,9 +1371,9 @@ export default function ReceiptCaptureFlow({
           setPct(10);
           setStatusLine('Choose where to save this share');
         } else if (bookRows.length === 1) {
-          await saveNow(bookRows[0].id);
+          await saveNow(bookRows[0].id, gen);
         } else if (cached.length === 1) {
-          await saveNow(cached[0].id);
+          await saveNow(cached[0].id, gen);
         }
       } catch {
         if (!cancelled) {
@@ -1438,7 +1382,7 @@ export default function ReceiptCaptureFlow({
             if (cached.length) setContexts(cached);
             setStatusLine('Choose where to save this share');
           } else if (cached.length === 1) {
-            await saveNow(cached[0].id);
+            await saveNow(cached[0].id, gen);
           } else {
             setError('Could not load Money books');
             setPhase('failed');
@@ -1455,7 +1399,7 @@ export default function ReceiptCaptureFlow({
       if (tickRef.current) window.clearInterval(tickRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, launch]);
+  }, [open, launchKey]);
 
   useEffect(() => () => {
     if (tickRef.current) window.clearInterval(tickRef.current);
@@ -1523,7 +1467,7 @@ export default function ReceiptCaptureFlow({
 
   const sheet = (
     <div className="sr-root" role="dialog" aria-modal="true" aria-label="Reading shared receipt">
-      <button type="button" className="sr-dim" aria-label="Close" onClick={() => { if (!busy) onClose(); }} />
+      <button type="button" className="sr-dim" aria-label="Close" onClick={discardAndClose} />
       <div className="sr-sheet">
         <div className="sr-handle" aria-hidden />
         {phase === 'pick' ? (
@@ -1534,7 +1478,7 @@ export default function ReceiptCaptureFlow({
               We’ll read the file, then save the entry here.
             </p>
             {error ? <p className="sr-error">{error}</p> : null}
-            <div className="sr-pick">
+            <div className="sr-pick" data-testid="book-pick-sheet">
               {contexts.length === 0 ? (
                 <p className="sr-detail" style={{ textAlign: 'left' }}>
                   {busy ? 'Loading Money books…' : 'No Money books found.'}
@@ -1734,7 +1678,7 @@ export default function ReceiptCaptureFlow({
               </button>
             )}
             <div className="sr-actions" style={{ marginTop: 16 }}>
-              <button type="button" className="sr-btn-ghost" disabled={busy} onClick={onClose}>Cancel</button>
+              <button type="button" className="sr-btn-ghost" onClick={discardAndClose}>Cancel</button>
               <button type="button" className="sr-btn" disabled={busy} onClick={() => void confirmReview()}>
                 {busy
                   ? 'Saving…'
@@ -1796,7 +1740,7 @@ export default function ReceiptCaptureFlow({
             <ShareReadingStage pct={pct} statusLine={statusLine} failed={phase === 'failed'} error={error} />
             {phase === 'failed' ? (
               <div className="sr-actions">
-                <button type="button" className="sr-btn-ghost" onClick={onClose}>Go back</button>
+                <button type="button" className="sr-btn-ghost" onClick={discardAndClose}>Go back</button>
                 <button
                   type="button"
                   className="sr-btn"
@@ -1806,7 +1750,11 @@ export default function ReceiptCaptureFlow({
                   {busy ? 'Retrying…' : 'Retry'}
                 </button>
               </div>
-            ) : null}
+            ) : (
+              <div className="sr-actions">
+                <button type="button" className="sr-btn-ghost" onClick={discardAndClose}>Cancel</button>
+              </div>
+            )}
           </>
         )}
       </div>

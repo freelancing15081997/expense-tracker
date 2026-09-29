@@ -1,5 +1,6 @@
 import { listAllExpenses } from './expenses';
 import { listLedgers } from './ledgers';
+import { readDashBooks, readExpenseSnap } from './book-snap';
 import { getBooksSearchHits, setBooksSearchHits, type SearchHit } from './search-index';
 
 export type CatalogHit = SearchHit;
@@ -31,6 +32,52 @@ function matches(hit: CatalogHit, needle: string) {
 }
 
 export function getSearchCatalog() {
+  return mem.hits;
+}
+
+/** Paint books and saved entries from this account’s snapshot. No network. */
+export function seedSearchCatalog(uid: string) {
+  if (!uid) return mem.hits;
+  if (mem.uid === uid && mem.hits.length && Date.now() - mem.at < 45_000) return mem.hits;
+  const books = readDashBooks<{ id?: string; name?: string; currency?: string }>(uid);
+  const ledgerHits: CatalogHit[] = books.map((book) => ({
+    id: `ledger:${book.id}`,
+    type: 'book' as const,
+    href: `/book/${book.id}`,
+    description: String(book.name || 'Ledger'),
+    hint: 'Expense ledger',
+    currency: String(book.currency || ''),
+    bookName: String(book.name || ''),
+  }));
+  const expenseHits: CatalogHit[] = [];
+  for (const book of books) {
+    if (expenseHits.length >= 400) break;
+    for (const row of readExpenseSnap(String(book.id || ''), uid)) {
+      if (expenseHits.length >= 400) break;
+      expenseHits.push({
+        id: `expense:${book.id}:${row.id}`,
+        type: 'expense',
+        href: `/book/${book.id}`,
+        description: String(row.description || row.merchant || 'Entry'),
+        hint: 'Ledger entry',
+        amount: Number(row.amount || 0),
+        currency: String(row.currency || book.currency || ''),
+        date: String(row.date || ''),
+        category: String(row.category || ''),
+        bookName: String(book.name || ''),
+        enteredBy: String(row.enteredBy || row.paidByName || ''),
+        merchant: String(row.merchant || ''),
+        notes: String(row.notes || ''),
+        tags: String(row.tags || ''),
+      });
+    }
+  }
+  const hits = [...FEATURES, ...ledgerHits, ...expenseHits, ...getBooksSearchHits()]
+    .filter((item, i, arr) => arr.findIndex((x) => x.id === item.id) === i);
+  if (hits.length) {
+    mem.uid = uid;
+    mem.hits = hits;
+  }
   return mem.hits;
 }
 

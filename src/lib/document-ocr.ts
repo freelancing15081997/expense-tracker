@@ -5,6 +5,7 @@
 
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { extractMoneyAmount, preferMoneyParse, type ParsedMoneyAmount } from './amount-parse';
+import { receiptName, resolveReceiptText, summarizeReceiptMeaning } from './receipt-resolve';
 
 type DocumentOcrPlugin = {
   recognizeBase64(opts: { base64: string; mimeType?: string }): Promise<{
@@ -14,10 +15,16 @@ type DocumentOcrPlugin = {
     engine?: string;
     wallMs?: number;
   }>;
+  recognizeFile(opts: { path: string }): Promise<{
+    text?: string;
+    altText?: string;
+    engine?: string;
+    wallMs?: number;
+  }>;
 };
 
-/** Native call hard cap — plugin budgets ~2.6s itself; this only guards a hung bridge. */
-const NATIVE_OCR_CAP_MS = 4500;
+/** Native call hard cap — plugin budgets ~3.4s itself; this only guards a hung bridge. */
+const NATIVE_OCR_CAP_MS = 5500;
 
 const DocumentOcr = registerPlugin<DocumentOcrPlugin>('DocumentOcr');
 
@@ -39,14 +46,17 @@ function todayIso() {
 }
 
 function fromParsed(parsed: ParsedMoneyAmount, text: string, engine: string): LocalReceiptParse {
+  const resolved = resolveReceiptText(text);
+  const merchant = receiptName(resolved) || parsed.merchant;
+  const description = summarizeReceiptMeaning(resolved);
   return {
     text: text.slice(0, 4000),
     engine,
-    amount: parsed.amount,
-    merchant: parsed.merchant,
-    description: parsed.description,
+    amount: resolved.amount > 0 ? resolved.amount : parsed.amount,
+    merchant,
+    description,
     paymentMethod: parsed.paymentMethod,
-    entryType: parsed.entryType === 'in' ? 'in' : 'out',
+    entryType: resolved.direction === 'money_in' ? 'in' : (parsed.entryType === 'in' ? 'in' : 'out'),
     date: parsed.date,
     confidence: parsed.confidence,
     score: parsed.score,
@@ -86,6 +96,30 @@ export async function recognizeDocumentText(
   return { text: '', altText: '', engine: 'web-skip' };
 }
 
+export async function recognizeDocumentFile(
+  path: string,
+): Promise<{ text: string; altText: string; engine: string }> {
+  const filePath = String(path || '').trim();
+  if (!filePath) return { text: '', altText: '', engine: 'empty' };
+  if (Capacitor.isNativePlatform()) {
+    try {
+      const result = await Promise.race([
+        DocumentOcr.recognizeFile({ path: filePath }),
+        new Promise<null>((resolve) => { window.setTimeout(() => resolve(null), NATIVE_OCR_CAP_MS); }),
+      ]);
+      if (!result) return { text: '', altText: '', engine: 'native-timeout' };
+      return {
+        text: String(result.text || '').trim(),
+        altText: String(result.altText || '').trim(),
+        engine: String(result.engine || 'mlkit'),
+      };
+    } catch {
+      return { text: '', altText: '', engine: 'mlkit-failed' };
+    }
+  }
+  return { text: '', altText: '', engine: 'web-skip' };
+}
+
 /** Pass original bytes to native OCR (native decoder sizes to ~1920). No JS re-JPEG. */
 export async function prepareOcrImage(dataUrl: string, mimeType = 'image/jpeg'): Promise<{ base64: string; mime: string }> {
   const clean = String(dataUrl || '').replace(/^data:[^;]+;base64,/i, '').replace(/\s+/g, '');
@@ -104,9 +138,12 @@ export async function localParseReceiptImage(
   base64: string,
   mimeType = 'image/jpeg',
   hintText = '',
+  filePath = '',
 ): Promise<LocalReceiptParse | null> {
   const fromHint = parseUpiAmountFromText(hintText);
-  const ocr = await recognizeDocumentText(base64, mimeType);
+  const ocr = filePath
+    ? await recognizeDocumentFile(filePath)
+    : await recognizeDocumentText(base64, mimeType);
   const fromPrimary = parseUpiAmountFromText(ocr.text);
   // Second engine (ML Kit alongside PP-OCRv4): use it when primary missed the amount or the
   // two agree / alt is clearly stronger. Never merge texts — that double-counts multi-entry rows.
@@ -133,12 +170,25 @@ export async function localParseReceiptImage(
   const best = preferMoneyParse(fromOcr, fromHint);
   if (!best || !(best.amount > 0)) {
     if (ocrText) {
+      const resolvedOnly = resolveReceiptText(ocrText);
+      if (resolvedOnly.amount > 0 || receiptName(resolvedOnly)) {
+        return fromParsed({
+          amount: resolvedOnly.amount,
+          entryType: resolvedOnly.direction === 'money_in' ? 'in' : 'out',
+          description: summarizeReceiptMeaning(resolvedOnly),
+          merchant: receiptName(resolvedOnly),
+          paymentMethod: 'upi',
+          date: todayIso(),
+          confidence: resolvedOnly.amount > 0 ? 'medium' : 'low',
+          score: resolvedOnly.amount > 0 ? 44 : 0,
+        }, ocrText, ocr.engine);
+      }
       return {
         text: ocrText.slice(0, 4000),
         engine: ocr.engine,
         amount: 0,
         merchant: '',
-        description: 'Shared receipt',
+        description: '',
         paymentMethod: 'upi',
         entryType: 'out',
         date: todayIso(),

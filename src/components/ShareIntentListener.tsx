@@ -17,6 +17,7 @@ import {
 export type PendingCapture = {
   text?: string;
   imageDataUrl?: string;
+  filePath?: string;
   fileName?: string;
   mimeType?: string;
   source: string;
@@ -36,22 +37,6 @@ const STORAGE_KEY = 'byjan_pending_capture';
 let memoryPending: PendingCapture | null = null;
 let booksCacheUid = '';
 let booksCache: Array<{ id: string; name: string; currency?: string }> | null = null;
-
-/** Unique enough across UPI screenshots (same MIME + JPEG header used to collide). */
-function fingerprint(p: PendingCapture) {
-  const img = p.imageDataUrl || '';
-  const mid = img.length > 240 ? img.slice(Math.floor(img.length / 2), Math.floor(img.length / 2) + 64) : '';
-  return [
-    p.receivedAt || '',
-    p.mimeType || '',
-    p.fileName || '',
-    String(img.length),
-    img.slice(0, 24),
-    mid,
-    img.slice(-48),
-    (p.text || '').slice(0, 120),
-  ].join('|');
-}
 
 function currentUid() {
   return String(auth.currentUser?.uid || '');
@@ -131,11 +116,11 @@ export default function ShareIntentListener() {
   const lastAt = useRef(0);
 
   const routePending = async (pending: PendingCapture) => {
-    const fp = fingerprint(pending);
-    const now = Date.now();
-    if (fp && fp === lastFp.current && now - lastAt.current < 1500) return;
-    lastFp.current = fp;
-    lastAt.current = now;
+    const receivedAt = String(pending.receivedAt || Date.now());
+    // Same native payload can arrive as both the light event and checkPending.
+    if (receivedAt && receivedAt === lastFp.current) return;
+    lastFp.current = receivedAt;
+    lastAt.current = Date.now();
 
     const deepLinkBook = String(pending.preferredBookId || '').trim();
 
@@ -151,48 +136,31 @@ export default function ShareIntentListener() {
     });
 
     const tok = Date.now().toString(36);
+    const cachedVisible = readCachedMoneyBooks();
+    const onlyCached = !deepLinkBook && cachedVisible.length === 1 ? cachedVisible[0] : null;
     if (!requirePick && preferred) {
       rememberMoneyBook(preferred);
       navigate(`/book/${preferred}?capture=1&s=${tok}`, { replace: false });
+    } else if (onlyCached) {
+      rememberMoneyBook(onlyCached.id);
+      storePending({
+        ...pending,
+        preferredBookId: onlyCached.id,
+        requireBookPick: false,
+      });
+      navigate(`/book/${onlyCached.id}?capture=1&s=${tok}`, { replace: false });
     } else {
       navigate(`/?capture=1&s=${tok}`, { replace: false });
       window.setTimeout(() => notifyCaptureReady(), 40);
     }
 
-    // Confirm book count from server — only skip picker when there is exactly one ledger.
+    // Refresh names in the background. Do not navigate or parse again — that
+    // restarted the book picker mid-read and the second pass lost the amount.
     void listLedgers().then((books) => {
       const visible = (books || [])
         .filter((b) => b && !b.deleted && !b.deletedAt && !b.archived)
         .map((b) => ({ id: String(b.id), name: String(b.name || 'Money book'), currency: String(b.currency || 'INR') }));
       cacheMoneyBooks(visible);
-
-      if (deepLinkBook) return;
-
-      if (visible.length === 1) {
-        const only = visible[0];
-        rememberMoneyBook(only.id);
-        storePending({
-          ...pending,
-          preferredBookId: only.id,
-          requireBookPick: false,
-        });
-        navigate(`/book/${only.id}?capture=1&s=${Date.now().toString(36)}`, { replace: false });
-        window.setTimeout(() => notifyCaptureReady(), 40);
-        return;
-      }
-
-      // 2+ books: force picker with no preferred book, then wake Dashboard sheet.
-      if (visible.length > 1) {
-        const still = readPendingCapture();
-        if (still && (still.imageDataUrl || still.text)) {
-          storePending({
-            ...still,
-            preferredBookId: undefined,
-            requireBookPick: true,
-          });
-          notifyCaptureReady();
-        }
-      }
     }).catch(() => undefined);
   };
 
@@ -217,7 +185,8 @@ export default function ShareIntentListener() {
         };
       })
       .filter((row): row is NonNullable<typeof row> => Boolean(row));
-    if (!dataUrl && !text && !batch.length) {
+    const filePath = String(full.filePath || extraFiles[0]?.filePath || '').trim();
+    if (!dataUrl && !text && !batch.length && !filePath) {
       addToast('Could not read the shared file — try sharing again', 'error');
       return;
     }
@@ -227,6 +196,7 @@ export default function ShareIntentListener() {
     await routePending({
       text: text || undefined,
       imageDataUrl: dataUrl || batch[0]?.imageDataUrl,
+      filePath: filePath || undefined,
       fileName: full.fileName || batch[0]?.fileName,
       mimeType: full.mimeType || batch[0]?.mimeType || (dataUrl?.startsWith('data:') ? dataUrl.slice(5).split(';')[0] : undefined),
       source: full.source || 'share',
@@ -234,6 +204,37 @@ export default function ShareIntentListener() {
       batch: batch.length > 1 ? batch : undefined,
     });
   };
+
+  useEffect(() => {
+    const onInject = (event: Event) => {
+      const detail = (event as CustomEvent<Partial<PendingCapture> & { imageDataUrl?: string; text?: string; filePath?: string }>).detail || {};
+      if (!detail.imageDataUrl && !detail.text && !detail.batch?.length && !detail.filePath) return;
+      lastFp.current = '';
+      void routePending({
+        text: detail.text,
+        imageDataUrl: detail.imageDataUrl,
+        filePath: detail.filePath,
+        fileName: detail.fileName,
+        mimeType: detail.mimeType,
+        source: detail.source || 'share',
+        preferredBookId: detail.preferredBookId,
+        requireBookPick: detail.requireBookPick,
+        receivedAt: String(detail.receivedAt || Date.now()),
+        batch: detail.batch,
+      });
+    };
+    const onDiscard = () => {
+      lastFp.current = '';
+      lastAt.current = 0;
+      clearPendingCapture();
+    };
+    window.addEventListener('byjan-inject-capture', onInject);
+    window.addEventListener('byjan-capture-discarded', onDiscard);
+    return () => {
+      window.removeEventListener('byjan-inject-capture', onInject);
+      window.removeEventListener('byjan-capture-discarded', onDiscard);
+    };
+  }, []);
 
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
@@ -284,29 +285,53 @@ export default function ShareIntentListener() {
   return null;
 }
 
-export function readPendingCapture(): PendingCapture | null {
-  if (memoryPending?.imageDataUrl || memoryPending?.text) {
-    return memoryPending;
-  }
-  try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as PendingCapture & { _hasImage?: boolean };
-    // Large shares keep bytes only in memory — if memory was wiped, cannot recover.
-    if (!parsed?.text && !parsed?.imageDataUrl) return null;
-    return {
-      text: parsed.text ? String(parsed.text) : undefined,
-      imageDataUrl: parsed.imageDataUrl ? String(parsed.imageDataUrl) : undefined,
-      fileName: parsed.fileName ? String(parsed.fileName) : undefined,
-      mimeType: parsed.mimeType ? String(parsed.mimeType) : undefined,
-      source: String(parsed.source || 'share'),
-      requireBookPick: parsed.requireBookPick !== false,
-      preferredBookId: parsed.preferredBookId ? String(parsed.preferredBookId) : undefined,
-      receivedAt: String(parsed.receivedAt || new Date().toISOString()),
-    };
-  } catch {
+function receivedAtMs(raw?: string) {
+  const s = String(raw || '');
+  const n = Number(s);
+  if (Number.isFinite(n) && n > 1e11) return n;
+  const parsed = Date.parse(s);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+const PENDING_TTL_MS = 3 * 60 * 1000;
+
+function freshPending(pending: PendingCapture | null): PendingCapture | null {
+  if (!pending) return null;
+  const at = receivedAtMs(pending.receivedAt);
+  if (!at || Date.now() - at > PENDING_TTL_MS) {
+    clearPendingCapture();
     return null;
   }
+  return pending;
+}
+
+export function readPendingCapture(): PendingCapture | null {
+  let pending: PendingCapture | null = null;
+  if (memoryPending?.imageDataUrl || memoryPending?.text || memoryPending?.filePath || memoryPending?.batch?.length) {
+    pending = memoryPending;
+  } else {
+    try {
+      const raw = sessionStorage.getItem(STORAGE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as PendingCapture & { _hasImage?: boolean };
+      // Large shares keep bytes only in memory — if memory was wiped, cannot recover.
+      if (!parsed?.text && !parsed?.imageDataUrl && !parsed?.filePath) return null;
+      pending = {
+        text: parsed.text ? String(parsed.text) : undefined,
+        imageDataUrl: parsed.imageDataUrl ? String(parsed.imageDataUrl) : undefined,
+        filePath: parsed.filePath ? String(parsed.filePath) : undefined,
+        fileName: parsed.fileName ? String(parsed.fileName) : undefined,
+        mimeType: parsed.mimeType ? String(parsed.mimeType) : undefined,
+        source: String(parsed.source || 'share'),
+        requireBookPick: parsed.requireBookPick !== false,
+        preferredBookId: parsed.preferredBookId ? String(parsed.preferredBookId) : undefined,
+        receivedAt: String(parsed.receivedAt || new Date().toISOString()),
+      };
+    } catch {
+      return null;
+    }
+  }
+  return freshPending(pending);
 }
 
 export function clearPendingCapture() {
@@ -315,5 +340,5 @@ export function clearPendingCapture() {
 }
 
 export function peekPendingCapture(): PendingCapture | null {
-  return memoryPending || readPendingCapture();
+  return readPendingCapture();
 }
