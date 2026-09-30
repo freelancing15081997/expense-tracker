@@ -86,7 +86,7 @@ async function main() {
           status: draft ? 'draft' : 'completed',
           releaseNotes: [{
             language: 'en-US',
-            text: 'Import reads PDF and Word files into entries. Home and More are clearer.',
+            text: 'Receipts shared from PhonePe, Paytm, GPay, and CRED are read correctly. Saving an entry confirms once.',
           }],
         },
       ],
@@ -105,6 +105,7 @@ async function main() {
 }
 
 main().catch((e) => {
-  console.error('PLAY_UPLOAD_FAIL', e.code || '', e.errors?.[0]?.message || e.message);
+  const details = e.errors || e.response?.data || e.message;
+  console.error('PLAY_UPLOAD_FAIL', e.code || '', JSON.stringify(details));
   process.exit(1);
 });

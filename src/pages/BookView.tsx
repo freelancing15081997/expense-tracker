@@ -1618,7 +1618,6 @@ export default function BookView() {
                 receiptName: created.receiptName || keptReceipt.receiptName,
               };
               applyExpenseLocal(saved);
-              setSuccessExpense(saved);
             }
             if (ocrText && Number(payload.amount) > 0) {
               void confirmMismatchGold({

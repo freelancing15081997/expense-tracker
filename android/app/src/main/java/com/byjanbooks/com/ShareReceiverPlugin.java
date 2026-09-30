@@ -6,8 +6,12 @@ import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
 import android.provider.OpenableColumns;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.util.Base64;
 import android.webkit.MimeTypeMap;
+
+import java.io.ByteArrayOutputStream;
 
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
@@ -111,17 +115,32 @@ public class ShareReceiverPlugin extends Plugin {
 
                 File cached = copyUriToCache(activity, stream, name, MAX_BYTES);
                 if (cached != null && cached.length() > 0) {
+                    String b64 = encodeIfTiny(cached);
+                    String bridgeMime = mime;
+                    String bridgeName = name;
+                    // PhonePe / GPay / Paytm / CRED screenshots are far above the bridge
+                    // limit, so the reader never saw a photo. A scan-sized JPEG is the
+                    // same input Scan already parses.
+                    if (b64 == null && !mime.toLowerCase().contains("pdf")) {
+                        File preview = writeScaledJpeg(cached);
+                        if (preview != null) {
+                            cached = preview;
+                            b64 = encodeIfTiny(preview);
+                            bridgeMime = "image/jpeg";
+                            bridgeName = name.toLowerCase().endsWith(".jpg") || name.toLowerCase().endsWith(".jpeg")
+                                ? name : name + ".jpg";
+                        }
+                    }
                     JSObject file = new JSObject();
-                    file.put("mimeType", mime);
-                    file.put("fileName", name);
+                    file.put("mimeType", bridgeMime);
+                    file.put("fileName", bridgeName);
                     file.put("byteLength", cached.length());
                     file.put("filePath", cached.getAbsolutePath());
-                    String b64 = encodeIfTiny(cached);
                     if (b64 != null) file.put("dataBase64", b64);
                     files.put(file);
                     if (i == 0) {
-                        payload.put("mimeType", mime);
-                        payload.put("fileName", name);
+                        payload.put("mimeType", bridgeMime);
+                        payload.put("fileName", bridgeName);
                         payload.put("byteLength", cached.length());
                         payload.put("filePath", cached.getAbsolutePath());
                         if (b64 != null) payload.put("dataBase64", b64);
@@ -189,6 +208,60 @@ public class ShareReceiverPlugin extends Plugin {
                 }
             }
             instance.notifyListeners("shareReceived", light);
+        }
+    }
+
+    /** Downscale a shared photo until it fits the bridge. Scan already reads this size. */
+    private static File writeScaledJpeg(File cached) {
+        try {
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            BitmapFactory.decodeFile(cached.getAbsolutePath(), bounds);
+            int srcEdge = Math.max(bounds.outWidth, bounds.outHeight);
+            if (srcEdge <= 0) return null;
+            int[] targets = {1600, 1280, 960, 720};
+            for (int target : targets) {
+                int sample = 1;
+                while (srcEdge / sample > target * 2) sample *= 2;
+                BitmapFactory.Options opts = new BitmapFactory.Options();
+                opts.inSampleSize = Math.max(1, sample);
+                Bitmap decoded = BitmapFactory.decodeFile(cached.getAbsolutePath(), opts);
+                if (decoded == null) return null;
+                Bitmap scaled = decoded;
+                int maxEdge = Math.max(decoded.getWidth(), decoded.getHeight());
+                if (maxEdge > target) {
+                    float ratio = target / (float) maxEdge;
+                    scaled = Bitmap.createScaledBitmap(
+                        decoded,
+                        Math.max(1, Math.round(decoded.getWidth() * ratio)),
+                        Math.max(1, Math.round(decoded.getHeight() * ratio)),
+                        true
+                    );
+                }
+                try {
+                    int quality = 82;
+                    ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                    scaled.compress(Bitmap.CompressFormat.JPEG, quality, bos);
+                    while (bos.size() > PENDING_B64_RAW_MAX && quality > 40) {
+                        quality -= 10;
+                        bos.reset();
+                        scaled.compress(Bitmap.CompressFormat.JPEG, quality, bos);
+                    }
+                    if (bos.size() >= 32 && bos.size() <= PENDING_B64_RAW_MAX) {
+                        File preview = new File(cached.getParentFile(), cached.getName() + ".jpg");
+                        try (FileOutputStream fos = new FileOutputStream(preview)) {
+                            bos.writeTo(fos);
+                        }
+                        if (preview.length() > 0) return preview;
+                    }
+                } finally {
+                    if (scaled != decoded) scaled.recycle();
+                    decoded.recycle();
+                }
+            }
+            return null;
+        } catch (Throwable ignored) {
+            return null;
         }
     }
 

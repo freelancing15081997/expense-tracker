@@ -185,7 +185,11 @@ export default function ShareIntentListener() {
         };
       })
       .filter((row): row is NonNullable<typeof row> => Boolean(row));
-    const filePath = String(full.filePath || extraFiles[0]?.filePath || '').trim();
+    const rawPath = String(full.filePath || extraFiles[0]?.filePath || '').trim();
+    const mime = String(full.mimeType || batch[0]?.mimeType || (dataUrl?.startsWith('data:') ? dataUrl.slice(5).split(';')[0] : '')).toLowerCase();
+    // A photo that already has bytes must use those bytes. The original file is a
+    // full-screen capture and the reader times out on it, so the amount never appears.
+    const filePath = dataUrl && mime.startsWith('image/') ? '' : rawPath;
     if (!dataUrl && !text && !batch.length && !filePath) {
       addToast('Could not read the shared file — try sharing again', 'error');
       return;
