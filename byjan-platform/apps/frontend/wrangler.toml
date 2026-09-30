@@ -10,11 +10,17 @@ build = {
     cwd = "apps/frontend",
 }
 
-# Environment variables
+# Environment variables (Vite inlines VITE_* at build time — set secrets in CF Pages too)
 [vars]
 VITE_API_URL = "https://api.easypado.com"
 VITE_APP_URL = "https://business.easypado.com"
 VITE_ENV = "production"
+VITE_AUTH_MODE = "live"
+VITE_DEMO_SEED = "0"
+VITE_IDLE_MINUTES = "30"
+# Set these as Cloudflare Pages encrypted build vars (not committed):
+# VITE_FIREBASE_API_KEY, VITE_FIREBASE_AUTH_DOMAIN, VITE_FIREBASE_PROJECT_ID,
+# VITE_FIREBASE_APP_ID, VITE_FIREBASE_MESSAGING_SENDER_ID, VITE_FIREBASE_STORAGE_BUCKET
 
 # Custom domain
 [vars.custom_domains]

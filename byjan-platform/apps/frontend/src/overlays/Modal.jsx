@@ -1,4 +1,5 @@
 import React from 'react';
+import ByjanMark from '../brand/ByjanMark.jsx';
 import { css } from '../ui/css.js';
 import Hx from '../ui/Hx.jsx';
 
@@ -180,15 +181,7 @@ export default function Modal({ v }) {
               <div style={css("padding:32px 36px;border:1px solid #E4E8EE;border-radius:6px;background:#fff;box-shadow:0 10px 30px -20px rgba(11,31,58,.4)")}>
                 <div style={css("display:flex;justify-content:space-between;gap:20px")}>
                   <div style={css("display:flex;gap:12px")}>
-                    <svg viewBox="0 0 58 51" width="34" height="30" fill="none">
-                      <rect x="0.5" y="42" width="6.5" height="7.5" rx="1.6" fill="#0A1020" />
-                      <rect x="8.5" y="42" width="6.5" height="7.5" rx="1.6" fill="#0A1020" />
-                      <rect x="16.5" y="2" width="10" height="47.5" rx="2.4" fill="#0A1020" />
-                      <path fill="#0A1020" fillRule="evenodd" d="M25 18.5H31.5A15.5 15.5 0 0 1 31.5 49.5H25ZM25 27.5H31.5A6.5 6.5 0 0 1 31.5 40.5H25Z" />
-                      <path d="M19 42C33.5 41.5 43 34 48.5 17" stroke="#FFFFFF" strokeWidth="11.5" strokeLinecap="round" />
-                      <path d="M19 42C33.5 41.5 43 34 48.5 17" stroke="#12B8A8" strokeWidth="6.8" strokeLinecap="round" />
-                      <path d="M40.6 19.6L57 17.4L50.6 2.4Z" fill="#12B8A8" stroke="#FFFFFF" strokeWidth="2" strokeLinejoin="round" />
-                    </svg>
+                    <ByjanMark size={40} />
                     <div>
                       <p style={css("font:650 16px 'Geist'")}>
                         {v.modal?.co?.n}

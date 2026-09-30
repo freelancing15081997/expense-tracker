@@ -22,4 +22,5 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:#2DD4BF !impor
 @keyframes bjGrow{from{transform:scaleY(0)}to{transform:scaleY(1)}}
 @keyframes bjDraw{from{stroke-dashoffset:100}to{stroke-dashoffset:0}}
 @keyframes bjPulse{0%,100%{transform:scale(.92);opacity:.7}50%{transform:scale(1.05);opacity:1}}
+@keyframes spin{to{transform:rotate(360deg)}}
 #root{height:100%}

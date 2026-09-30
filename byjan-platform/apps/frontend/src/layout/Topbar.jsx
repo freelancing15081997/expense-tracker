@@ -68,7 +68,7 @@ export default function Topbar({ v }) {
         <div style={css("position:relative;flex:none")}>
           <span style={css("position:relative;width:40px;height:40px;border-radius:12px;background:#fff;border:1px solid #E9EBEF;box-shadow:0 1px 2px rgba(10,16,32,.04);display:grid;place-items:center;cursor:pointer;color:#344054")} onClick={v.toggleBell}>
             <span style={css("flex:none;width:17px;height:17px;background:currentColor;-webkit-mask:url(https://unpkg.com/@phosphor-icons/core@2.1.1/assets/duotone/bell-duotone.svg) center/contain no-repeat;mask:url(https://unpkg.com/@phosphor-icons/core@2.1.1/assets/duotone/bell-duotone.svg) center/contain no-repeat;")} />
-            <span style={css("position:absolute;top:8px;right:9px;width:8px;height:8px;border-radius:50%;background:#F04438;box-shadow:0 0 0 2px #fff")} />
+            {(v.notes||[]).length > 0 ? <span style={css("position:absolute;top:8px;right:9px;width:8px;height:8px;border-radius:50%;background:#F04438;box-shadow:0 0 0 2px #fff")} /> : null}
           </span>
           {' '}
           {v.bell ? (<>

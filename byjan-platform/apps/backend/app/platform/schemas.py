@@ -12,6 +12,7 @@ from enum import Enum
 class FirebaseExchangeRequest(BaseModel):
     """Firebase ID token exchange request"""
     id_token: str
+    name: Optional[str] = None
 
 
 class OtpSendRequest(BaseModel):
@@ -68,15 +69,17 @@ class AuthResponse(BaseModel):
 class MeResponse(BaseModel):
     """Current user response"""
     id: str
-    firebase_uid: str
-    email: Optional[str]
-    phone: Optional[str]
-    name: Optional[str]
-    lang: str
-    ui: Dict[str, Any]
-    sup: bool
-    mfa_enabled: bool
-    tenants: List[Dict[str, Any]]
+    firebase_uid: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    name: Optional[str] = None
+    lang: str = "en"
+    ui: Dict[str, Any] = Field(default_factory=dict)
+    sup: bool = False
+    mfa_enabled: bool = False
+    tenants: List[Dict[str, Any]] = Field(default_factory=list)
+    session_timeout_min: int = 30
+    other_sessions: int = 0
 
 
 class MeUpdateRequest(BaseModel):

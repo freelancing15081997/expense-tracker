@@ -20,20 +20,15 @@ class UserORM(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     firebase_uid = Column(String(255), unique=True, nullable=True)
-    phone = Column(String(50), unique=True, nullable=True)
     email = Column(String(255), unique=True, nullable=True)
+    phone_enc = Column(String(255), nullable=True)
+    phone_bidx = Column(String(255), nullable=True)
     name = Column(String(255), nullable=True)
-    avatar_file_id = Column(UUID(as_uuid=True), nullable=True)
     lang = Column(String(10), default="en")
     ui = Column(JSONB, default=dict)
     sup = Column(Boolean, default=False)
-    mfa_enabled = Column(Boolean, default=False)
-    totp_secret_enc = Column(Text, nullable=True)
-    phone_verified_at = Column(DateTime(timezone=True), nullable=True)
-    email_verified_at = Column(DateTime(timezone=True), nullable=True)
-    recovery_email = Column(String(255), nullable=True)
-    recovery_email_verified_at = Column(DateTime(timezone=True), nullable=True)
-    passkeys = Column(JSONB, default=list)
+    mfa_secret_enc = Column(String(255), nullable=True)
+    status = Column(String(50), default="active")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -48,14 +43,16 @@ class TenantORM(Base):
     __table_args__ = {"schema": "core"}
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    kind = Column(String(50), nullable=False)  # business | practice | dhani
     name = Column(String(255), nullable=False)
-    kind = Column(String(50), nullable=False)  # company | practice
-    slug = Column(String(100), unique=True, nullable=True)
-    status = Column(String(50), default="active")  # active | suspended
-    logo_file_id = Column(UUID(as_uuid=True), nullable=True)
+    legal = Column(JSONB, nullable=True)
+    gstin = Column(String(255), nullable=True)
+    state_code = Column(String(10), nullable=True)
+    fy_start_month = Column(Integer, default=4)
+    lang = Column(String(10), default="en")
     settings = Column(JSONB, default=dict)
-    suspended_at = Column(DateTime(timezone=True), nullable=True)
-    suspended_reason = Column(Text, nullable=True)
+    status = Column(String(50), default="active")
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -65,13 +62,18 @@ class TenantORM(Base):
 
 class MembershipORM(Base):
     __tablename__ = "memberships"
-    __table_args__ = {"schema": "core"}
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "user_id", name="uq_memberships_tenant_user"),
+        {"schema": "core"},
+    )
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    tenant_id = Column(UUID(as_uuid=True), ForeignKey("core.tenants.id"), nullable=False)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("core.users.id"), nullable=False)
+    # Neon uses composite identity (tenant_id, user_id) — no surrogate id column
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("core.tenants.id"), primary_key=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("core.users.id"), primary_key=True)
     role_id = Column(UUID(as_uuid=True), ForeignKey("core.roles.id"), nullable=True)
-    status = Column(String(50), default="active")  # active | suspended
+    kind = Column(String(50), default="member")
+    org_unit_ids = Column(ARRAY(UUID(as_uuid=True)), nullable=True)
+    status = Column(String(50), default="active")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -88,10 +90,10 @@ class RoleORM(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id = Column(UUID(as_uuid=True), nullable=False)
     name = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
-    key = Column(String(50), nullable=False)
-    permissions = Column(ARRAY(String), nullable=False)
-    is_system = Column(Boolean, default=False)
+    system = Column(Boolean, default=False)
+    locked = Column(Boolean, default=False)
+    limits = Column(JSONB, default=dict)
+    perm_version = Column(Integer, default=1)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -119,16 +121,17 @@ class SessionORM(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("core.users.id"), nullable=False)
+    family_id = Column(UUID(as_uuid=True), nullable=True)
+    refresh_hash = Column(String(255), nullable=False)
     device = Column(String(255), nullable=True)
     ip = Column(String(45), nullable=True)
     city = Column(String(255), nullable=True)
     ua = Column(Text, nullable=True)
-    refresh_token_hash = Column(String(255), nullable=False)
-    refresh_expires_at = Column(DateTime(timezone=True), nullable=False)
-    rotated_from = Column(UUID(as_uuid=True), nullable=True)
-    last_seen_at = Column(DateTime(timezone=True), server_default=func.now())
-    revoked_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_seen_at = Column(DateTime(timezone=True), server_default=func.now())
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    ver = Column(Integer, default=1)
 
     # Relationships
     user = relationship("UserORM", back_populates="sessions")
@@ -331,13 +334,12 @@ class ServiceMetricORM(Base):
 
 # Indexes for performance
 Index("ix_users_firebase_uid", UserORM.firebase_uid)
-Index("ix_users_phone", UserORM.phone)
+Index("ix_users_phone_bidx", UserORM.phone_bidx)
 Index("ix_users_email", UserORM.email)
-Index("ix_tenants_slug", TenantORM.slug)
 Index("ix_tenants_status", TenantORM.status)
 Index("ix_memberships_tenant_user", MembershipORM.tenant_id, MembershipORM.user_id)
 Index("ix_sessions_user_id", SessionORM.user_id)
-Index("ix_sessions_expires_at", SessionORM.refresh_expires_at)
+Index("ix_sessions_expires_at", SessionORM.expires_at)
 Index("ix_files_tenant_id", FileORM.tenant_id)
 Index("ix_notifications_tenant_user", NotificationORM.tenant_id, NotificationORM.user_id)
 Index("ix_audit_log_tenant_entity", AuditLogORM.tenant_id, AuditLogORM.entity_type, AuditLogORM.entity_id)

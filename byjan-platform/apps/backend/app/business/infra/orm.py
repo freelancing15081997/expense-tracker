@@ -115,7 +115,6 @@ class GlEntryORM(Base):
 class PartyORM(Base):
     """Party table (customers, suppliers)"""
     __tablename__ = "parties"
-    __table_args__ = {"schema": "biz"}
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid7)
     tenant_id = Column(UUID(as_uuid=True), nullable=False)
@@ -142,6 +141,7 @@ class PartyORM(Base):
         Index("ix_parties_name", "name"),
         Index("ix_parties_gstin", "gstin"),
         Index("ix_parties_archived_at", "archived_at"),
+        {"schema": "biz"},
     )
 
 
@@ -194,7 +194,6 @@ class LocationORM(Base):
 class DocumentORM(Base):
     """Document table (14 types)"""
     __tablename__ = "documents"
-    __table_args__ = {"schema": "biz"}
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid7)
     tenant_id = Column(UUID(as_uuid=True), nullable=False)
@@ -231,13 +230,13 @@ class DocumentORM(Base):
         Index("ix_documents_status", "status"),
         Index("ix_documents_date", "date"),
         Index("ix_documents_party_id", "party_id"),
+        {"schema": "biz"},
     )
 
 
 class DocumentLineORM(Base):
     """Document line table"""
     __tablename__ = "document_lines"
-    __table_args__ = {"schema": "biz"}
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid7)
     document_id = Column(UUID(as_uuid=True), nullable=False)
@@ -258,6 +257,7 @@ class DocumentLineORM(Base):
     __table_args__ = (
         Index("ix_document_lines_document_id", "document_id"),
         Index("ix_document_lines_position", "document_id", "position"),
+        {"schema": "biz"},
     )
 
 

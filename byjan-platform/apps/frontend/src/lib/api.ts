@@ -1,169 +1,73 @@
 /**
- * API client for Byjan Business backend
- * Connects to Python FastAPI backend on Render
+ * API client for Byjan Business backend.
+ * Auth tokens come from authApi (in-memory access + httpOnly refresh cookie).
  */
 
-const API_URL = import.meta.env.VITE_API_URL || 'https://api.easypado.com';
+import { authFetch, getAccessToken, MOCK } from '../auth/authApi.js';
+import { getTenantId, setTenantId as setBizTenantId } from '../auth/bizApi.js';
+
+const API_URL = (import.meta.env.VITE_API_URL || 'https://api.easypado.com').replace(/\/$/, '');
 const APP_URL = import.meta.env.VITE_APP_URL || 'https://business.easypado.com';
 
-// Auth token management
-let accessToken: string | null = null;
-let refreshToken: string | null = null;
-
-export function setTokens(access: string, refresh: string) {
-  accessToken = access;
-  refreshToken = refresh;
-  localStorage.setItem('access_token', access);
-  localStorage.setItem('refresh_token', refresh);
+export { getAccessToken };
+export function setTenantId(id: string) {
+  setBizTenantId(id);
 }
-
-export function getAccessToken(): string | null {
-  if (!accessToken) {
-    accessToken = localStorage.getItem('access_token');
-  }
-  return accessToken;
-}
-
-export function getRefreshToken(): string | null {
-  if (!refreshToken) {
-    refreshToken = localStorage.getItem('refresh_token');
-  }
-  return refreshToken;
-}
+export { getTenantId };
 
 export function clearTokens() {
-  accessToken = null;
-  refreshToken = null;
-  localStorage.removeItem('access_token');
-  localStorage.removeItem('refresh_token');
+  // Session clear is owned by authApi.clearLocal / signOut
 }
 
-// Tenant context
-let tenantId: string | null = null;
-
-export function setTenantId(id: string) {
-  tenantId = id;
-  localStorage.setItem('tenant_id', id);
-}
-
-export function getTenantId(): string | null {
-  if (!tenantId) {
-    tenantId = localStorage.getItem('tenant_id');
-  }
-  return tenantId;
-}
-
-// API request helper
 export async function apiRequest(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<Response> {
-  const url = `${API_URL}${endpoint}`;
+  const path = endpoint.startsWith('/v1') || endpoint.startsWith('http')
+    ? endpoint
+    : `/v1${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
 
-  const headers: HeadersInit = {
+  if (MOCK) {
+    return fetch(`${API_URL}${path}`, options);
+  }
+
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...options.headers,
+    ...(options.headers as Record<string, string> | undefined),
   };
-
-  // Add auth token if available
-  const token = getAccessToken();
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  // Add tenant header if available
   const tenant = getTenantId();
-  if (tenant) {
-    headers['X-Tenant-Id'] = tenant;
-  }
+  if (tenant) headers['X-Tenant-Id'] = tenant;
 
-  const response = await fetch(url, {
+  return authFetch(path.startsWith('http') ? path.replace(API_URL, '') : path, {
     ...options,
     headers,
   });
-
-  // Handle token refresh on 401
-  if (response.status === 401) {
-    const refreshed = await refreshAccessToken();
-    if (refreshed) {
-      // Retry original request with new token
-      headers['Authorization'] = `Bearer ${accessToken}`;
-      return fetch(url, {
-        ...options,
-        headers,
-      });
-    }
-  }
-
-  return response;
 }
 
-// Helper for JSON requests
 export async function apiJson<T = any>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
   const response = await apiRequest(endpoint, options);
-
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
+    const detail = error.detail;
+    throw new Error(
+      (typeof detail === 'object' && detail?.message) || detail || `HTTP ${response.status}`
+    );
   }
-
   return response.json();
 }
 
-// Refresh access token using refresh token
-async function refreshAccessToken(): Promise<boolean> {
-  const refresh = getRefreshToken();
-  if (!refresh) {
-    return false;
-  }
-
-  try {
-    const response = await fetch(`${API_URL}/v1/auth/refresh`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ refresh_token: refresh }),
-    });
-
-    if (!response.ok) {
-      return false;
-    }
-
-    const data = await response.json();
-    setTokens(data.access_token, data.refresh_token);
-    return true;
-  } catch (error) {
-    console.error('Token refresh failed:', error);
-    return false;
-  }
-}
-
-// Convenience methods
 export const api = {
   get: <T = any>(endpoint: string) => apiJson<T>(endpoint, { method: 'GET' }),
-  
   post: <T = any>(endpoint: string, data?: any) =>
-    apiJson<T>(endpoint, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-  
+    apiJson<T>(endpoint, { method: 'POST', body: JSON.stringify(data) }),
   patch: <T = any>(endpoint: string, data?: any) =>
-    apiJson<T>(endpoint, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    }),
-  
-  delete: <T = any>(endpoint: string) =>
-    apiJson<T>(endpoint, { method: 'DELETE' }),
-  
+    apiJson<T>(endpoint, { method: 'PATCH', body: JSON.stringify(data) }),
+  delete: <T = any>(endpoint: string) => apiJson<T>(endpoint, { method: 'DELETE' }),
   put: <T = any>(endpoint: string, data?: any) =>
-    apiJson<T>(endpoint, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    }),
+    apiJson<T>(endpoint, { method: 'PUT', body: JSON.stringify(data) }),
 };
+
+export { API_URL, APP_URL };

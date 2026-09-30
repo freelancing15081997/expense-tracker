@@ -61,18 +61,25 @@ def create_access_token(
     if principal.view_as_role:
         to_encode["view_as_role"] = principal.view_as_role
 
-    # TODO: Use Ed25519 keys from settings.JWT_PRIVATE_KEYS
-    # For now, use HS256 for development
-    secret = settings.JWT_PRIVATE_KEYS
+    secret = _jwt_signing_secret()
     encoded = jwt.encode(to_encode, secret, algorithm="HS256")
     return encoded
+
+
+def _jwt_signing_secret() -> str:
+    """HS256 secret — prefer JWT_PRIVATE_KEYS, fall back to JWT_SECRET_KEY."""
+    return settings.JWT_PRIVATE_KEYS or settings.JWT_SECRET_KEY
+
+
+def _jwt_verify_secret() -> str:
+    """HS256 verify secret — prefer JWT_PUBLIC_KEYS, fall back to signing secret."""
+    return settings.JWT_PUBLIC_KEYS or settings.JWT_PRIVATE_KEYS or settings.JWT_SECRET_KEY
 
 
 def decode_access_token(token: str) -> Optional[Principal]:
     """Decode and validate JWT access token"""
     try:
-        # TODO: Use Ed25519 keys from settings.JWT_PUBLIC_KEYS
-        secret = settings.JWT_PUBLIC_KEYS
+        secret = _jwt_verify_secret()
         payload = jwt.decode(token, secret, algorithms=["HS256"])
 
         user_id = payload.get("sub")

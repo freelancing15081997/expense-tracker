@@ -62,12 +62,16 @@ class Settings(BaseSettings):
     # Firebase
     FIREBASE_PROJECT_ID: Optional[str] = None
     FIREBASE_SERVICE_ACCOUNT_PATH: Optional[str] = None
+    FIREBASE_SERVICE_ACCOUNT_JSON: Optional[str] = None  # full SA JSON string (Render)
 
-    # JWT
+    # JWT — HS256 uses JWT_SECRET_KEY (or JWT_PRIVATE_KEYS / JWT_PUBLIC_KEYS if set)
     JWT_SECRET_KEY: str
-    JWT_ALGORITHM: str = "EdDSA"
+    JWT_PRIVATE_KEYS: Optional[str] = None
+    JWT_PUBLIC_KEYS: Optional[str] = None
+    JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+    REFRESH_COOKIE_NAME: str = "byjan_refresh"
 
     # OTP
     OTP_LENGTH: int = 6
@@ -140,8 +144,11 @@ class Settings(BaseSettings):
     # CORS
     ALLOWED_ORIGINS: List[str] = [
         "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:5175",
         "https://business.easypado.com",
         "https://app.easypado.com",
+        "https://byjan-business-frontend.pages.dev",
     ]
 
     # Security

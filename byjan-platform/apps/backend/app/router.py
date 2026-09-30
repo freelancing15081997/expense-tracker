@@ -11,8 +11,8 @@ from app.console.api import router as console_router
 
 api_router = APIRouter()
 
-# Include platform routes (auth, me, tenants, members, RBAC, files, notifications, search, undo, jobs, audit, console)
-api_router.include_router(platform_router, prefix="/platform", tags=["Platform"])
+# Platform routes at /v1/auth, /v1/me, /v1/tenants (docs + frontend contract)
+api_router.include_router(platform_router, tags=["Platform"])
 
 # Include business routes (accounts, parties, items, documents, payments, bank, operations, tax, inbox, approvals, reports, imports, org, integrations)
 api_router.include_router(business_router, prefix="/biz", tags=["Business"])

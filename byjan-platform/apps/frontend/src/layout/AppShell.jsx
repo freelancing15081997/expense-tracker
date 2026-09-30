@@ -16,6 +16,7 @@ import Toast from '../overlays/Toast.jsx';
 import SidebarFlyout from '../overlays/SidebarFlyout.jsx';
 import Dropdown from '../overlays/Dropdown.jsx';
 import BootLoader from '../overlays/BootLoader.jsx';
+import ProfileMenu from '../overlays/ProfileMenu.jsx';
 
 export default function AppShell({ v }) {
   return (
@@ -45,6 +46,7 @@ export default function AppShell({ v }) {
       {v.cmd ? <CommandPalette v={v} /> : null}
       {' '}
       {v.ws ? <WorkspaceMenu v={v} /> : null}
+      {v.pm ? <ProfileMenu v={v} /> : null}
       {' '}
       {v.hasToast ? <Toast v={v} /> : null}
       {' '}

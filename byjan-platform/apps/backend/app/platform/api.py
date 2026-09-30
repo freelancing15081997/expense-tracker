@@ -3,7 +3,7 @@ Platform API router
 All platform endpoints (auth, me, tenants, members, RBAC, files, notifications, search, undo, jobs, audit, console)
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
@@ -27,8 +27,52 @@ from app.platform.schemas import (
 )
 from app.platform.service import PlatformService
 from app.shared.types import Result
+from app.settings import settings
 
 router = APIRouter()
+
+REFRESH_COOKIE = settings.REFRESH_COOKIE_NAME
+
+
+def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
+    response.set_cookie(
+        key=REFRESH_COOKIE,
+        value=refresh_token,
+        httponly=True,
+        secure=settings.SECURE_COOKIES or settings.APP_ENV == "production",
+        samesite="none" if settings.APP_ENV == "production" else "lax",
+        path="/v1/auth",
+        max_age=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+    )
+
+
+def _clear_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key=REFRESH_COOKIE,
+        path="/v1/auth",
+        samesite="none" if settings.APP_ENV == "production" else "lax",
+        secure=settings.SECURE_COOKIES or settings.APP_ENV == "production",
+    )
+
+
+def _auth_http_error(code: str) -> HTTPException:
+    messages = {
+        "auth.invalid_firebase_token": "Invalid Firebase token",
+        "auth.exchange_failed": "Could not create session",
+        "auth.refresh_missing": "Missing refresh token",
+        "auth.refresh_reused": "Refresh token was already used",
+        "auth.refresh_revoked": "Session revoked",
+        "auth.refresh_expired": "Session expired",
+        "auth.refresh_failed": "Could not refresh session",
+        "auth.logout_failed": "Could not sign out",
+    }
+    status_code = status.HTTP_401_UNAUTHORIZED
+    if code == "auth.refresh_reused":
+        status_code = status.HTTP_401_UNAUTHORIZED
+    return HTTPException(
+        status_code=status_code,
+        detail={"code": code, "message": messages.get(code, "Authentication failed")},
+    )
 
 
 # ============================================================================
@@ -38,62 +82,87 @@ router = APIRouter()
 @router.post("/auth/firebase/exchange", response_model=AuthResponse)
 async def firebase_exchange(
     request: FirebaseExchangeRequest,
+    response: Response,
+    http_request: Request,
     db: AsyncSession = Depends(get_db_session),
 ):
-    """Firebase ID token → access and refresh tokens"""
+    """Firebase ID token → access JWT + httpOnly refresh cookie"""
     service = PlatformService(db)
-    result = await service.firebase_exchange(request.id_token)
-    
+    result = await service.firebase_exchange(
+        request.id_token,
+        name=request.name,
+        ip=http_request.client.host if http_request.client else None,
+        ua=http_request.headers.get("user-agent"),
+    )
+
     if result.is_err():
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"code": result.unwrap_err(), "message": "Invalid Firebase token"}
-        )
-    
-    access_token, refresh_token = result.unwrap()
+        raise _auth_http_error(result.unwrap_err())
+
+    tokens = result.unwrap()
+    _set_refresh_cookie(response, tokens["refresh_token"])
     return AuthResponse(
-        access_token=access_token,
-        refresh_token=refresh_token,
+        access_token=tokens["access_token"],
+        refresh_token=tokens["refresh_token"],
         token_type="bearer",
-        expires_in=600,  # 10 minutes
+        expires_in=tokens["expires_in"],
     )
 
 
 @router.post("/auth/otp/send")
 async def otp_send(request: OtpSendRequest):
-    """Send OTP to phone or email"""
-    # TODO: Implement OTP sending
-    return {"status": "ok", "message": "OTP sent"}
+    """Send OTP to phone or email — not in MVP"""
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail={"code": "auth.otp_unavailable", "message": "OTP sign-in is not enabled yet"},
+    )
 
 
 @router.post("/auth/otp/verify", response_model=AuthResponse)
 async def otp_verify(request: OtpVerifyRequest, db: AsyncSession = Depends(get_db_session)):
-    """Verify OTP and return tokens"""
-    # TODO: Implement OTP verification
-    return AuthResponse(
-        access_token="mock_access_token",
-        refresh_token="mock_refresh_token",
-        token_type="bearer",
-        expires_in=600,
+    """Verify OTP and return tokens — not in MVP"""
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail={"code": "auth.otp_unavailable", "message": "OTP sign-in is not enabled yet"},
     )
 
 
 @router.post("/auth/refresh", response_model=AuthResponse)
-async def refresh_token(request: RefreshRequest):
-    """Rotate refresh token"""
-    # TODO: Implement refresh token rotation
+async def refresh_token(
+    response: Response,
+    http_request: Request,
+    db: AsyncSession = Depends(get_db_session),
+    request: RefreshRequest = RefreshRequest(),
+):
+    """Rotate refresh token (cookie preferred; body accepted as fallback)"""
+    cookie_token = http_request.cookies.get(REFRESH_COOKIE)
+    token = cookie_token or request.refresh_token
+    service = PlatformService(db)
+    result = await service.refresh_token(token or "")
+
+    if result.is_err():
+        _clear_refresh_cookie(response)
+        raise _auth_http_error(result.unwrap_err())
+
+    tokens = result.unwrap()
+    _set_refresh_cookie(response, tokens["refresh_token"])
     return AuthResponse(
-        access_token="new_access_token",
-        refresh_token="new_refresh_token",
+        access_token=tokens["access_token"],
+        refresh_token=tokens["refresh_token"],
         token_type="bearer",
-        expires_in=600,
+        expires_in=tokens["expires_in"],
     )
 
 
 @router.post("/auth/logout")
-async def logout(principal = Depends(get_current_user)):
-    """Revoke current session"""
-    # TODO: Implement session revocation
+async def logout(
+    response: Response,
+    principal=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Revoke current session and clear refresh cookie"""
+    service = PlatformService(db)
+    await service.logout(principal.session_id or "", principal.user_id)
+    _clear_refresh_cookie(response)
     return {"status": "ok"}
 
 

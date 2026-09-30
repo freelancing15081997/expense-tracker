@@ -1,4 +1,5 @@
 import React from 'react';
+import ByjanMark from '../brand/ByjanMark.jsx';
 import { css } from '../ui/css.js';
 import Hx from '../ui/Hx.jsx';
 
@@ -7,24 +8,16 @@ export default function Sidebar({ v }) {
     <aside style={css(`flex:none;width:${v.sbW??""};height:100%;padding:12px 0 12px 12px;transition:width .3s cubic-bezier(.2,.8,.2,1)`)}>
         <div style={css("position:relative;height:100%;display:flex;flex-direction:column;border-radius:24px;overflow:hidden;background:linear-gradient(180deg,rgba(255,255,255,.96),rgba(250,252,252,.96));backdrop-filter:blur(14px);border:1px solid rgba(16,24,40,.07);box-shadow:inset 0 1px 0 #fff,0 1px 2px rgba(16,24,40,.04),0 18px 40px -24px rgba(16,24,40,.22)")}>
           <div style={css("position:relative;flex:none;display:flex;align-items:center;gap:11px;padding:18px 16px 14px")}>
-            <span style={css("flex:none;width:40px;height:40px;border-radius:13px;background:linear-gradient(150deg,#FFFFFF,#DDF6F2);display:grid;place-items:center;cursor:pointer;box-shadow:inset 0 1px 0 #fff,0 0 0 1px rgba(16,24,40,.06),0 8px 18px -8px rgba(18,184,168,.55)")} onClick={v.goHome}>
-              <svg viewBox="0 0 58 51" width="27" height="24" fill="none">
-                <rect x="0.5" y="42" width="6.5" height="7.5" rx="1.6" fill="#0B1F3A" />
-                <rect x="8.5" y="42" width="6.5" height="7.5" rx="1.6" fill="#0B1F3A" />
-                <rect x="16.5" y="2" width="10" height="47.5" rx="2.4" fill="#0B1F3A" />
-                <path fill="#0B1F3A" fillRule="evenodd" d="M25 18.5H31.5A15.5 15.5 0 0 1 31.5 49.5H25ZM25 27.5H31.5A6.5 6.5 0 0 1 31.5 40.5H25Z" />
-                <path d="M19 42C33.5 41.5 43 34 48.5 17" stroke="#F2FBF9" strokeWidth="11.5" strokeLinecap="round" />
-                <path d="M19 42C33.5 41.5 43 34 48.5 17" stroke="#12B8A8" strokeWidth="6.8" strokeLinecap="round" />
-                <path d="M40.6 19.6L57 17.4L50.6 2.4Z" fill="#12B8A8" stroke="#F2FBF9" strokeWidth="2" strokeLinejoin="round" />
-              </svg>
+            <span style={css("flex:none;width:40px;height:40px;border-radius:13px;display:grid;place-items:center;cursor:pointer")} onClick={v.goHome}>
+              <ByjanMark size={36} />
             </span>
             {' '}
             {v.sbExp ? (<>
               <div style={css("flex:1;min-width:0")}>
-                <p style={css("font:700 20px/1 'Geist';letter-spacing:-.045em;color:#0B1F3A")}>
+                <p style={css("font:600 21px/1 'Poppins';letter-spacing:-.03em;color:#0f1c36")}>
                   byjan
                 </p>
-                <p style={css("margin-top:4px;font:600 10.5px 'Geist';letter-spacing:.14em;color:#0FA898")}>
+                <p style={css("margin-top:4px;font:600 10.5px 'Geist';letter-spacing:.14em;color:#17b18c")}>
                   {v.wsLbl}
                 </p>
               </div>
@@ -178,7 +171,7 @@ export default function Sidebar({ v }) {
             </div>
           </>) : null}
           {' '}
-          <div style={css("position:relative;flex:none;display:flex;align-items:center;gap:10px;padding:12px 16px 16px")}>
+          <Hx as="div" role="button" aria-haspopup="menu" aria-label="Account menu" onClick={v.togglePm} s={`position:relative;flex:none;display:flex;align-items:center;gap:10px;margin:4px 8px 8px;padding:8px;border-radius:14px;cursor:pointer;background:${v.pm ? '#F5F6F8' : 'transparent'}`} h={"background:#F5F6F8"}>
             <span style={css("position:relative;flex:none;width:36px;height:36px;border-radius:12px;background:linear-gradient(150deg,#FFE9DD,#FFD0B8);color:#7A2E0C;display:grid;place-items:center;font:700 12px 'Geist';box-shadow:inset 0 1px 0 rgba(255,255,255,.7)")}>
               {v.me?.ini}
               <span style={css("position:absolute;right:-2px;bottom:-2px;width:10px;height:10px;border-radius:50%;background:#12B76A;box-shadow:0 0 0 2px #fff")} />
@@ -194,11 +187,11 @@ export default function Sidebar({ v }) {
               </div>
             </>) : null}
             {v.sbExp ? (<>
-              <Hx as="span" s={"width:30px;height:30px;border-radius:9px;display:grid;place-items:center;color:#98A2B3;cursor:pointer"} h={"background:#F2F4F7;color:#344054"} onClick={v.goSettings}>
+              <Hx as="span" s={"width:30px;height:30px;border-radius:9px;display:grid;place-items:center;color:#98A2B3;cursor:pointer"} h={"background:#E9ECF0;color:#344054"} onClick={e => { e.stopPropagation(); v.goSettings && v.goSettings(); }}>
                 <span style={css("flex:none;width:15px;height:15px;background:currentColor;-webkit-mask:url(https://unpkg.com/@phosphor-icons/core@2.1.1/assets/duotone/gear-six-duotone.svg) center/contain no-repeat;mask:url(https://unpkg.com/@phosphor-icons/core@2.1.1/assets/duotone/gear-six-duotone.svg) center/contain no-repeat;")} />
               </Hx>
             </>) : null}
-          </div>
+          </Hx>
         </div>
       </aside>
   );

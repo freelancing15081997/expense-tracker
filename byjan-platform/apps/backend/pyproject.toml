@@ -90,6 +90,9 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+markers = [
+    "db: tests that need a real Postgres (TEST_DATABASE_URL or docker-compose)",
+]
 addopts = "--cov=app --cov-report=html --cov-report=term-missing"
 
 [tool.coverage.run]

@@ -42,14 +42,24 @@ async def get_current_user_optional(
 
 async def require_tenant(
     principal: Principal = Depends(get_current_user),
-    x_tenant_id: str = Header(..., alias="X-Tenant-Id"),
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+    db: AsyncSession = Depends(get_db_session),
 ) -> tuple[Principal, str]:
-    """Require tenant header and validate membership"""
-    if principal.tenant_id != x_tenant_id:
-        raise TenantError("tenant.not_member", "User is not a member of this tenant")
+    """Resolve tenant from header or JWT claim; validate membership in DB."""
+    from app.platform.service import PlatformService
 
-    # TODO: Validate membership in database
-    return principal, x_tenant_id
+    tenant_id = x_tenant_id or principal.tenant_id
+    if not tenant_id:
+        raise TenantError("tenant.missing", "X-Tenant-Id header is required")
+
+    if principal.tenant_id and principal.tenant_id == tenant_id:
+        return principal, tenant_id
+
+    service = PlatformService(db)
+    if await service.user_is_tenant_member(principal.user_id, tenant_id):
+        return principal, tenant_id
+
+    raise TenantError("tenant.not_member", "User is not a member of this tenant")
 
 
 async def require_permission(

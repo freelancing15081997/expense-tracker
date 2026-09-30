@@ -199,32 +199,61 @@ async def get_parties(
     category: Optional[str] = None,
     q: Optional[str] = None,
     archived: Optional[bool] = None,
-    principal = Depends(get_current_user),
+    tenant=Depends(require_tenant),
+    db: AsyncSession = Depends(get_db_session),
 ):
     """Parties (customers, suppliers)"""
-    # TODO: Implement parties list
-    return []
+    _, tenant_id = tenant
+    from app.business.service import BusinessService
+    return await BusinessService(db).list_parties(tenant_id, kind=kind, q=q, archived=archived)
 
 
 @router.post("/parties")
-async def create_party(request: dict, principal = Depends(get_current_user)):
+async def create_party(
+    request: dict,
+    tenant=Depends(require_tenant),
+    db: AsyncSession = Depends(get_db_session),
+):
     """Create party"""
-    # TODO: Implement party creation
-    return {"id": "party_123"}
+    _, tenant_id = tenant
+    from app.business.service import BusinessService
+    result = await BusinessService(db).create_party(tenant_id, request or {})
+    if result.is_err():
+        raise HTTPException(status_code=400, detail={"code": result.unwrap_err(), "message": "Could not create party"})
+    return result.unwrap()
 
 
 @router.get("/parties/{id}")
-async def get_party(id: str, principal = Depends(get_current_user)):
+async def get_party(
+    id: str,
+    tenant=Depends(require_tenant),
+    db: AsyncSession = Depends(get_db_session),
+):
     """Get party with balance snapshot, ageing, ship-to addresses"""
-    # TODO: Implement party retrieval
-    return {}
+    _, tenant_id = tenant
+    from app.business.service import BusinessService
+    party = await BusinessService(db).get_party(tenant_id, id)
+    if not party:
+        raise HTTPException(status_code=404, detail={"code": "party.not_found", "message": "Party not found"})
+    return party
 
 
 @router.patch("/parties/{id}")
-async def update_party(id: str, request: dict, principal = Depends(get_current_user)):
+async def update_party(
+    id: str,
+    request: dict,
+    tenant=Depends(require_tenant),
+    db: AsyncSession = Depends(get_db_session),
+):
     """Update party"""
-    # TODO: Implement party update
-    return {"status": "ok"}
+    _, tenant_id = tenant
+    from app.business.service import BusinessService
+    result = await BusinessService(db).update_party(tenant_id, id, request or {})
+    if result.is_err():
+        code = result.unwrap_err()
+        status_code = 404 if code == "party.not_found" else 400
+        raise HTTPException(status_code=status_code, detail={"code": code, "message": "Could not update party"})
+    return result.unwrap()
 
 
 @router.post("/parties/{id}/actions/archive")
@@ -354,53 +383,116 @@ async def get_documents(
     project_id: Optional[str] = None,
     q: Optional[str] = None,
     sort: Optional[str] = None,
-    principal = Depends(get_current_user),
+    tenant=Depends(require_tenant),
+    db: AsyncSession = Depends(get_db_session),
 ):
     """Documents list"""
-    # TODO: Implement documents list
-    return []
+    _, tenant_id = tenant
+    from app.business.service import BusinessService
+    docs = await BusinessService(db).list_documents(tenant_id, type=type, status=status, party_id=party_id)
+    if q:
+        ql = q.lower()
+        docs = [d for d in docs if ql in (d.get("number") or "").lower() or ql in (d.get("narration") or "").lower()]
+    return docs
 
 
 @router.get("/documents/counts")
-async def get_document_counts(type: Optional[str] = None, principal = Depends(get_current_user)):
+async def get_document_counts(
+    type: Optional[str] = None,
+    tenant=Depends(require_tenant),
+    db: AsyncSession = Depends(get_db_session),
+):
     """Counts per status tab"""
-    # TODO: Implement counts
-    return {}
+    _, tenant_id = tenant
+    from app.business.service import BusinessService
+    docs = await BusinessService(db).list_documents(tenant_id, type=type)
+    counts: dict = {}
+    for d in docs:
+        st = d.get("status") or "Draft"
+        counts[st] = counts.get(st, 0) + 1
+    return counts
 
 
 @router.post("/documents/calculate")
-async def calculate_document(request: dict, principal = Depends(get_current_user)):
+async def calculate_document(request: dict, principal=Depends(get_current_user)):
     """Editor preview - calculate totals"""
-    # TODO: Implement calculation
-    return {}
+    from app.business.domain.rules import calculate_document_totals
+    lines = request.get("lines") or []
+    calc = calculate_document_totals(
+        lines,
+        party_state_code=request.get("party_state_code"),
+        company_state_code=request.get("company_state_code") or "27",
+        document_type=request.get("type") or "invoices",
+        discount=float(request.get("disc") or 0),
+        terms_days=int(request.get("terms_days") or 30),
+    )
+    return {
+        "sub": calc.sub, "disc": calc.disc, "taxable": calc.taxable, "tax": calc.tax,
+        "cg": calc.cg, "sg": calc.sg, "ig": calc.ig, "ro": calc.ro, "total": calc.total,
+    }
 
 
 @router.get("/documents/next-number")
-async def get_next_number(type: str, entity_id: Optional[str] = None, principal = Depends(get_current_user)):
+async def get_next_number(
+    type: str,
+    entity_id: Optional[str] = None,
+    tenant=Depends(require_tenant),
+    db: AsyncSession = Depends(get_db_session),
+):
     """Next number for document type"""
-    # TODO: Implement next number
-    return {"number": "INV-2026-0001"}
+    _, tenant_id = tenant
+    from app.business.service import BusinessService
+    number = await BusinessService(db)._next_number(tenant_id, type)
+    return {"number": number}
 
 
 @router.post("/documents")
-async def create_document(request: dict, principal = Depends(get_current_user)):
+async def create_document(
+    request: dict,
+    tenant=Depends(require_tenant),
+    db: AsyncSession = Depends(get_db_session),
+):
     """Create document (draft)"""
-    # TODO: Implement document creation
-    return {"id": "doc_123"}
+    _, tenant_id = tenant
+    from app.business.service import BusinessService
+    result = await BusinessService(db).create_document(tenant_id, request or {})
+    if result.is_err():
+        raise HTTPException(status_code=400, detail={"code": result.unwrap_err(), "message": "Could not create document"})
+    return result.unwrap()
 
 
 @router.get("/documents/{id}")
-async def get_document(id: str, expand: Optional[str] = None, principal = Depends(get_current_user)):
+async def get_document(
+    id: str,
+    expand: Optional[str] = None,
+    tenant=Depends(require_tenant),
+    db: AsyncSession = Depends(get_db_session),
+):
     """Get document with party, lines, payments, links, activity, accounting"""
-    # TODO: Implement document retrieval
-    return {}
+    _, tenant_id = tenant
+    from app.business.service import BusinessService
+    doc = await BusinessService(db).get_document(tenant_id, id)
+    if not doc:
+        raise HTTPException(status_code=404, detail={"code": "document.not_found", "message": "Document not found"})
+    return doc
 
 
 @router.patch("/documents/{id}")
-async def update_document(id: str, request: dict, principal = Depends(get_current_user)):
+async def update_document(
+    id: str,
+    request: dict,
+    tenant=Depends(require_tenant),
+    db: AsyncSession = Depends(get_db_session),
+):
     """Update document (only editable fields in current status)"""
-    # TODO: Implement document update
-    return {"status": "ok"}
+    _, tenant_id = tenant
+    from app.business.service import BusinessService
+    result = await BusinessService(db).update_document(tenant_id, id, request or {})
+    if result.is_err():
+        code = result.unwrap_err()
+        status_code = 404 if code == "document.not_found" else 400
+        raise HTTPException(status_code=status_code, detail={"code": code, "message": "Could not update document"})
+    return result.unwrap()
 
 
 @router.delete("/documents/{id}")

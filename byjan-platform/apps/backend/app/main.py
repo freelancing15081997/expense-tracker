@@ -12,6 +12,10 @@ from app.settings import settings
 from app.router import api_router
 from app.shared.database import init_db, close_db
 from app.shared.logging import set_log_context
+from app.errors import register_error_handlers
+from app.middleware.request_id import RequestIDMiddleware
+from app.middleware.security_headers import SecurityHeadersMiddleware
+from app.middleware.errors import ErrorMiddleware
 
 log = structlog.get_logger(__name__)
 
@@ -68,6 +72,15 @@ app.add_middleware(
 # Add GZip middleware
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
+# Add custom middleware (last added runs outermost):
+# RequestID -> Error -> SecurityHeaders -> GZip -> CORS -> routes
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(ErrorMiddleware)
+app.add_middleware(RequestIDMiddleware)
+
+# Register RFC 9457 problem-details error handlers
+register_error_handlers(app)
+
 # Include API router
 app.include_router(api_router, prefix="/v1")
 
@@ -80,6 +93,19 @@ async def health():
         "version": settings.APP_VERSION,
         "environment": settings.APP_ENV,
     }
+
+
+# Ops endpoints (A8) — liveness/readiness for load balancers and k8s
+@app.get("/healthz")
+async def healthz():
+    """Liveness probe"""
+    return {"status": "ok"}
+
+
+@app.get("/readyz")
+async def readyz():
+    """Readiness probe"""
+    return {"status": "ready"}
 
 
 # Root endpoint

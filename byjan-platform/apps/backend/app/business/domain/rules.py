@@ -222,7 +222,7 @@ def validate_gstin(gstin: str) -> bool:
         return False
     if not gstin[2:12].isalnum():
         return False
-    if gstin[12] != "Z":
+    if gstin[13] != "Z":
         return False
     
     # TODO: Validate checksum using GSTIN algorithm

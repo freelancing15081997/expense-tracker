@@ -3,26 +3,38 @@ Platform service layer - auth, users, tenants, files, notifications, audit, etc.
 """
 
 from typing import Optional, List, Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, or_
 import structlog
 
 from app.platform.domain.models import (
     User, Tenant, Membership, Role, Invite, Session, File, Notification,
-    AuditLog, Job, UndoToken, WebhookSub, Export
+    AuditLog, Job, UndoToken, WebhookSub, Export, Principal,
 )
 from app.platform.infra.orm import (
     UserORM, TenantORM, MembershipORM, RoleORM, InviteORM,
     SessionORM, FileORM, NotificationORM, AuditLogORM, OutboxORM,
     JobORM, UndoTokenORM, IntegrationSecretORM, WebhookSubORM, ExportORM
 )
+from app.platform.infra.firebase import verify_id_token, FirebaseVerifyError
 from app.shared.ids import IdGen
 from app.shared.types import Result
 from app.shared.database import UnitOfWork
 from app.shared.logging import log_security_event, log_business_event
+from app.shared.auth import (
+    create_access_token,
+    create_refresh_token,
+    hash_refresh_token,
+)
+from app.settings import settings
 
 log = structlog.get_logger(__name__)
+
+
+def _as_uuid(value: str) -> UUID:
+    return UUID(str(value))
 
 
 class PlatformService:
@@ -36,85 +48,251 @@ class PlatformService:
     # Auth & Sessions
     # ============================================================================
 
-    async def exchange_firebase_token(self, id_token: str) -> Result[Dict[str, Any], str]:
-        """Exchange Firebase ID token for session"""
+    async def firebase_exchange(
+        self,
+        id_token: str,
+        *,
+        name: Optional[str] = None,
+        ip: Optional[str] = None,
+        ua: Optional[str] = None,
+    ) -> Result[Dict[str, Any], str]:
+        """Verify Firebase ID token → upsert user/tenant → issue session tokens."""
         try:
-            # TODO: Verify Firebase token
-            # For now, create a test user
-            user = User(
-                id=IdGen.user_id(),
-                firebase_uid="test_firebase_uid",
-                email="test@example.com",
-                name="Test User",
+            claims = verify_id_token(id_token)
+        except FirebaseVerifyError:
+            return Result.err("auth.invalid_firebase_token")
+
+        try:
+            firebase_uid = claims["uid"]
+            email = claims.get("email")
+            display_name = name or claims.get("name") or (email.split("@")[0] if email else "User")
+
+            stmt = select(UserORM).where(UserORM.firebase_uid == firebase_uid)
+            result = await self.db.execute(stmt)
+            user_orm = result.scalar_one_or_none()
+
+            if not user_orm and email:
+                # Link existing email row if created earlier
+                stmt = select(UserORM).where(UserORM.email == email)
+                result = await self.db.execute(stmt)
+                user_orm = result.scalar_one_or_none()
+                if user_orm and not user_orm.firebase_uid:
+                    user_orm.firebase_uid = firebase_uid
+
+            if not user_orm:
+                user_orm = UserORM(
+                    id=_as_uuid(IdGen.user_id()),
+                    firebase_uid=firebase_uid,
+                    email=email,
+                    name=display_name,
+                    phone_enc=claims.get("phone_number"),
+                    status="active",
+                )
+                self.db.add(user_orm)
+                await self.db.flush()
+            else:
+                if display_name and (not user_orm.name or user_orm.name != display_name):
+                    if name or not user_orm.name:
+                        user_orm.name = display_name
+                if email and not user_orm.email:
+                    user_orm.email = email
+
+            tenant_id, role_name = await self._ensure_business_tenant(user_orm, display_name)
+            tokens = await self._issue_session(
+                user_orm,
+                tenant_id=tenant_id,
+                role_id=None,
+                ip=ip,
+                ua=ua,
             )
+            await self.db.commit()
 
-            # Create session
-            session = Session(
-                id=IdGen.session_id(),
-                user_id=user.id,
-                device="test_device",
-                ip="127.0.0.1",
-                city="Test City",
-                ua="test_ua",
-            )
-
-            # Generate tokens
-            access_token = self._generate_access_token(user.id, session.id)
-            refresh_token = self._generate_refresh_token(session.id)
-
-            # Log security event
             log_security_event(
-                user_id=str(user.id),
+                user_id=str(user_orm.id),
                 action="auth.firebase_exchange",
-                ip="127.0.0.1",
-                details={"session_id": str(session.id)},
+                ip=ip or "",
+                details={"session_id": tokens["session_id"], "tenant_id": tenant_id},
             )
-
-            return Result.ok({
-                "access_token": access_token,
-                "refresh_token": refresh_token,
-                "token_type": "Bearer",
-                "expires_in": 900,  # 15 minutes
-            })
+            return Result.ok(tokens)
         except Exception as e:
+            await self.db.rollback()
             log.error("firebase_exchange_error", error=str(e))
             return Result.err("auth.exchange_failed")
 
+    # Alias used by older call sites
+    async def exchange_firebase_token(self, id_token: str, **kwargs) -> Result[Dict[str, Any], str]:
+        return await self.firebase_exchange(id_token, **kwargs)
+
+    async def _ensure_business_tenant(self, user_orm: UserORM, display_name: str) -> tuple[str, str]:
+        """Return (tenant_id, role_name), creating a personal business tenant if needed."""
+        stmt = (
+            select(MembershipORM, TenantORM)
+            .join(TenantORM, TenantORM.id == MembershipORM.tenant_id)
+            .where(
+                MembershipORM.user_id == user_orm.id,
+                MembershipORM.status == "active",
+            )
+            .order_by(MembershipORM.created_at.asc())
+        )
+        result = await self.db.execute(stmt)
+        row = result.first()
+        if row:
+            membership, tenant = row
+            role_name = "Owner"
+            if membership.role_id:
+                role = await self.db.get(RoleORM, membership.role_id)
+                if role:
+                    role_name = role.name or "Owner"
+            return str(tenant.id), role_name
+
+        tenant_id = _as_uuid(IdGen.tenant_id())
+        role_id = _as_uuid(IdGen.user_id())
+        biz_name = f"{(display_name or 'My').split(' ')[0]}'s business"
+        tenant = TenantORM(
+            id=tenant_id,
+            name=biz_name,
+            kind="business",
+            status="active",
+            settings={},
+        )
+        role = RoleORM(
+            id=role_id,
+            tenant_id=tenant_id,
+            name="Owner",
+            system=True,
+            locked=False,
+            limits={},
+            perm_version=1,
+        )
+        membership = MembershipORM(
+            tenant_id=tenant_id,
+            user_id=user_orm.id,
+            role_id=role_id,
+            kind="member",
+            status="active",
+        )
+        self.db.add(tenant)
+        self.db.add(role)
+        self.db.add(membership)
+        await self.db.flush()
+        return str(tenant_id), "Owner"
+
+    async def _issue_session(
+        self,
+        user_orm: UserORM,
+        *,
+        tenant_id: Optional[str],
+        role_id: Optional[str],
+        ip: Optional[str],
+        ua: Optional[str],
+        family_id: Optional[UUID] = None,
+    ) -> Dict[str, Any]:
+        session_id = _as_uuid(IdGen.session_id())
+        refresh_plain = create_refresh_token()
+        refresh_hash = hash_refresh_token(refresh_plain)
+        expires = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
+
+        session = SessionORM(
+            id=session_id,
+            user_id=user_orm.id,
+            family_id=family_id or session_id,
+            device=(ua or "")[:255] or None,
+            ip=ip,
+            ua=ua,
+            refresh_hash=refresh_hash,
+            expires_at=expires,
+            ver=1,
+        )
+        self.db.add(session)
+        await self.db.flush()
+
+        principal = Principal(
+            user_id=str(user_orm.id),
+            tenant_id=tenant_id,
+            role_id=role_id,
+            amr=["firebase"],
+            mfa=bool(user_orm.mfa_secret_enc),
+            auth_time=datetime.utcnow(),
+            session_id=str(session_id),
+            is_super=bool(user_orm.sup),
+        )
+        access = create_access_token(principal)
+        return {
+            "access_token": access,
+            "refresh_token": refresh_plain,
+            "token_type": "bearer",
+            "expires_in": settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            "session_id": str(session_id),
+            "user_id": str(user_orm.id),
+            "tenant_id": tenant_id,
+        }
+
     async def refresh_token(self, refresh_token: str) -> Result[Dict[str, Any], str]:
-        """Refresh access token"""
+        """Rotate refresh token and issue a new access token."""
+        if not refresh_token:
+            return Result.err("auth.refresh_missing")
+
         try:
-            # TODO: Verify refresh token
-            # For now, generate new tokens
-            user_id = IdGen.user_id()
-            session_id = IdGen.session_id()
+            token_hash = hash_refresh_token(refresh_token)
+            stmt = select(SessionORM).where(SessionORM.refresh_hash == token_hash)
+            result = await self.db.execute(stmt)
+            session_orm = result.scalar_one_or_none()
 
-            access_token = self._generate_access_token(user_id, session_id)
-            new_refresh_token = self._generate_refresh_token(session_id)
+            if not session_orm:
+                # Possible reuse of an already-rotated token — revoke family if we can
+                return Result.err("auth.refresh_reused")
 
-            return Result.ok({
-                "access_token": access_token,
-                "refresh_token": new_refresh_token,
-                "token_type": "Bearer",
-                "expires_in": 900,
-            })
+            if session_orm.revoked_at is not None:
+                return Result.err("auth.refresh_revoked")
+
+            expires_at = session_orm.expires_at
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if expires_at < datetime.now(timezone.utc):
+                session_orm.revoked_at = datetime.now(timezone.utc)
+                await self.db.commit()
+                return Result.err("auth.refresh_expired")
+
+            user_orm = await self.db.get(UserORM, session_orm.user_id)
+            if not user_orm:
+                return Result.err("auth.refresh_failed")
+
+            # Revoke current session (rotation)
+            session_orm.revoked_at = datetime.now(timezone.utc)
+            await self.db.flush()
+
+            tenant_id, _ = await self._ensure_business_tenant(user_orm, user_orm.name or "User")
+            tokens = await self._issue_session(
+                user_orm,
+                tenant_id=tenant_id,
+                role_id=None,
+                ip=session_orm.ip,
+                ua=session_orm.ua,
+                family_id=session_orm.family_id or session_orm.id,
+            )
+            await self.db.commit()
+            return Result.ok(tokens)
         except Exception as e:
+            await self.db.rollback()
             log.error("refresh_token_error", error=str(e))
             return Result.err("auth.refresh_failed")
 
-    def _generate_access_token(self, user_id: str, session_id: str) -> str:
-        """Generate access token"""
-        # TODO: Implement JWT generation
-        return f"access_token_{user_id}_{session_id}"
-
-    def _generate_refresh_token(self, session_id: str) -> str:
-        """Generate refresh token"""
-        # TODO: Implement refresh token generation
-        return f"refresh_token_{session_id}"
-
     async def logout(self, session_id: str, user_id: str) -> Result[None, str]:
-        """Logout session"""
+        """Revoke the current session."""
         try:
-            # TODO: Revoke session
+            if session_id:
+                stmt = select(SessionORM).where(
+                    and_(
+                        SessionORM.id == _as_uuid(session_id),
+                        SessionORM.user_id == _as_uuid(user_id),
+                    )
+                )
+                result = await self.db.execute(stmt)
+                session_orm = result.scalar_one_or_none()
+                if session_orm and session_orm.revoked_at is None:
+                    session_orm.revoked_at = datetime.now(timezone.utc)
+                    await self.db.commit()
+
             log_security_event(
                 user_id=user_id,
                 action="auth.logout",
@@ -122,30 +300,83 @@ class PlatformService:
             )
             return Result.ok(None)
         except Exception as e:
+            await self.db.rollback()
             log.error("logout_error", error=str(e))
             return Result.err("auth.logout_failed")
 
-    async def get_current_user(self, user_id: str) -> Optional[User]:
-        """Get current user"""
-        stmt = select(UserORM).where(UserORM.id == user_id)
-        result = await self.db.execute(stmt)
-        user_orm = result.scalar_one_or_none()
+    async def get_me(self, user_id: str) -> Result[Dict[str, Any], str]:
+        """Profile + tenants for /v1/me."""
+        try:
+            user_orm = await self.db.get(UserORM, _as_uuid(user_id))
+            if not user_orm:
+                return Result.err("user.not_found")
 
+            stmt = (
+                select(MembershipORM, TenantORM, RoleORM)
+                .join(TenantORM, TenantORM.id == MembershipORM.tenant_id)
+                .outerjoin(RoleORM, RoleORM.id == MembershipORM.role_id)
+                .where(
+                    MembershipORM.user_id == user_orm.id,
+                    MembershipORM.status == "active",
+                )
+            )
+            result = await self.db.execute(stmt)
+            tenants = []
+            for membership, tenant, role in result.all():
+                tenants.append({
+                    "id": str(tenant.id),
+                    "name": tenant.name,
+                    "kind": tenant.kind,
+                    "role": (role.name if role else "Member"),
+                    "role_id": str(membership.role_id) if membership.role_id else None,
+                })
+
+            sess_stmt = select(func.count()).select_from(SessionORM).where(
+                and_(
+                    SessionORM.user_id == user_orm.id,
+                    SessionORM.revoked_at.is_(None),
+                )
+            )
+            sess_count = (await self.db.execute(sess_stmt)).scalar() or 0
+
+            return Result.ok({
+                "id": str(user_orm.id),
+                "firebase_uid": user_orm.firebase_uid or "",
+                "email": user_orm.email,
+                "phone": user_orm.phone_enc,
+                "name": user_orm.name,
+                "lang": user_orm.lang or "en",
+                "ui": user_orm.ui or {},
+                "sup": bool(user_orm.sup),
+                "mfa_enabled": bool(user_orm.mfa_secret_enc),
+                "tenants": tenants,
+                "session_timeout_min": 30,
+                "other_sessions": max(0, int(sess_count) - 1),
+            })
+        except Exception as e:
+            log.error("get_me_error", error=str(e))
+            return Result.err("user.not_found")
+
+    async def get_current_user(self, user_id: str) -> Optional[User]:
+        """Get current user (domain-ish dict via ORM)."""
+        try:
+            user_orm = await self.db.get(UserORM, _as_uuid(user_id))
+        except Exception:
+            return None
         if not user_orm:
             return None
+        return self._user_orm_to_domain(user_orm)
 
-        return User(
-            id=str(user_orm.id),
-            firebase_uid=user_orm.firebase_uid,
-            email=user_orm.email,
-            phone=user_orm.phone,
-            name=user_orm.name,
-            avatar_file_id=str(user_orm.avatar_file_id) if user_orm.avatar_file_id else None,
-            lang=user_orm.lang,
-            ui=user_orm.ui,
-            sup=user_orm.sup,
-            mfa_enabled=user_orm.mfa_enabled,
+    async def user_is_tenant_member(self, user_id: str, tenant_id: str) -> bool:
+        stmt = select(MembershipORM.user_id).where(
+            and_(
+                MembershipORM.user_id == _as_uuid(user_id),
+                MembershipORM.tenant_id == _as_uuid(tenant_id),
+                MembershipORM.status == "active",
+            )
         )
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none() is not None
 
     async def update_user(self, user_id: str, data: Dict[str, Any]) -> Result[User, str]:
         """Update user profile"""
@@ -161,9 +392,7 @@ class PlatformService:
             if "name" in data:
                 user_orm.name = data["name"]
             if "phone" in data:
-                user_orm.phone = data["phone"]
-            if "avatar_file_id" in data:
-                user_orm.avatar_file_id = data["avatar_file_id"]
+                user_orm.phone_enc = data["phone"]
             if "lang" in data:
                 user_orm.lang = data["lang"]
             if "ui" in data:
@@ -253,9 +482,9 @@ class PlatformService:
             tenant_orm = TenantORM(
                 id=IdGen.tenant_id(),
                 name=data.get("name", ""),
-                kind=data.get("kind", "company"),
-                slug=data.get("slug"),
+                kind=data.get("kind", "business"),
                 status="active",
+                settings=data.get("settings") or {},
             )
 
             self.db.add(tenant_orm)
@@ -417,50 +646,70 @@ class PlatformService:
         """Convert ORM to domain model"""
         return User(
             id=str(user_orm.id),
-            firebase_uid=user_orm.firebase_uid,
+            firebase_uid=user_orm.firebase_uid or "",
             email=user_orm.email,
-            phone=user_orm.phone,
+            phone_enc=user_orm.phone_enc,
+            phone_bidx=user_orm.phone_bidx,
             name=user_orm.name,
-            avatar_file_id=str(user_orm.avatar_file_id) if user_orm.avatar_file_id else None,
-            lang=user_orm.lang,
-            ui=user_orm.ui,
-            sup=user_orm.sup,
-            mfa_enabled=user_orm.mfa_enabled,
+            lang=user_orm.lang or "en",
+            ui=user_orm.ui or {},
+            sup=bool(user_orm.sup),
+            mfa_secret_enc=user_orm.mfa_secret_enc,
         )
 
     def _tenant_orm_to_domain(self, tenant_orm: TenantORM) -> Tenant:
         """Convert ORM to domain model"""
+        from app.platform.domain.models import TenantKind
+        kind = tenant_orm.kind
+        if isinstance(kind, str):
+            try:
+                kind = TenantKind(kind if kind != "company" else "business")
+            except ValueError:
+                kind = TenantKind.BUSINESS
         return Tenant(
             id=str(tenant_orm.id),
             name=tenant_orm.name,
-            kind=tenant_orm.kind,
-            slug=tenant_orm.slug,
-            status=tenant_orm.status,
+            kind=kind,
+            legal=tenant_orm.legal,
+            gstin=tenant_orm.gstin,
+            state_code=tenant_orm.state_code,
+            fy_start_month=tenant_orm.fy_start_month or 4,
+            lang=tenant_orm.lang or "en",
+            settings=tenant_orm.settings or {},
+            status=tenant_orm.status or "active",
+            deleted_at=tenant_orm.deleted_at,
         )
 
     def _membership_orm_to_domain(self, membership_orm: MembershipORM) -> Membership:
         """Convert ORM to domain model"""
+        from app.platform.domain.models import MembershipKind
+        kind_raw = membership_orm.kind or "member"
+        try:
+            kind = MembershipKind(kind_raw)
+        except ValueError:
+            kind = MembershipKind.MEMBER
         return Membership(
-            id=str(membership_orm.id),
             tenant_id=str(membership_orm.tenant_id),
             user_id=str(membership_orm.user_id),
             role_id=str(membership_orm.role_id) if membership_orm.role_id else None,
+            kind=kind,
+            org_unit_ids=[str(oid) for oid in (membership_orm.org_unit_ids or [])],
             status=membership_orm.status,
         )
 
     def _invite_orm_to_domain(self, invite_orm: InviteORM) -> Invite:
         """Convert ORM to domain model"""
+        status = "pending"
+        if invite_orm.accepted_at is not None:
+            status = "accepted"
+        elif invite_orm.revoked_at is not None:
+            status = "revoked"
         return Invite(
             id=str(invite_orm.id),
             tenant_id=str(invite_orm.tenant_id),
-            email=invite_orm.email,
-            phone=invite_orm.phone,
-            role_id=str(invite_orm.role_id),
-            token=invite_orm.token,
-            expires_at=invite_orm.expires_at,
-            accepted_at=invite_orm.accepted_at,
-            revoked_at=invite_orm.revoked_at,
-            invited_by=str(invite_orm.invited_by),
+            email=invite_orm.email or "",
+            role_id=str(invite_orm.role_id) if invite_orm.role_id else None,
+            status=status,
         )
 
     def _session_orm_to_domain(self, session_orm: SessionORM) -> Session:
@@ -468,45 +717,31 @@ class PlatformService:
         return Session(
             id=str(session_orm.id),
             user_id=str(session_orm.user_id),
+            family_id=str(session_orm.family_id) if session_orm.family_id else None,
+            refresh_hash=session_orm.refresh_hash,
             device=session_orm.device,
             ip=session_orm.ip,
             city=session_orm.city,
             ua=session_orm.ua,
-            refresh_token_hash=session_orm.refresh_token_hash,
-            refresh_expires_at=session_orm.refresh_expires_at,
-            last_seen_at=session_orm.last_seen_at,
+            created_at=session_orm.created_at or datetime.utcnow(),
+            last_seen_at=session_orm.last_seen_at or datetime.utcnow(),
+            expires_at=session_orm.expires_at or datetime.utcnow(),
             revoked_at=session_orm.revoked_at,
+            ver=session_orm.ver or 1,
         )
 
     def _file_orm_to_domain(self, file_orm: FileORM) -> File:
         """Convert ORM to domain model"""
         return File(
             id=str(file_orm.id),
-            tenant_id=str(file_orm.tenant_id),
-            kind=file_orm.kind,
-            original_name=file_orm.original_name,
-            mime=file_orm.mime,
-            size=file_orm.size,
-            hash=file_orm.hash,
-            encrypted=file_orm.encrypted,
-            scan_status=file_orm.scan_status,
-            version=file_orm.version,
-            s3_key=file_orm.s3_key,
+            tenant_id=str(file_orm.tenant_id) if file_orm.tenant_id else None,
+            name=getattr(file_orm, "original_name", None) or "",
         )
 
     def _audit_log_orm_to_domain(self, audit_orm: AuditLogORM) -> AuditLog:
         """Convert ORM to domain model"""
         return AuditLog(
             id=str(audit_orm.id),
-            tenant_id=str(audit_orm.tenant_id),
-            actor_id=str(audit_orm.actor_id),
-            action=audit_orm.action,
-            entity_type=audit_orm.entity_type,
-            entity_id=str(audit_orm.entity_id),
-            diff=audit_orm.diff,
-            ip=audit_orm.ip,
-            ua=audit_orm.ua,
-            request_id=str(audit_orm.request_id) if audit_orm.request_id else None,
-            prev_hash=audit_orm.prev_hash,
-            created_at=audit_orm.created_at,
+            tenant_id=str(audit_orm.tenant_id) if audit_orm.tenant_id else None,
+            action=audit_orm.action or "",
         )
