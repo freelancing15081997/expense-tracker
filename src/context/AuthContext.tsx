@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { User, onAuthStateChanged } from 'firebase/auth';
 import { auth, googleRedirectReady, logout, bindNativeGoogleAuthBridge, handoffGoogleToNativeApp } from '../lib/firebase';
 import { getMe, upsertMe } from '../lib/me';
-import { type FeatureMap } from '../lib/features';
+import { type FeatureMap, MEMBER_FEATURES } from '../lib/features';
 import { emailIsSuperUser } from '../lib/super-users';
 import { setStoreUser } from '../lib/store';
 import { apiUrl } from '../lib/api';
@@ -102,7 +102,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const profile = await getMe();
       setUserProfile(profileFromSnap(user, profile));
     } catch {
-      // keep existing profile on refresh failure
+      // Keep the shell usable if /api/me is briefly unavailable.
+      setUserProfile((prev) => {
+        if (prev?.uid === user.uid && prev.features) return prev;
+        return profileFromSnap(user, { features: MEMBER_FEATURES });
+      });
     }
   };
 
@@ -184,7 +188,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             return;
           }
           if (!cancelled) {
-            setUserProfile(profileFromSnap(user, null));
+            // Do not leave features undefined — Home stays on skeletons forever.
+            setUserProfile(profileFromSnap(user, { features: MEMBER_FEATURES }));
             window.setTimeout(() => {
               if (!cancelled) void refreshUserProfile();
             }, 1200);
