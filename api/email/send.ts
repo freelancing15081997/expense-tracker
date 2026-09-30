@@ -141,9 +141,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:36px 12px;background:#eef2f6">
     <tr><td align="center">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border:1px solid #dbe3ea;border-radius:16px;overflow:hidden">
-        <tr><td style="padding:26px 32px 18px;background:#0B1F3A">
-          <p style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:22px;color:#ffffff;letter-spacing:0.12em">BYJAN</p>
-          <p style="margin:8px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:#12B8A8">${String(body.kind || '') === 'announcement' ? 'Team announcement' : 'Ledger notice'}</p>
+        <tr><td style="padding:22px 32px 16px;background:#0B1F3A">
+          <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+            <td style="vertical-align:middle;padding-right:12px">
+              <img src="https://www.easypado.com/logo.png" width="40" height="40" alt="Byjan" style="display:block;border:0;border-radius:10px;width:40px;height:40px"/>
+            </td>
+            <td style="vertical-align:middle">
+              <p style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:20px;color:#ffffff;letter-spacing:0.12em">BYJAN</p>
+              <p style="margin:6px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:#12B8A8">${String(body.kind || '') === 'announcement' ? 'Team announcement' : 'Ledger notice'}</p>
+            </td>
+          </tr></table>
         </td></tr>
         <tr><td style="height:4px;background:#12B8A8;font-size:0;line-height:0">&nbsp;</td></tr>
         <tr><td style="padding:28px 32px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.65;color:#334155">${safeBody}</td></tr>

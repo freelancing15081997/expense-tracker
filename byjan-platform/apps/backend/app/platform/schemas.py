@@ -34,6 +34,19 @@ class RefreshRequest(BaseModel):
     refresh_token: Optional[str] = None
 
 
+class PasswordResetRequest(BaseModel):
+    """Request a branded password-reset email (always 200 — no account disclosure)."""
+    email: EmailStr
+
+
+class OutboundMailRequest(BaseModel):
+    """Send a branded transactional email from Byjan Business."""
+    to: EmailStr
+    subject: str = Field(..., min_length=1, max_length=200)
+    message: str = Field(..., min_length=1, max_length=20000)
+    kind: Optional[str] = Field(default="notice", max_length=40)
+
+
 class MfaSetupResponse(BaseModel):
     """MFA setup response"""
     otpauth_uri: str

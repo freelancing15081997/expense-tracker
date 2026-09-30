@@ -11,6 +11,7 @@ from app.shared.database import get_db_session
 from app.deps import get_current_user, get_current_user_optional, require_tenant, require_permission, require_super
 from app.platform.schemas import (
     FirebaseExchangeRequest, OtpSendRequest, OtpVerifyRequest, RefreshRequest,
+    PasswordResetRequest, OutboundMailRequest,
     MfaSetupResponse, MfaConfirmRequest, MfaChallengeRequest, StepUpRequest,
     AuthResponse, MeResponse, MeUpdateRequest, PermissionsResponse,
     Session, ActivityLog,
@@ -106,6 +107,74 @@ async def firebase_exchange(
         token_type="bearer",
         expires_in=tokens["expires_in"],
     )
+
+
+@router.post("/auth/password-reset/request")
+async def password_reset_request(request: PasswordResetRequest):
+    """
+    Send a branded password-reset email from byjanbooks@easypado.com (Brevo).
+    Always returns ok so callers cannot probe which emails exist.
+    """
+    from app.platform.infra.firebase import generate_password_reset_link, FirebaseVerifyError
+    from app.platform.infra.mail import mail_configured, password_reset_email, send_mail
+    import structlog
+
+    log = structlog.get_logger(__name__)
+    email = str(request.email).strip().lower()
+    try:
+        if mail_configured():
+            link = generate_password_reset_link(email)
+            tpl = password_reset_email(reset_href=link)
+            await send_mail(
+                to=email,
+                subject=tpl["subject"],
+                text=tpl["text"],
+                html_body=tpl["html"],
+                kind="password_reset",
+            )
+        else:
+            log.warning("password_reset_smtp_missing", email_domain=email.split("@")[-1])
+    except FirebaseVerifyError as e:
+        # user_not_found / bad email — still look like success
+        log.info("password_reset_skipped", reason=str(e))
+    except Exception as e:
+        log.error("password_reset_send_failed", error=str(e))
+    return {"ok": True}
+
+
+@router.post("/mail/send")
+async def send_outbound_mail(
+    request: OutboundMailRequest,
+    principal=Depends(get_current_user),
+):
+    """Send a branded transactional email (invoices, reminders, notices)."""
+    from app.platform.infra.mail import business_notice_email, mail_configured, send_mail
+
+    if not mail_configured():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "mail.not_configured", "message": "Email sending is not configured yet"},
+        )
+    kind = (request.kind or "notice").strip().lower()[:40] or "notice"
+    tpl = business_notice_email(
+        subject=request.subject.strip(),
+        body_text=request.message,
+        kicker="Invoice" if "invoice" in kind or "remind" in kind else "Business notice",
+    )
+    try:
+        mid = await send_mail(
+            to=str(request.to).strip().lower(),
+            subject=tpl["subject"],
+            text=tpl["text"],
+            html_body=tpl["html"],
+            kind=kind,
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "mail.send_failed", "message": "Could not send that email. Try again later."},
+        ) from e
+    return {"ok": True, "message_id": mid, "from_user": getattr(principal, "user_id", None)}
 
 
 @router.post("/auth/otp/send")

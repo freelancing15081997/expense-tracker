@@ -727,7 +727,25 @@ export default class BizLogic extends React.Component {
         after: amt + tdsA >= bal ? 'This settles ' + d.no + ' in full.' : amt ? inr(bal - amt - tdsA) + ' will still be due after this.' : '', ok: 'Record ' + (amt ? inr(amt) : 'payment'),
         run: () => { if (!amt) return setF({err: 'Enter the amount received'}); if (amt > bal + 1) return setF({err: 'That’s more than the balance of ' + inr(bal) + '. Record the extra as an advance instead.'}); const sn = this.snap(); const np = d.paid + amt + tdsA; this.setDoc(d.id, {paid: np, st: np >= calc(d).total - 1 ? 'Paid' : 'Partly paid'}, 'Payment ' + (d.tk === 'bills' ? 'made' : 'received') + ' · ' + inr(amt) + ' by ' + fv.mode.toLowerCase() + (fv.ref ? ' · ' + fv.ref : '') + (tdsA ? ' · TDS ' + inr(tdsA) : '')); this.log('Payment of ' + inr(amt) + ' on ' + d.no, d.tk === 'bills' ? 'Buying' : 'Sales', 'indian-rupee'); this.setState({modal: null}); this.toast(inr(amt) + ' recorded on ' + d.no, this.undoTo(sn)); }}); }
     if (M.k === 'email' && d) return Object.assign(base, {isEmail: true, w: '600px', title: M.remind ? 'Send payment reminder' : 'Email ' + DOC_T[d.tk].n.toLowerCase(), sub: d.no + ' · ' + this.pn(d.party), to: fv.to, onTo: ev => setF({to: ev.target.value}), cc: fv.cc, onCc: ev => setF({cc: ev.target.value}), subj: fv.subj, onSubj: ev => setF({subj: ev.target.value}), body: fv.body, onBody: ev => setF({body: ev.target.value}), pdfBg: fv.pdf ? '#12B8A8' : '#CBD3DD', pdfJ: fv.pdf ? 'flex-end' : 'flex-start', pdfTg: () => setF({pdf: !fv.pdf}), file: d.no + '.pdf · 84 KB', wa: () => { this.setState({modal: null}); this.toast('Opened WhatsApp with ' + d.no + ' and a UPI link'); },
-      ok: M.remind ? 'Send reminder' : 'Send email', run: () => { if (!/@/.test(fv.to)) return setF({err: 'Add a valid email address'}); this.setDoc(d.id, d.st === 'Draft' && d.tk === 'invoices' ? {st: 'Sent'} : {}, (M.remind ? 'Reminder emailed to ' : 'Emailed to ') + fv.to); this.log((M.remind ? 'Reminder sent for ' : 'Emailed ') + d.no, MOD[d.tk].n, 'mail'); this.setState({modal: null}); this.toast((M.remind ? 'Reminder sent to ' : 'Sent to ') + fv.to); }});
+      ok: M.remind ? 'Send reminder' : 'Send email', run: async () => {
+        if (!/@/.test(fv.to)) return setF({ err: 'Add a valid email address' });
+        try {
+          if (LIVE) {
+            await bizApi.sendMail({
+              to: String(fv.to).trim(),
+              subject: String(fv.subj || (d.no + ' from Byjan Business')).trim(),
+              message: String(fv.body || ''),
+              kind: M.remind ? 'reminder' : (d.tk === 'invoices' ? 'invoice' : 'notice'),
+            });
+          }
+          this.setDoc(d.id, d.st === 'Draft' && d.tk === 'invoices' ? { st: 'Sent' } : {}, (M.remind ? 'Reminder emailed to ' : 'Emailed to ') + fv.to);
+          this.log((M.remind ? 'Reminder sent for ' : 'Emailed ') + d.no, MOD[d.tk].n, 'mail');
+          this.setState({ modal: null });
+          this.toast((M.remind ? 'Reminder sent to ' : 'Sent to ') + fv.to);
+        } catch (e) {
+          setF({ err: e.message || 'Could not send email. Try again.' });
+        }
+      }});
     if (M.k === 'void' && d) return Object.assign(base, {isVoid: true, title: 'Void ' + d.no + '?', sub: 'It stays in your records marked Void and stops counting in reports.' + (d.paid ? ' The ' + inr(d.paid) + ' already paid will move to an advance.' : ''), reasons: ['Raised by mistake', 'Customer cancelled', 'Wrong amount', 'Duplicate'].map(n => ({n, bg: fv.why === n ? '#0B1F3A' : '#fff', fg: fv.why === n ? '#fff' : '#0B1F3A', bd: fv.why === n ? '#0B1F3A' : '#DCE2EA', go: () => setF({why: n})})), note: fv.note, onNote: ev => setF({note: ev.target.value}), ok: 'Void ' + d.no,
       run: () => { const sn = this.snap(); this.setDoc(d.id, {st: 'Void'}, 'Voided · ' + fv.why + (fv.note ? ' · ' + fv.note : '')); this.log('Voided ' + d.no + ' · ' + fv.why, MOD[d.tk].n, 'ban'); this.setState({modal: null}); this.toast(d.no + ' voided', this.undoTo(sn), 'err'); }});
     if (M.k === 'pdf' && d) { const c = calc(d), p = this.P(d.party), T = DOC_T[d.tk];

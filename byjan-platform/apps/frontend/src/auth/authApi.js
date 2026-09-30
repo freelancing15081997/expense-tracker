@@ -86,8 +86,9 @@ export async function mfaChallenge(challengeId, code, recovery, trustDevice) {
 
 export async function sendPasswordReset(email) {
   if (MOCK) { await sleep(700); return; }
+  // Branded Brevo mail from byjanbooks@easypado.com (not Firebase's default spam-prone sender).
   // Always resolves: don't reveal whether the email has an account.
-  await fetch('https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=' + FB_KEY, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requestType: 'PASSWORD_RESET', email }) }).catch(() => {});
+  await call('/auth/password-reset/request', { email }).catch(() => {});
 }
 
 export async function signOut({ allDevices = false } = {}) {

@@ -79,6 +79,24 @@ def _ensure_app() -> bool:
     return True
 
 
+def generate_password_reset_link(email: str, continue_url: Optional[str] = None) -> str:
+    """Create a Firebase password-reset link (email is sent by Byjan, not Firebase)."""
+    if not email or "@" not in email:
+        raise FirebaseVerifyError("invalid email")
+    _ensure_app()
+    from firebase_admin import auth as fb_auth
+
+    url = (continue_url or settings.PASSWORD_RESET_CONTINUE_URL or "https://business.easypado.com/").strip()
+    try:
+        settings_obj = fb_auth.ActionCodeSettings(url=url, handle_code_in_app=False)
+        return fb_auth.generate_password_reset_link(email.strip(), action_code_settings=settings_obj)
+    except fb_auth.UserNotFoundError as e:
+        raise FirebaseVerifyError("user_not_found") from e
+    except Exception as e:
+        log.warning("firebase_reset_link_failed", error=str(e))
+        raise FirebaseVerifyError("reset_link_failed") from e
+
+
 def verify_id_token(id_token: str) -> Dict[str, Any]:
     """
     Verify a Firebase ID token and return claims.

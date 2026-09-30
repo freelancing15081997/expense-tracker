@@ -92,10 +92,16 @@ class Settings(BaseSettings):
     TOTP_PERIOD: int = 30
     TOTP_RECOVERY_CODES: int = 10
 
-    # Email
+    # Email — Brevo SMTP on authenticated easypado.com (same as Money)
     EMAIL_API_KEY: Optional[str] = None
-    EMAIL_FROM: str = "noreply@byjan.com"
-    EMAIL_PROVIDER: str = "resend"  # resend, sendgrid, ses
+    EMAIL_FROM: str = "byjanbooks@easypado.com"
+    EMAIL_PROVIDER: str = "brevo"  # brevo smtp | legacy resend label
+    SMTP_HOST: str = "smtp-relay.brevo.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: Optional[str] = None
+    SMTP_PASS: Optional[str] = None
+    MAIL_FROM: str = "byjanbooks@easypado.com"
+    PASSWORD_RESET_CONTINUE_URL: str = "https://business.easypado.com/"
 
     # SMS/WhatsApp
     WHATSAPP_ACCESS_TOKEN: Optional[str] = None

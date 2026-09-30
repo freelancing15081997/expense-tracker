@@ -69,6 +69,25 @@ export async function updateDocument(id, body) {
   return biz('/documents/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify(body) });
 }
 
+/** Send branded transactional email (invoice / reminder / notice). */
+export async function sendMail({ to, subject, message, kind = 'notice' }) {
+  if (MOCK) return { ok: true };
+  const headers = { 'Content-Type': 'application/json' };
+  const tid = getTenantId();
+  if (tid) headers['X-Tenant-Id'] = tid;
+  const r = await authFetch('/v1/mail/send', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ to, subject, message, kind }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const msg = j?.detail?.message || j?.message || `HTTP ${r.status}`;
+    throw Object.assign(new Error(typeof msg === 'string' ? msg : 'Could not send email'), { status: r.status });
+  }
+  return j;
+}
+
 export function mapPartyFromApi(p) {
   if (!p) return null;
   return {
