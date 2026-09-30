@@ -86,7 +86,7 @@ async function main() {
           status: draft ? 'draft' : 'completed',
           releaseNotes: [{
             language: 'en-US',
-            text: 'Receipts shared from PhonePe, Paytm, GPay, and CRED are read correctly. Saving an entry confirms once.',
+            text: 'New Byjan app icon.',
           }],
         },
       ],
