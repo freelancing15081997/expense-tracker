@@ -87,11 +87,73 @@ function wantsUnsubscribe(req: VercelRequest) {
   return op === 'unsubscribe' || /[?&]op=unsubscribe(?:&|$)/i.test(url) || /\/email\/unsubscribe(?:\?|$)/i.test(url);
 }
 
+function wantsRelay(req: VercelRequest) {
+  const url = String(req.url || '');
+  const op = String((req.query as { op?: string } | undefined)?.op || '').toLowerCase();
+  return op === 'relay' || /[?&]op=relay(?:&|$)/i.test(url) || /\/email\/relay(?:\?|$)/i.test(url);
+}
+
+function relaySecretOk(req: VercelRequest) {
+  const expected = String(process.env.MAIL_RELAY_SECRET || '').trim();
+  if (!expected || expected.length < 16) return false;
+  const header = String(req.headers['x-mail-relay-secret'] || '').trim();
+  const auth = String(req.headers.authorization || '');
+  const bearer = auth.toLowerCase().startsWith('bearer ') ? auth.slice(7).trim() : '';
+  const provided = header || bearer;
+  if (!provided || provided.length !== expected.length) return false;
+  // Constant-time compare (avoid early exit on mismatch).
+  let diff = 0;
+  for (let i = 0; i < expected.length; i += 1) {
+    diff |= expected.charCodeAt(i) ^ provided.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
 function unsubscribeOk(res: VercelResponse) {
   res.statusCode = 200;
   res.setHeader('content-type', 'text/plain; charset=utf-8');
   res.setHeader('cache-control', 'no-store');
   res.end('Unsubscribed');
+}
+
+async function handleRelay(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'POST') {
+    json(res, 405, { error: 'POST required' });
+    return;
+  }
+  if (!relaySecretOk(req)) {
+    json(res, 401, { error: 'Unauthorized' });
+    return;
+  }
+  const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
+  const to = String(body.to || '').trim().toLowerCase();
+  const subject = String(body.subject || '').trim();
+  const text = String(body.text || body.message || '').trim();
+  const html = String(body.html || '').trim();
+  const kind = String(body.kind || 'business.relay').trim().slice(0, 40) || 'business.relay';
+  const fromName = String(body.fromName || 'Byjan Business').trim() || 'Byjan Business';
+  if (!to || !subject || (!text && !html)) {
+    json(res, 400, { error: 'Missing to, subject, or body' });
+    return;
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+    json(res, 400, { error: 'Invalid recipient' });
+    return;
+  }
+  try {
+    const info = await sendTracedMail({
+      to,
+      subject,
+      text: text || subject,
+      html: html || undefined,
+      kind,
+      fromName,
+    });
+    json(res, 200, { success: true, messageId: info?.messageId || null });
+  } catch (err: any) {
+    const { publicServiceError } = await import('../_lib/ops-classify.js');
+    json(res, 503, { error: publicServiceError(err, 'Relay could not send that email.') });
+  }
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -102,9 +164,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       res.end();
       return;
     }
-    // Stay under Vercel Hobby's 12-function cap: this is also /api/email/unsubscribe.
+    // Stay under Vercel Hobby's 12-function cap: this is also /api/email/unsubscribe + /api/email/relay.
     if (wantsUnsubscribe(req)) {
       unsubscribeOk(res);
+      return;
+    }
+    if (wantsRelay(req)) {
+      await handleRelay(req, res);
       return;
     }
     if (req.method !== 'POST') {

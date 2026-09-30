@@ -23,8 +23,17 @@ LOGO_URL = "https://www.easypado.com/logo.png"
 BUSINESS_URL = "https://business.easypado.com"
 
 
-def mail_configured() -> bool:
+def _smtp_ready() -> bool:
     return bool(settings.SMTP_USER and settings.SMTP_PASS)
+
+
+def _relay_ready() -> bool:
+    return bool((settings.MAIL_RELAY_URL or "").strip() and (settings.MAIL_RELAY_SECRET or "").strip())
+
+
+def mail_configured() -> bool:
+    """True when SMTP and/or the Vercel HTTP mail relay is configured."""
+    return _smtp_ready() or _relay_ready()
 
 
 def mail_from_address() -> str:
@@ -188,6 +197,51 @@ def _send_smtp_sync(
     return msg["Message-ID"] or "sent"
 
 
+async def _send_relay(
+    *,
+    to: str,
+    subject: str,
+    text: str,
+    html_body: Optional[str],
+    kind: str,
+) -> str:
+    """POST branded mail through Vercel (Render free blocks SMTP ports)."""
+    import httpx
+
+    url = (settings.MAIL_RELAY_URL or "").strip()
+    secret = (settings.MAIL_RELAY_SECRET or "").strip()
+    if not url or not secret:
+        raise RuntimeError("MAIL_RELAY_URL / MAIL_RELAY_SECRET not set")
+    payload = {
+        "to": to,
+        "subject": subject,
+        "text": text or subject,
+        "html": html_body or "",
+        "kind": kind,
+        "fromName": "Byjan Business",
+    }
+    async with httpx.AsyncClient(timeout=25.0) as client:
+        res = await client.post(
+            url,
+            json=payload,
+            headers={
+                "content-type": "application/json",
+                "x-mail-relay-secret": secret,
+            },
+        )
+    if res.status_code >= 400:
+        detail = (res.text or "")[:240]
+        raise RuntimeError(f"mail relay HTTP {res.status_code}: {detail}")
+    data = {}
+    try:
+        data = res.json()
+    except Exception:
+        pass
+    mid = str(data.get("messageId") or data.get("id") or "relayed")
+    log.info("mail_relayed", to=to, kind=kind, subject=subject[:80], status=res.status_code)
+    return mid
+
+
 async def send_mail(
     *,
     to: str,
@@ -197,10 +251,28 @@ async def send_mail(
     kind: str = "transactional",
 ) -> str:
     if not mail_configured():
-        raise RuntimeError("SMTP is not configured (set SMTP_USER and SMTP_PASS)")
+        raise RuntimeError("Mail is not configured (set SMTP_* or MAIL_RELAY_*)")
     to_addr = str(to or "").strip().lower()
     if not to_addr or "@" not in to_addr:
         raise ValueError("invalid recipient")
+
+    # Prefer HTTP relay on Render (SMTP 25/465/587 are blocked on free tier).
+    if _relay_ready():
+        try:
+            mid = await _send_relay(
+                to=to_addr,
+                subject=subject,
+                text=text,
+                html_body=html_body,
+                kind=kind,
+            )
+            log.info("mail_sent", to=to_addr, kind=kind, subject=subject[:80], via="relay")
+            return mid
+        except Exception as relay_err:
+            if not _smtp_ready():
+                raise
+            log.warning("mail_relay_failed_falling_back_smtp", error=str(relay_err)[:200])
+
     mid = await asyncio.to_thread(
         _send_smtp_sync,
         to=to_addr,
@@ -209,5 +281,5 @@ async def send_mail(
         html_body=html_body,
         kind=kind,
     )
-    log.info("mail_sent", to=to_addr, kind=kind, subject=subject[:80])
+    log.info("mail_sent", to=to_addr, kind=kind, subject=subject[:80], via="smtp")
     return mid
