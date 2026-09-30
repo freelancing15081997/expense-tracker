@@ -2,6 +2,7 @@
 ID generation utilities - UUIDv7 for distributed systems
 """
 
+import os
 import uuid
 from datetime import datetime, timezone
 
@@ -12,24 +13,22 @@ class UUIDv7:
     @staticmethod
     def generate() -> str:
         """Generate a UUIDv7 string"""
-        # Python 3.12+ has uuid.uuid7()
+        # uuid.uuid7() exists on Python 3.13+
         try:
             return str(uuid.uuid7())
         except AttributeError:
-            # Fallback for older Python versions
             return UUIDv7._generate_fallback()
 
     @staticmethod
     def _generate_fallback() -> str:
-        """Fallback UUIDv7 implementation for Python < 3.12"""
-        # Unix timestamp in milliseconds
-        timestamp_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-        # Random bytes
-        random_bytes = uuid.uuid4().bytes[:10]
-        # Combine
-        timestamp_bytes = timestamp_ms.to_bytes(6, byteorder="big")
-        version_variant_bytes = bytes([0x7F, 0x00])
-        combined = timestamp_bytes + random_bytes + version_variant_bytes
+        """RFC 9562 UUIDv7 for Python < 3.13 (exactly 16 bytes)."""
+        timestamp_ms = int(datetime.now(timezone.utc).timestamp() * 1000) & 0xFFFFFFFFFFFF
+        rand = bytearray(os.urandom(10))
+        # version 7 in high nibble of byte 6
+        rand[0] = (rand[0] & 0x0F) | 0x70
+        # RFC 4122 variant in high bits of byte 8
+        rand[2] = (rand[2] & 0x3F) | 0x80
+        combined = timestamp_ms.to_bytes(6, byteorder="big") + bytes(rand)
         return str(uuid.UUID(bytes=combined))
 
 

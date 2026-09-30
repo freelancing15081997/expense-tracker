@@ -74,8 +74,20 @@ export default class AuthScreens extends React.Component {
   render() {
     const s = this.state;
     return (
-      <div style={css("min-height:100vh;display:flex;flex-wrap:wrap;background:#F7FAFA")}>
-        <div style={css("flex:1 1 420px;min-height:320px;position:relative;overflow:hidden;background:radial-gradient(80% 70% at 20% 10%,rgba(47,211,168,.22),transparent 60%),radial-gradient(60% 60% at 90% 90%,rgba(47,211,168,.10),transparent 60%),#0f1c36;color:#fff;padding:48px;display:flex;flex-direction:column;justify-content:space-between;gap:40px")}>
+      <div className="bj-auth" style={css("min-height:100dvh;display:flex;flex-wrap:wrap;background:#F7FAFA")}>
+        <style>{`
+          .bj-auth-brand{flex:1 1 420px;min-height:100dvh;position:relative;overflow:hidden;background:radial-gradient(80% 70% at 20% 10%,rgba(47,211,168,.22),transparent 60%),radial-gradient(60% 60% at 90% 90%,rgba(47,211,168,.10),transparent 60%),#0f1c36;color:#fff;padding:48px;display:flex;flex-direction:column;justify-content:space-between;gap:40px}
+          .bj-auth-form{flex:1 1 460px;display:flex;align-items:center;justify-content:center;padding:48px 24px}
+          .bj-auth-mobile{display:none}
+          @media (max-width:900px){
+            .bj-auth{flex-direction:column}
+            .bj-auth-brand{display:none}
+            .bj-auth-mobile{display:flex;align-items:center;gap:10px;padding:20px 24px 0}
+            .bj-auth-form{flex:1 1 auto;align-items:flex-start;padding:20px 24px 32px;min-height:0}
+            .bj-auth-form h2{font-size:24px !important}
+          }
+        `}</style>
+        <div className="bj-auth-brand">
           <div style={css("display:flex;align-items:center;gap:12px")}>
             <ByjanMark size={48} theme="dark" />
             <div><p style={css("font:600 26px/1 'Poppins';letter-spacing:-.03em")}>byjan</p><p style={css("margin-top:5px;font:600 10px 'Geist';letter-spacing:.2em;color:#2fd3a8")}>BUSINESS</p></div>
@@ -87,7 +99,12 @@ export default class AuthScreens extends React.Component {
           <div style={css("display:flex;align-items:center;gap:10px;font:500 12.5px 'Geist';color:#B8C4D6")}><Ic n="duotone/shield-check-duotone.svg" c="#2fd3a8" />Data stored in India · 2-step sign-in for owners and admins</div>
         </div>
 
-        <div style={css("flex:1 1 460px;display:flex;align-items:center;justify-content:center;padding:48px 24px")}>
+        <div className="bj-auth-mobile">
+          <ByjanMark size={36} />
+          <div><p style={css("font:600 18px/1 'Poppins';letter-spacing:-.03em;color:#0A1020")}>byjan</p><p style={css("margin-top:3px;font:600 9px 'Geist';letter-spacing:.18em;color:#17b18c")}>BUSINESS</p></div>
+        </div>
+
+        <div className="bj-auth-form">
           <div key={s.screen} style={css("width:100%;max-width:400px;animation:rise .35s ease both")}>
             {s.screen === 'signin' ? this.signin() : null}
             {s.screen === 'signup' ? this.signup() : null}

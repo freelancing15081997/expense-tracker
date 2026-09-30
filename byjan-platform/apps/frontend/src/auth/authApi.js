@@ -1,7 +1,9 @@
 // Auth client. VITE_AUTH_MODE=live talks to services/api (/v1/auth/*); anything else runs a local mock.
 // Tokens: access token lives in memory only; the refresh token is an httpOnly cookie set by the API.
-const API = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
-const FB_KEY = import.meta.env.VITE_FIREBASE_API_KEY || '';
+const strip = (v) => String(v ?? '').trim().replace(/^["']|["']$/g, '');
+const API = strip(import.meta.env.VITE_API_URL).replace(/\/$/, '');
+const FB_KEY = strip(import.meta.env.VITE_FIREBASE_API_KEY);
+const FB_DOMAIN = strip(import.meta.env.VITE_FIREBASE_AUTH_DOMAIN);
 export const MOCK = import.meta.env.VITE_AUTH_MODE !== 'live';
 export const IDLE_MIN = Number(import.meta.env.VITE_IDLE_MINUTES || 30);
 
@@ -23,7 +25,12 @@ async function call(path, body, { method = 'POST', auth = false } = {}) {
     body: method === 'GET' ? undefined : JSON.stringify(body || {}),
   });
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw Object.assign(err(j?.error?.message || j?.detail || 'Something went wrong. Try again.', j?.error?.code), { status: r.status });
+  if (!r.ok) {
+    const d = j?.error ?? j?.detail ?? j?.title;
+    const message = typeof d === 'string' ? d
+      : (d?.message || d?.code || j?.message || 'Something went wrong. Try again.');
+    throw Object.assign(err(String(message), d?.code || j?.code), { status: r.status, payload: j });
+  }
   return j;
 }
 
@@ -67,7 +74,7 @@ export async function passwordSignIn(email, password) {
 export async function googleSignIn() {
   if (MOCK) { await sleep(900); return mockIn(); }
   const [{ initializeApp }, fa] = await Promise.all([import('firebase/app'), import('firebase/auth')]);
-  const app = initializeApp({ apiKey: FB_KEY, authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN });
+  const app = initializeApp({ apiKey: FB_KEY, authDomain: FB_DOMAIN });
   const cred = await fa.signInWithPopup(fa.getAuth(app), new fa.GoogleAuthProvider());
   return takeTokens(await call('/auth/firebase/exchange', { id_token: await cred.user.getIdToken() }));
 }

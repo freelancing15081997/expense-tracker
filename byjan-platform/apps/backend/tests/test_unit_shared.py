@@ -150,6 +150,13 @@ class TestIds:
         parsed = uuid.UUID(value)
         assert str(parsed) == value
 
+    def test_fallback_is_valid_uuidv7(self):
+        # Render runs Python 3.12 — uuid.uuid7() is 3.13+, so this path is live.
+        value = UUIDv7._generate_fallback()
+        parsed = uuid.UUID(value)
+        assert parsed.version == 7
+        assert str(parsed) == value
+
     def test_generate_unique(self):
         ids = {UUIDv7.generate() for _ in range(500)}
         assert len(ids) == 500
