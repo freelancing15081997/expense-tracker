@@ -86,10 +86,20 @@ def generate_password_reset_link(email: str, continue_url: Optional[str] = None)
     _ensure_app()
     from firebase_admin import auth as fb_auth
 
-    url = (continue_url or settings.PASSWORD_RESET_CONTINUE_URL or "https://business.easypado.com/").strip()
     try:
-        settings_obj = fb_auth.ActionCodeSettings(url=url, handle_code_in_app=False)
-        return fb_auth.generate_password_reset_link(email.strip(), action_code_settings=settings_obj)
+        # Prefer no ActionCodeSettings so we don't require Firebase authorized-domain
+        # allowlisting for business.easypado.com. The oob link still works on Firebase's
+        # hosted reset page; optional continue_url is best-effort.
+        url = (continue_url or getattr(settings, "PASSWORD_RESET_CONTINUE_URL", None) or "").strip()
+        if url:
+            try:
+                settings_obj = fb_auth.ActionCodeSettings(url=url, handle_code_in_app=False)
+                return fb_auth.generate_password_reset_link(
+                    email.strip(), action_code_settings=settings_obj
+                )
+            except Exception as e:
+                log.warning("firebase_reset_continue_url_failed", error=str(e), url=url)
+        return fb_auth.generate_password_reset_link(email.strip())
     except fb_auth.UserNotFoundError as e:
         raise FirebaseVerifyError("user_not_found") from e
     except Exception as e:
