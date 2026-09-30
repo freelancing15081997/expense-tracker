@@ -11,8 +11,14 @@ from datetime import date
 
 from app.business.domain.rules import (
     GST_RATES,
+    build_gl_proposals,
     calculate_document_totals,
     calculate_gst_breakup,
+    normalize_document_lines_for_calc,
+    normalize_discount_paise,
+    resolve_document_transition,
+    validate_gl_proposals,
+    validate_journal_balance,
     calculate_tds,
     calculate_balance,
     calculate_aging_buckets,
@@ -201,6 +207,79 @@ class TestDocumentTotals:
             expected_tax = int(100000 * rate_val / 100)
             assert r.tax == expected_tax, f"GST rate {rate_key}%"
             assert r.cg + r.sg + r.ig == r.tax
+
+
+# ---------------------------------------------------------------------------
+# Line normalization & document transitions
+# ---------------------------------------------------------------------------
+
+class TestLineNormalization:
+    def test_ui_r_rate_converts_to_paise(self):
+        lines = normalize_document_lines_for_calc(
+            [{"q": 2, "r": 500, "g": 18}], "invoices"
+        )
+        assert lines[0]["rate"] == 50000
+
+    def test_api_rate_passthrough_paise(self):
+        lines = normalize_document_lines_for_calc(
+            [{"qty": 1, "rate": 100000, "gst_rate": 18}], "invoices"
+        )
+        assert lines[0]["rate"] == 100000
+
+    def test_discount_disc_is_rupees(self):
+        assert normalize_discount_paise({"disc": "250"}) == 25000
+
+    def test_discount_api_paise(self):
+        assert normalize_discount_paise({"discount": 25000}) == 25000
+
+
+class TestDocumentTransitions:
+    def test_post_invoice_from_draft(self):
+        st, err = resolve_document_transition("invoices", "Draft", "post")
+        assert err is None and st == "Sent"
+
+    def test_post_invoice_rejects_sent(self):
+        st, err = resolve_document_transition("invoices", "Sent", "post")
+        assert st is None and err == "document.invalid_transition"
+
+    def test_send_alias(self):
+        st, err = resolve_document_transition("bills", "Draft", "send")
+        assert err is None and st == "Open"
+
+    def test_accept_estimate(self):
+        st, err = resolve_document_transition("estimates", "Sent", "accept")
+        assert err is None and st == "Accepted"
+
+    def test_void_paid_blocked(self):
+        st, err = resolve_document_transition("invoices", "Paid", "void")
+        assert st is None and err == "document.invalid_transition"
+
+    def test_remind_is_noop(self):
+        st, err = resolve_document_transition("invoices", "Sent", "remind")
+        assert st is None and err is None
+
+    def test_unknown_action(self):
+        st, err = resolve_document_transition("invoices", "Draft", "not-real")
+        assert st is None and err == "document.unknown_action"
+
+
+class TestGlProposals:
+    def test_invoice_balanced(self):
+        props = build_gl_proposals(
+            "invoices",
+            {"total_paise": 118000, "taxable": 100000, "tax": 18000},
+        )
+        assert validate_gl_proposals(props) is None
+        assert sum(p.dr_paise for p in props) == sum(p.cr_paise for p in props)
+
+    def test_journal_balance_guard(self):
+        calc = calculate_document_totals(
+            [{"dr": 100, "cr": 0}],
+            party_state_code="27",
+            company_state_code="27",
+            document_type="journals",
+        )
+        assert validate_journal_balance(calc) == "document.journal_unbalanced"
 
 
 # ---------------------------------------------------------------------------

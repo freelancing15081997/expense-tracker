@@ -89,25 +89,66 @@ export default class BizLogic extends React.Component {
   verb(d, k) {
     const T = DOC_T[d.tk], sn = this.snap(), who = this.pn(d.party);
     const done = (o, msg, act, ic) => { this.setDoc(d.id, o, act); this.log(msg, MOD[d.tk] ? MOD[d.tk].n : '', ic); this.toast(msg, this.undoTo(sn)); };
-    if (k === 'post') return done({st: this.POST_TO[d.tk]}, d.no + ' · ' + (d.tk === 'invoices' ? 'sent' : T.post.toLowerCase()) + (who ? ' · ' + who : ''), T.post, 'send');
+    const liveAction = (action, payload, msg, ic) => {
+      if (!LIVE) return false;
+      (async () => {
+        try {
+          const res = await bizApi.documentAction(d.id, action, payload || {});
+          const saved = bizApi.mapDocFromApi(res.document || res);
+          this.setState(s => ({ docs: s.docs.map(x => x.id === d.id ? Object.assign({}, x, saved) : x) }));
+          this.log(msg, MOD[d.tk] ? MOD[d.tk].n : '', ic);
+          this.toast(msg);
+        } catch (e) {
+          this.toast(e.message || 'Action failed', null, 'err');
+        }
+      })();
+      return true;
+    };
+    if (k === 'post') {
+      if (liveAction('post', {}, d.no + ' · ' + (d.tk === 'invoices' ? 'sent' : T.post.toLowerCase()) + (who ? ' · ' + who : ''), 'send')) return;
+      return done({st: this.POST_TO[d.tk]}, d.no + ' · ' + (d.tk === 'invoices' ? 'sent' : T.post.toLowerCase()) + (who ? ' · ' + who : ''), T.post, 'send');
+    }
     if (k === 'edit') return this.openEd(d);
     if (k === 'pdf') return this.setState({modal: {k: 'pdf', id: d.id}});
     if (k === 'email' || k === 'remind') { const p = this.P(d.party); return this.setState({modal: {k: 'email', id: d.id, remind: k === 'remind'}, fv: {to: p ? p.e : '', cc: D(CO.e, ''), subj: (k === 'remind' ? 'Reminder: ' : '') + T.n + ' ' + d.no + ' from ' + D(CO.n, 'your company'), body: 'Hello ' + (p ? p.n : '') + ',\n\n' + (k === 'remind' ? 'A friendly reminder that ' + d.no + ' for ' + inr(this.bal(d)) + ' was due on ' + fd(d.due, 1) + '.' : 'Please find ' + T.n.toLowerCase() + ' ' + d.no + ' for ' + inr(calc(d).total) + ' attached.') + '\n\nPay by UPI: ' + CO.upi + '\n\nThank you,\n' + CO.n, pdf: true}}); }
     if (k === 'pay') return this.setState({modal: {k: 'pay', id: d.id}, fv: {amt: String(this.bal(d)), when: 'Today', mode: 'Bank transfer', acc: 'HDFC Current A/c', ref: '', tds: false}});
     if (k === 'void') return this.setState({modal: {k: 'void', id: d.id}, fv: {why: 'Raised by mistake', note: ''}});
-    if (k === 'reject') return this.form('Reject ' + d.no, [{k: 'why', l: 'Reason', ph: 'e.g. Price is higher than the last order', area: true}], 'Reject request', fv => { this.setDoc(d.id, {st: 'Rejected'}, 'Rejected · ' + (fv.why || 'No reason given')); this.log('Rejected ' + d.no, 'Buying', 'x'); this.toast(d.no + ' rejected. ' + 'The requester has been told why.'); }, 'The person who raised it will see your reason.', true);
+    if (k === 'reject') {
+      return this.form('Reject ' + d.no, [{k: 'why', l: 'Reason', ph: 'e.g. Price is higher than the last order', area: true}], 'Reject request', fv => {
+        if (LIVE) {
+          liveAction('reject', { reason: fv.why }, d.no + ' rejected', 'x');
+          return;
+        }
+        this.setDoc(d.id, {st: 'Rejected'}, 'Rejected · ' + (fv.why || 'No reason given')); this.log('Rejected ' + d.no, 'Buying', 'x'); this.toast(d.no + ' rejected. ' + 'The requester has been told why.');
+      }, 'The person who raised it will see your reason.', true);
+    }
     if (k === 'dup') { const nd = Object.assign({}, d, {id: 'd' + Date.now(), no: this.nextNo(d.tk), st: d.tk === 'recurring' ? 'Paused' : 'Draft', dt: 0, due: d.terms, paid: 0, act: [{t: 'Duplicated from ' + d.no, w: 'Just now', ic: 'copy'}], lines: d.lines.map(l => Object.assign({}, l))}); this.setState(s => ({docs: [nd, ...s.docs], fly: {doc: nd.id}, flyTab: 'Details'})); this.toast(nd.no + ' created as a draft', this.undoTo(sn)); return; }
-    if (k === 'del') { this.setState(s => ({docs: s.docs.filter(x => x.id !== d.id), fly: null})); this.toast('Draft ' + d.no + ' deleted', this.undoTo(sn)); return; }
-    if (k === 'accept') return done({st: 'Accepted'}, d.no + ' accepted by ' + who, 'Accepted by customer', 'check');
-    if (k === 'decline') return done({st: 'Declined'}, d.no + ' marked declined', 'Declined by customer', 'x');
-    if (k === 'approve') return done({st: 'Approved'}, d.no + ' approved', 'Approved by ' + this.meName(), 'check-circle-2');
-    if (k === 'receive') return done({st: 'Received'}, 'Goods received on ' + d.no + ' · GRN created', 'Goods received · GRN created', 'package-check');
-    if (k === 'apply') return done({st: 'Applied'}, d.no + ' applied to the oldest open ' + (d.tk === 'vendor-credits' ? 'bill' : 'invoice') + ' of ' + who, 'Applied', 'link');
-    if (k === 'pause' || k === 'resume') return done({st: k === 'pause' ? 'Paused' : 'Active'}, d.nar + (k === 'pause' ? ' paused' : ' resumed · next on 1 Oct'), k === 'pause' ? 'Paused' : 'Resumed', k);
+    if (k === 'del') {
+      if (LIVE) {
+        (async () => {
+          try {
+            await bizApi.deleteDocument(d.id);
+            this.setState(s => ({docs: s.docs.filter(x => x.id !== d.id), fly: null}));
+            this.toast('Draft ' + d.no + ' deleted');
+          } catch (e) {
+            this.toast(e.message || 'Could not delete', null, 'err');
+          }
+        })();
+        return;
+      }
+      this.setState(s => ({docs: s.docs.filter(x => x.id !== d.id), fly: null})); this.toast('Draft ' + d.no + ' deleted', this.undoTo(sn)); return;
+    }
+    if (k === 'accept') { if (liveAction('accept', {}, d.no + ' accepted by ' + who, 'check')) return; return done({st: 'Accepted'}, d.no + ' accepted by ' + who, 'Accepted by customer', 'check'); }
+    if (k === 'decline') { if (liveAction('decline', {}, d.no + ' marked declined', 'x')) return; return done({st: 'Declined'}, d.no + ' marked declined', 'Declined by customer', 'x'); }
+    if (k === 'approve') { if (liveAction('approve', {}, d.no + ' approved', 'check-circle-2')) return; return done({st: 'Approved'}, d.no + ' approved', 'Approved by ' + this.meName(), 'check-circle-2'); }
+    if (k === 'receive') { if (liveAction('receive', {}, 'Goods received on ' + d.no + ' · GRN created', 'package-check')) return; return done({st: 'Received'}, 'Goods received on ' + d.no + ' · GRN created', 'Goods received · GRN created', 'package-check'); }
+    if (k === 'apply') { if (liveAction('apply', {}, d.no + ' applied to the oldest open ' + (d.tk === 'vendor-credits' ? 'bill' : 'invoice') + ' of ' + who, 'link')) return; return done({st: 'Applied'}, d.no + ' applied to the oldest open ' + (d.tk === 'vendor-credits' ? 'bill' : 'invoice') + ' of ' + who, 'Applied', 'link'); }
+    if (k === 'pause' || k === 'resume') { if (liveAction(k, {}, d.nar + (k === 'pause' ? ' paused' : ' resumed · next on 1 Oct'), k)) return; return done({st: k === 'pause' ? 'Paused' : 'Active'}, d.nar + (k === 'pause' ? ' paused' : ' resumed · next on 1 Oct'), k === 'pause' ? 'Paused' : 'Resumed', k); }
     if (k === 'runnow') { const nd = {id: 'd' + Date.now(), tk: 'bills', no: this.nextNo('bills'), party: d.party, dt: 0, terms: 15, due: 15, st: 'Open', lines: d.lines.map(l => Object.assign({}, l)), disc: 0, notes: 'From repeat entry ' + d.no, nar: '', paid: 0, act: [{t: 'Created from ' + d.no, w: 'Just now', ic: 'zap'}]}; this.setState(s => ({docs: [nd, ...s.docs]})); this.log('Created ' + nd.no + ' from ' + d.nar, 'Accounts', 'zap'); this.toast(nd.no + ' created from ' + d.nar, this.undoTo(sn)); return; }
-    if (k === 'reverse') { const nd = Object.assign({}, d, {id: 'd' + Date.now(), no: this.nextNo('journals'), st: 'Posted', dt: 0, nar: 'Reversal of ' + d.no, lines: d.lines.map(l => ({acc: l.acc, dr: l.cr, cr: l.dr})), act: [{t: 'Reverses ' + d.no, w: 'Just now', ic: 'undo-2'}]}); this.setState(s => ({docs: [nd, ...s.docs.map(x => x.id === d.id ? Object.assign({}, x, {st: 'Reversed'}) : x)]})); this.log(d.no + ' reversed by ' + nd.no, 'Accounts', 'undo-2'); this.toast(d.no + ' reversed by ' + nd.no, this.undoTo(sn)); return; }
-    if (k === 'reimb') return done({st: 'Reimbursed', paid: calc(d).total}, d.no + ' marked reimbursed', 'Reimbursed to employee', 'check');
+    if (k === 'reverse') { if (liveAction('reverse', {}, d.no + ' reversed', 'undo-2')) return; const nd = Object.assign({}, d, {id: 'd' + Date.now(), no: this.nextNo('journals'), st: 'Posted', dt: 0, nar: 'Reversal of ' + d.no, lines: d.lines.map(l => ({acc: l.acc, dr: l.cr, cr: l.dr})), act: [{t: 'Reverses ' + d.no, w: 'Just now', ic: 'undo-2'}]}); this.setState(s => ({docs: [nd, ...s.docs.map(x => x.id === d.id ? Object.assign({}, x, {st: 'Reversed'}) : x)]})); this.log(d.no + ' reversed by ' + nd.no, 'Accounts', 'undo-2'); this.toast(d.no + ' reversed by ' + nd.no, this.undoTo(sn)); return; }
+    if (k === 'reimb') { if (liveAction('reimb', {}, d.no + ' marked reimbursed', 'check')) return; return done({st: 'Reimbursed', paid: calc(d).total}, d.no + ' marked reimbursed', 'Reimbursed to employee', 'check'); }
     if (k === 'convert') {
+      if (LIVE) { liveAction('convert', {}, d.no + ' converted', 'arrow-right-left'); return; }
       const to = d.tk === 'purchase-requests' ? 'purchase-orders' : d.tk === 'purchase-orders' ? 'bills' : 'invoices';
       const nd = {id: 'd' + Date.now(), tk: to, no: this.nextNo(to), party: d.party, dt: 0, terms: d.terms, due: d.terms, st: 'Draft', lines: d.lines.map(l => Object.assign({}, l)), disc: d.disc, notes: 'From ' + d.no, nar: '', paid: 0, act: [{t: 'Created from ' + d.no, w: 'Just now', ic: 'arrow-right-left'}]};
       const nst = d.tk === 'sales-orders' ? 'Invoiced' : d.tk === 'purchase-requests' ? 'Ordered' : d.tk === 'purchase-orders' ? 'Billed' : 'Converted';
@@ -131,17 +172,26 @@ export default class BizLogic extends React.Component {
     const sn = this.snap(); const st = post ? this.POST_TO[e.tk] : e.tk === 'recurring' ? 'Paused' : 'Draft';
     const o = {party: e.party, dt: e.dt, terms: +e.terms || 0, due: e.dt + (+e.terms || 0), lines, disc: +e.disc || 0, notes: e.notes, nar: e.nar, ref: e.ref, files: e.files || []};
     if (LIVE) {
-      const body = { type: e.tk, tk: e.tk, number: e.no, no: e.no, status: st, st, party_id: e.party, party: e.party, terms_days: +e.terms || 0, terms: +e.terms || 0, lines, disc: +e.disc || 0, notes: e.notes, narration: e.nar, nar: e.nar };
+      const body = { type: e.tk, tk: e.tk, number: e.no, no: e.no, status: 'Draft', st: 'Draft', party_id: e.party, party: e.party, terms_days: +e.terms || 0, terms: +e.terms || 0, lines, disc: +e.disc || 0, notes: e.notes, narration: e.nar, nar: e.nar };
       (async () => {
         try {
           let saved;
           if (e.id && String(e.id).length > 20) {
             saved = bizApi.mapDocFromApi(await bizApi.updateDocument(e.id, body));
-            this.setState(s => ({docs: s.docs.map(d => d.id === e.id ? Object.assign({}, d, saved, o, {st: saved.st || st}) : d), ed: null, fly: {doc: e.id}, flyTab: 'Details'}));
           } else {
             saved = bizApi.mapDocFromApi(await bizApi.createDocument(body));
-            this.setState(s => ({docs: [saved, ...s.docs], ed: null, fly: {doc: saved.id}, flyTab: 'Details'}));
           }
+          if (post && saved && saved.id) {
+            const res = await bizApi.documentAction(saved.id, 'post');
+            saved = bizApi.mapDocFromApi(res.document || res) || saved;
+          }
+          this.setState(s => {
+            const exists = s.docs.some(d => d.id === saved.id);
+            const docs = exists
+              ? s.docs.map(d => d.id === saved.id ? Object.assign({}, d, saved, o, {st: saved.st || (post ? st : 'Draft')}) : d)
+              : [Object.assign({}, saved, o), ...s.docs];
+            return {docs, ed: null, fly: {doc: saved.id}, flyTab: 'Details'};
+          });
           this.log((post ? T.post + ' · ' : 'Saved ') + (saved.no || e.no), MOD[e.tk].n, post ? 'send' : 'file-plus-2');
           this.toast((saved.no || e.no) + (post ? ' · done' : ' saved') + (e.party ? ' · ' + this.pn(e.party) : ''));
         } catch (err) {
@@ -725,7 +775,41 @@ export default class BizLogic extends React.Component {
         ref: fv.ref, onRef: ev => setF({ref: ev.target.value.slice(0, 30)}), refPh: fv.mode === 'Cheque' ? 'Cheque number' : fv.mode === 'UPI' ? 'UPI reference' : 'UTR number',
         showTds: d.tk === 'invoices', tdsBg: fv.tds ? '#12B8A8' : '#CBD3DD', tdsJ: fv.tds ? 'flex-end' : 'flex-start', tdsTg: () => setF({tds: !fv.tds}), tdsL: fv.tds ? 'Customer deducted TDS of ' + inr(tdsA) + ' (2%)' : 'Customer deducted TDS',
         after: amt + tdsA >= bal ? 'This settles ' + d.no + ' in full.' : amt ? inr(bal - amt - tdsA) + ' will still be due after this.' : '', ok: 'Record ' + (amt ? inr(amt) : 'payment'),
-        run: () => { if (!amt) return setF({err: 'Enter the amount received'}); if (amt > bal + 1) return setF({err: 'That’s more than the balance of ' + inr(bal) + '. Record the extra as an advance instead.'}); const sn = this.snap(); const np = d.paid + amt + tdsA; this.setDoc(d.id, {paid: np, st: np >= calc(d).total - 1 ? 'Paid' : 'Partly paid'}, 'Payment ' + (d.tk === 'bills' ? 'made' : 'received') + ' · ' + inr(amt) + ' by ' + fv.mode.toLowerCase() + (fv.ref ? ' · ' + fv.ref : '') + (tdsA ? ' · TDS ' + inr(tdsA) : '')); this.log('Payment of ' + inr(amt) + ' on ' + d.no, d.tk === 'bills' ? 'Buying' : 'Sales', 'indian-rupee'); this.setState({modal: null}); this.toast(inr(amt) + ' recorded on ' + d.no, this.undoTo(sn)); }}); }
+        run: () => {
+          if (!amt) return setF({err: 'Enter the amount received'});
+          if (amt > bal + 1) return setF({err: 'That’s more than the balance of ' + inr(bal) + '. Record the extra as an advance instead.'});
+          const sn = this.snap();
+          if (LIVE) {
+            (async () => {
+              try {
+                await bizApi.createPayment({
+                  direction: d.tk === 'bills' ? 'out' : 'in',
+                  party_id: d.party,
+                  party: d.party,
+                  amount: amt,
+                  amount_paise: Math.round(amt * 100),
+                  mode: (fv.mode || 'bank').toLowerCase().replace(/\s+/g, '_'),
+                  reference: fv.ref || '',
+                  document_id: d.id,
+                  allocations: [{ document_id: d.id, amount_paise: Math.round(amt * 100), tds_paise: Math.round(tdsA * 100) }],
+                });
+                const docs = await bizApi.listDocuments();
+                const mapped = (docs || []).map(bizApi.mapDocFromApi).filter(Boolean);
+                this.setState(s => ({ docs: mapped.length ? mapped : s.docs, modal: null }));
+                this.log('Payment of ' + inr(amt) + ' on ' + d.no, d.tk === 'bills' ? 'Buying' : 'Sales', 'indian-rupee');
+                this.toast(inr(amt) + ' recorded on ' + d.no);
+              } catch (e) {
+                setF({ err: e.message || 'Could not record payment' });
+              }
+            })();
+            return;
+          }
+          const np = d.paid + amt + tdsA;
+          this.setDoc(d.id, {paid: np, st: np >= calc(d).total - 1 ? 'Paid' : 'Partly paid'}, 'Payment ' + (d.tk === 'bills' ? 'made' : 'received') + ' · ' + inr(amt) + ' by ' + fv.mode.toLowerCase() + (fv.ref ? ' · ' + fv.ref : '') + (tdsA ? ' · TDS ' + inr(tdsA) : ''));
+          this.log('Payment of ' + inr(amt) + ' on ' + d.no, d.tk === 'bills' ? 'Buying' : 'Sales', 'indian-rupee');
+          this.setState({modal: null});
+          this.toast(inr(amt) + ' recorded on ' + d.no, this.undoTo(sn));
+        }}); }
     if (M.k === 'email' && d) return Object.assign(base, {isEmail: true, w: '600px', title: M.remind ? 'Send payment reminder' : 'Email ' + DOC_T[d.tk].n.toLowerCase(), sub: d.no + ' · ' + this.pn(d.party), to: fv.to, onTo: ev => setF({to: ev.target.value}), cc: fv.cc, onCc: ev => setF({cc: ev.target.value}), subj: fv.subj, onSubj: ev => setF({subj: ev.target.value}), body: fv.body, onBody: ev => setF({body: ev.target.value}), pdfBg: fv.pdf ? '#12B8A8' : '#CBD3DD', pdfJ: fv.pdf ? 'flex-end' : 'flex-start', pdfTg: () => setF({pdf: !fv.pdf}), file: d.no + '.pdf · 84 KB', wa: () => { this.setState({modal: null}); this.toast('Opened WhatsApp with ' + d.no + ' and a UPI link'); },
       ok: M.remind ? 'Send reminder' : 'Send email', run: async () => {
         if (!/@/.test(fv.to)) return setF({ err: 'Add a valid email address' });
@@ -737,8 +821,16 @@ export default class BizLogic extends React.Component {
               message: String(fv.body || ''),
               kind: M.remind ? 'reminder' : (d.tk === 'invoices' ? 'invoice' : 'notice'),
             });
+            if (d.st === 'Draft' && ['invoices', 'estimates', 'quotes', 'purchase-orders'].includes(d.tk)) {
+              const res = await bizApi.documentAction(d.id, 'post');
+              const saved = bizApi.mapDocFromApi(res.document || res);
+              if (saved) this.setState(s => ({ docs: s.docs.map(x => x.id === d.id ? Object.assign({}, x, saved) : x) }));
+            } else {
+              this.setDoc(d.id, {}, (M.remind ? 'Reminder emailed to ' : 'Emailed to ') + fv.to);
+            }
+          } else {
+            this.setDoc(d.id, d.st === 'Draft' && d.tk === 'invoices' ? { st: 'Sent' } : {}, (M.remind ? 'Reminder emailed to ' : 'Emailed to ') + fv.to);
           }
-          this.setDoc(d.id, d.st === 'Draft' && d.tk === 'invoices' ? { st: 'Sent' } : {}, (M.remind ? 'Reminder emailed to ' : 'Emailed to ') + fv.to);
           this.log((M.remind ? 'Reminder sent for ' : 'Emailed ') + d.no, MOD[d.tk].n, 'mail');
           this.setState({ modal: null });
           this.toast((M.remind ? 'Reminder sent to ' : 'Sent to ') + fv.to);
@@ -747,7 +839,27 @@ export default class BizLogic extends React.Component {
         }
       }});
     if (M.k === 'void' && d) return Object.assign(base, {isVoid: true, title: 'Void ' + d.no + '?', sub: 'It stays in your records marked Void and stops counting in reports.' + (d.paid ? ' The ' + inr(d.paid) + ' already paid will move to an advance.' : ''), reasons: ['Raised by mistake', 'Customer cancelled', 'Wrong amount', 'Duplicate'].map(n => ({n, bg: fv.why === n ? '#0B1F3A' : '#fff', fg: fv.why === n ? '#fff' : '#0B1F3A', bd: fv.why === n ? '#0B1F3A' : '#DCE2EA', go: () => setF({why: n})})), note: fv.note, onNote: ev => setF({note: ev.target.value}), ok: 'Void ' + d.no,
-      run: () => { const sn = this.snap(); this.setDoc(d.id, {st: 'Void'}, 'Voided · ' + fv.why + (fv.note ? ' · ' + fv.note : '')); this.log('Voided ' + d.no + ' · ' + fv.why, MOD[d.tk].n, 'ban'); this.setState({modal: null}); this.toast(d.no + ' voided', this.undoTo(sn), 'err'); }});
+      run: () => {
+        const sn = this.snap();
+        if (LIVE) {
+          (async () => {
+            try {
+              const res = await bizApi.documentAction(d.id, 'void', { reason: fv.why, note: fv.note });
+              const saved = bizApi.mapDocFromApi(res.document || res);
+              this.setState(s => ({ docs: s.docs.map(x => x.id === d.id ? Object.assign({}, x, saved) : x), modal: null }));
+              this.log('Voided ' + d.no + ' · ' + fv.why, MOD[d.tk].n, 'ban');
+              this.toast(d.no + ' voided', null, 'err');
+            } catch (e) {
+              setF({ err: e.message || 'Could not void' });
+            }
+          })();
+          return;
+        }
+        this.setDoc(d.id, {st: 'Void'}, 'Voided · ' + fv.why + (fv.note ? ' · ' + fv.note : ''));
+        this.log('Voided ' + d.no + ' · ' + fv.why, MOD[d.tk].n, 'ban');
+        this.setState({modal: null});
+        this.toast(d.no + ' voided', this.undoTo(sn), 'err');
+      }});
     if (M.k === 'pdf' && d) { const c = calc(d), p = this.P(d.party), T = DOC_T[d.tk];
       return Object.assign(base, {isPdf: true, w: '760px', title: T.n + ' ' + d.no, sub: 'Print preview · A4', co: CO, docT: d.tk === 'invoices' ? 'TAX INVOICE' : T.n.toUpperCase(), no: d.no, dt: fd(d.dt, 1), due: fd(d.due, 1), hasDue: !!d.terms, pn: p ? p.n : d.nar, pg: p ? 'GSTIN ' + p.g : '', pa: p ? p.city + ', ' + p.st : '', pos: p ? p.st : '',
         lines: d.tk === 'journals' ? d.lines.map((l, j) => ({n: String(j + 1), d: l.acc, h: '', q: l.dr ? 'Dr' : 'Cr', r: '', g: '', a: inr2(l.dr || l.cr)})) : d.lines.map((l, j) => { const it = IBY[l.item] || {}; return {n: String(j + 1), d: it.n, h: it.hsn, q: l.q + ' ' + it.u, r: inr2(l.r), g: l.g + '%', a: inr2(l.q * l.r)}; }),

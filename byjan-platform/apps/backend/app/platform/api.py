@@ -309,10 +309,36 @@ async def update_me(request: MeUpdateRequest, principal = Depends(get_current_us
 
 
 @router.get("/me/permissions", response_model=PermissionsResponse)
-async def get_permissions(principal = Depends(get_current_user)):
+async def get_permissions(
+    tenant=Depends(require_tenant),
+    db: AsyncSession = Depends(get_db_session),
+):
     """Effective matrix and ABAC flags for X-Tenant-Id"""
-    # TODO: Implement permissions retrieval
-    return PermissionsResponse(matrix={}, abac={})
+    from uuid import UUID
+    from sqlalchemy import select
+    from app.platform.infra.orm import MembershipORM, RoleORM
+    from app.platform.rbac import effective_permissions
+
+    principal, tenant_id = tenant
+    stmt = (
+        select(RoleORM.name)
+        .select_from(MembershipORM)
+        .outerjoin(RoleORM, RoleORM.id == MembershipORM.role_id)
+        .where(
+            MembershipORM.tenant_id == UUID(str(tenant_id)),
+            MembershipORM.user_id == UUID(str(principal.user_id)),
+            MembershipORM.status == "active",
+        )
+        .limit(1)
+    )
+    role_name = (await db.execute(stmt)).scalar_one_or_none() or "Member"
+    eff = effective_permissions(role_name)
+    from app.platform.rbac import ALL_ACTIONS, ALL_MODULES
+    matrix = {
+        m: {a: a in eff.get(m, set()) for a in ALL_ACTIONS}
+        for m in ALL_MODULES
+    }
+    return PermissionsResponse(matrix=matrix, abac={"role": role_name})
 
 
 @router.get("/me/sessions", response_model=list[Session])

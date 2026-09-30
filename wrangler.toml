@@ -1,0 +1,28 @@
+name = "easypado-api"
+main = "cf-worker.mjs"
+compatibility_date = "2025-09-23"
+compatibility_flags = ["nodejs_compat"]
+account_id = "8e7d49dfafd69eee09c8ee39e9b18c0e"
+
+routes = [
+  { pattern = "easypado.com/*", zone_name = "easypado.com" },
+  { pattern = "www.easypado.com/*", zone_name = "easypado.com" }
+]
+
+[vars]
+CF_WORKER = "1"
+NODE_ENV = "production"
+DOCUMENT_PARSER_URL = "https://easypado-parser.easypado-byjan.workers.dev"
+
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "expense-tracker"
+
+[ai]
+binding = "AI"
+
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/", "/index.html", "/api/*", "/neondb/*"]

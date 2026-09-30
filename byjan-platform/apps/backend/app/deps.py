@@ -45,32 +45,63 @@ async def require_tenant(
     x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
     db: AsyncSession = Depends(get_db_session),
 ) -> tuple[Principal, str]:
-    """Resolve tenant from header or JWT claim; validate membership in DB."""
+    """Resolve tenant from header or JWT claim; validate membership; set RLS GUC."""
+    from sqlalchemy import text
     from app.platform.service import PlatformService
 
     tenant_id = x_tenant_id or principal.tenant_id
     if not tenant_id:
         raise TenantError("tenant.missing", "X-Tenant-Id header is required")
 
-    if principal.tenant_id and principal.tenant_id == tenant_id:
-        return principal, tenant_id
+    if not (principal.tenant_id and principal.tenant_id == tenant_id):
+        service = PlatformService(db)
+        if not await service.user_is_tenant_member(principal.user_id, tenant_id):
+            raise TenantError("tenant.not_member", "User is not a member of this tenant")
 
-    service = PlatformService(db)
-    if await service.user_is_tenant_member(principal.user_id, tenant_id):
-        return principal, tenant_id
+    # Defense in depth for Postgres RLS policies that use current_setting('app.tenant_id')
+    await db.execute(
+        text("SELECT set_config('app.tenant_id', :tid, true), set_config('app.user_id', :uid, true)"),
+        {"tid": str(tenant_id), "uid": str(principal.user_id)},
+    )
+    return principal, tenant_id
 
-    raise TenantError("tenant.not_member", "User is not a member of this tenant")
 
+def require_permission(module: str, action: str):
+    """FastAPI dependency factory: enforce static role matrix for module/action."""
 
-async def require_permission(
-    module: str,
-    action: str,
-    principal: Principal = Depends(get_current_user),
-) -> Principal:
-    """Require specific permission"""
-    # TODO: Check RBAC matrix
-    # For now, allow all
-    return principal
+    async def _check(
+        tenant=Depends(require_tenant),
+        db: AsyncSession = Depends(get_db_session),
+    ) -> Principal:
+        from app.platform.infra.orm import MembershipORM, RoleORM
+        from app.platform.rbac import role_allows
+        from sqlalchemy import select
+        from uuid import UUID
+
+        principal, tenant_id = tenant
+        if principal.is_super:
+            return principal
+
+        stmt = (
+            select(RoleORM.name)
+            .select_from(MembershipORM)
+            .outerjoin(RoleORM, RoleORM.id == MembershipORM.role_id)
+            .where(
+                MembershipORM.tenant_id == UUID(str(tenant_id)),
+                MembershipORM.user_id == UUID(str(principal.user_id)),
+                MembershipORM.status == "active",
+            )
+            .limit(1)
+        )
+        role_name = (await db.execute(stmt)).scalar_one_or_none() or "Member"
+        if not role_allows(role_name, module, action):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"code": "rbac.denied", "message": f"Missing {module}.{action}"},
+            )
+        return principal
+
+    return _check
 
 
 async def require_step_up(

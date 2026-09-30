@@ -175,6 +175,8 @@ class PlatformService:
         self.db.add(role)
         self.db.add(membership)
         await self.db.flush()
+        from app.business.service import BusinessService
+        await BusinessService(self.db).ensure_default_coa(str(tenant_id), commit=False)
         return str(tenant_id), "Owner"
 
     async def _issue_session(

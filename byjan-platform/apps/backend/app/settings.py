@@ -101,8 +101,9 @@ class Settings(BaseSettings):
     SMTP_USER: Optional[str] = None
     SMTP_PASS: Optional[str] = None
     MAIL_FROM: str = "byjanbooks@easypado.com"
+    BREVO_API_KEY: Optional[str] = None  # HTTPS send from Render (free tier blocks SMTP)
     PASSWORD_RESET_CONTINUE_URL: str = ""  # empty = Firebase hosted reset page (no domain allowlist)
-    # Render free blocks SMTP ports — relay through Vercel Money mailer when set
+    # Render free blocks SMTP ports — relay through Cloudflare Worker when set
     MAIL_RELAY_URL: str = "https://www.easypado.com/api/email/relay"
     MAIL_RELAY_SECRET: Optional[str] = None
 

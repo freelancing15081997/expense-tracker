@@ -5,13 +5,82 @@ Ported from frontend BizLogic.js
 
 from dataclasses import dataclass
 from datetime import date
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple, FrozenSet
 from decimal import Decimal, ROUND_HALF_UP
 import structlog
 
 from app.shared.types import Money
 
 log = structlog.get_logger(__name__)
+
+# Status after primary "post" action (ported from BizLogic.js POST_TO)
+POST_TO: Dict[str, str] = {
+    "invoices": "Sent",
+    "estimates": "Sent",
+    "quotes": "Sent",
+    "sales-orders": "Confirmed",
+    "credit-notes": "Open",
+    "debit-notes": "Open",
+    "purchase-requests": "Pending approval",
+    "purchase-orders": "Sent",
+    "purchase-receipts": "Posted",
+    "bills": "Open",
+    "vendor-credits": "Open",
+    "journals": "Posted",
+    "recurring": "Active",
+    "expenses": "Posted",
+}
+
+DOCUMENT_STATUSES: Dict[str, FrozenSet[str]] = {
+    "invoices": frozenset({"Draft", "Sent", "Overdue", "Partly paid", "Paid", "Void"}),
+    "estimates": frozenset({"Draft", "Sent", "Accepted", "Declined", "Expired", "Converted"}),
+    "quotes": frozenset({"Draft", "Sent", "Accepted", "Declined", "Expired", "Converted"}),
+    "sales-orders": frozenset({"Draft", "Confirmed", "Invoiced"}),
+    "credit-notes": frozenset({"Draft", "Open", "Applied", "Void"}),
+    "debit-notes": frozenset({"Draft", "Open", "Applied", "Void"}),
+    "purchase-requests": frozenset({"Draft", "Pending approval", "Approved", "Rejected", "Ordered"}),
+    "purchase-orders": frozenset({"Draft", "Sent", "Partly received", "Received", "Billed"}),
+    "purchase-receipts": frozenset({"Draft", "Posted"}),
+    "bills": frozenset({"Draft", "Open", "Overdue", "Partly paid", "Paid", "Void"}),
+    "vendor-credits": frozenset({"Draft", "Open", "Applied", "Void"}),
+    "journals": frozenset({"Draft", "Posted", "Reversed"}),
+    "recurring": frozenset({"Active", "Paused"}),
+    "expenses": frozenset({"Draft", "Posted", "Reimbursed", "Void"}),
+}
+
+VOID_BLOCKED_STATUSES: FrozenSet[str] = frozenset({
+    "Void", "Reversed", "Paid", "Applied", "Invoiced", "Billed", "Converted",
+    "Rejected", "Declined", "Expired", "Ordered", "Reimbursed",
+})
+
+# Side-effect actions that do not change status (email, PDF, reminders, etc.)
+NOOP_DOCUMENT_ACTIONS: FrozenSet[str] = frozenset({
+    # "send" aliases to "post" via ACTION_ALIASES — do not list it here
+    "remind", "email", "pdf", "duplicate", "einvoice",
+    "cancel-einvoice", "ewaybill", "payment-link", "run-now", "edit",
+})
+
+ACTION_ALIASES: Dict[str, str] = {
+    "send": "post",
+    "dup": "duplicate",
+    "runnow": "run-now",
+}
+
+# Document types that book GL entries when posted (post / post-like transitions)
+GL_POSTING_DOC_TYPES: FrozenSet[str] = frozenset({
+    "invoices", "bills", "credit-notes", "debit-notes", "vendor-credits",
+    "journals", "expenses", "purchase-receipts",
+})
+
+# System account codes used when tenant COA rows exist (see build_gl_proposals)
+GL_ACCOUNT_CODES: Dict[str, str] = {
+    "AR": "1100",
+    "AP": "2100",
+    "SALES": "4000",
+    "EXPENSE": "5000",
+    "GST_OUT": "2310",
+    "GST_IN": "1310",
+}
 
 
 # GST rates (from constants.js)
@@ -26,7 +95,7 @@ GST_RATES = {
 
 @dataclass(frozen=True)
 class DocumentCalculation:
-    """Document calculation result"""
+    """Document calculation result (all money fields in paise)"""
     sub: int = 0
     disc: int = 0
     taxable: int = 0
@@ -131,6 +200,285 @@ def calculate_document_totals(
         total=total,
         inter=inter,
     )
+
+
+def _journal_side_paise(line: Dict[str, Any], side: str) -> int:
+    paise_key = f"{side}_paise"
+    if paise_key in line and line[paise_key] is not None:
+        return int(line[paise_key])
+    raw = line.get(side)
+    if raw is None or raw == "":
+        return 0
+    val = float(raw)
+    # UI journal lines carry `acc`; amounts are rupees on the wire
+    if line.get("acc") is not None:
+        return int(round(val * 100))
+    return int(val)
+
+
+def line_rate_paise(line: Dict[str, Any]) -> int:
+    if line.get("rate_paise") is not None:
+        return int(line["rate_paise"])
+    if line.get("rate") is not None and line.get("rate") != "":
+        return int(line["rate"])
+    if line.get("r") is not None and line.get("r") != "":
+        return int(round(float(line["r"]) * 100))
+    return 0
+
+
+def normalize_document_lines_for_calc(
+    lines: List[Dict[str, Any]],
+    document_type: str,
+) -> List[Dict[str, Any]]:
+    """Map UI/API line shapes to calculate_document_totals inputs (paise rates)."""
+    if document_type == "journals":
+        return [
+            {
+                "dr": _journal_side_paise(ln, "dr"),
+                "cr": _journal_side_paise(ln, "cr"),
+            }
+            for ln in lines
+        ]
+    out: List[Dict[str, Any]] = []
+    for ln in lines:
+        qty = ln.get("qty")
+        if qty is None:
+            qty = ln.get("q", 0)
+        gst = ln.get("gst_rate")
+        if gst is None:
+            gst = ln.get("g", 0)
+        out.append({"qty": qty, "rate": line_rate_paise(ln), "gst_rate": gst})
+    return out
+
+
+def normalize_discount_paise(data: Dict[str, Any]) -> int:
+    if data.get("discount_paise") is not None:
+        return int(data["discount_paise"])
+    if data.get("disc") not in (None, ""):
+        return int(round(float(data["disc"]) * 100))
+    if data.get("discount") not in (None, ""):
+        return int(data["discount"])
+    return 0
+
+
+def validate_journal_balance(calc: DocumentCalculation) -> Optional[str]:
+    if calc.dr != calc.cr:
+        return "document.journal_unbalanced"
+    return None
+
+
+def normalize_document_action(action: str) -> str:
+    a = (action or "").strip().lower().replace("_", "-")
+    return ACTION_ALIASES.get(a, a)
+
+
+def resolve_document_transition(
+    doc_type: str,
+    current_status: str,
+    action: str,
+) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Resolve a document action to a new status.
+
+    Returns (new_status, error_code). (None, None) means a successful no-op.
+    """
+    act = normalize_document_action(action)
+    status = current_status or "Draft"
+    allowed = DOCUMENT_STATUSES.get(doc_type, frozenset())
+
+    if act in NOOP_DOCUMENT_ACTIONS:
+        return None, None
+
+    if act == "post":
+        if status != "Draft":
+            return None, "document.invalid_transition"
+        target = POST_TO.get(doc_type)
+        if not target or target not in allowed:
+            return None, "document.invalid_transition"
+        return target, None
+
+    if act == "accept":
+        if status != "Sent" or doc_type not in ("estimates", "quotes"):
+            return None, "document.invalid_transition"
+        return "Accepted", None
+
+    if act == "decline":
+        if status != "Sent" or doc_type not in ("estimates", "quotes"):
+            return None, "document.invalid_transition"
+        return "Declined", None
+
+    if act == "approve":
+        if status != "Pending approval" or doc_type != "purchase-requests":
+            return None, "document.invalid_transition"
+        return "Approved", None
+
+    if act == "reject":
+        if status != "Pending approval" or doc_type != "purchase-requests":
+            return None, "document.invalid_transition"
+        return "Rejected", None
+
+    if act == "receive":
+        if doc_type != "purchase-orders" or status not in ("Sent", "Partly received"):
+            return None, "document.invalid_transition"
+        return "Received", None
+
+    if act == "apply":
+        if status != "Open" or doc_type not in ("credit-notes", "debit-notes", "vendor-credits"):
+            return None, "document.invalid_transition"
+        return "Applied", None
+
+    if act == "pause":
+        if doc_type != "recurring" or status != "Active":
+            return None, "document.invalid_transition"
+        return "Paused", None
+
+    if act == "resume":
+        if doc_type != "recurring" or status != "Paused":
+            return None, "document.invalid_transition"
+        return "Active", None
+
+    if act == "reverse":
+        if doc_type != "journals" or status != "Posted":
+            return None, "document.invalid_transition"
+        return "Reversed", None
+
+    if act == "reimb":
+        if doc_type != "expenses" or status != "Posted":
+            return None, "document.invalid_transition"
+        return "Reimbursed", None
+
+    if act == "convert":
+        convert_targets = {
+            "estimates": ("Accepted", "Converted"),
+            "quotes": ("Accepted", "Converted"),
+            "sales-orders": ("Confirmed", "Invoiced"),
+            "purchase-requests": ("Approved", "Ordered"),
+            "purchase-orders": ("Received", "Billed"),
+        }
+        rule = convert_targets.get(doc_type)
+        if not rule or status != rule[0]:
+            return None, "document.invalid_transition"
+        return rule[1], None
+
+    if act == "void":
+        if status in VOID_BLOCKED_STATUSES:
+            return None, "document.invalid_transition"
+        if "Void" not in allowed:
+            return None, "document.invalid_transition"
+        return "Void", None
+
+    if act == "pay":
+        # Payment recording is handled via /payments; action is acknowledged only.
+        if doc_type in ("invoices", "bills") and status in ("Sent", "Open", "Overdue", "Partly paid"):
+            return None, None
+        return None, "document.invalid_transition"
+
+    if act == "submit":
+        if doc_type == "purchase-requests" and status == "Draft":
+            return "Pending approval", None
+        return None, "document.invalid_transition"
+
+    if act == "expire":
+        if doc_type in ("estimates", "quotes") and status == "Sent":
+            return "Expired", None
+        return None, "document.invalid_transition"
+
+    return None, "document.unknown_action"
+
+
+def should_post_to_gl(doc_type: str, action: str, new_status: Optional[str]) -> bool:
+    act = normalize_document_action(action)
+    if doc_type not in GL_POSTING_DOC_TYPES:
+        return False
+    if act not in ("post", "send"):
+        return False
+    if new_status is None:
+        return False
+    return new_status in ("Open", "Posted", "Sent")
+
+
+@dataclass(frozen=True)
+class GlProposal:
+    account_code: str
+    dr_paise: int = 0
+    cr_paise: int = 0
+
+
+def build_gl_proposals(doc_type: str, totals: Dict[str, Any]) -> List[GlProposal]:
+    """Balanced double-entry lines for supported document types (amounts in paise)."""
+    total = int(totals.get("total_paise") or totals.get("total") or 0)
+    taxable = int(totals.get("taxable") or 0)
+    tax = int(totals.get("tax") or 0)
+
+    if doc_type == "invoices":
+        return [
+            GlProposal(GL_ACCOUNT_CODES["AR"], dr_paise=total),
+            GlProposal(GL_ACCOUNT_CODES["SALES"], cr_paise=taxable),
+            GlProposal(GL_ACCOUNT_CODES["GST_OUT"], cr_paise=tax),
+        ]
+    if doc_type == "bills":
+        return [
+            GlProposal(GL_ACCOUNT_CODES["EXPENSE"], dr_paise=taxable),
+            GlProposal(GL_ACCOUNT_CODES["GST_IN"], dr_paise=tax),
+            GlProposal(GL_ACCOUNT_CODES["AP"], cr_paise=total),
+        ]
+    if doc_type == "credit-notes":
+        return [
+            GlProposal(GL_ACCOUNT_CODES["SALES"], dr_paise=taxable),
+            GlProposal(GL_ACCOUNT_CODES["GST_OUT"], dr_paise=tax),
+            GlProposal(GL_ACCOUNT_CODES["AR"], cr_paise=total),
+        ]
+    if doc_type == "debit-notes":
+        return [
+            GlProposal(GL_ACCOUNT_CODES["AR"], dr_paise=total),
+            GlProposal(GL_ACCOUNT_CODES["SALES"], cr_paise=taxable),
+            GlProposal(GL_ACCOUNT_CODES["GST_OUT"], cr_paise=tax),
+        ]
+    if doc_type == "vendor-credits":
+        return [
+            GlProposal(GL_ACCOUNT_CODES["AP"], dr_paise=total),
+            GlProposal(GL_ACCOUNT_CODES["EXPENSE"], cr_paise=taxable),
+            GlProposal(GL_ACCOUNT_CODES["GST_IN"], cr_paise=tax),
+        ]
+    if doc_type == "expenses":
+        return [
+            GlProposal(GL_ACCOUNT_CODES["EXPENSE"], dr_paise=total),
+            GlProposal(GL_ACCOUNT_CODES["AP"], cr_paise=total),
+        ]
+    if doc_type == "purchase-receipts":
+        # Inventory asset posting — full stock/COGS split is TODO when items link to accounts.
+        return [
+            GlProposal(GL_ACCOUNT_CODES["EXPENSE"], dr_paise=total),
+            GlProposal(GL_ACCOUNT_CODES["AP"], cr_paise=total),
+        ]
+    if doc_type == "journals":
+        # Journal GL comes from document lines (account_id on lines); stub validates totals only.
+        return []
+    return []
+
+
+def validate_gl_proposals(entries: List[GlProposal]) -> Optional[str]:
+    dr = sum(e.dr_paise for e in entries)
+    cr = sum(e.cr_paise for e in entries)
+    if dr != cr:
+        return "gl.unbalanced"
+    return None
+
+
+def totals_dict_from_calc(calc: DocumentCalculation) -> Dict[str, int]:
+    total_paise = int(calc.total)
+    return {
+        "sub": calc.sub,
+        "disc": calc.disc,
+        "taxable": calc.taxable,
+        "tax": calc.tax,
+        "cg": calc.cg,
+        "sg": calc.sg,
+        "ig": calc.ig,
+        "ro": calc.ro,
+        "total": total_paise,
+        "total_paise": total_paise,
+    }
 
 
 def calculate_gst_breakup(

@@ -69,6 +69,33 @@ export async function updateDocument(id, body) {
   return biz('/documents/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify(body) });
 }
 
+export async function deleteDocument(id) {
+  return biz('/documents/' + encodeURIComponent(id), { method: 'DELETE' });
+}
+
+export async function documentAction(id, action, body = {}) {
+  return biz(
+    '/documents/' + encodeURIComponent(id) + '/actions/' + encodeURIComponent(action),
+    { method: 'POST', body: JSON.stringify(body || {}) },
+  );
+}
+
+export async function createPayment(body) {
+  return biz('/payments', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export async function listItems(q) {
+  if (MOCK) return null;
+  const qs = q ? `?q=${encodeURIComponent(q)}` : '';
+  return biz('/items' + qs);
+}
+
+export async function listAccounts(q) {
+  if (MOCK) return null;
+  const qs = q ? `?q=${encodeURIComponent(q)}` : '';
+  return biz('/accounts' + qs);
+}
+
 /** Send branded transactional email (invoice / reminder / notice). */
 export async function sendMail({ to, subject, message, kind = 'notice' }) {
   if (MOCK) return { ok: true };

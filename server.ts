@@ -140,6 +140,55 @@ app.post("/api/email/send-report", async (req, res) => {
   }
 });
 
+function mailRelaySecretOk(req: express.Request) {
+  const expected = String(process.env.MAIL_RELAY_SECRET || '').trim();
+  if (!expected || expected.length < 16) return false;
+  const header = String(req.headers['x-mail-relay-secret'] || '').trim();
+  const auth = String(req.headers.authorization || '');
+  const bearer = auth.toLowerCase().startsWith('bearer ') ? auth.slice(7).trim() : '';
+  const provided = header || bearer;
+  if (!provided || provided.length !== expected.length) return false;
+  let diff = 0;
+  for (let i = 0; i < expected.length; i += 1) {
+    diff |= expected.charCodeAt(i) ^ provided.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
+/** Business-only (Render → Cloudflare). Do not attach to /api/email/send — Money mobile uses that path. */
+app.post("/api/email/relay", async (req, res) => {
+  if (!mailRelaySecretOk(req)) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const to = String(req.body?.to || '').trim().toLowerCase();
+  const subject = String(req.body?.subject || '').trim();
+  const text = String(req.body?.text || req.body?.message || '').trim();
+  const html = String(req.body?.html || '').trim();
+  const kind = String(req.body?.kind || 'business.relay').trim().slice(0, 40) || 'business.relay';
+  const fromName = String(req.body?.fromName || 'Byjan Business').trim() || 'Byjan Business';
+  if (!to || !subject || (!text && !html)) {
+    return res.status(400).json({ error: 'Missing to, subject, or body' });
+  }
+
+  // Cloudflare Workers block outbound SMTP (TLS handshake fails). Business mail
+  // goes Brevo HTTPS → From byjanbooks@easypado.com. No Vercel hop.
+  try {
+    const { sendBusinessRelayViaBrevoHttp } = await import('./api/_lib/smtp-mail');
+    const info = await sendBusinessRelayViaBrevoHttp({
+      to,
+      subject,
+      text: text || subject,
+      html: html || undefined,
+      kind,
+      fromName,
+    });
+    return res.json({ success: true, messageId: info?.messageId || null });
+  } catch (error: any) {
+    console.error('mail relay failed', error);
+    return res.status(503).json({ error: publicServiceError(error, 'Relay could not send that email.') });
+  }
+});
+
 app.post("/api/email/send", async (req, res) => {
   if (!process.env.VERCEL && !smtpConfigured()) {
     try {

@@ -20,13 +20,13 @@ router = APIRouter()
 
 @router.get("/dashboard")
 async def get_dashboard(
-    principal = Depends(get_current_user),
+    tenant=Depends(require_tenant),
     db: AsyncSession = Depends(get_db_session),
 ):
     """KPIs, work waiting, cash and bank, receivables and payables snapshot"""
-    # TODO: Implement dashboard
-    return {"status": "ok"}
-
+    _, tenant_id = tenant
+    from app.business.service import BusinessService
+    return await BusinessService(db).get_dashboard(tenant_id)
 
 @router.get("/analytics")
 async def get_analytics(
@@ -91,19 +91,28 @@ async def get_accounts(
     type: Optional[str] = None,
     q: Optional[str] = None,
     archived: Optional[bool] = None,
-    principal = Depends(get_current_user),
+    tenant=Depends(require_tenant),
+    db: AsyncSession = Depends(get_db_session),
 ):
     """Chart of accounts"""
-    # TODO: Implement accounts list
-    return []
+    _, tenant_id = tenant
+    from app.business.service import BusinessService
+    return await BusinessService(db).list_accounts(tenant_id, q=q, type=type)
 
 
 @router.post("/accounts")
-async def create_account(request: dict, principal = Depends(get_current_user)):
+async def create_account(
+    request: dict,
+    tenant=Depends(require_tenant),
+    db: AsyncSession = Depends(get_db_session),
+):
     """Create account"""
-    # TODO: Implement account creation
-    return {"id": "account_123"}
-
+    _, tenant_id = tenant
+    from app.business.service import BusinessService
+    result = await BusinessService(db).create_account(tenant_id, request or {})
+    if result.is_err():
+        raise HTTPException(status_code=400, detail={"code": result.unwrap_err(), "message": "Could not create account"})
+    return result.unwrap()
 
 @router.get("/accounts/{id}")
 async def get_account(id: str, principal = Depends(get_current_user)):
@@ -257,17 +266,37 @@ async def update_party(
 
 
 @router.post("/parties/{id}/actions/archive")
-async def archive_party(id: str, principal = Depends(get_current_user)):
+async def archive_party(
+    id: str,
+    tenant=Depends(require_tenant),
+    db: AsyncSession = Depends(get_db_session),
+):
     """Archive party"""
-    # TODO: Implement archive
-    return {"status": "ok"}
+    _, tenant_id = tenant
+    from app.business.service import BusinessService
+    result = await BusinessService(db).set_party_archived(tenant_id, id, True)
+    if result.is_err():
+        code = result.unwrap_err()
+        status_code = 404 if code == "party.not_found" else 400
+        raise HTTPException(status_code=status_code, detail={"code": code, "message": "Could not archive party"})
+    return {"status": "ok", "party": result.unwrap()}
 
 
 @router.post("/parties/{id}/actions/unarchive")
-async def unarchive_party(id: str, principal = Depends(get_current_user)):
+async def unarchive_party(
+    id: str,
+    tenant=Depends(require_tenant),
+    db: AsyncSession = Depends(get_db_session),
+):
     """Unarchive party"""
-    # TODO: Implement unarchive
-    return {"status": "ok"}
+    _, tenant_id = tenant
+    from app.business.service import BusinessService
+    result = await BusinessService(db).set_party_archived(tenant_id, id, False)
+    if result.is_err():
+        code = result.unwrap_err()
+        status_code = 404 if code == "party.not_found" else 400
+        raise HTTPException(status_code=status_code, detail={"code": code, "message": "Could not unarchive party"})
+    return {"status": "ok", "party": result.unwrap()}
 
 
 @router.post("/parties/{id}/actions/merge")
@@ -326,17 +355,31 @@ async def lookup_gstin(gstin: str, principal = Depends(get_current_user)):
 
 
 @router.get("/items")
-async def get_items(q: Optional[str] = None, type: Optional[str] = None, principal = Depends(get_current_user)):
+async def get_items(
+    q: Optional[str] = None,
+    type: Optional[str] = None,
+    tenant=Depends(require_tenant),
+    db: AsyncSession = Depends(get_db_session),
+):
     """Items (goods, services)"""
-    # TODO: Implement items list
-    return []
+    _, tenant_id = tenant
+    from app.business.service import BusinessService
+    return await BusinessService(db).list_items(tenant_id, q=q, type=type)
 
 
 @router.post("/items")
-async def create_item(request: dict, principal = Depends(get_current_user)):
+async def create_item(
+    request: dict,
+    tenant=Depends(require_tenant),
+    db: AsyncSession = Depends(get_db_session),
+):
     """Create item"""
-    # TODO: Implement item creation
-    return {"id": "item_123"}
+    _, tenant_id = tenant
+    from app.business.service import BusinessService
+    result = await BusinessService(db).create_item(tenant_id, request or {})
+    if result.is_err():
+        raise HTTPException(status_code=400, detail={"code": result.unwrap_err(), "message": "Could not create item"})
+    return result.unwrap()
 
 
 @router.get("/items/{id}")
@@ -414,22 +457,37 @@ async def get_document_counts(
 
 
 @router.post("/documents/calculate")
-async def calculate_document(request: dict, principal=Depends(get_current_user)):
-    """Editor preview - calculate totals"""
-    from app.business.domain.rules import calculate_document_totals
-    lines = request.get("lines") or []
+async def calculate_document(
+    request: dict,
+    tenant=Depends(require_tenant),
+):
+    """Editor preview - calculate totals (server-authoritative paise)"""
+    from app.business.domain.rules import (
+        calculate_document_totals,
+        normalize_discount_paise,
+        normalize_document_lines_for_calc,
+        totals_dict_from_calc,
+        validate_journal_balance,
+    )
+    _, _tenant_id = tenant
+    doc_type = request.get("type") or request.get("tk") or "invoices"
+    lines = normalize_document_lines_for_calc(request.get("lines") or [], doc_type)
     calc = calculate_document_totals(
         lines,
         party_state_code=request.get("party_state_code"),
         company_state_code=request.get("company_state_code") or "27",
-        document_type=request.get("type") or "invoices",
-        discount=float(request.get("disc") or 0),
-        terms_days=int(request.get("terms_days") or 30),
+        document_type=doc_type,
+        discount=normalize_discount_paise(request),
+        terms_days=int(request.get("terms_days") or request.get("terms") or 30),
     )
-    return {
-        "sub": calc.sub, "disc": calc.disc, "taxable": calc.taxable, "tax": calc.tax,
-        "cg": calc.cg, "sg": calc.sg, "ig": calc.ig, "ro": calc.ro, "total": calc.total,
-    }
+    if doc_type == "journals":
+        j_err = validate_journal_balance(calc)
+        if j_err:
+            raise HTTPException(
+                status_code=422,
+                detail={"code": j_err, "message": "Journal debits and credits must balance"},
+            )
+    return totals_dict_from_calc(calc)
 
 
 @router.get("/documents/next-number")
@@ -496,17 +554,49 @@ async def update_document(
 
 
 @router.delete("/documents/{id}")
-async def delete_document(id: str, principal = Depends(get_current_user)):
+async def delete_document(
+    id: str,
+    tenant=Depends(require_tenant),
+    db: AsyncSession = Depends(get_db_session),
+):
     """Delete document (drafts only)"""
-    # TODO: Implement document deletion
-    return {"status": "ok"}
+    _, tenant_id = tenant
+    from app.business.service import BusinessService
+    result = await BusinessService(db).delete_document(tenant_id, id)
+    if result.is_err():
+        code = result.unwrap_err()
+        if code == "document.not_found":
+            raise HTTPException(status_code=404, detail={"code": code, "message": "Document not found"})
+        if code == "document.delete_not_draft":
+            raise HTTPException(status_code=409, detail={"code": code, "message": "Only draft documents can be deleted"})
+        raise HTTPException(status_code=400, detail={"code": code, "message": "Could not delete document"})
+    return result.unwrap()
 
 
 @router.post("/documents/{id}/actions/{action}")
-async def document_action(id: str, action: str, request: dict = {}, principal = Depends(get_current_user)):
+async def document_action(
+    id: str,
+    action: str,
+    request: dict = {},
+    tenant=Depends(require_tenant),
+    db: AsyncSession = Depends(get_db_session),
+):
     """Document actions (post, send, remind, submit, approve, reject, accept, decline, expire, convert, receive, pay, apply, void, reverse, pause, resume, run-now, duplicate, einvoice, cancel-einvoice, ewaybill, payment-link)"""
-    # TODO: Implement document actions
-    return {"status": "ok", "action": action}
+    _, tenant_id = tenant
+    from app.business.service import BusinessService
+
+    result = await BusinessService(db).document_action(tenant_id, id, action, request or {})
+    if result.is_err():
+        code = result.unwrap_err()
+        if code == "document.not_found":
+            raise HTTPException(status_code=404, detail={"code": code, "message": "Document not found"})
+        if code in ("document.invalid_transition", "document.journal_unbalanced", "gl.unbalanced", "gl.account_missing"):
+            raise HTTPException(status_code=409, detail={"code": code, "message": "Action not allowed in current state"})
+        if code == "document.unknown_action":
+            raise HTTPException(status_code=400, detail={"code": code, "message": "Unknown document action"})
+        raise HTTPException(status_code=400, detail={"code": code, "message": "Could not apply document action"})
+    body = result.unwrap()
+    return {"status": body["status"], "action": body["action"], **{k: v for k, v in body.items() if k not in ("status", "action")}}
 
 
 @router.post("/documents/bulk")
@@ -547,11 +637,13 @@ async def get_payments(
     party_id: Optional[str] = None,
     from_date: Optional[date] = None,
     to_date: Optional[date] = None,
-    principal = Depends(get_current_user),
+    tenant=Depends(require_tenant),
+    db: AsyncSession = Depends(get_db_session),
 ):
     """Payments list"""
-    # TODO: Implement payments list
-    return []
+    _, tenant_id = tenant
+    from app.business.service import BusinessService
+    return await BusinessService(db).list_payments(tenant_id, direction=direction, party_id=party_id)
 
 
 @router.get("/payments/{id}")
@@ -562,10 +654,18 @@ async def get_payment(id: str, principal = Depends(get_current_user)):
 
 
 @router.post("/payments")
-async def create_payment(request: dict, principal = Depends(get_current_user)):
-    """Create payment (money-moving, requires Idempotency-Key)"""
-    # TODO: Implement payment creation
-    return {"id": "payment_123"}
+async def create_payment(
+    request: dict,
+    tenant=Depends(require_tenant),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Create payment (money-moving)"""
+    _, tenant_id = tenant
+    from app.business.service import BusinessService
+    result = await BusinessService(db).create_payment(tenant_id, request or {})
+    if result.is_err():
+        raise HTTPException(status_code=400, detail={"code": result.unwrap_err(), "message": "Could not create payment"})
+    return result.unwrap()
 
 
 @router.post("/payments/{id}/actions/void")

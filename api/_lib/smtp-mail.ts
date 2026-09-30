@@ -89,6 +89,39 @@ function useBrevoHttp() {
   return false;
 }
 
+/** Business relay on Cloudflare Workers: HTTPS only (Workers cannot do SMTP TLS). */
+export async function sendBusinessRelayViaBrevoHttp(input: {
+  to: string;
+  subject: string;
+  html?: string;
+  text?: string;
+  fromName?: string;
+  kind?: string;
+}) {
+  const apiKey = brevoApiKey();
+  if (!apiKey) {
+    throw new Error('BREVO_API_KEY is required for Business mail on Cloudflare');
+  }
+  const from = 'byjanbooks@easypado.com';
+  const text = String(input.text || '').trim()
+    || String(input.html || '').replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim()
+    || input.subject;
+  const kind = input.kind || 'business.relay';
+  return sendViaBrevoHttp(
+    {
+      to: input.to,
+      subject: input.subject,
+      html: input.html,
+      text,
+      fromName: input.fromName || 'Byjan Business',
+      replyTo: from,
+    },
+    from,
+    kind,
+    text,
+  );
+}
+
 async function sendViaBrevoHttp(input: {
   to: string;
   subject: string;

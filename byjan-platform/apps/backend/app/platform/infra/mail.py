@@ -31,21 +31,25 @@ def _relay_ready() -> bool:
     return bool((settings.MAIL_RELAY_URL or "").strip() and (settings.MAIL_RELAY_SECRET or "").strip())
 
 
+def _brevo_api_key() -> str:
+    return (getattr(settings, "BREVO_API_KEY", None) or settings.EMAIL_API_KEY or "").strip()
+
+
+def _brevo_http_ready() -> bool:
+    return bool(_brevo_api_key())
+
+
 def mail_configured() -> bool:
-    """True when SMTP and/or the Vercel HTTP mail relay is configured."""
-    return _smtp_ready() or _relay_ready()
+    """True when Brevo HTTPS, Cloudflare relay, and/or SMTP is configured."""
+    return _brevo_http_ready() or _relay_ready() or _smtp_ready()
 
 
 def mail_from_address() -> str:
-    """Prefer MAIL_FROM / EMAIL_FROM on Brevo. On Gmail SMTP the From must match the login."""
-    host = (settings.SMTP_HOST or "").strip().lower()
-    user = (settings.SMTP_USER or "").strip()
-    if user and ("gmail.com" in host or "googlemail.com" in host or host == "smtp.gmail.com"):
-        return user
+    """Always send Business mail as byjanbooks@easypado.com (Brevo domain). Never Gmail."""
     raw = (settings.MAIL_FROM or settings.EMAIL_FROM or "").strip()
-    if not raw or raw.endswith("@byjan.com") or "noreply@byjan" in raw:
-        return "byjanbooks@easypado.com"
-    return raw
+    if raw and not raw.lower().endswith("@gmail.com") and "noreply@byjan" not in raw.lower():
+        return raw
+    return "byjanbooks@easypado.com"
 
 
 def _escape(s: str) -> str:
@@ -197,6 +201,58 @@ def _send_smtp_sync(
     return msg["Message-ID"] or "sent"
 
 
+async def _send_brevo_http(
+    *,
+    to: str,
+    subject: str,
+    text: str,
+    html_body: Optional[str],
+    kind: str,
+) -> str:
+    """Send via Brevo HTTPS from Render (no SMTP ports). From = byjanbooks@easypado.com."""
+    import httpx
+
+    api_key = _brevo_api_key()
+    if not api_key:
+        raise RuntimeError("BREVO_API_KEY not set")
+    from_addr = mail_from_address()
+    payload = {
+        "sender": {"name": "Byjan Business", "email": from_addr},
+        "to": [{"email": to}],
+        "replyTo": {"email": from_addr},
+        "subject": subject,
+        "textContent": text or subject,
+        "headers": {
+            "List-Unsubscribe": f"<mailto:{from_addr}?subject=unsubscribe>, <{BUSINESS_URL}>",
+            "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+            "Feedback-ID": f"{kind}:ByjanBusiness:easypado",
+        },
+    }
+    if html_body:
+        payload["htmlContent"] = html_body
+    async with httpx.AsyncClient(timeout=25.0) as client:
+        res = await client.post(
+            "https://api.brevo.com/v3/smtp/email",
+            json=payload,
+            headers={
+                "accept": "application/json",
+                "content-type": "application/json",
+                "api-key": api_key,
+            },
+        )
+    if res.status_code >= 400:
+        detail = (res.text or "")[:240]
+        raise RuntimeError(f"brevo http {res.status_code}: {detail}")
+    data = {}
+    try:
+        data = res.json()
+    except Exception:
+        pass
+    mid = str(data.get("messageId") or data.get("id") or "brevo")
+    log.info("mail_brevo_http", to=to, kind=kind, subject=subject[:80], message_id=mid)
+    return mid
+
+
 async def _send_relay(
     *,
     to: str,
@@ -205,7 +261,7 @@ async def _send_relay(
     html_body: Optional[str],
     kind: str,
 ) -> str:
-    """POST branded mail through Vercel (Render free blocks SMTP ports)."""
+    """POST branded mail through Cloudflare Worker (Render free blocks SMTP ports)."""
     import httpx
 
     url = (settings.MAIL_RELAY_URL or "").strip()
@@ -251,12 +307,29 @@ async def send_mail(
     kind: str = "transactional",
 ) -> str:
     if not mail_configured():
-        raise RuntimeError("Mail is not configured (set SMTP_* or MAIL_RELAY_*)")
+        raise RuntimeError("Mail is not configured (set BREVO_API_KEY, MAIL_RELAY_*, or SMTP_*)")
     to_addr = str(to or "").strip().lower()
     if not to_addr or "@" not in to_addr:
         raise ValueError("invalid recipient")
 
-    # Prefer HTTP relay on Render (SMTP 25/465/587 are blocked on free tier).
+    # 1) Brevo HTTPS on Render (preferred — branded easypado.com, no SMTP ports).
+    if _brevo_http_ready():
+        try:
+            mid = await _send_brevo_http(
+                to=to_addr,
+                subject=subject,
+                text=text,
+                html_body=html_body,
+                kind=kind,
+            )
+            log.info("mail_sent", to=to_addr, kind=kind, subject=subject[:80], via="brevo-http")
+            return mid
+        except Exception as brevo_err:
+            if not _relay_ready() and not _smtp_ready():
+                raise
+            log.warning("mail_brevo_http_failed", error=str(brevo_err)[:200])
+
+    # 2) Cloudflare Worker relay (HTTPS). No Vercel.
     if _relay_ready():
         try:
             mid = await _send_relay(

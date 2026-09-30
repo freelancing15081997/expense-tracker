@@ -9,6 +9,7 @@
     "api/tracker.ts": { "maxDuration": 30, "includeFiles": "api/{_pg-tables.js,_lib/**}" },
     "api/migrate.ts": { "maxDuration": 60, "includeFiles": "api/_pg-tables.js" },
     "api/email/send.ts": { "maxDuration": 60 },
+    "api/email/relay.ts": { "maxDuration": 60 },
     "api/auth/otp.ts": { "maxDuration": 30, "includeFiles": "api/{_pg-tables.js,_lib/**}" },
     "api/email/inbound.ts": { "maxDuration": 60, "includeFiles": "api/{_pg-tables.js,_lib/**}" },
     "api/blob/upload.ts": { "maxDuration": 30, "includeFiles": "api/{_pg-tables.js,_lib/**}" },
@@ -26,7 +27,7 @@
       "source": "/api/(.*)",
       "headers": [
         { "key": "Access-Control-Allow-Methods", "value": "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS" },
-        { "key": "Access-Control-Allow-Headers", "value": "Authorization,Content-Type,X-CSRF-Token,X-Requested-With,Accept,X-Tenant-Id,X-Book-Id,X-File-Id,X-File-Ext,X-File-Name,X-Content-Type,X-Inbound-Secret,X-Brevo-Secret,X-Mail-Relay-Secret,X-Hint-Text,vercel-blob-api-version" },
+        { "key": "Access-Control-Allow-Headers", "value": "Authorization,Content-Type,X-CSRF-Token,X-Requested-With,Accept,X-Tenant-Id,X-Book-Id,X-File-Id,X-File-Ext,X-File-Name,X-Content-Type,X-Inbound-Secret,X-Brevo-Secret,X-Hint-Text,vercel-blob-api-version" },
         { "key": "Access-Control-Allow-Credentials", "value": "true" },
         { "key": "Vary", "value": "Origin" }
       ]
@@ -35,7 +36,6 @@
   "rewrites": [
     { "source": "/api/email/send-report", "destination": "/api/email/send" },
     { "source": "/api/email/unsubscribe", "destination": "/api/email/send?op=unsubscribe" },
-    { "source": "/api/email/relay", "destination": "/api/email/send?op=relay" },
     { "source": "/api/ledgers", "destination": "/api/tracker?domain=ledgers" },
     { "source": "/api/expenses", "destination": "/api/tracker?domain=expenses" },
     { "source": "/api/notifications", "destination": "/api/tracker?domain=notifications" },
