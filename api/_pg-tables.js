@@ -42,8 +42,14 @@ async function getLedgerSql() {
   if (!url) throw new Error("Postgres is not configured");
   if (!sqlMem) sqlMem = neon(url);
   if (!schemaReady) {
-    await ensureLedgerSchema(sqlMem);
-    schemaReady = true;
+    // Cloudflare Free caps external subrequests at 50/request. Schema DDL alone
+    // exceeds that and Money Home never loads. Neon schema is already applied.
+    if (process.env.CF_WORKER === "1") {
+      schemaReady = true;
+    } else {
+      await ensureLedgerSchema(sqlMem);
+      schemaReady = true;
+    }
   }
   return sqlMem;
 }
