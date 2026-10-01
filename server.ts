@@ -34,6 +34,16 @@ async function proxyEmailToProduction(req: express.Request, res: express.Respons
   res.send(text);
 }
 
+/** Run a serverless-style handler; a thrown error becomes a 500 instead of crashing the Express process. */
+async function runHandler(res: express.Response, label: string, work: () => Promise<unknown>) {
+  try {
+    await work();
+  } catch (error) {
+    console.error(`${label} failed`, error);
+    if (!res.headersSent) res.status(500).json({ error: "The service is busy right now. Please try again." });
+  }
+}
+
 app.use("/api", (req, res, next) => {
   applyCors(req, res);
   if (req.method === "OPTIONS") {
@@ -62,6 +72,14 @@ app.get("/api/blob/file", async (req, res) => {
   await file(req as any, res as any);
 });
 
+// Cashfree webhook verifies its signature over the raw body, so it must run before the JSON parser.
+app.post(["/api/payments/cashfree/webhook", "/api/payments/cashfree-webhook"], async (req, res) => {
+  await runHandler(res, "cashfree webhook", async () => {
+    const { default: webhook } = await import("./api/payments/cashfree-webhook");
+    await webhook(req as any, res as any);
+  });
+});
+
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
@@ -85,9 +103,18 @@ app.all("/api/invites", async (req, res) => {
   const { default: invites } = await import("./api/invites");
   await invites(req as any, res as any);
 });
-app.all(["/api/ledgers", "/api/expenses", "/api/notifications", "/api/me", "/api/support", "/api/books", "/api/tracker"], async (req, res) => {
-  const { default: tracker } = await import("./api/tracker");
-  await tracker(req as any, res as any);
+app.all(["/api/ledgers", "/api/expenses", "/api/notifications", "/api/me", "/api/support", "/api/books", "/api/money", "/api/saas", "/api/owner", "/api/tracker"], async (req, res) => {
+  await runHandler(res, "tracker", async () => {
+    const { default: tracker } = await import("./api/tracker");
+    await tracker(req as any, res as any);
+  });
+});
+// Cashfree hosted checkout + return pages (mirrors the vercel.json rewrites; the page reads /pay/return from the path).
+app.all(["/pay/cashfree", "/pay/return", "/api/payments/cashfree-page"], async (req, res) => {
+  await runHandler(res, "cashfree page", async () => {
+    const { default: page } = await import("./api/payments/cashfree-page");
+    await page(req as any, res as any);
+  });
 });
 app.post("/api/email/inbound", async (req, res) => {
   const { default: inbound } = await import("./api/email/inbound");
