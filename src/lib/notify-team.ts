@@ -34,7 +34,7 @@ export async function notifyLedgerMembers(input: {
       senderName: input.senderName,
       ledgerMail: input.ledgerMail,
       link,
-      skipPush: (input.kind || 'entry') === 'entry',
+      skipPush: false,
     }).catch((err) => console.error('Could not notify teammate', err))
   ));
 }
@@ -86,49 +86,58 @@ export async function notifyTeamOfLedgerChange(input: {
     extraHtml: openLedgerButtonHtml(bookId),
   });
 
+  const list = [...new Set(emails.map((email) => String(email || '').trim().toLowerCase()).filter((email) => email.includes('@')))];
+  if (!list.length) return;
+  void deliverTeamMail(bookId, input.action, subject, message, list, bookInboundAddress(input.book));
+}
+
+async function deliverTeamMail(bookId: string, action: string, subject: string, message: string, list: string[], ledgerMail: string) {
   const { addLedgerMailEvent } = await import('./ledgers');
-  await Promise.all(emails.map(async (email) => {
-    try {
-      const sent = await apiPost<{
-        success?: boolean;
-        messageId?: string;
-        delivered?: boolean;
-        delivery?: { status?: string };
-      }>('/api/email/send', {
-        to: email,
-        subject,
-        message,
-        bookId,
-        ledgerMail: bookInboundAddress(input.book),
-        kind: 'notice',
-      });
-      const deliveryStatus = String(sent?.delivery?.status || (sent?.delivered ? 'delivered' : sent?.messageId ? 'accepted' : 'unknown'));
-      const honestStatus = deliveryStatus === 'delivered' ? 'sent' : deliveryStatus === 'failed' ? 'failed' : 'accepted';
-      await addLedgerMailEvent(bookId, {
-        direction: 'outbound',
-        status: honestStatus,
-        toEmail: email,
-        subject,
-        action: input.action,
-        detail: honestStatus === 'sent'
-          ? 'Delivered (confirmed by mail provider)'
-          : 'Accepted by mail provider — inbox delivery not confirmed yet',
-        messageId: sent?.messageId || null,
-        via: 'godaddy-smtp',
-        deliveryStatus,
-        createdAt: new Date().toISOString(),
-      }).catch(() => undefined);
-    } catch (err: any) {
-      console.error('Team email failed', err);
-      await addLedgerMailEvent(bookId, {
-        direction: 'outbound',
-        status: 'failed',
-        toEmail: email,
-        subject,
-        action: input.action,
-        detail: err?.message || 'Send failed',
-        createdAt: new Date().toISOString(),
-      }).catch(() => undefined);
+  try {
+    const sent = await apiPost<{
+      success?: boolean;
+      messageId?: string;
+      results?: Array<{ to?: string; ok?: boolean; messageId?: string | null; error?: string }>;
+    }>('/api/email/send', {
+      to: list[0],
+      recipients: list,
+      subject,
+      message,
+      bookId,
+      ledgerMail,
+      kind: 'notice',
+    });
+    let rows = Array.isArray(sent?.results) && sent.results.length ? sent.results : null;
+    if (!rows) {
+      rows = [{ to: list[0], ok: Boolean(sent?.messageId || sent?.success), messageId: sent?.messageId || null }];
+      for (const email of list.slice(1)) {
+        const one = await apiPost<{ success?: boolean; messageId?: string }>('/api/email/send', {
+          to: email, subject, message, bookId, ledgerMail, kind: 'notice',
+        });
+        rows.push({ to: email, ok: Boolean(one?.messageId || one?.success), messageId: one?.messageId || null });
+      }
     }
-  }));
+    await Promise.all(rows.map((row) => addLedgerMailEvent(bookId, {
+      direction: 'outbound',
+      status: row.ok === false ? 'failed' : 'accepted',
+      toEmail: String(row.to || ''),
+      subject,
+      action,
+      detail: row.ok === false ? (row.error || 'Send failed') : 'Accepted by mail provider',
+      messageId: row.messageId || null,
+      via: 'godaddy-smtp',
+      createdAt: new Date().toISOString(),
+    }).catch(() => undefined)));
+  } catch (err: any) {
+    console.error('Team email failed', err);
+    await Promise.all(list.map((email) => addLedgerMailEvent(bookId, {
+      direction: 'outbound',
+      status: 'failed',
+      toEmail: email,
+      subject,
+      action,
+      detail: err?.message || 'Send failed',
+      createdAt: new Date().toISOString(),
+    }).catch(() => undefined)));
+  }
 }

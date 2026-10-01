@@ -1394,10 +1394,7 @@ export default function BookView() {
         extraHtml: openLedgerButtonHtml(bookId || book.id),
       });
       
-      for (const email of emails) {
-        // This hits our reliable Express backend which doesn't lose credentials
-        sendEmailNotification(email, subject, message, { action, silent: !htmlOverride }).catch(console.error);
-      }
+      sendEmailNotification(emails, subject, message, { action, silent: !htmlOverride }).catch(console.error);
     }
   };
 
@@ -1911,7 +1908,9 @@ export default function BookView() {
     }
   };
 
-  const sendEmailNotification = async (toEmail: string, subject: string, message: string, meta?: { action?: string; kind?: string; silent?: boolean }) => {
+  const sendEmailNotification = async (toEmail: string | string[], subject: string, message: string, meta?: { action?: string; kind?: string; silent?: boolean }) => {
+    const list = [...new Set((Array.isArray(toEmail) ? toEmail : [toEmail]).map((email) => String(email || '').trim().toLowerCase()).filter((email) => email.includes('@')))];
+    if (!list.length) return;
     try {
       const { apiPost } = await import('../lib/api');
       const kind = meta?.kind
@@ -1923,14 +1922,33 @@ export default function BookView() {
         messageId?: string;
         delivered?: boolean;
         delivery?: { status?: string; events?: Array<{ event?: string }> };
+        results?: Array<{ to?: string; ok?: boolean; messageId?: string | null; error?: string }>;
       }>('/api/email/send', {
-        to: toEmail,
+        to: list[0],
+        recipients: list.length > 1 ? list : undefined,
         subject,
         message,
         bookId: bookId || undefined,
         ledgerMail: inboundAddress || bookInboundAddress(book),
         kind,
       });
+      if (Array.isArray(sent?.results) && sent.results.length) {
+        for (const row of sent.results) {
+          await addLedgerMailEvent(bookId || book.id, {
+            direction: 'outbound',
+            status: row.ok === false ? 'failed' : 'accepted',
+            toEmail: String(row.to || ''),
+            subject,
+            action: meta?.action || 'Notice',
+            detail: row.ok === false ? (row.error || 'Send failed') : 'Accepted by mail provider',
+            messageId: row.messageId || null,
+            via: 'godaddy-smtp',
+            createdAt: new Date().toISOString(),
+          }).catch(() => undefined);
+        }
+        return;
+      }
+      const toEmailOne = list[0];
       const deliveryStatus = String(sent?.delivery?.status || (sent?.delivered ? 'delivered' : sent?.messageId ? 'accepted' : 'unknown'));
       const honestStatus = deliveryStatus === 'delivered' ? 'sent' : deliveryStatus === 'failed' ? 'failed' : 'accepted';
       const detail = honestStatus === 'sent'
@@ -1942,7 +1960,7 @@ export default function BookView() {
         await addLedgerMailEvent(bookId, {
           direction: 'outbound',
           status: honestStatus,
-          toEmail,
+          toEmail: toEmailOne,
           subject,
           action: meta?.action || 'Team notification',
           detail,
@@ -1952,6 +1970,31 @@ export default function BookView() {
           createdAt: new Date().toISOString(),
         }).catch(() => undefined);
       }
+      if (list.length > 1) {
+        for (const email of list.slice(1)) {
+          const one = await apiPost<{ success?: boolean; messageId?: string }>('/api/email/send', {
+            to: email,
+            subject,
+            message,
+            bookId: bookId || undefined,
+            ledgerMail: inboundAddress || bookInboundAddress(book),
+            kind,
+          });
+          if (bookId) {
+            await addLedgerMailEvent(bookId, {
+              direction: 'outbound',
+              status: one?.messageId || one?.success ? 'accepted' : 'failed',
+              toEmail: email,
+              subject,
+              action: meta?.action || 'Team notification',
+              detail: one?.messageId || one?.success ? 'Accepted by mail provider' : 'Send failed',
+              messageId: one?.messageId || null,
+              via: 'godaddy-smtp',
+              createdAt: new Date().toISOString(),
+            }).catch(() => undefined);
+          }
+        }
+      }
       return honestStatus !== 'failed';
     } catch (err: any) {
       console.error('Failed to send email via backend:', err);
@@ -1959,7 +2002,7 @@ export default function BookView() {
         await addLedgerMailEvent(bookId, {
           direction: 'outbound',
           status: 'failed',
-          toEmail,
+          toEmail: toEmailOne,
           subject,
           action: meta?.action || 'Team notification',
           detail: err?.message || 'Send failed',

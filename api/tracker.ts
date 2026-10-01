@@ -634,27 +634,29 @@ async function handleNotifications(req: VercelRequest, res: VercelResponse) {
         createdAt: new Date().toISOString(),
         read: false,
       });
-      const profile = await ledgerGetUser(targetUid);
-      const pushToken = String(profile?.pushToken || '').trim();
-      if (pushToken && body.skipPush !== true) {
-        try {
+      if (body.skipPush !== true) {
+        const settlementId = String(body.settlementId || '');
+        const path = String(body.link || (settlementId ? `/book/${bookId}?pay=${encodeURIComponent(settlementId)}` : `/book/${bookId}`));
+        const title = String(body.bookName || 'Byjan');
+        const bodyText = `${String(body.senderName || user.email)} ${String(body.action || 'updated the book').toLowerCase()}`;
+        afterResponse(async () => {
+          const profile = await ledgerGetUser(targetUid);
+          const pushToken = String(profile?.pushToken || '').trim();
+          if (!pushToken) {
+            console.error('FCM skip: no push token', targetUid);
+            return;
+          }
           const { sendFcm } = await pushModule();
-          const settlementId = String(body.settlementId || '');
-          const path = String(body.link || (settlementId ? `/book/${bookId}?pay=${encodeURIComponent(settlementId)}` : `/book/${bookId}`));
           await sendFcm(pushToken, {
-            title: String(body.bookName || 'Byjan'),
-            body: `${String(body.senderName || user.email)} ${String(body.action || 'updated the book').toLowerCase()}`,
+            title,
+            body: bodyText,
             data: {
               bookId,
               settlementId,
               url: `/#${path.startsWith('/') ? path : `/${path}`}`,
             },
           });
-        } catch (err) {
-          console.error('notification FCM failed', targetUid, err);
-        }
-      } else if (!pushToken) {
-        console.error('FCM skip: no push token', targetUid);
+        });
       }
       apiJson(res, 200, { notification });
       return;
