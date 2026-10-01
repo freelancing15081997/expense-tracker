@@ -84,7 +84,13 @@ export function publicServiceError(err: unknown, fallback = 'Could not complete 
   if (/daily.?user.?sending.?limit|sending.?limit.?exceeded/i.test(text)) {
     return 'Email delivery hit today\u2019s send limit. Please try again in a few hours.';
   }
-  if (/smtp|not configured/i.test(text)) {
+  if (/did not queue delivery|transactional\/SMTP sending is not active|transactional email/i.test(text)) {
+    return 'Mail is not delivering: Brevo accepted the request but did not queue it. Activate transactional email in Brevo for byjanbooks@easypado.com (support), then retry.';
+  }
+  if (/TLS Handshake Failed|ESOCKET/i.test(text)) {
+    return 'Email delivery hit a temporary connection error. Please try again.';
+  }
+  if (/smtp|not configured|BREVO_API_KEY/i.test(text)) {
     return 'Email is temporarily unavailable. Please try again later.';
   }
   return fallback;

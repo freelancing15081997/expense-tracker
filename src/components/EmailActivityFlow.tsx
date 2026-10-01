@@ -146,7 +146,7 @@ export function EventMailTrack({ event }: { event: EventRow }) {
 
 export function emailStatusLabel(status: string) {
   switch (status) {
-    case 'accepted':
+    case 'accepted': return 'Accepted';
     case 'recorded': return 'Saved';
     case 'processing': return 'Working';
     case 'amount_missing': return 'Needs amount';
@@ -155,14 +155,15 @@ export function emailStatusLabel(status: string) {
     case 'duplicate_pending': return 'Waiting on sender';
     case 'duplicate_same': return 'Same receipt';
     case 'duplicate_new': return 'New entry';
-    case 'sent': return 'Sent';
+    case 'sent': return 'Delivered';
     case 'failed': return 'Failed';
     default: return 'Working';
   }
 }
 
 export function emailStatusClass(status: string) {
-  if (['accepted', 'sent', 'duplicate_new', 'recorded'].includes(status)) return 'bg-emerald-50 text-emerald-800 border-emerald-200';
+  if (['sent', 'duplicate_new', 'recorded'].includes(status)) return 'bg-emerald-50 text-emerald-800 border-emerald-200';
+  if (status === 'accepted') return 'bg-sky-50 text-sky-800 border-sky-200';
   if (['rejected', 'failed', 'unreadable', 'duplicate_same'].includes(status)) return 'bg-amber-50 text-amber-800 border-amber-200';
   if (['amount_missing', 'duplicate_pending', 'processing'].includes(status)) return 'bg-sky-50 text-sky-800 border-sky-200';
   return 'bg-slate-50 text-slate-700 border-slate-200';

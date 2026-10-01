@@ -15,6 +15,7 @@ import {
   ledgerListBooksForUser,
   ledgerListExpensesByBooks,
   ledgerListLiveExpenses,
+  ledgerListLiveExpensesForMember,
   ledgerListMailEvents,
   ledgerListNotifications,
   ledgerMarkNotificationRead,
@@ -25,6 +26,8 @@ import {
   ledgerRequireMember,
   ledgerRequireWriter,
   ledgerSaveExpense,
+  ledgerInsertExpenseAsWriter,
+  ledgerUpdateExpenseAsWriter,
   ledgerSet,
   ledgerSoftDeleteBook,
   ledgerSoftDeleteExpense,
@@ -109,6 +112,19 @@ async function notifyBookMembersPush(
       data: { bookId, url: `/#/book/${bookId}`, kind: 'entry', action: payload.action || 'entry' },
     });
   }));
+}
+
+/** Finish side-work after the client already has the success response (CF waitUntil when present). */
+function afterResponse(work: () => Promise<unknown>) {
+  const run = Promise.resolve().then(work).catch((err) => {
+    console.error('[afterResponse]', err instanceof Error ? err.message : err);
+  });
+  try {
+    const wait = (globalThis as { BYJAN_WAIT?: (p: Promise<unknown>) => void }).BYJAN_WAIT;
+    if (typeof wait === 'function') wait(run);
+  } catch {
+    /* ignore */
+  }
 }
 
 function domainFrom(req: VercelRequest): Domain | '' {
@@ -328,8 +344,7 @@ async function handleExpenses(req: VercelRequest, res: VercelResponse) {
     if (op === 'list') {
       const bookId = String(body.bookId || '').trim();
       if (!bookId) throw new ApiError(400, 'Missing ledger');
-      await ledgerRequireMember(bookId, user.uid);
-      apiJson(res, 200, { expenses: await ledgerListLiveExpenses(bookId) });
+      apiJson(res, 200, { expenses: await ledgerListLiveExpensesForMember(bookId, user.uid) });
       return;
     }
 
@@ -379,7 +394,6 @@ async function handleExpenses(req: VercelRequest, res: VercelResponse) {
     if (op === 'create') {
       const bookId = String(body.bookId || '').trim();
       if (!bookId) throw new ApiError(400, 'Missing ledger');
-      await ledgerRequireWriter(bookId, user.uid);
       const idempotencyKey = String(body.idempotencyKey || '').trim();
       if (idempotencyKey) {
         try {
@@ -398,21 +412,20 @@ async function handleExpenses(req: VercelRequest, res: VercelResponse) {
         : {};
       const amt = Number(input.amount || 0);
       if (!Number.isFinite(amt) || amt < 0) throw new ApiError(400, 'Amount cannot be negative');
-      if (!body.force) {
-        const matches = await ledgerFindDuplicateExpense(bookId, input);
-        if (matches.length) throw new ApiError(409, 'A matching entry is already on this ledger', { matches });
-      }
+      const hasFinger =
+        Boolean(String(input.receiptHash || '').trim())
+        || Boolean(String(input.upiRef || '').trim())
+        || Boolean(String(input.invoiceNumber || '').trim());
+      // Skip full-ledger text duplicate scan when there is no receipt/UPI/invoice fingerprint.
+      // Share/OCR flows still pass receiptHash and keep the targeted SQL check.
+      const matches = (!body.force && hasFinger)
+        ? await ledgerFindDuplicateExpense(bookId, input)
+        : [];
+      if (!body.force && matches.length) throw new ApiError(409, 'A matching entry is already on this ledger', { matches });
       const now = new Date().toISOString();
       const paidDate = String(input.paidAt || input.date || now.slice(0, 10)).slice(0, 10);
-      let profileName = '';
-      try {
-        const profile = await ledgerGetUser(user.uid);
-        profileName = String(profile?.displayName || profile?.email || '').trim();
-      } catch {
-        profileName = '';
-      }
-      const displayName = String(input.enteredBy || input.paidByName || profileName || user.email || '').trim();
-      const saved = await ledgerSaveExpense(bookId, {
+      const displayName = String(input.enteredBy || input.paidByName || user.email || '').trim();
+      const saved = await ledgerInsertExpenseAsWriter(bookId, user.uid, {
         ...input,
         date: paidDate,
         paidAt: paidDate,
@@ -427,31 +440,33 @@ async function handleExpenses(req: VercelRequest, res: VercelResponse) {
         processingStatus: input.processingStatus || 'COMPLETED',
         idempotencyKey: idempotencyKey || undefined,
         ...(body.force ? { duplicateConfirmedDifferent: true } : {}),
-      }, { insertOnly: true, allowDuplicateHash: Boolean(body.force) });
-      await mergeCategory(bookId, String((saved.expense as Record<string, unknown>).category || '')).catch(() => undefined);
-      await ledgerAudit({
-        bookId,
-        actorUid: user.uid,
-        actorEmail: user.email,
-        action: 'expense.create',
-        entityType: 'expense',
-        entityId: String(saved.expense.id),
-      });
-      if (idempotencyKey) {
-        try {
-          const { storeExpenseIdempotency } = await moneyModule();
-          await storeExpenseIdempotency(bookId, user.uid, idempotencyKey, { expense: saved.expense });
-        } catch {
-          /* ignore */
-        }
-      }
+      }, { allowDuplicateHash: Boolean(body.force) });
       const created = saved.expense as Record<string, unknown>;
-      await notifyBookMembersPush(bookId, user.uid, {
-        title: 'Byjan',
-        body: `${user.email || 'A teammate'} added ${String(created.description || created.merchant || 'an entry')}`,
-        action: 'entry.create',
-      });
       apiJson(res, 200, { expense: saved.expense });
+      afterResponse(async () => {
+        await mergeCategory(bookId, String(created.category || '')).catch(() => undefined);
+        await ledgerAudit({
+          bookId,
+          actorUid: user.uid,
+          actorEmail: user.email,
+          action: 'expense.create',
+          entityType: 'expense',
+          entityId: String(created.id),
+        });
+        if (idempotencyKey) {
+          try {
+            const { storeExpenseIdempotency } = await moneyModule();
+            await storeExpenseIdempotency(bookId, user.uid, idempotencyKey, { expense: saved.expense });
+          } catch {
+            /* ignore */
+          }
+        }
+        await notifyBookMembersPush(bookId, user.uid, {
+          title: 'Byjan',
+          body: `${user.email || 'A teammate'} added ${String(created.description || created.merchant || 'an entry')}`,
+          action: 'entry.create',
+        });
+      });
       return;
     }
 
@@ -459,53 +474,49 @@ async function handleExpenses(req: VercelRequest, res: VercelResponse) {
       const bookId = String(body.bookId || '').trim();
       const expenseId = String(body.expenseId || body.expense && (body.expense as { id?: string }).id || '').trim();
       if (!bookId || !expenseId) throw new ApiError(400, 'Missing expense');
-      await ledgerRequireWriter(bookId, user.uid);
       const patch = body.expense && typeof body.expense === 'object' && !Array.isArray(body.expense)
         ? body.expense as Record<string, unknown>
         : {};
       const restoring = patch.deleted === false || patch.deletedAt === null;
-      const current = await ledgerGetExpense(bookId, expenseId, { includeDeleted: restoring });
-      if (!current) throw new ApiError(404, 'Expense not found');
-      const nextStatus = restoring
-        ? (String(patch.status || '') === 'deleted' || String(current.status || '') === 'deleted'
-          ? 'recorded'
-          : String(patch.status || current.status || 'recorded'))
+      const restoreStatus = restoring
+        ? (String(patch.status || '') === 'deleted' ? 'recorded' : String(patch.status || 'recorded'))
         : undefined;
-      const saved = await ledgerSaveExpense(bookId, {
-        ...current,
-        ...patch,
-        id: expenseId,
-        // Paid / transaction date can change; never rewrite when the record was created.
-        createdAt: current.createdAt,
-        date: String(patch.paidAt || patch.date || current.paidAt || current.date || '').slice(0, 10) || current.date,
-        paidAt: String(patch.paidAt || patch.date || current.paidAt || current.date || '').slice(0, 10) || current.paidAt || current.date,
-        lastEditedByUid: user.uid,
-        lastEditedAt: new Date().toISOString(),
-        ...(restoring
-          ? {
-              deleted: false,
-              deletedAt: null,
-              deletedBy: null,
-              status: nextStatus || 'recorded',
-            }
-          : {}),
-      });
-      await mergeCategory(bookId, String((saved.expense as Record<string, unknown>).category || '')).catch(() => undefined);
-      await ledgerAudit({
+      const paidDate = String(patch.paidAt || patch.date || '').slice(0, 10);
+      const saved = await ledgerUpdateExpenseAsWriter(
         bookId,
-        actorUid: user.uid,
-        actorEmail: user.email,
-        action: 'expense.update',
-        entityType: 'expense',
-        entityId: expenseId,
-      });
+        user.uid,
+        expenseId,
+        {
+          ...patch,
+          id: expenseId,
+          ...(paidDate
+            ? { date: paidDate, paidAt: paidDate }
+            : {}),
+        },
+        {
+          includeDeleted: restoring,
+          restore: restoring,
+          restoreStatus,
+        },
+      );
       const updated = saved.expense as Record<string, unknown>;
-      await notifyBookMembersPush(bookId, user.uid, {
-        title: 'Byjan',
-        body: `${user.email || 'A teammate'} updated ${String(updated.description || updated.merchant || 'an entry')}`,
-        action: 'entry.update',
-      });
       apiJson(res, 200, { expense: saved.expense });
+      afterResponse(async () => {
+        await mergeCategory(bookId, String(updated.category || '')).catch(() => undefined);
+        await ledgerAudit({
+          bookId,
+          actorUid: user.uid,
+          actorEmail: user.email,
+          action: 'expense.update',
+          entityType: 'expense',
+          entityId: expenseId,
+        });
+        await notifyBookMembersPush(bookId, user.uid, {
+          title: 'Byjan',
+          body: `${user.email || 'A teammate'} updated ${String(updated.description || updated.merchant || 'an entry')}`,
+          action: 'entry.update',
+        });
+      });
       return;
     }
 
@@ -513,23 +524,24 @@ async function handleExpenses(req: VercelRequest, res: VercelResponse) {
       const bookId = String(body.bookId || '').trim();
       const expenseId = String(body.expenseId || '').trim();
       if (!bookId || !expenseId) throw new ApiError(400, 'Missing expense');
-      await ledgerRequireWriter(bookId, user.uid);
       const ok = await ledgerSoftDeleteExpense(bookId, expenseId, user.uid);
       if (!ok) throw new ApiError(404, 'Expense not found');
-      await ledgerAudit({
-        bookId,
-        actorUid: user.uid,
-        actorEmail: user.email,
-        action: 'expense.soft_delete',
-        entityType: 'expense',
-        entityId: expenseId,
-      });
-      await notifyBookMembersPush(bookId, user.uid, {
-        title: 'Byjan',
-        body: `${user.email || 'A teammate'} deleted an entry`,
-        action: 'entry.delete',
-      });
       apiJson(res, 200, { ok: true });
+      afterResponse(async () => {
+        await ledgerAudit({
+          bookId,
+          actorUid: user.uid,
+          actorEmail: user.email,
+          action: 'expense.soft_delete',
+          entityType: 'expense',
+          entityId: expenseId,
+        });
+        await notifyBookMembersPush(bookId, user.uid, {
+          title: 'Byjan',
+          body: `${user.email || 'A teammate'} deleted an entry`,
+          action: 'entry.delete',
+        });
+      });
       return;
     }
 

@@ -86,9 +86,15 @@ export async function notifyTeamOfLedgerChange(input: {
     extraHtml: openLedgerButtonHtml(bookId),
   });
 
+  const { addLedgerMailEvent } = await import('./ledgers');
   await Promise.all(emails.map(async (email) => {
     try {
-      await apiPost('/api/email/send', {
+      const sent = await apiPost<{
+        success?: boolean;
+        messageId?: string;
+        delivered?: boolean;
+        delivery?: { status?: string };
+      }>('/api/email/send', {
         to: email,
         subject,
         message,
@@ -96,8 +102,33 @@ export async function notifyTeamOfLedgerChange(input: {
         ledgerMail: bookInboundAddress(input.book),
         kind: 'notice',
       });
-    } catch (err) {
+      const deliveryStatus = String(sent?.delivery?.status || (sent?.delivered ? 'delivered' : sent?.messageId ? 'accepted' : 'unknown'));
+      const honestStatus = deliveryStatus === 'delivered' ? 'sent' : deliveryStatus === 'failed' ? 'failed' : 'accepted';
+      await addLedgerMailEvent(bookId, {
+        direction: 'outbound',
+        status: honestStatus,
+        toEmail: email,
+        subject,
+        action: input.action,
+        detail: honestStatus === 'sent'
+          ? 'Delivered (confirmed by mail provider)'
+          : 'Accepted by mail provider — inbox delivery not confirmed yet',
+        messageId: sent?.messageId || null,
+        via: 'godaddy-smtp',
+        deliveryStatus,
+        createdAt: new Date().toISOString(),
+      }).catch(() => undefined);
+    } catch (err: any) {
       console.error('Team email failed', err);
+      await addLedgerMailEvent(bookId, {
+        direction: 'outbound',
+        status: 'failed',
+        toEmail: email,
+        subject,
+        action: input.action,
+        detail: err?.message || 'Send failed',
+        createdAt: new Date().toISOString(),
+      }).catch(() => undefined);
     }
   }));
 }

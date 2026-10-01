@@ -86,7 +86,7 @@ async function main() {
           status: draft ? 'draft' : 'completed',
           releaseNotes: [{
             language: 'en-US',
-            text: 'New Byjan app icon.',
+            text: 'Faster create/update, attachment open fixes, and Cloudflare reliability improvements.',
           }],
         },
       ],

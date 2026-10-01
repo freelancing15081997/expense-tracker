@@ -5,7 +5,7 @@ import path from "path";
 import { handleBlobDeleteRequest, handleBlobUploadRequest } from "./api/_lib/blob-store";
 import { handleAuthRequest } from "./api/_lib/auth-handler";
 import { applyCors, requireUser } from "./api/_lib/helpers";
-import { sendTracedMail, smtpConfigured } from "./api/_lib/smtp-mail";
+import { sendTracedMail, smtpConfigured, mailProviderReady } from "./api/_lib/smtp-mail";
 import { publicServiceError } from "./api/_lib/ops-classify";
 
 dns.setDefaultResultOrder('ipv4first');
@@ -97,9 +97,18 @@ app.post("/api/migrate", async (req, res) => {
   const { default: migrate } = await import("./api/migrate");
   await migrate(req as any, res as any);
 });
+app.all("/api/ops/trace", async (req, res) => {
+  const { default: trace } = await import("./api/ops/trace");
+  await trace(req as any, res as any);
+});
+app.all("/api/ops/mail-health", async (req, res) => {
+  const { default: mailHealth } = await import("./api/ops/mail-health");
+  await mailHealth(req as any, res as any);
+});
 
 app.post("/api/email/send-report", async (req, res) => {
-  if (!process.env.VERCEL && !smtpConfigured()) {
+  // Local/dev without provider: proxy. Cloudflare must never proxy to itself.
+  if (!process.env.VERCEL && process.env.CF_WORKER !== '1' && !smtpConfigured() && !mailProviderReady()) {
     try {
       await proxyEmailToProduction(req, res, "/api/email/send-report");
     } catch (error: any) {
@@ -190,7 +199,8 @@ app.post("/api/email/relay", async (req, res) => {
 });
 
 app.post("/api/email/send", async (req, res) => {
-  if (!process.env.VERCEL && !smtpConfigured()) {
+  // Cloudflare has BREVO_API_KEY — send in-worker. Never proxy to www.easypado.com (self-loop).
+  if (!process.env.VERCEL && process.env.CF_WORKER !== '1' && !smtpConfigured() && !mailProviderReady()) {
     try {
       await proxyEmailToProduction(req, res, "/api/email/send");
     } catch (error: any) {
@@ -213,9 +223,17 @@ app.post("/api/email/send", async (req, res) => {
       html: `<!DOCTYPE html><html><head><style>  body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }  .container { padding: 20px; border: 1px solid #eaeaea; border-radius: 5px; background: #fff; }</style></head><body style="background-color: #f9f9f9; padding: 20px;">  <div class="container" style="max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px;">    ${message}    <hr style="border: 0; border-top: 1px solid #eaeaea; margin-top: 20px;">    <p style="font-size: 12px; color: #888;">This is an automated notification from Byjan.</p>  </div></body></html>`,
       fromName: 'Byjan Notifications',
       kind: 'email.send',
+      verifyDelivery: true,
     });
-    console.log("Message sent: %s", info.messageId);
-    res.json({ success: true, messageId: info.messageId });
+    const delivery = info?.delivery || { status: 'unknown' };
+    console.log("Message sent: %s delivery=%s", info.messageId, delivery.status);
+    // Honest API: success only means provider accepted; delivery.status is the truth for Activity.
+    res.json({
+      success: true,
+      messageId: info.messageId,
+      delivery,
+      delivered: delivery.status === 'delivered',
+    });
   } catch (error: any) {
     console.error("Error sending email:", error);
     res.status(500).json({ error: publicServiceError(error, "Could not send this email. Please try again.") });

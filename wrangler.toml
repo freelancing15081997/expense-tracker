@@ -12,6 +12,8 @@ routes = [
 [vars]
 CF_WORKER = "1"
 NODE_ENV = "production"
+MAIL_PROVIDER = "godaddy"
+MAIL_FROM = "byjanbooks@easypado.com"
 DOCUMENT_PARSER_URL = "https://easypado-parser.easypado-byjan.workers.dev"
 
 [[r2_buckets]]

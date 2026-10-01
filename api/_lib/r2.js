@@ -3,7 +3,19 @@ import { createHash, createHmac } from 'node:crypto';
 const REGION = 'auto';
 const SERVICE = 's3';
 
+/** Worker R2 binding from cf-worker.mjs (`env.FILES` → globalThis.BYJAN_R2). */
+function r2Binding() {
+  try {
+    const bucket = globalThis.BYJAN_R2;
+    if (bucket && typeof bucket.get === 'function' && typeof bucket.put === 'function') return bucket;
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
 export function r2Ready() {
+  if (r2Binding()) return true;
   return Boolean(
     process.env.R2_ACCESS_KEY_ID &&
     process.env.R2_SECRET_ACCESS_KEY &&
@@ -111,6 +123,14 @@ export function r2FileKey(target) {
 }
 
 export async function r2GetBytes(key) {
+  const binding = r2Binding();
+  if (binding) {
+    const obj = await binding.get(key);
+    if (!obj) return null;
+    const body = Buffer.from(await obj.arrayBuffer());
+    const metaType = obj.httpMetadata && obj.httpMetadata.contentType;
+    return { body, contentType: String(metaType || 'application/octet-stream') };
+  }
   const res = await r2Fetch('GET', key);
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`R2 read failed (${res.status})`);
@@ -132,6 +152,14 @@ export async function r2GetJson(key) {
 }
 
 export async function r2PutBytes(key, body, contentType) {
+  const binding = r2Binding();
+  if (binding) {
+    const bytes = Buffer.isBuffer(body) ? body : Buffer.from(body);
+    await binding.put(key, bytes, {
+      httpMetadata: { contentType: contentType || 'application/octet-stream' },
+    });
+    return;
+  }
   const res = await r2Fetch('PUT', key, { body, contentType });
   if (!res.ok) throw new Error(`R2 write failed (${res.status})`);
 }
@@ -141,11 +169,29 @@ export async function r2PutJson(key, data) {
 }
 
 export async function r2Del(key) {
+  const binding = r2Binding();
+  if (binding) {
+    await binding.delete(key);
+    return;
+  }
   const res = await r2Fetch('DELETE', key);
   if (!res.ok && res.status !== 404) throw new Error(`R2 delete failed (${res.status})`);
 }
 
 export async function r2ListKeys(prefix) {
+  const binding = r2Binding();
+  if (binding) {
+    const keys = [];
+    let cursor;
+    do {
+      const page = await binding.list({ prefix, cursor, limit: 1000 });
+      for (const obj of page.objects || []) {
+        if (obj?.key) keys.push(obj.key);
+      }
+      cursor = page.truncated ? page.cursor : undefined;
+    } while (cursor);
+    return keys;
+  }
   const keys = [];
   let token = '';
   do {

@@ -1436,6 +1436,19 @@ export async function ledgerMember(bookId: string, uid: string): Promise<LedgerM
   const id = text(bookId);
   const userId = text(uid);
   if (!id || !userId) return null;
+  const sql = await getLedgerSql();
+  const memberRows = asRows<{ role?: string; email?: string }>(
+    await sql`
+      SELECT role, email FROM book_members
+      WHERE book_id = ${id} AND uid = ${userId}
+      LIMIT 1
+    `,
+  );
+  if (memberRows[0]) {
+    const role = text(memberRows[0].role);
+    if (role) return { role, email: text(memberRows[0].email) };
+  }
+  // Fallback for books not yet synced into book_members.
   const book = asObject(await ledgerGet(`books/${id}`));
   if (!book || flag(book)) return null;
   const roles = rolesOf(book.roles);
@@ -1942,54 +1955,95 @@ export async function ledgerFindDuplicateExpense(bookId: string, input: {
   const description = normDupLabel(input.description);
   const merchant = normDupLabel(input.merchant);
   const allowSoft = Boolean(input.allowSoft);
-  const rows = await ledgerListLiveExpenses(bookId);
+  const exceptId = text(input.exceptId);
+  const sql = await getLedgerSql();
 
+  // Targeted SQL only — never load the whole ledger (was ~1s+ on large books).
   if (upiRef && upiRef.length >= 6) {
-    const byRef = rows.find((row) => {
-      if (row.id === input.exceptId) return false;
-      return text(row.upiRef).trim() === upiRef;
-    });
-    if (byRef) return [byRef];
+    const byRef = asRows<{ id: string; data: unknown }>(
+      await sql`
+        SELECT id, data FROM expenses
+        WHERE book_id = ${bookId}
+          AND deleted = false
+          AND (${exceptId} = '' OR id <> ${exceptId})
+          AND data->>'upiRef' = ${upiRef}
+        LIMIT 1
+      `,
+    );
+    if (byRef[0]) {
+      const data = asObject(byRef[0].data) || {};
+      return [{ id: String(byRef[0].id), ...data }];
+    }
   }
 
   if (invoiceNumber && invoiceNumber.length >= 4 && amount > 0) {
-    const byInv = rows.find((row) => {
-      if (row.id === input.exceptId) return false;
-      if (Number(row.amount || 0) !== amount) return false;
-      return normDupLabel(row.invoiceNumber) === invoiceNumber;
-    });
-    if (byInv) return [byInv];
+    const byInv = asRows<{ id: string; data: unknown }>(
+      await sql`
+        SELECT id, data FROM expenses
+        WHERE book_id = ${bookId}
+          AND deleted = false
+          AND (${exceptId} = '' OR id <> ${exceptId})
+          AND COALESCE((data->>'amount')::numeric, 0) = ${amount}
+          AND lower(COALESCE(data->>'invoiceNumber', '')) = ${invoiceNumber}
+        LIMIT 1
+      `,
+    );
+    if (byInv[0]) {
+      const data = asObject(byInv[0].data) || {};
+      return [{ id: String(byInv[0].id), ...data }];
+    }
   }
 
-  if (amount > 0 && date) {
-    const exact = rows.filter((row) => {
-      if (row.id === input.exceptId) return false;
-      if (Number(row.amount || 0) !== amount) return false;
-      if (text(row.date) !== date) return false;
-      const rowDesc = normDupLabel(row.description);
-      const rowMerchant = normDupLabel(row.merchant);
-      if (description && rowDesc === description) return true;
-      if (merchant && rowMerchant && (rowMerchant === merchant || sameDupMerchant(merchant, rowMerchant))) return true;
-      if (description && rowMerchant && rowMerchant === description) return true;
-      return false;
-    }).slice(0, 5);
-    if (exact.length) return exact;
+  if (amount > 0 && date && (description || merchant)) {
+    const exact = asRows<{ id: string; data: unknown }>(
+      await sql`
+        SELECT id, data FROM expenses
+        WHERE book_id = ${bookId}
+          AND deleted = false
+          AND (${exceptId} = '' OR id <> ${exceptId})
+          AND COALESCE((data->>'amount')::numeric, 0) = ${amount}
+          AND COALESCE(data->>'date', data->>'paidAt', '') = ${date}
+          AND (
+            (${description} <> '' AND lower(COALESCE(data->>'description', '')) = ${description})
+            OR (${merchant} <> '' AND lower(COALESCE(data->>'merchant', '')) = ${merchant})
+            OR (${description} <> '' AND lower(COALESCE(data->>'merchant', '')) = ${description})
+          )
+        LIMIT 5
+      `,
+    );
+    if (exact.length) {
+      return exact.map((row) => ({ id: String(row.id), ...(asObject(row.data) || {}) }));
+    }
   }
 
-  // Soft: same paid date + distinctive merchant — used by share flow so a re-parse
-  // with a drifted amount still surfaces confirmation instead of a second save.
   if (allowSoft && date) {
     const needle = (!isGenericDupLabel(merchant) && merchant.length >= 3)
       ? merchant
       : ((!isGenericDupLabel(description) && description.length >= 3) ? description : '');
     if (needle) {
-      const soft = rows.filter((row) => {
-        if (row.id === input.exceptId) return false;
-        if (text(row.date) !== date) return false;
-        const rowMerchant = normDupLabel(row.merchant) || normDupLabel(row.description);
-        return sameDupMerchant(needle, rowMerchant);
-      }).slice(0, 5);
-      if (soft.length) return soft;
+      const soft = asRows<{ id: string; data: unknown }>(
+        await sql`
+          SELECT id, data FROM expenses
+          WHERE book_id = ${bookId}
+            AND deleted = false
+            AND (${exceptId} = '' OR id <> ${exceptId})
+            AND COALESCE(data->>'date', data->>'paidAt', '') = ${date}
+            AND (
+              lower(COALESCE(data->>'merchant', '')) LIKE ${`%${needle}%`}
+              OR lower(COALESCE(data->>'description', '')) LIKE ${`%${needle}%`}
+            )
+          LIMIT 5
+        `,
+      );
+      if (soft.length) {
+        return soft
+          .map((row) => ({ id: String(row.id), ...(asObject(row.data) || {}) }))
+          .filter((row) => {
+            const rowMerchant = normDupLabel(row.merchant) || normDupLabel(row.description);
+            return sameDupMerchant(needle, rowMerchant);
+          })
+          .slice(0, 5);
+      }
     }
   }
 

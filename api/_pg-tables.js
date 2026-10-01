@@ -1,8 +1,15 @@
 // api/_lib/pg-tables.ts
 import { neon } from "@neondatabase/serverless";
 import { randomBytes } from "node:crypto";
+var memberMem = /* @__PURE__ */ new Map();
+var booksListMem = /* @__PURE__ */ new Map();
+var expenseListMem = /* @__PURE__ */ new Map();
 function asRows(result) {
   return Array.isArray(result) ? result : [];
+}
+function invalidateExpenseListCache(bookId) {
+  const id = text(bookId);
+  if (id) expenseListMem.delete(id);
 }
 function postgresUrl() {
   const raw = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.DATABASE_URL_UNPOOLED || process.env.POSTGRES_URL_NON_POOLING || process.env.POSTGRES_PRISMA_URL || process.env.BYJAN_NEON_DATABASE_URL || process.env.BYJAN_NEON_POSTGRES_URL || process.env.BYJAN_NEON_DATABASE_URL_UNPOOLED || process.env.BYJAN_NEON_POSTGRES_URL_NON_POOLING || "";
@@ -1146,7 +1153,12 @@ async function ledgerList(prefix, constraints = []) {
     return rowsOf(rows);
   }
   if (parts[0] === "books" && parts[2] === "expenses" && parts.length === 3) {
-    const rows = await sql`SELECT id, data, deleted FROM expenses WHERE book_id = ${parts[1]} ORDER BY created_at DESC NULLS LAST, updated_at DESC`;
+    const rows = await sql`
+      SELECT id, data, deleted FROM expenses
+      WHERE book_id = ${parts[1]}
+        AND COALESCE(deleted, false) = false
+      ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST
+    `;
     return asRows(rows).map((row) => {
       const data = asObject(row.data);
       if (!data || row.deleted === true || flag(data)) return null;
@@ -1227,13 +1239,35 @@ async function ledgerMember(bookId, uid) {
   const id = text(bookId);
   const userId = text(uid);
   if (!id || !userId) return null;
-  const book = asObject(await ledgerGet(`books/${id}`));
-  if (!book || flag(book)) return null;
-  const roles = rolesOf(book.roles);
-  const rec = roles[userId];
-  if (rec?.role) return { role: text(rec.role), email: text(rec.email) };
-  if (text(book.ownerId) === userId) return { role: "owner", email: "" };
-  return null;
+  const cacheKey = `${id}:${userId}`;
+  const cached = memberMem.get(cacheKey);
+  if (cached && cached.exp > Date.now()) return cached.val;
+  const sql = await getLedgerSql();
+  const memberRows = asRows(
+    await sql`
+      SELECT role, email FROM book_members
+      WHERE book_id = ${id} AND uid = ${userId}
+      LIMIT 1
+    `
+  );
+  let val = null;
+  if (memberRows[0]) {
+    const role = text(memberRows[0].role);
+    if (role) val = { role, email: text(memberRows[0].email) };
+  }
+  if (!val) {
+    // Fallback for books not yet synced into book_members.
+    const book = asObject(await ledgerGet(`books/${id}`));
+    if (book && !flag(book)) {
+      const roles = rolesOf(book.roles);
+      const rec = roles[userId];
+      if (rec?.role) val = { role: text(rec.role), email: text(rec.email) };
+      else if (text(book.ownerId) === userId) val = { role: "owner", email: "" };
+    }
+  }
+  memberMem.set(cacheKey, { val, exp: Date.now() + 60_000 });
+  if (memberMem.size > 800) memberMem.clear();
+  return val;
 }
 async function ledgerHasBookListRow(bookId, uid) {
   const id = text(bookId);
@@ -1322,14 +1356,20 @@ function bookRow(id, data) {
   return { ...data, id };
 }
 async function ledgerListBooksForUser(uid) {
-  const rows = await ledgerList("books", [{ type: "where", field: `roles.${uid}.role`, op: "in", value: ["owner"] }]);
-  return rows.filter((row) => !flag(row.data)).map((row) => {
+  const userId = text(uid);
+  const hit = booksListMem.get(userId);
+  if (hit && hit.exp > Date.now()) return hit.rows;
+  const rows = await ledgerList("books", [{ type: "where", field: `roles.${userId}.role`, op: "in", value: ["owner"] }]);
+  const out = rows.filter((row) => !flag(row.data)).map((row) => {
     const data = row.data;
     const roles = rolesOf(data.roles);
-    const rec = roles[uid];
-    const isMember = Boolean(rec?.role) || text(data.ownerId) === uid;
+    const rec = roles[userId];
+    const isMember = Boolean(rec?.role) || text(data.ownerId) === userId;
     return { ...bookRow(row.id, data), isMember };
   });
+  booksListMem.set(userId, { rows: out, exp: Date.now() + 15_000 });
+  if (booksListMem.size > 400) booksListMem.clear();
+  return out;
 }
 async function ledgerGetBookForUser(bookId, uid) {
   await ledgerRequireMember(bookId, uid);
@@ -1371,6 +1411,7 @@ async function ledgerCreateBook(input) {
     purposeConfig: input.purposeConfig && typeof input.purposeConfig === "object" ? input.purposeConfig : undefined,
   };
   await ledgerSet(`books/${id}`, data);
+  booksListMem.delete(text(input.uid));
   await ledgerAudit({
     bookId: id,
     actorUid: input.uid,
@@ -1472,6 +1513,55 @@ async function ledgerListLiveExpenses(bookId) {
   const rows = await ledgerList(`books/${bookId}/expenses`);
   return rows.map((row) => ({ id: row.id, ...asObject(row.data) || {} }));
 }
+/** One Neon round-trip: assert membership + list live expenses. */
+async function ledgerListLiveExpensesForMember(bookId, uid) {
+  const sql = await getLedgerSql();
+  const id = text(bookId);
+  const userId = text(uid);
+  const cacheHit = expenseListMem.get(id);
+  if (cacheHit && cacheHit.exp > Date.now()) {
+    // Still verify membership (cached) so ACL cannot drift while list is hot.
+    const member = await ledgerMember(id, userId);
+    if (!member) {
+      const err = new Error("You do not have access to this ledger");
+      err.status = 403;
+      throw err;
+    }
+    return cacheHit.rows;
+  }
+  const rows = asRows(
+    await sql`
+      WITH allowed AS (
+        SELECT role, email
+        FROM book_members
+        WHERE book_id = ${id}
+          AND uid = ${userId}
+        LIMIT 1
+      )
+      SELECT a.role AS member_role, a.email AS member_email, e.id, e.data
+      FROM allowed a
+      LEFT JOIN expenses e
+        ON e.book_id = ${id}
+       AND COALESCE(e.deleted, false) = false
+      ORDER BY e.updated_at DESC NULLS LAST, e.created_at DESC NULLS LAST
+    `
+  );
+  if (!rows.length) {
+    const err = new Error("You do not have access to this ledger");
+    err.status = 403;
+    throw err;
+  }
+  memberMem.set(`${id}:${userId}`, {
+    val: { role: text(rows[0].member_role) || "viewer", email: text(rows[0].member_email) },
+    exp: Date.now() + 60_000,
+  });
+  const out = rows
+    .filter((row) => row.id)
+    .map((row) => ({ id: String(row.id), ...asObject(row.data) || {} }));
+  expenseListMem.set(id, { rows: out, exp: Date.now() + 10_000 });
+  if (expenseListMem.size > 200) expenseListMem.clear();
+  return out;
+}
 /**
  * @param {string} bookId
  * @param {string} expenseId
@@ -1538,19 +1628,228 @@ async function ledgerSaveExpense(bookId, expense, opts) {
   }
   return { expense: row, created: true };
 }
-async function ledgerSoftDeleteExpense(bookId, expenseId, uid) {
-  const current = asObject(await ledgerGet(`books/${bookId}/expenses/${expenseId}`));
-  if (!current || flag(current)) return false;
-  const next = {
-    ...current,
-    id: expenseId,
-    deleted: true,
-    deletedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    deletedBy: uid,
-    status: "deleted"
+/** One Neon round-trip: assert writer + insert expense. */
+async function ledgerInsertExpenseAsWriter(bookId, uid, expense, opts) {
+  const id = text(expense.id) || newLedgerId();
+  const row = { ...expense, id };
+  if (opts?.allowDuplicateHash) {
+    const original = text(row.receiptHash);
+    if (original) {
+      row.receiptHashOriginal = original;
+      row.duplicateConfirmedDifferent = true;
+      row.receiptHash = `${original}#dup#${id}`;
+    }
+  }
+  const sql = await getLedgerSql();
+  const payload = JSON.stringify(row);
+  const created = ts(row.createdAt);
+  const hash = text(row.receiptHash) || null;
+  const entryType = text(row.entryType || row.type) || "out";
+  const amountValue = num(row.amount);
+  const amountPaise = Number.isFinite(Number(row.amountPaise)) ? Math.round(Number(row.amountPaise)) : Math.round(amountValue * 100);
+  const txType = text(row.txType) || (entryType === "in" ? "INCOME" : entryType === "transfer" ? "TRANSFER" : "EXPENSE");
+  const financialStatus = text(row.financialStatus) || (text(row.status) === "draft" ? "DRAFT" : "CONFIRMED");
+  const processingStatus = text(row.processingStatus) || "COMPLETED";
+  const accountId = text(row.accountId) || null;
+  const linkedExpenseId = text(row.linkedExpenseId) || null;
+  const writer = text(uid);
+  const rows = asRows(
+    await sql`
+      INSERT INTO expenses (id, book_id, amount, amount_paise, description, category, entry_type, tx_type, entry_date, paid_by_name, status, financial_status, processing_status, account_id, linked_expense_id, deleted, receipt_hash, data, created_at, updated_at)
+      SELECT
+        ${id}, ${bookId}, ${amountValue}, ${amountPaise}, ${text(row.description)}, ${text(row.category)},
+        ${entryType}, ${txType}, ${text(row.date)}, ${text(row.paidByName)},
+        ${text(row.status)}, ${financialStatus}, ${processingStatus}, ${accountId}, ${linkedExpenseId},
+        ${flag(row)}, ${hash}, ${payload}::jsonb, ${created}::timestamptz, NOW()
+      WHERE EXISTS (
+        SELECT 1 FROM book_members
+        WHERE book_id = ${bookId}
+          AND uid = ${writer}
+          AND role IN ('owner', 'admin', 'contributor')
+      )
+      ON CONFLICT (id) DO NOTHING
+      RETURNING id
+    `
+  );
+  if (rows.length) {
+    invalidateExpenseListCache(bookId);
+    return { expense: row, created: true };
+  }
+  const allowed = asRows(
+    await sql`
+      SELECT 1 FROM book_members
+      WHERE book_id = ${bookId}
+        AND uid = ${writer}
+        AND role IN ('owner', 'admin', 'contributor')
+      LIMIT 1
+    `
+  );
+  if (!allowed.length) {
+    const err = new Error("Not allowed to change this ledger");
+    err.status = 403;
+    throw err;
+  }
+  const existing = asObject(await ledgerGet(`books/${bookId}/expenses/${id}`));
+  return { expense: { id, ...(existing || row) }, created: false };
+}
+/** One Neon round-trip: writer gate + jsonb merge + update. */
+async function ledgerUpdateExpenseAsWriter(bookId, uid, expenseId, patch, opts) {
+  const sql = await getLedgerSql();
+  const writer = text(uid);
+  const id = text(expenseId);
+  const includeDeleted = Boolean(opts?.includeDeleted);
+  const meta = {
+    id,
+    lastEditedByUid: writer,
+    lastEditedAt: (/* @__PURE__ */ new Date()).toISOString(),
   };
-  await ledgerSet(`books/${bookId}/expenses/${expenseId}`, next);
-  return true;
+  if (opts?.restore) {
+    Object.assign(meta, {
+      deleted: false,
+      deletedAt: null,
+      deletedBy: null,
+      status: text(opts.restoreStatus) || "recorded",
+    });
+  }
+  const patchJson = JSON.stringify({ ...(patch || {}), ...meta });
+  const includeDeletedInt = includeDeleted ? 1 : 0;
+  const rows = asRows(
+    await sql`
+      WITH writer AS (
+        SELECT 1 AS ok
+        FROM book_members
+        WHERE book_id = ${bookId}
+          AND uid = ${writer}
+          AND role IN ('owner', 'admin', 'contributor')
+        LIMIT 1
+      ),
+      cur AS (
+        SELECT e.id, e.data, e.created_at
+        FROM expenses e
+        WHERE e.book_id = ${bookId}
+          AND e.id = ${id}
+          AND (${includeDeletedInt}::int = 1 OR COALESCE(e.deleted, false) = false)
+          AND EXISTS (SELECT 1 FROM writer)
+      ),
+      merged AS (
+        SELECT
+          cur.id,
+          (
+            cur.data
+            || ${patchJson}::jsonb
+            || jsonb_build_object(
+              'id', ${id}::text,
+              'createdAt', COALESCE(cur.data->>'createdAt', to_char(cur.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))
+            )
+          ) AS data
+        FROM cur
+      )
+      UPDATE expenses e SET
+        amount = COALESCE(NULLIF(merged.data->>'amount', '')::float8, e.amount),
+        amount_paise = COALESCE(
+          NULLIF(merged.data->>'amountPaise', '')::int,
+          ROUND(COALESCE(NULLIF(merged.data->>'amount', '')::float8, e.amount, 0) * 100)
+        ),
+        description = COALESCE(merged.data->>'description', e.description),
+        category = COALESCE(merged.data->>'category', e.category),
+        entry_type = COALESCE(NULLIF(merged.data->>'entryType', ''), NULLIF(merged.data->>'type', ''), e.entry_type),
+        tx_type = COALESCE(
+          NULLIF(merged.data->>'txType', ''),
+          CASE COALESCE(NULLIF(merged.data->>'entryType', ''), NULLIF(merged.data->>'type', ''), e.entry_type)
+            WHEN 'in' THEN 'INCOME'
+            WHEN 'transfer' THEN 'TRANSFER'
+            ELSE 'EXPENSE'
+          END
+        ),
+        entry_date = COALESCE(NULLIF(merged.data->>'date', ''), NULLIF(merged.data->>'paidAt', ''), e.entry_date),
+        paid_by_name = COALESCE(merged.data->>'paidByName', e.paid_by_name),
+        status = COALESCE(merged.data->>'status', e.status),
+        financial_status = COALESCE(NULLIF(merged.data->>'financialStatus', ''), e.financial_status),
+        processing_status = COALESCE(NULLIF(merged.data->>'processingStatus', ''), e.processing_status),
+        account_id = COALESCE(NULLIF(merged.data->>'accountId', ''), e.account_id),
+        linked_expense_id = COALESCE(NULLIF(merged.data->>'linkedExpenseId', ''), e.linked_expense_id),
+        deleted = COALESCE((merged.data->>'deleted')::boolean, e.deleted),
+        receipt_hash = COALESCE(NULLIF(merged.data->>'receiptHash', ''), e.receipt_hash),
+        data = merged.data,
+        updated_at = NOW()
+      FROM merged
+      WHERE e.book_id = ${bookId} AND e.id = merged.id
+      RETURNING e.data
+    `
+  );
+  if (rows.length) {
+    const data = asObject(rows[0]?.data) || asObject(rows[0]) || {};
+    invalidateExpenseListCache(bookId);
+    return { expense: { id, ...data } };
+  }
+  const allowed = asRows(
+    await sql`
+      SELECT 1 FROM book_members
+      WHERE book_id = ${bookId}
+        AND uid = ${writer}
+        AND role IN ('owner', 'admin', 'contributor')
+      LIMIT 1
+    `
+  );
+  if (!allowed.length) {
+    const err = new Error("Not allowed to change this ledger");
+    err.status = 403;
+    throw err;
+  }
+  const err = new Error("Expense not found");
+  err.status = 404;
+  throw err;
+}
+async function ledgerSoftDeleteExpense(bookId, expenseId, uid) {
+  const sql = await getLedgerSql();
+  const id = text(expenseId);
+  const writer = text(uid);
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const rows = asRows(
+    await sql`
+      UPDATE expenses e SET
+        deleted = true,
+        status = 'deleted',
+        data = e.data
+          || jsonb_build_object(
+            'deleted', true,
+            'deletedAt', ${now}::text,
+            'deletedBy', ${writer}::text,
+            'status', 'deleted',
+            'id', ${id}::text
+          ),
+        updated_at = NOW()
+      WHERE e.book_id = ${bookId}
+        AND e.id = ${id}
+        AND COALESCE(e.deleted, false) = false
+        AND EXISTS (
+          SELECT 1 FROM book_members
+          WHERE book_id = ${bookId}
+            AND uid = ${writer}
+            AND role IN ('owner', 'admin', 'contributor')
+        )
+      RETURNING e.id
+    `
+  );
+  if (rows.length) {
+    invalidateExpenseListCache(bookId);
+    return true;
+  }
+  const allowed = asRows(
+    await sql`
+      SELECT 1 FROM book_members
+      WHERE book_id = ${bookId}
+        AND uid = ${writer}
+        AND role IN ('owner', 'admin', 'contributor')
+      LIMIT 1
+    `
+  );
+  if (!allowed.length) {
+    const err = new Error("Not allowed to change this ledger");
+    err.status = 403;
+    throw err;
+  }
+  return false;
 }
 async function ledgerListNotifications(userId) {
   const rows = await ledgerList("notifications", [{ type: "where", field: "userId", op: "==", value: userId }]);
@@ -1649,8 +1948,21 @@ async function ledgerFindDuplicateExpense(bookId, input) {
   const date = text(input.date);
   const description = text(input.description).trim().toLowerCase();
   if (!amount || !date || !description) return [];
-  const rows = await ledgerListLiveExpenses(bookId);
-  return rows.filter((row) => row.id !== input.exceptId && Number(row.amount || 0) === amount && text(row.date) === date && text(row.description).trim().toLowerCase() === description).slice(0, 5);
+  const exceptId = text(input.exceptId);
+  const sql = await getLedgerSql();
+  const rows = asRows(
+    await sql`
+      SELECT id, data FROM expenses
+      WHERE book_id = ${bookId}
+        AND deleted = false
+        AND (${exceptId} = '' OR id <> ${exceptId})
+        AND COALESCE((data->>'amount')::numeric, 0) = ${amount}
+        AND COALESCE(data->>'date', data->>'paidAt', '') = ${date}
+        AND lower(COALESCE(data->>'description', '')) = ${description}
+      LIMIT 5
+    `
+  );
+  return rows.map((row) => ({ id: String(row.id), ...(asObject(row.data) || {}) }));
 }
 async function ledgerListAudit(uid, bookId, limit = 80) {
   const sql = await getLedgerSql();
@@ -1702,6 +2014,7 @@ async function ledgerListAudit(uid, bookId, limit = 80) {
 }
 var FIREBASE_PROJECT = "gen-lang-client-0616065043";
 var jwtMem = /* @__PURE__ */ new Map();
+var userStatusMem = /* @__PURE__ */ new Map();
 var jwks = null;
 var ApiError = class extends Error {
   constructor(status, message, extra) {
@@ -1794,7 +2107,16 @@ async function withDomainApi(req, res, fn) {
     const user = await requireApiUser(req, res);
     if (!user) return;
     const body = readApiBody(req);
-    const profile = await ledgerGetUser(user.uid);
+    // Hot paths (expense create/update) need ≤1 Neon RTT. Cache account status ~60s.
+    let profile = null;
+    const cached = userStatusMem.get(user.uid);
+    if (cached && cached.exp > Date.now()) {
+      profile = cached.profile;
+    } else {
+      profile = await ledgerGetUser(user.uid);
+      userStatusMem.set(user.uid, { profile, exp: Date.now() + 60_000 });
+      if (userStatusMem.size > 500) userStatusMem.clear();
+    }
     const status = String(profile?.status || "").trim().toLowerCase();
     if (status === "deleted" || status === "deactivated") {
       const op = String(body.op || "get");
@@ -1847,6 +2169,7 @@ export {
   ledgerListBooksForUser,
   ledgerListExpensesByBooks,
   ledgerListLiveExpenses,
+  ledgerListLiveExpensesForMember,
   ledgerListMailEvents,
   ledgerListNotifications,
   ledgerLiveExpenseByHash,
@@ -1859,6 +2182,8 @@ export {
   ledgerRequireWriter,
   ledgerResolveInboundSlug,
   ledgerSaveExpense,
+  ledgerInsertExpenseAsWriter,
+  ledgerUpdateExpenseAsWriter,
   ledgerSet,
   ledgerSoftDeleteBook,
   ledgerSoftDeleteExpense,

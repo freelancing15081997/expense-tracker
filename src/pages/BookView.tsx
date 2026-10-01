@@ -1193,11 +1193,21 @@ export default function BookView() {
       const buf = await res.arrayBuffer();
       const fileName = String(exp.receiptName || exp.receiptPath.split('/').pop() || title);
       const blobType = res.headers.get('content-type') || '';
-      const { sniffAttachmentKind, blobUrlForAttachment } = await import('../lib/receipt-preview');
+      const { sniffAttachmentKind, blobUrlForAttachment, openNativeFilePreview } = await import('../lib/receipt-preview');
       const kind = sniffAttachmentKind(buf, fileName, blobType);
+      const url = blobUrlForAttachment(buf, kind, blobType);
       if (receiptPreview?.url) URL.revokeObjectURL(receiptPreview.url);
+      // Native WebView cannot reliably render blob PDFs / Office; open via share sheet.
+      const { Capacitor } = await import('@capacitor/core');
+      if (Capacitor.isNativePlatform() && kind !== 'image') {
+        setReceiptPreview(null);
+        const opened = await openNativeFilePreview(url, fileName);
+        URL.revokeObjectURL(url);
+        if (!opened) throw new Error('Could not open attachment');
+        return;
+      }
       setReceiptPreview({
-        url: blobUrlForAttachment(buf, kind, blobType),
+        url,
         title,
         kind,
         fileName,
@@ -1908,7 +1918,12 @@ export default function BookView() {
         || (meta?.action?.toLowerCase().includes('announcement') ? 'announcement'
           : meta?.action?.toLowerCase().includes('invite') ? 'invite'
             : 'notice');
-      await apiPost('/api/email/send', {
+      const sent = await apiPost<{
+        success?: boolean;
+        messageId?: string;
+        delivered?: boolean;
+        delivery?: { status?: string; events?: Array<{ event?: string }> };
+      }>('/api/email/send', {
         to: toEmail,
         subject,
         message,
@@ -1916,18 +1931,28 @@ export default function BookView() {
         ledgerMail: inboundAddress || bookInboundAddress(book),
         kind,
       });
+      const deliveryStatus = String(sent?.delivery?.status || (sent?.delivered ? 'delivered' : sent?.messageId ? 'accepted' : 'unknown'));
+      const honestStatus = deliveryStatus === 'delivered' ? 'sent' : deliveryStatus === 'failed' ? 'failed' : 'accepted';
+      const detail = honestStatus === 'sent'
+        ? 'Delivered (confirmed by mail provider)'
+        : honestStatus === 'failed'
+          ? 'Mail provider rejected or bounced this email'
+          : 'Accepted by mail provider — inbox delivery not confirmed yet';
       if (bookId) {
         await addLedgerMailEvent(bookId, {
           direction: 'outbound',
-          status: 'sent',
+          status: honestStatus,
           toEmail,
           subject,
           action: meta?.action || 'Team notification',
-          detail: 'Notification email sent',
+          detail,
+          messageId: sent?.messageId || null,
+          via: 'brevo-http',
+          deliveryStatus,
           createdAt: new Date().toISOString(),
         }).catch(() => undefined);
       }
-      return true;
+      return honestStatus !== 'failed';
     } catch (err: any) {
       console.error('Failed to send email via backend:', err);
       if (bookId) {
