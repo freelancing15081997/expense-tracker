@@ -1167,20 +1167,61 @@ export async function handleMoney(req: VercelRequest, res: VercelResponse) {
         return;
       }
 
+      // Optional date range (YYYY-MM-DD, inclusive). Callers that don't send one get the whole book, as before.
+      const from = /^\d{4}-\d{2}-\d{2}$/.test(String(body.from || '')) ? String(body.from) : '';
+      const to = /^\d{4}-\d{2}-\d{2}$/.test(String(body.to || '')) ? String(body.to) : '';
+      const dayOf = (exp: Record<string, unknown>) => String(exp.date || exp.createdAt || '').slice(0, 10);
+      const rows = from || to
+        ? all.filter((exp) => { const d = dayOf(exp); return !!d && (!from || d >= from) && (!to || d <= to); })
+        : all;
+
       let outPaise = 0;
       let inPaise = 0;
-      for (const exp of all) {
+      const byCategory = new Map<string, number>();
+      const byMethod = new Map<string, number>();
+      const byMonth = new Map<string, { inPaise: number; outPaise: number }>();
+      const merchants = new Map<string, { merchant: string; outPaise: number; count: number }>();
+      for (const exp of rows) {
         const paise = Math.round(Number(exp.amount || 0) * 100);
         const t = String(exp.entryType || 'out');
-        if (t === 'in') inPaise += paise;
-        else if (t !== 'transfer') outPaise += paise;
+        if (t === 'transfer') continue;
+        const month = dayOf(exp).slice(0, 7);
+        const bucket = month ? (byMonth.get(month) || { inPaise: 0, outPaise: 0 }) : null;
+        if (t === 'in') {
+          inPaise += paise;
+          if (bucket) bucket.inPaise += paise;
+        } else {
+          outPaise += paise;
+          if (bucket) bucket.outPaise += paise;
+          const category = String(exp.category || 'Uncategorized');
+          byCategory.set(category, (byCategory.get(category) || 0) + paise);
+          const method = String(exp.paymentMethod || 'other');
+          byMethod.set(method, (byMethod.get(method) || 0) + paise);
+          const merchant = String(exp.merchant || '').trim();
+          if (merchant) {
+            const key = merchant.toLowerCase();
+            const m = merchants.get(key) || { merchant, outPaise: 0, count: 0 };
+            m.outPaise += paise;
+            m.count += 1;
+            merchants.set(key, m);
+          }
+        }
+        if (bucket) byMonth.set(month, bucket);
       }
       apiJson(res, 200, {
         summary: {
+          // Original fields (rupees) — kept for existing callers.
           moneyOut: outPaise / 100,
           moneyIn: inPaise / 100,
           net: (inPaise - outPaise) / 100,
-          count: all.length,
+          count: rows.length,
+          // Integer-paise breakdown used by the Byjan Books mobile reports.
+          inPaise,
+          outPaise,
+          byCategory: [...byCategory].map(([category, p]) => ({ category, outPaise: p })).sort((a, b) => b.outPaise - a.outPaise),
+          byMonth: [...byMonth].map(([month, v]) => ({ month, ...v })).sort((a, b) => a.month.localeCompare(b.month)),
+          byMethod: [...byMethod].map(([method, p]) => ({ method, outPaise: p })).sort((a, b) => b.outPaise - a.outPaise),
+          topMerchants: [...merchants.values()].sort((a, b) => b.outPaise - a.outPaise).slice(0, 10),
         },
       });
       return;
