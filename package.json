@@ -17,7 +17,7 @@
     "test:purpose": "tsx scripts/purpose-intelligence-test.ts",
     "test:upi": "tsx scripts/upi-test.ts",
     "test:security": "tsx scripts/security-e2e-test.ts",
-    "test:all": "tsx scripts/upi-test.ts && tsx scripts/money-test.ts && tsx scripts/receipt-parse-e2e-test.ts && tsx scripts/recurrence-test.ts && tsx scripts/purpose-intelligence-test.ts && tsx scripts/books-flow-test.ts && tsx scripts/security-e2e-test.ts",
+    "test:all": "tsx scripts/pricing-test.ts && tsx scripts/upi-test.ts && tsx scripts/money-test.ts && tsx scripts/receipt-parse-e2e-test.ts && tsx scripts/recurrence-test.ts && tsx scripts/purpose-intelligence-test.ts && tsx scripts/books-flow-test.ts && tsx scripts/security-e2e-test.ts",
     "start": "node --dns-result-order=ipv4first dist/server.cjs",
     "migrate:firestore": "node scripts/migrate-firestore-to-postgres.mjs",
     "neon:export": "node scripts/export-neon-import.mjs",
@@ -30,7 +30,9 @@
     "mobile:build:android": "npm run build && node scripts/apply-google-auth-patch.mjs && npx cap sync android && cd android && ./gradlew assembleRelease",
     "mobile:build:android:bundle": "npm run build && node scripts/apply-google-auth-patch.mjs && npx cap sync android && cd android && ./gradlew bundleRelease",
     "mobile:run:android": "npm run build && node scripts/apply-google-auth-patch.mjs && npx cap sync android && npx cap run android",
-    "postinstall": "node scripts/apply-google-auth-patch.mjs"
+    "postinstall": "node scripts/apply-google-auth-patch.mjs",
+    "test:pricing": "tsx scripts/pricing-test.ts",
+    "test:saas": "tsx scripts/saas-test.ts"
   },
   "dependencies": {
     "@capacitor-firebase/authentication": "^8.5.1",

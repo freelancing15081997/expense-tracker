@@ -169,6 +169,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
+    const { handleLinkInvite, assertMemberRoom } = await import('./_lib/invite-links.js');
+    if (await handleLinkInvite(op, body, user, (status, payload) => json(res, status, payload))) return;
+
     if (op === 'list') {
       const mail = String(user.email || '').trim().toLowerCase();
       const rows = await ledgerList('invites', [{ type: 'where', field: 'email', op: '==', value: mail }]);
@@ -227,6 +230,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const roles = asRoles(book.roles);
       if (!canManage(roles, user.uid)) {
         json(res, 403, { error: 'Not allowed to invite members' });
+        return;
+      }
+      try {
+        await assertMemberRoom(bookId);
+      } catch (err: any) {
+        json(res, Number(err?.status || 402), { error: err?.message || 'This book is full on its current plan.', ...(err?.extra || {}) });
         return;
       }
       const alreadyMember = memberEmails(roles).includes(email)
@@ -294,6 +303,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!book) {
         json(res, 404, { error: 'Ledger not found' });
         return;
+      }
+      if (!asRoles(book.roles)[user.uid]) {
+        try {
+          await assertMemberRoom(bookId);
+        } catch (err: any) {
+          json(res, Number(err?.status || 402), { error: 'This book is full on its current plan. Ask the owner to upgrade.', ...(err?.extra || {}) });
+          return;
+        }
       }
       const roles = {
         ...asRoles(book.roles),

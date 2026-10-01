@@ -1608,12 +1608,42 @@ async function mergeCategory(bookId: string, category: string) {
 
 async function saveExpenseRecord(bookId: string, expense: Record<string, unknown>): Promise<Record<string, unknown>> {
   const allowDuplicateHash = Boolean(expense.duplicateConfirmedDifferent);
+  // email_captures quota: charged to the book owner. Over the limit, the bill is kept as a draft
+  // and sent to the owner's Inbox for review, never dropped.
+  let overQuota = false;
+  let ownerUid = '';
+  try {
+    const bookDoc = await docGet(`books/${bookId}`);
+    ownerUid = String(bookDoc?.ownerId || '');
+    if (ownerUid) {
+      const { consume } = await import('../_lib/entitlements.js');
+      await consume(ownerUid, 'email_captures');
+    }
+  } catch (err: any) {
+    overQuota = err?.extra?.code === 'QUOTA_EXCEEDED';
+  }
+  const record = overQuota
+    ? { ...expense, status: 'draft', financialStatus: 'DRAFT', reviewReason: 'Monthly email-in limit reached' }
+    : expense;
   const saved = await ledgerSaveExpense(
     bookId,
-    { ...expense, id: String(expense.id || newId()) },
+    { ...record, id: String(record.id || newId()) },
     { insertOnly: true, allowDuplicateHash },
   );
   await mergeCategory(bookId, String((saved.expense as Record<string, unknown>).category || ''));
+  const low = String((saved.expense as Record<string, unknown>).confidence || '') === 'low';
+  if ((overQuota || low) && ownerUid) {
+    try {
+      const { saasSql } = await import('../_lib/saas-schema.js');
+      const sql = await saasSql();
+      const reasons = [overQuota ? 'Monthly email-in limit reached' : 'Check this'];
+      await sql`INSERT INTO inbox_items (id, uid, book_id, kind, preview)
+        VALUES (${'ib_' + String(saved.expense.id)}, ${ownerUid}, ${bookId}, 'review', ${JSON.stringify({ ...saved.expense, reasons })}::jsonb)
+        ON CONFLICT (id) DO NOTHING`;
+    } catch {
+      /* inbox is best-effort */
+    }
+  }
   return saved.expense;
 }
 

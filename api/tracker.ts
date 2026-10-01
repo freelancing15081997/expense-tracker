@@ -40,7 +40,9 @@ import {
   ledgerList,
   getLedgerSql,
   withDomainApi,
+  verifyFirebaseUser,
 } from './_pg-tables.js';
+import { requestGate, checkCount, countOwnedBooks, effectiveFeatures, requireFeature } from './_lib/entitlements.js';
 
 function parseSuperEmails(raw: string) {
   return String(raw || '')
@@ -57,7 +59,7 @@ function emailIsSuperUser(email?: string | null) {
   return [...new Set([...builtin, ...extra])].includes(needle);
 }
 
-type Domain = 'ledgers' | 'expenses' | 'notifications' | 'me' | 'books' | 'money' | 'support';
+type Domain = 'ledgers' | 'expenses' | 'notifications' | 'me' | 'books' | 'money' | 'support' | 'saas' | 'owner';
 
 async function moneyModule() {
   try {
@@ -115,11 +117,11 @@ function domainFrom(req: VercelRequest): Domain | '' {
   const raw = req.query?.domain;
   const query = Array.isArray(raw) ? raw[0] : raw;
   const hinted = String(query || '').trim();
-  if (hinted === 'ledgers' || hinted === 'expenses' || hinted === 'notifications' || hinted === 'me' || hinted === 'books' || hinted === 'money' || hinted === 'support') return hinted;
+  if (hinted === 'ledgers' || hinted === 'expenses' || hinted === 'notifications' || hinted === 'me' || hinted === 'books' || hinted === 'money' || hinted === 'support' || hinted === 'saas' || hinted === 'owner') return hinted;
   try {
     const path = new URL(req.url || '/', 'https://local.invalid').pathname;
     const part = path.split('/').filter(Boolean)[1] || '';
-    if (part === 'ledgers' || part === 'expenses' || part === 'notifications' || part === 'me' || part === 'books' || part === 'money' || part === 'support') return part;
+    if (part === 'ledgers' || part === 'expenses' || part === 'notifications' || part === 'me' || part === 'books' || part === 'money' || part === 'support' || part === 'saas' || part === 'owner') return part;
   } catch {
     // fall through
   }
@@ -196,6 +198,8 @@ async function handleLedgers(req: VercelRequest, res: VercelResponse) {
       const purposeConfig = body.purposeConfig && typeof body.purposeConfig === 'object' && !Array.isArray(body.purposeConfig)
         ? body.purposeConfig as Record<string, unknown>
         : undefined;
+      await requireFeature(user.uid, user.email, 'money_create_book');
+      await checkCount(user.uid, 'books', await countOwnedBooks(user.uid));
       const book = await ledgerCreateBook({
         uid: user.uid,
         email: user.email,
@@ -245,6 +249,16 @@ async function handleLedgers(req: VercelRequest, res: VercelResponse) {
           : {};
         patch.userMoneyRules = { ...existing, [user.uid]: incoming[user.uid] };
       }
+      if (patch.roles && typeof patch.roles === 'object' && !Array.isArray(patch.roles)) {
+        const currentBook = await ledgerGet(`books/${bookId}`) as Record<string, any> | null;
+        const ownerId = String(currentBook?.ownerId || '');
+        const nextRoles = patch.roles as Record<string, { role?: string }>;
+        if (ownerId && nextRoles[ownerId] && nextRoles[ownerId].role !== 'owner') throw new ApiError(400, 'The book owner’s role can’t be changed.', { code: 'OWNER_ROLE' });
+        if (ownerId && !nextRoles[ownerId] && currentBook?.roles?.[ownerId]) nextRoles[ownerId] = currentBook.roles[ownerId];
+        const prevCount = Object.keys(currentBook?.roles || {}).length;
+        const nextCount = Object.keys(nextRoles).length;
+        if (nextCount > prevCount) await checkCount(ownerId || user.uid, 'members_per_book', prevCount, nextCount - prevCount);
+      }
       const book = await ledgerUpdateBook(bookId, user.uid, patch);
       apiJson(res, 200, { book });
       return;
@@ -269,6 +283,7 @@ async function handleLedgers(req: VercelRequest, res: VercelResponse) {
     if (op === 'softDelete') {
       const bookId = String(body.bookId || '').trim();
       if (!bookId) throw new ApiError(400, 'Missing ledger');
+      await requireFeature(user.uid, user.email, 'money_delete_book');
       await ledgerSoftDeleteBook(bookId, user.uid);
       apiJson(res, 200, { ok: true });
       return;
@@ -380,6 +395,7 @@ async function handleExpenses(req: VercelRequest, res: VercelResponse) {
       const bookId = String(body.bookId || '').trim();
       if (!bookId) throw new ApiError(400, 'Missing ledger');
       await ledgerRequireWriter(bookId, user.uid);
+      await requireFeature(user.uid, user.email, 'money_add');
       const idempotencyKey = String(body.idempotencyKey || '').trim();
       if (idempotencyKey) {
         try {
@@ -451,6 +467,12 @@ async function handleExpenses(req: VercelRequest, res: VercelResponse) {
         body: `${user.email || 'A teammate'} added ${String(created.description || created.merchant || 'an entry')}`,
         action: 'entry.create',
       });
+      try {
+        const { closeCapture } = await import('./_lib/money-extras.js');
+        await closeCapture(String(input.captureId || ''));
+      } catch {
+        /* inbox close is best-effort */
+      }
       apiJson(res, 200, { expense: saved.expense });
       return;
     }
@@ -514,6 +536,7 @@ async function handleExpenses(req: VercelRequest, res: VercelResponse) {
       const expenseId = String(body.expenseId || '').trim();
       if (!bookId || !expenseId) throw new ApiError(400, 'Missing expense');
       await ledgerRequireWriter(bookId, user.uid);
+      await requireFeature(user.uid, user.email, 'money_delete');
       const ok = await ledgerSoftDeleteExpense(bookId, expenseId, user.uid);
       if (!ok) throw new ApiError(404, 'Expense not found');
       await ledgerAudit({
@@ -912,7 +935,23 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
         stored,
         rolePermissions,
         roleKey: 'DEFAULT_USER',
-      });
+      }) as Record<string, boolean>;
+      if (!superUser && !stored) {
+        try {
+          const planFeatures = await effectiveFeatures(user.uid, user.email);
+          for (const [key, on] of Object.entries(planFeatures)) if (on === false) features[key] = false;
+        } catch {
+          /* plan features are additive restrictions only */
+        }
+      }
+      let suspended = false;
+      try {
+        const { saasSql } = await import('./_lib/saas-schema.js');
+        const st = await (await saasSql())`SELECT status FROM user_status WHERE uid = ${user.uid}`;
+        suspended = st[0]?.status === 'suspended' && !superUser;
+      } catch {
+        suspended = false;
+      }
       apiJson(res, 200, {
         rolePermissions,
         orgUiDefaults,
@@ -925,6 +964,7 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
           features,
           // Raw override for Access & roles editor (null when using role defaults).
           featureOverride: stored || null,
+          ...(suspended ? { status: 'suspended' } : {}),
         },
       });
       return;
@@ -1052,6 +1092,15 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
     }
 
     if (op === 'deleteAccount') {
+      try {
+        const { saasSql } = await import('./_lib/saas-schema.js');
+        const sql = await saasSql();
+        const reason = String(body.reason || '').slice(0, 500);
+        await sql`UPDATE subscriptions SET cancel_at_period_end = true, cancel_reason = ${'account deleted: ' + reason}, updated_at = now() WHERE uid = ${user.uid}`;
+        await sql`INSERT INTO user_status (uid, status, reason) VALUES (${user.uid}, 'deleted', ${reason}) ON CONFLICT (uid) DO UPDATE SET status = 'deleted', reason = EXCLUDED.reason, at = now()`;
+      } catch {
+        /* billing tables may not exist yet */
+      }
       const { deleteUserAccount } = await import('./_lib/support-tickets.js');
       const result = await deleteUserAccount(user.uid);
       await ledgerAudit({
@@ -1361,8 +1410,39 @@ async function handleBooks(req: VercelRequest, res: VercelResponse) {
   });
 }
 
+async function gateRequest(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'POST') return true;
+  const header = String(req.headers.authorization || '');
+  const token = header.toLowerCase().startsWith('bearer ') ? header.slice(7).trim() : '';
+  if (!token) return true;
+  const user = await verifyFirebaseUser(token).catch(() => null);
+  if (!user) return true;
+  const raw = req.body;
+  let op = '';
+  try { op = String((typeof raw === 'string' ? JSON.parse(raw || '{}') : (raw || {})).op || ''); } catch { op = ''; }
+  try {
+    await requestGate(user, String(req.url || ''), op);
+    return true;
+  } catch (err: any) {
+    const origin = String(req.headers.origin || '');
+    res.setHeader('Access-Control-Allow-Origin', origin || '*');
+    if (origin) res.setHeader('Access-Control-Allow-Credentials', 'true');
+    apiJson(res, Number(err?.status || 503), { error: err?.message || 'Unavailable', ...(err?.extra || {}) });
+    return false;
+  }
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const domain = domainFrom(req);
+  if (domain === 'owner') {
+    const { handleOwner } = await import('./_lib/owner-handlers.js');
+    return handleOwner(req, res);
+  }
+  if (domain && !(await gateRequest(req, res))) return;
+  if (domain === 'saas') {
+    const { handleSaas } = await import('./_lib/saas-handlers.js');
+    return handleSaas(req, res);
+  }
   if (domain === 'ledgers') return handleLedgers(req, res);
   if (domain === 'expenses') return handleExpenses(req, res);
   if (domain === 'notifications') return handleNotifications(req, res);
@@ -1372,7 +1452,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (domain === 'money') {
     try {
       const { handleMoney } = await moneyModule();
-      return handleMoney(req, res);
+      const extras = await import('./_lib/money-extras.js');
+      const raw = req.body;
+      let op = '';
+      try { op = String((typeof raw === 'string' ? JSON.parse(raw || '{}') : (raw || {})).op || ''); } catch { op = ''; }
+      if (extras.EXTRA_MONEY_OPS.has(op)) return extras.handleMoneyExtras(req, res);
+      return extras.gatedMoney(req, res, handleMoney);
     } catch (err) {
       const origin = String(req.headers.origin || '');
       res.setHeader('Access-Control-Allow-Origin', origin || '*');

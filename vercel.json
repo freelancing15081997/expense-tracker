@@ -5,16 +5,21 @@
   "ignoreCommand": "node -e \"process.exit((process.env.VERCEL_PROJECT_NAME||'')==='android'?0:1)\"",
   "functions": {
     "api/kv.ts": { "maxDuration": 30, "includeFiles": "api/_pg-tables.js" },
-    "api/invites.ts": { "maxDuration": 15, "includeFiles": "api/_pg-tables.js" },
-    "api/tracker.ts": { "maxDuration": 30, "includeFiles": "api/{_pg-tables.js,_lib/**}" },
+    "api/invites.ts": { "maxDuration": 15, "includeFiles": "api/{_pg-tables.js,_lib/**}" },
+    "api/tracker.ts": { "maxDuration": 60, "includeFiles": "api/{_pg-tables.js,_lib/**}" },
     "api/migrate.ts": { "maxDuration": 60, "includeFiles": "api/_pg-tables.js" },
     "api/email/send.ts": { "maxDuration": 60 },
     "api/auth/otp.ts": { "maxDuration": 30, "includeFiles": "api/{_pg-tables.js,_lib/**}" },
     "api/email/inbound.ts": { "maxDuration": 60, "includeFiles": "api/{_pg-tables.js,_lib/**}" },
     "api/blob/upload.ts": { "maxDuration": 30, "includeFiles": "api/{_pg-tables.js,_lib/**}" },
     "api/blob/delete.ts": { "maxDuration": 15, "includeFiles": "api/{_pg-tables.js,_lib/**}" },
-    "api/blob/file.ts": { "maxDuration": 15, "includeFiles": "api/_lib/**" }
+    "api/blob/file.ts": { "maxDuration": 15, "includeFiles": "api/_lib/**" },
+    "api/payments/cashfree-webhook.ts": { "maxDuration": 30, "includeFiles": "api/{_pg-tables.js,_lib/**}" },
+    "api/payments/cashfree-page.ts": { "maxDuration": 30, "includeFiles": "api/{_pg-tables.js,_lib/**}" }
   },
+  "crons": [
+    { "path": "/api/tracker?domain=saas&op=cron", "schedule": "0 * * * *" }
+  ],
   "headers": [
     {
       "source": "/(.*)",
@@ -43,8 +48,13 @@
     { "source": "/api/support", "destination": "/api/tracker?domain=support" },
     { "source": "/api/money", "destination": "/api/tracker?domain=money" },
     { "source": "/api/books", "destination": "/api/tracker?domain=books" },
+    { "source": "/api/saas", "destination": "/api/tracker?domain=saas" },
+    { "source": "/api/owner", "destination": "/api/tracker?domain=owner" },
+    { "source": "/api/payments/cashfree/webhook", "destination": "/api/payments/cashfree-webhook" },
+    { "source": "/pay/cashfree", "destination": "/api/payments/cashfree-page" },
+    { "source": "/pay/return", "destination": "/api/payments/cashfree-page?op=return" },
     { "source": "/api/auth/:path*", "destination": "/api" },
     { "source": "/neondb/auth/:path*", "destination": "/api" },
-    { "source": "/((?!api/).*)", "destination": "/index.html" }
+    { "source": "/((?!api/|pay/).*)", "destination": "/index.html" }
   ]
 }
