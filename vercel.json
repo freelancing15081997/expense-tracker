@@ -13,9 +13,7 @@
     "api/email/inbound.ts": { "maxDuration": 60, "includeFiles": "api/{_pg-tables.js,_lib/**}" },
     "api/blob/upload.ts": { "maxDuration": 30, "includeFiles": "api/{_pg-tables.js,_lib/**}" },
     "api/blob/delete.ts": { "maxDuration": 15, "includeFiles": "api/{_pg-tables.js,_lib/**}" },
-    "api/blob/file.ts": { "maxDuration": 15, "includeFiles": "api/_lib/**" },
-    "api/payments/cashfree-webhook.ts": { "maxDuration": 30, "includeFiles": "api/{_pg-tables.js,_lib/**}" },
-    "api/payments/cashfree-page.ts": { "maxDuration": 30, "includeFiles": "api/{_pg-tables.js,_lib/**}" }
+    "api/blob/file.ts": { "maxDuration": 15, "includeFiles": "api/_lib/**" }
   },
   "crons": [
     { "path": "/api/tracker?domain=saas&op=cron", "schedule": "0 3 * * *" }
@@ -50,9 +48,9 @@
     { "source": "/api/books", "destination": "/api/tracker?domain=books" },
     { "source": "/api/saas", "destination": "/api/tracker?domain=saas" },
     { "source": "/api/owner", "destination": "/api/tracker?domain=owner" },
-    { "source": "/api/payments/cashfree/webhook", "destination": "/api/payments/cashfree-webhook" },
-    { "source": "/pay/cashfree", "destination": "/api/payments/cashfree-page" },
-    { "source": "/pay/return", "destination": "/api/payments/cashfree-page?op=return" },
+    { "source": "/api/payments/cashfree/webhook", "destination": "/api/blob/upload?op=cashfree-webhook" },
+    { "source": "/pay/cashfree", "destination": "/api/tracker?domain=cashfree&op=page" },
+    { "source": "/pay/return", "destination": "/api/tracker?domain=cashfree&op=return" },
     { "source": "/api/auth/:path*", "destination": "/api" },
     { "source": "/neondb/auth/:path*", "destination": "/api" },
     { "source": "/((?!api/|pay/).*)", "destination": "/index.html" }

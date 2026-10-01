@@ -75,8 +75,8 @@ app.get("/api/blob/file", async (req, res) => {
 // Cashfree webhook verifies its signature over the raw body, so it must run before the JSON parser.
 app.post(["/api/payments/cashfree/webhook", "/api/payments/cashfree-webhook"], async (req, res) => {
   await runHandler(res, "cashfree webhook", async () => {
-    const { default: webhook } = await import("./api/payments/cashfree-webhook");
-    await webhook(req as any, res as any);
+    const { handleCashfreeWebhook } = await import("./api/_lib/cashfree-http.js");
+    await handleCashfreeWebhook(req as any, res as any);
   });
 });
 
@@ -112,8 +112,8 @@ app.all(["/api/ledgers", "/api/expenses", "/api/notifications", "/api/me", "/api
 // Cashfree hosted checkout + return pages (mirrors the vercel.json rewrites; the page reads /pay/return from the path).
 app.all(["/pay/cashfree", "/pay/return", "/api/payments/cashfree-page"], async (req, res) => {
   await runHandler(res, "cashfree page", async () => {
-    const { default: page } = await import("./api/payments/cashfree-page");
-    await page(req as any, res as any);
+    const { handleCashfreePage } = await import("./api/_lib/cashfree-http.js");
+    await handleCashfreePage(req as any, res as any);
   });
 });
 app.post("/api/email/inbound", async (req, res) => {

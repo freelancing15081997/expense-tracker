@@ -8,6 +8,12 @@ import { checkCount } from '../_lib/entitlements.js';
 export const config = { api: { bodyParser: false } };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  const hinted = req.query?.op;
+  if (String(Array.isArray(hinted) ? hinted[0] : hinted || '') === 'cashfree-webhook') {
+    const { handleCashfreeWebhook } = await import('../_lib/cashfree-http.js');
+    await handleCashfreeWebhook(req, res);
+    return;
+  }
   if (req.method === 'POST') {
     const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
     const user = token ? await verifyFirebaseUser(token).catch(() => null) : null;

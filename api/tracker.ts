@@ -59,7 +59,7 @@ function emailIsSuperUser(email?: string | null) {
   return [...new Set([...builtin, ...extra])].includes(needle);
 }
 
-type Domain = 'ledgers' | 'expenses' | 'notifications' | 'me' | 'books' | 'money' | 'support' | 'saas' | 'owner';
+type Domain = 'ledgers' | 'expenses' | 'notifications' | 'me' | 'books' | 'money' | 'support' | 'saas' | 'owner' | 'cashfree';
 
 async function moneyModule() {
   try {
@@ -117,11 +117,11 @@ function domainFrom(req: VercelRequest): Domain | '' {
   const raw = req.query?.domain;
   const query = Array.isArray(raw) ? raw[0] : raw;
   const hinted = String(query || '').trim();
-  if (hinted === 'ledgers' || hinted === 'expenses' || hinted === 'notifications' || hinted === 'me' || hinted === 'books' || hinted === 'money' || hinted === 'support' || hinted === 'saas' || hinted === 'owner') return hinted;
+  if (hinted === 'ledgers' || hinted === 'expenses' || hinted === 'notifications' || hinted === 'me' || hinted === 'books' || hinted === 'money' || hinted === 'support' || hinted === 'saas' || hinted === 'owner' || hinted === 'cashfree') return hinted;
   try {
     const path = new URL(req.url || '/', 'https://local.invalid').pathname;
     const part = path.split('/').filter(Boolean)[1] || '';
-    if (part === 'ledgers' || part === 'expenses' || part === 'notifications' || part === 'me' || part === 'books' || part === 'money' || part === 'support' || part === 'saas' || part === 'owner') return part;
+    if (part === 'ledgers' || part === 'expenses' || part === 'notifications' || part === 'me' || part === 'books' || part === 'money' || part === 'support' || part === 'saas' || part === 'owner' || part === 'cashfree') return part;
   } catch {
     // fall through
   }
@@ -1434,6 +1434,10 @@ async function gateRequest(req: VercelRequest, res: VercelResponse) {
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const domain = domainFrom(req);
+  if (domain === 'cashfree') {
+    const { handleCashfreePage } = await import('./_lib/cashfree-http.js');
+    return handleCashfreePage(req, res);
+  }
   if (domain === 'owner') {
     const { handleOwner } = await import('./_lib/owner-handlers.js');
     return handleOwner(req, res);

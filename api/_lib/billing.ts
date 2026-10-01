@@ -250,7 +250,7 @@ export function signedInvoiceUrl(id: string, ttlSec = 600) {
   const exp = Math.floor(Date.now() / 1000) + ttlSec;
   const sig = createHmac('sha256', invoiceSigningSecret()).update(`${id}.${exp}`).digest('hex').slice(0, 32);
   const base = String(process.env.PUBLIC_APP_URL || 'https://www.easypado.com').replace(/\/+$/, '');
-  return `${base}/api/payments/cashfree-page?op=invoice&id=${encodeURIComponent(id)}&exp=${exp}&sig=${sig}`;
+  return `${base}/api/tracker?domain=cashfree&op=invoice&id=${encodeURIComponent(id)}&exp=${exp}&sig=${sig}`;
 }
 export function checkInvoiceSig(id: string, exp: string, sig: string) {
   if (Number(exp) < Date.now() / 1000) return false;
