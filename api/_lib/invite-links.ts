@@ -6,7 +6,7 @@ import { checkCount, countBookMembers } from './entitlements.js';
 type Json = (status: number, payload: unknown) => void;
 type User = { uid: string; email: string };
 const ROLES = new Set(['admin', 'contributor', 'viewer', 'auditor']);
-const appUrl = () => String(process.env.PUBLIC_APP_URL || 'https://www.easypado.com').replace(/\/+$/, '');
+export const appUrl = () => String(process.env.PUBLIC_APP_URL || 'https://www.easypado.com').replace(/\/+$/, '');
 
 /** Throws ApiError 402 QUOTA_EXCEEDED when the book owner's plan has no room for one more. */
 export async function assertMemberRoom(bookId: string) {
@@ -28,14 +28,21 @@ export async function handleLinkInvite(op: string, body: Record<string, any>, us
     const expiresAt = new Date(Date.now() + 7 * 86400000).toISOString();
     await ledgerSet(`invite_codes/${code}`, { code, bookId, bookName: String(book.name || 'Book'), role, invitedBy: user.uid, invitedByEmail: user.email, status: 'pending', expiresAt, createdAt: new Date().toISOString() });
     await ledgerAudit({ bookId, actorUid: user.uid, actorEmail: user.email, action: 'invite_link_created', entityType: 'invite', entityId: code, detail: { role } }).catch(() => undefined);
-    json(200, { code, link: `${appUrl()}/join/${code}`, expiresAt });
+    // /invite/<code> is the route both apps handle; /join/<code> is still accepted for links already shared.
+    json(200, { code, link: `${appUrl()}/invite/${code}`, expiresAt });
     return true;
   }
 
-  if (op === 'accept' && body.code) {
-    const code = String(body.code).trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const inv = await ledgerGet(`invite_codes/${code}`) as any;
-    if (!inv) { json(404, { error: 'That invite link isn’t valid.', code: 'INVITE_NOT_FOUND' }); return true; }
+  // Accept a link/code invite. The apps route both kinds of invite through /invite/:x, so the value
+  // may arrive as `code` or `id`; if it isn't a known link code, fall through to the email-invite flow.
+  if (op === 'accept' && (body.code || body.id)) {
+    const code = String(body.code || body.id).trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const inv = code ? await ledgerGet(`invite_codes/${code}`) as any : null;
+    if (!inv) {
+      // Not a link code: hand it to the email-invite flow as an invite id.
+      if (body.code && !body.id) body.id = String(body.code).trim();
+      return false;
+    }
     if (inv.status !== 'pending' || Date.parse(inv.expiresAt) < Date.now()) { json(410, { error: 'This invite has expired. Ask for a new link.', code: 'INVITE_EXPIRED' }); return true; }
     const book = await ledgerGet(`books/${inv.bookId}`) as any;
     if (!book || book.deleted) { json(404, { error: 'That book no longer exists.', code: 'NOT_FOUND' }); return true; }

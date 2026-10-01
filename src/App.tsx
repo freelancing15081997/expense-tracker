@@ -65,6 +65,8 @@ export default function App() {
               <Route path="/verify-email" element={<GuestRoute><VerifyEmail /></GuestRoute>} />
               <Route path="/forgot-password" element={<GuestRoute><ForgotPassword /></GuestRoute>} />
               <Route path="/invite/:inviteId" element={<InviteRoute />} />
+              {/* Link invites from Byjan Books (also older /join/<code> links); the server accepts a code as the invite id. */}
+              <Route path="/join/:inviteId" element={<InviteRoute />} />
               <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
                 <Route index element={<Dashboard />} />
                 <Route path="access" element={<SuperUserGate><AccessControl /></SuperUserGate>} />

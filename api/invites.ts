@@ -127,7 +127,38 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
       const invite = await ledgerGet(`invites/${id}`);
       if (!invite) {
-        json(res, 200, { status: 'missing' });
+        // Link/code invites (Byjan Books "Share link") live in invite_codes and aren't tied to an email.
+        const code = id.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const link = code ? await ledgerGet(`invite_codes/${code}`) : null;
+        if (!link) {
+          json(res, 200, { status: 'missing' });
+          return;
+        }
+        const linkBookId = String(link.bookId || '').trim();
+        const linkBook = linkBookId ? await ledgerGet(`books/${linkBookId}`) : null;
+        if (!linkBook || linkBook.deleted) {
+          json(res, 200, { status: 'missing' });
+          return;
+        }
+        if (asRoles(linkBook.roles)[user.uid] || linkBook.ownerId === user.uid) {
+          json(res, 200, { status: 'already_member', bookId: linkBookId });
+          return;
+        }
+        if (link.status !== 'pending' || Date.parse(String(link.expiresAt || '')) < Date.now()) {
+          json(res, 200, { status: 'closed', bookId: linkBookId });
+          return;
+        }
+        json(res, 200, {
+          status: 'ok',
+          invite: {
+            id: code,
+            bookId: linkBookId,
+            bookName: String(link.bookName || linkBook.name || 'Ledger'),
+            role: String(link.role || 'contributor'),
+            invitedBy: String(link.invitedBy || ''),
+            email: user.email,
+          },
+        });
         return;
       }
       const invitedEmail = String(invite.email || '').trim().toLowerCase();
@@ -169,7 +200,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    const { handleLinkInvite, assertMemberRoom } = await import('./_lib/invite-links.js');
+    const { handleLinkInvite, assertMemberRoom, appUrl } = await import('./_lib/invite-links.js');
     if (await handleLinkInvite(op, body, user, (status, payload) => json(res, status, payload))) return;
 
     if (op === 'list') {
@@ -279,7 +310,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         entityId: id,
         detail: { email, role },
       }).catch(() => undefined);
-      json(res, 200, { id, invite: { id, ...data } });
+      // `link` lets the app show/share the same /invite/<id> URL the invite email uses.
+      json(res, 200, { id, invite: { id, ...data }, link: `${appUrl()}/invite/${id}` });
       return;
     }
 
