@@ -42,3 +42,7 @@ ios/App/GoogleService-Info.plist
 android/play-service-account.json
 gen-lang-client-*.json
 
+
+# Leftover local Business tree after split (locked venv/node); use Desktop/byjan-platform
+byjan-platform/
+
