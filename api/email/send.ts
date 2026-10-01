@@ -185,17 +185,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const uid = user.uid;
     const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
     const to = String(body.to || '').trim().toLowerCase();
+    const recipients = [...new Set(
+      (Array.isArray(body.recipients) ? body.recipients : [])
+        .map((row: unknown) => String(row || '').trim().toLowerCase())
+        .filter((row: string) => row.includes('@')),
+    )].slice(0, 15);
+    const targets = recipients.length ? recipients : (to ? [to] : []);
     const subject = String(body.subject || '').trim();
     const message = String(body.message || '');
     const bookId = String(body.bookId || '').trim();
     const kind = String(body.kind || '').trim().toLowerCase();
-    if (!to || !subject || !message) {
+    if (!targets.length || !subject || !message) {
       json(res, 400, { error: 'Missing required fields' });
       return;
     }
-    if (!(await recipientAllowed({ uid, email: user.email, to, bookId, kind }))) {
-      json(res, 403, { error: 'You can only email yourself, book members, or someone you just invited to this book.' });
-      return;
+    if (targets.length === 1) {
+      if (!(await recipientAllowed({ uid, email: user.email, to: targets[0], bookId, kind }))) {
+        json(res, 403, { error: 'You can only email yourself, book members, or someone you just invited to this book.' });
+        return;
+      }
     }
 
     const textMessage = message.replace(/<[^>]*>?/gm, '');
@@ -231,21 +239,56 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 </body>
 </html>`;
     const pdfBase64 = String(body.pdfBase64 || '').replace(/^data:application\/pdf[^,]*,/i, '').replace(/\s+/g, '');
+    const attachments = pdfBase64
+      ? [{
+          filename: String(body.filename || 'Byjan_Report.pdf').replace(/[^\w.-]+/g, '_'),
+          content: pdfBase64,
+          encoding: 'base64',
+          contentType: 'application/pdf',
+        }]
+      : undefined;
+    const mailKind = kind || 'email.send';
+    // One SMTP session for the whole team. Separate requests each pay a cold connect (~5s).
+    if (targets.length > 1) {
+      const results: Array<{ to: string; ok: boolean; messageId?: string | null; error?: string }> = [];
+      for (const addr of targets) {
+        if (!(await recipientAllowed({ uid, email: user.email, to: addr, bookId, kind }))) {
+          results.push({ to: addr, ok: false, error: 'not allowed' });
+          continue;
+        }
+        try {
+          const info = await sendTracedMail({
+            to: addr,
+            subject,
+            text: textMessage,
+            html,
+            kind: mailKind,
+            attachments,
+          });
+          results.push({ to: addr, ok: true, messageId: info?.messageId || null });
+        } catch (err: any) {
+          const { publicServiceError } = await import('../_lib/ops-classify.js');
+          results.push({
+            to: addr,
+            ok: false,
+            error: publicServiceError(err, 'Could not send that email. Please try again later.'),
+          });
+        }
+      }
+      json(res, results.some((row) => row.ok) ? 200 : 403, {
+        success: results.some((row) => row.ok),
+        results,
+      });
+      return;
+    }
     try {
       const info = await sendTracedMail({
-        to,
+        to: targets[0],
         subject,
         text: textMessage,
         html,
-        kind: kind || 'email.send',
-        attachments: pdfBase64
-          ? [{
-              filename: String(body.filename || 'Byjan_Report.pdf').replace(/[^\w.-]+/g, '_'),
-              content: pdfBase64,
-              encoding: 'base64',
-              contentType: 'application/pdf',
-            }]
-          : undefined,
+        kind: mailKind,
+        attachments,
       });
       json(res, 200, { success: true, messageId: info?.messageId });
     } catch (first: any) {
