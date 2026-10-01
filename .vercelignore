@@ -1,1 +1,4 @@
 # Build trigger
+
+# Byjan Books mobile app is built separately (Capacitor), not part of the web deploy
+apps/

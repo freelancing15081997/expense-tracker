@@ -1,0 +1,51 @@
+<!--
+  Merge into android/app/src/main/AndroidManifest.xml after `npx cap add android`.
+  1. Inside <activity android:name=".MainActivity" android:launchMode="singleTask" ...>
+-->
+<intent-filter>
+    <action android:name="android.intent.action.SEND" />
+    <category android:name="android.intent.category.DEFAULT" />
+    <data android:mimeType="image/*" />
+    <data android:mimeType="application/pdf" />
+    <data android:mimeType="text/plain" />
+    <data android:mimeType="text/csv" />
+    <data android:mimeType="application/vnd.ms-excel" />
+    <data android:mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+</intent-filter>
+<intent-filter>
+    <action android:name="android.intent.action.SEND_MULTIPLE" />
+    <category android:name="android.intent.category.DEFAULT" />
+    <data android:mimeType="image/*" />
+    <data android:mimeType="application/pdf" />
+</intent-filter>
+<!-- Deep links: payment return + Google auth handoff + book capture links -->
+<intent-filter android:autoVerify="false">
+    <action android:name="android.intent.action.VIEW" />
+    <category android:name="android.intent.category.DEFAULT" />
+    <category android:name="android.intent.category.BROWSABLE" />
+    <data android:scheme="com.byjanbooks.app" />
+</intent-filter>
+
+<!--
+  2. Inside <manifest> (outside <application>): lets Cashfree checkout + settlement pay open UPI apps.
+-->
+<queries>
+    <intent>
+        <action android:name="android.intent.action.VIEW" />
+        <data android:scheme="upi" />
+    </intent>
+    <package android:name="com.phonepe.app" />
+    <package android:name="com.google.android.apps.nbu.paisa.user" />
+    <package android:name="net.one97.paytm" />
+    <package android:name="in.org.npci.upiapp" />
+    <package android:name="in.amazon.mShop.android.shopping" />
+    <package android:name="com.dreamplug.androidapp" />
+</queries>
+<uses-permission android:name="android.permission.CAMERA" />
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+<!--
+  SMS: Play policy blocks READ_SMS for finance-tracker apps that aren't the default SMS handler.
+  Bank/UPI SMS reach Byjan through the share sheet (long-press SMS > Share > Byjan) or paste,
+  both handled by the capture flow. Do NOT add READ_SMS.
+-->
