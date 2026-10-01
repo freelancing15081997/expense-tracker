@@ -17,7 +17,13 @@ export async function handleSaas(req: VercelRequest, res: VercelResponse) {
   if (op0 === 'publicConfig') {
     applyApiCors(req as any, res as any);
     if (req.method === 'OPTIONS') { res.statusCode = 204; res.end(); return; }
-    const c = await getConfig();
+    let c: Awaited<ReturnType<typeof getConfig>>;
+    try { c = await getConfig(); } catch (e) {
+      // Called on every app launch without sign-in: never let a database hiccup escape as an unhandled error.
+      console.error('saas.publicConfig', e);
+      apiJson(res as any, 503, { error: 'Service is busy. Try again shortly.', code: 'UNAVAILABLE' });
+      return;
+    }
     res.setHeader('cache-control', 'public, max-age=60');
     apiJson(res as any, 200, { config: { maintenance: c.maintenance, maintenanceMessage: c.maintenanceMessage, announcement: c.announcement, announcementTone: c.announcementTone, minAppVersion: c.minAppVersion } });
     return;
