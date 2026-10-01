@@ -1,6 +1,7 @@
 ﻿import { ensureLedgerMailbox } from './ledgers';
 
-export const INBOUND_MAIL_DOMAIN = 'easypado.com';
+// Only in.easypado.com has MX pointing at Cloudflare Email Routing; the apex serves the GoDaddy mailbox.
+export const INBOUND_MAIL_DOMAIN = 'in.easypado.com';
 
 export function inboundMailboxSlug(name: string) {
   const slug = String(name || '')

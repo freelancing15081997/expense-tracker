@@ -75,7 +75,8 @@ function flag(data) {
   const deleted = data.deleted;
   return deleted === true || deleted === "true" || deleted === 1 || deleted === "1" || Boolean(data.deletedAt) || data.status === "deleted";
 }
-var INBOUND_DOMAIN = "easypado.com";
+var INBOUND_DOMAIN = "in.easypado.com";
+var LEGACY_INBOUND_DOMAINS = ["easypado.com", "inbound.easypado.com"];
 var RESERVED_INBOUND_LOCALS = /* @__PURE__ */ new Set([
   "support",
   "info",
@@ -95,6 +96,15 @@ function inboundMailboxSlug(name) {
 }
 function inboundAddressFor(slug) {
   return `${inboundMailboxSlug(slug)}@${INBOUND_DOMAIN}`;
+}
+function inboundAddressCandidates(slug) {
+  return [INBOUND_DOMAIN, ...LEGACY_INBOUND_DOMAINS].map((domain) => `${slug}@${domain}`);
+}
+function normalizeInboundAddress(address, slug) {
+  const current = String(address || "").trim().toLowerCase();
+  if (!current) return inboundAddressFor(slug);
+  const domain = current.split("@")[1] || "";
+  return domain === INBOUND_DOMAIN ? current : inboundAddressFor(slug);
 }
 function shortBookId(bookId) {
   return String(bookId || "").replace(/[^a-zA-Z0-9]/g, "").slice(-6).toLowerCase() || "book";
@@ -117,9 +127,12 @@ async function ledgerEnsureMailbox(bookId, data = {}) {
       ownerId: text(obj.ownerId || current.ownerId),
       roles: Object.keys(rolesOf(obj.roles)).length ? rolesOf(obj.roles) : rolesOf(current.roles),
       slug: existingSlug,
-      address: text(current.address) || inboundAddressFor(existingSlug),
+      address: normalizeInboundAddress(text(current.address), existingSlug),
       updatedAt: text(current.updatedAt) || (/* @__PURE__ */ new Date()).toISOString()
     };
+    if (text(current.address) !== record.address) {
+      await ledgerSet(`inbound_mailboxes/${id}`, { ...current, ...record }).catch(() => void 0);
+    }
     if (text(obj.inboundAddress) !== record.address || text(obj.inboundSlug) !== record.slug) {
       await stampBookMailbox(id, record).catch(() => void 0);
     }
@@ -188,7 +201,7 @@ async function ledgerResolveInboundSlug(local) {
     await sql`
       SELECT book_id FROM inbound_mailboxes
       WHERE data->>'slug' = ${slug}
-         OR lower(data->>'address') = ${`${slug}@${INBOUND_DOMAIN}`}
+         OR lower(data->>'address') = ANY(${inboundAddressCandidates(slug)})
       LIMIT 1
     `
   );
@@ -198,7 +211,7 @@ async function ledgerResolveInboundSlug(local) {
     await sql`
       SELECT id FROM books
       WHERE data->>'inboundSlug' = ${slug}
-         OR lower(data->>'inboundAddress') = ${`${slug}@${INBOUND_DOMAIN}`}
+         OR lower(data->>'inboundAddress') = ANY(${inboundAddressCandidates(slug)})
       LIMIT 1
     `
   );

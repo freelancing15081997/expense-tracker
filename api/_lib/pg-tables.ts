@@ -85,7 +85,9 @@ function flag(data: Record<string, unknown>) {
   return deleted === true || deleted === 'true' || deleted === 1 || deleted === '1' || Boolean(data.deletedAt) || data.status === 'deleted';
 }
 
-const INBOUND_DOMAIN = 'easypado.com';
+// Apex MX serves the GoDaddy mailbox, so only in.easypado.com reaches the inbound Worker.
+const INBOUND_DOMAIN = 'in.easypado.com';
+const LEGACY_INBOUND_DOMAINS = ['easypado.com', 'inbound.easypado.com'];
 const RESERVED_INBOUND_LOCALS = new Set([
   'support', 'info', 'noreply', 'no-reply', 'admin', 'welcome',
   'byjanbooks', 'hello', 'contact', 'mail', 'email',
@@ -105,6 +107,18 @@ export function inboundMailboxSlug(name: string) {
 
 function inboundAddressFor(slug: string) {
   return `${inboundMailboxSlug(slug)}@${INBOUND_DOMAIN}`;
+}
+
+function inboundAddressCandidates(slug: string) {
+  return [INBOUND_DOMAIN, ...LEGACY_INBOUND_DOMAINS].map((domain) => `${slug}@${domain}`);
+}
+
+/** Mailboxes issued on an older domain keep their slug but move to the one that receives mail. */
+function normalizeInboundAddress(address: string, slug: string) {
+  const current = String(address || '').trim().toLowerCase();
+  if (!current) return inboundAddressFor(slug);
+  const domain = current.split('@')[1] || '';
+  return domain === INBOUND_DOMAIN ? current : inboundAddressFor(slug);
 }
 
 function shortBookId(bookId: string) {
@@ -130,9 +144,12 @@ export async function ledgerEnsureMailbox(bookId: string, data: Record<string, u
       ownerId: text(obj.ownerId || current.ownerId),
       roles: Object.keys(rolesOf(obj.roles)).length ? rolesOf(obj.roles) : rolesOf(current.roles),
       slug: existingSlug,
-      address: text(current.address) || inboundAddressFor(existingSlug),
+      address: normalizeInboundAddress(text(current.address), existingSlug),
       updatedAt: text(current.updatedAt) || new Date().toISOString(),
     };
+    if (text(current.address) !== record.address) {
+      await ledgerSet(`inbound_mailboxes/${id}`, { ...current, ...record }).catch(() => undefined);
+    }
     if (text(obj.inboundAddress) !== record.address || text(obj.inboundSlug) !== record.slug) {
       await stampBookMailbox(id, record).catch(() => undefined);
     }
@@ -208,7 +225,7 @@ export async function ledgerResolveInboundSlug(local: string) {
     await sql`
       SELECT book_id FROM inbound_mailboxes
       WHERE data->>'slug' = ${slug}
-         OR lower(data->>'address') = ${`${slug}@${INBOUND_DOMAIN}`}
+         OR lower(data->>'address') = ANY(${inboundAddressCandidates(slug)})
       LIMIT 1
     `,
   );
@@ -219,7 +236,7 @@ export async function ledgerResolveInboundSlug(local: string) {
     await sql`
       SELECT id FROM books
       WHERE data->>'inboundSlug' = ${slug}
-         OR lower(data->>'inboundAddress') = ${`${slug}@${INBOUND_DOMAIN}`}
+         OR lower(data->>'inboundAddress') = ANY(${inboundAddressCandidates(slug)})
       LIMIT 1
     `,
   );
