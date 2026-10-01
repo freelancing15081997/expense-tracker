@@ -28,6 +28,11 @@ function isApi(pathname) {
   return pathname.startsWith('/api/') || pathname === '/api' || pathname.startsWith('/neondb/');
 }
 
+/** Workers cannot open outbound SMTP, so outbound mail runs on the Node origin. */
+function sendsMail(pathname) {
+  return pathname === '/api/email/send' || pathname === '/api/email/send-report';
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -38,6 +43,9 @@ export default {
     ) {
       url.hostname = 'www.easypado.com';
       return Response.redirect(url.toString(), 302);
+    }
+    if (sendsMail(url.pathname) && request.method === 'POST') {
+      return fetch(request);
     }
     if (!isApi(url.pathname) && env.ASSETS) {
       const asset = await env.ASSETS.fetch(request);
