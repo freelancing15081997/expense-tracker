@@ -1,0 +1,19 @@
+appId: app.byjan.android
+---
+- launchApp
+- tapOn: "Skip"
+- tapOn: "Continue"
+- tapOn: "2"
+- tapOn: "4"
+- tapOn: "6"
+- tapOn: "8"
+- tapOn: "1"
+- tapOn: "0"
+- assertVisible: "Spent in September"
+- tapOn:
+    text: "Quick add"
+- tapOn: "Expense"
+- assertVisible: "Money out"
+- tapOn:
+    text: "Save ·.*"
+- assertVisible: "Spent in September"

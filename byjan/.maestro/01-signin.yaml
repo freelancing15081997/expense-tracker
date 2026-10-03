@@ -1,0 +1,18 @@
+appId: app.byjan.android
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Skip"
+    timeout: 8000
+- tapOn: "Skip"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Enter the code"
+    timeout: 8000
+- tapOn: "2"
+- tapOn: "4"
+- tapOn: "6"
+- tapOn: "8"
+- tapOn: "1"
+- tapOn: "0"
+- assertVisible: "Spent in September"

@@ -1,0 +1,18 @@
+appId: app.byjan.android
+---
+- launchApp
+- tapOn: "Skip"
+- tapOn: "Continue"
+- tapOn: "2"
+- tapOn: "4"
+- tapOn: "6"
+- tapOn: "8"
+- tapOn: "1"
+- tapOn: "0"
+- assertVisible: "Home"
+- swipe:
+    direction: LEFT
+- assertVisible: "Books"
+- swipe:
+    direction: RIGHT
+- assertVisible: "Home"
