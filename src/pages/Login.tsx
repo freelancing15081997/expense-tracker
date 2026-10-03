@@ -42,9 +42,6 @@ export default function Login() {
       const hash = String(window.location.hash || '');
       const q = hash.includes('?') ? hash.slice(hash.indexOf('?') + 1) : window.location.search.replace(/^\?/, '');
       const params = new URLSearchParams(q);
-      if (params.get('return') === 'byjan') {
-        try { sessionStorage.setItem('byjan.nativeScheme', 'byjan://google-auth'); } catch { /* private mode */ }
-      }
       if (params.get('nativeApp') !== '1' || params.get('google') !== '1') return;
       const autoKey = `byjan.nativeGoogleAuto.${params.get('ts') || '1'}`;
       if (sessionStorage.getItem(autoKey) === '1') return;

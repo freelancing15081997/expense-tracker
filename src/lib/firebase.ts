@@ -65,47 +65,13 @@ function googleSignInError(err: unknown) {
   return err instanceof Error ? err : new Error(message || 'Failed to sign in with Google');
 }
 
-function nativeQuery() {
+function nativeAppFlag() {
   try {
     const hash = String(window.location.hash || '');
     const q = hash.includes('?') ? hash.slice(hash.indexOf('?') + 1) : window.location.search.replace(/^\?/, '');
-    return new URLSearchParams(q);
+    return new URLSearchParams(q).get('nativeApp') === '1';
   } catch {
-    return new URLSearchParams();
-  }
-}
-
-function nativeAppFlag() {
-  if (nativeQuery().get('nativeApp') === '1') return true;
-  try { return sessionStorage.getItem('byjan.nativeHandoff') === '1'; } catch { return false; }
-}
-
-/** Remember that this browser tab should return to the phone app after Google. */
-export function markNativeGoogleReturn() {
-  const params = nativeQuery();
-  if (params.get('nativeApp') !== '1') return false;
-  try {
-    sessionStorage.setItem('byjan.nativeHandoff', '1');
-    if (params.get('return') === 'byjan') sessionStorage.setItem('byjan.nativeScheme', 'byjan://google-auth');
-  } catch { /* private mode */ }
-  return params.get('google') === '1';
-}
-
-/** Starts Google from the phone, even when this browser is already signed in to the website. */
-export async function beginNativeGoogleSignIn() {
-  if (Capacitor.isNativePlatform()) return;
-  if (!markNativeGoogleReturn()) return;
-  const ts = nativeQuery().get('ts') || '1';
-  const autoKey = `byjan.nativeGoogleAuto.${ts}`;
-  try {
-    if (sessionStorage.getItem(autoKey) === '1') return;
-    sessionStorage.setItem(autoKey, '1');
-  } catch { /* private mode */ }
-  try {
-    const result = await signInWithGoogle();
-    if (result) await handoffGoogleToNativeApp(result);
-  } catch {
-    try { sessionStorage.removeItem(autoKey); } catch { /* ignore */ }
+    return false;
   }
 }
 
@@ -150,13 +116,7 @@ export async function handoffGoogleToNativeApp(result: UserCredential | null | u
   const tokenResponse = (result as { _tokenResponse?: { oauthIdToken?: string } })._tokenResponse;
   const token = String(oauth?.idToken || tokenResponse?.oauthIdToken || '').trim();
   if (!token) return false;
-  let scheme = NATIVE_AUTH_SCHEME;
-  try {
-    const picked = sessionStorage.getItem('byjan.nativeScheme');
-    if (picked) scheme = picked;
-    sessionStorage.removeItem('byjan.nativeHandoff');
-  } catch { /* private mode */ }
-  window.location.href = `${scheme}#idToken=${encodeURIComponent(token)}`;
+  window.location.href = `${NATIVE_AUTH_SCHEME}#idToken=${encodeURIComponent(token)}`;
   return true;
 }
 
