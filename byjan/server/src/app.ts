@@ -1,6 +1,7 @@
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import multipart from '@fastify/multipart';
 import * as M from '../../src/api/mocks.ts';
+import { applyRoleUpdate } from './access.ts';
 import { issueSession, readJwt, verifyBody } from './crypto.ts';
 import { smartSettle, splitPaise } from './money.ts';
 import { reset, state, type DB } from './store.ts';
@@ -147,13 +148,21 @@ export function buildApp() {
     }
     return rows.map(r => ({ ...r, net: Math.round((r.paid - r.share) * 100) / 100 }));
   });
-  app.post('/v1/books/:id/invites', async (req) => ({ sent: ((req.body as { people?: unknown[] })?.people || []).length || 1 }));
+  app.post('/v1/books/:id/invites', async (req) => {
+    const body = (req.body ?? {}) as { contacts?: unknown[]; people?: unknown[] };
+    const list = Array.isArray(body.contacts) ? body.contacts : Array.isArray(body.people) ? body.people : [];
+    return { sent: list.length };
+  });
   app.get('/v1/books/:id/invite-link', async (req) => ({ url: `https://byjan.app/j/${(req.params as { id: string }).id}` }));
   app.get('/v1/books/:id/roles', async () => db().roles);
   app.put('/v1/books/:id/roles/:role', async (req) => {
     const { role } = req.params as { role: string };
     const row = db().roles.find(r => r.role === role);
-    if (row) Object.assign(row, req.body as object);
+    if (!row) return row;
+    const body = (req.body ?? {}) as { perms?: Record<string, boolean>; approvalLimit?: number | null };
+    const next = applyRoleUpdate(role, body.perms, body.approvalLimit, row.approvalLimit);
+    row.perms = next.perms;
+    row.approvalLimit = next.approvalLimit;
     return row;
   });
 

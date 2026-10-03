@@ -79,7 +79,7 @@ export function AddEntryScreen({ navigation, route }: ScreenProps<'AddEntry'>) {
             <Replay trigger={amt} name="bump" duration={200}>
               <T c={flow === 'in' ? 'po' : 'tx'} style={{ fontFamily: fonts.bold, fontSize: shown.length > 9 ? 48 : shown.length > 7 ? 58 : 72, lineHeight: 84, letterSpacing: -3, fontVariant: ['tabular-nums'] }}>{shown}</T>
             </Replay>
-            <Loop name="caret" duration={1000} easing="steps(1)"><View style={{ width: 2.5, height: 54, borderRadius: 2, backgroundColor: p.ac }} /></Loop>
+            <Loop name="caret" duration={1000} easing="linear"><View style={{ width: 2.5, height: 54, borderRadius: 2, backgroundColor: p.ac }} /></Loop>
           </Row>
         </Replay>
         <Press onPress={async () => { const s = await entriesApi.suggest(num); if (s) { setCat(s.category); showToast('Filled from your last ' + s.title + ' entry'); } }} scaleTo={0.94} style={{ backgroundColor: p.s1, borderWidth: 1, borderColor: p.sep, borderRadius: 13, paddingHorizontal: 12, height: 26, justifyContent: 'center', flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}>

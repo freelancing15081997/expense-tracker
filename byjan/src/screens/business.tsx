@@ -168,7 +168,7 @@ export function RolesScreen() {
 export function AdminScreen() {
   const p = useColors(); const { showToast } = useApp();
   const [tab, setTab] = useState('Overview');
-  const ov = useQuery(() => adminApi.overview('site')); const ap = useQuery(() => adminApi.approvals('site'));
+  const ov = useQuery(() => adminApi.overview('site'), [], 'admin:site'); const ap = useQuery(() => adminApi.approvals('site'), [], 'approvals:site');
   const [done, setDone] = useState<Record<string, boolean>>({}); const [rej, setRej] = useState<string | null>(null); const [reason, setReason] = useState(''); const [rerr, setRerr] = useState('');
   const [pol, setPol] = useState({ twoStep: true, receipts: true, lockMonth: false, exportR: true });
   const pend = (ap.data ?? []).filter(a => !done[a.id]);

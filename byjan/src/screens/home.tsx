@@ -16,16 +16,16 @@ export function HomeScreen() {
   const p = useColors(); const { showToast, masked, setMasked } = useApp(); const ins = useSafeAreaInsets();
   const navigation = useNavigation<any>(); const spaces = useSpaces();
   const [w, setW] = useState(390);
-  const home = useQuery(dashboardApi.home);
-  const books = useQuery(booksApi.list);
-  const bills = useQuery(billsApi.list);
+  const home = useQuery(dashboardApi.home, [], 'home');
+  const books = useQuery(booksApi.list, [], 'books');
+  const bills = useQuery(billsApi.list, [], 'bills');
   const [refreshing, setRefreshing] = useState(false);
   const [nudge, setNudge] = useState(true);
   const [actions, setActions] = useState<null | { id: string; title: string; amount: string }>(null);
   const [gone, setGone] = useState<Record<string, boolean>>({});
   const h = home.data;
   const due = (bills.data ?? []).filter(d => !d.paid).slice(0, 3);
-  const dueTotal = due.reduce((a, d) => a + d.amount, 0);
+  const dueTotal = due.reduce((a, d) => a + (Number(d.amount) || 0), 0);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -125,7 +125,7 @@ export function HomeScreen() {
             <Card onPress={() => navigation.navigate('Bills')} style={{ paddingVertical: 14 }}>
               <Row between><Row gap={10}><IconTile icon="calendar" size={36} radius={12} /><View><T v="bodyB">Due this week</T><T v="tiny">{due.length} bills · tap to pay or mark paid</T></View></Row><T v="amount" c="wa">{inr(dueTotal)}</T></Row>
               <Row gap={6} style={{ marginTop: 12 }}>
-                {due.map(d => <View key={d.id} style={{ flex: 1, backgroundColor: d.overdue ? p.net : p.s2, borderRadius: 12, padding: 10 }}><T v="tiny" c={d.overdue ? 'ne' : 'mu'} numberOfLines={1}>{d.overdue ? 'Overdue' : d.when.split(' · ')[0]}</T><T v="smallB" numberOfLines={1}>{d.title.split(' ')[0]}</T><T v="mono" c="tx" style={{ fontSize: 11.5 }}>{inr(d.amount)}</T></View>)}
+                {due.map(d => <View key={d.id} style={{ flex: 1, backgroundColor: d.overdue ? p.net : p.s2, borderRadius: 12, padding: 10 }}><T v="tiny" c={d.overdue ? 'ne' : 'mu'} numberOfLines={1}>{d.overdue ? 'Overdue' : (d.when || 'Due').split(' · ')[0]}</T><T v="smallB" numberOfLines={1}>{(d.title || 'Bill').split(' ')[0]}</T><T v="mono" c="tx" style={{ fontSize: 11.5 }}>{inr(d.amount || 0)}</T></View>)}
               </Row>
             </Card>
           </Rise>

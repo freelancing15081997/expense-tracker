@@ -77,7 +77,7 @@ export function AccountsScreen({ navigation, route }: ScreenProps<'Accounts'>) {
 /* ---------- T4 Bills & dues ---------- */
 export function BillsScreen({ navigation }: ScreenProps) {
   const p = useColors(); const { showToast } = useApp();
-  const { data, setData, error, reload } = useQuery(billsApi.list);
+  const { data, setData, error, reload } = useQuery(billsApi.list, [], 'bills');
   const [sel, setSel] = useState(1);
   const unpaid = (data ?? []).filter(d => !d.paid).reduce((a, d) => a + d.amount, 0);
   const setPaid = (id: string, v: boolean) => setData(d => d?.map(x => (x.id === id ? { ...x, paid: v } : x)));

@@ -7,9 +7,28 @@ import { ApiError } from '../api/client';
  */
 const cache = new Map<string, unknown>();
 const inflight = new Map<string, Promise<unknown>>();
+const subs = new Set<() => void>();
+const fnIds = new WeakMap<object, string>();
+let fnSeq = 0;
+
+/** Function source is not a stable id on device (several queries collapsed into one and bills rendered as books). */
+function idOf(fn: object) {
+  let id = fnIds.get(fn);
+  if (!id) { id = 'f' + (++fnSeq); fnIds.set(fn, id); }
+  return id;
+}
+
+/** Drop cached reads and ask mounted screens to fetch again. Mock writes call this so the next paint is the stored row. */
+export function invalidateQueries() {
+  cache.clear();
+  inflight.clear();
+  subs.forEach(s => s());
+}
 
 export function useQuery<T>(fn: () => Promise<T>, deps: unknown[] = [], key?: string) {
-  const k = key ?? fn.toString() + '|' + JSON.stringify(deps);
+  const src = fn.toString();
+  const body = src.includes('[bytecode]') || src.includes('[native code]') ? idOf(fn) : src;
+  const k = key ?? body + '|' + JSON.stringify(deps);
   const [data, setData] = useState<T | undefined>(() => cache.get(k) as T | undefined);
   const [error, setError] = useState<ApiError | null>(null);
   const [loading, setLoading] = useState(!cache.has(k));
@@ -31,6 +50,11 @@ export function useQuery<T>(fn: () => Promise<T>, deps: unknown[] = [], key?: st
   }, [k]);
 
   useEffect(() => { alive.current = true; if (cache.has(k)) setData(cache.get(k) as T); run(); return () => { alive.current = false; }; }, [run, k]);
+  useEffect(() => {
+    const sub = () => { if (alive.current) run(); };
+    subs.add(sub);
+    return () => { subs.delete(sub); };
+  }, [run]);
   const set = useCallback((u: T | undefined | ((d: T | undefined) => T | undefined)) => {
     setData(prev => { const n = typeof u === 'function' ? (u as (d: T | undefined) => T | undefined)(prev) : u; if (n !== undefined) cache.set(k, n); return n; });
   }, [k]);

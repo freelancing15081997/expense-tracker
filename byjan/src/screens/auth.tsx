@@ -153,7 +153,7 @@ export function OtpScreen({ navigation, route }: ScreenProps<'Otp'>) {
           <Rise key={i} kind="tileIn" delay={i * 40} style={{ flex: 1 }}>
           <View style={[{ height: 58, borderRadius: 16, backgroundColor: err ? p.net : otp[i] ? p.s2 : p.s1, borderWidth: 1.5, borderColor: err ? p.ne : i === otp.length ? p.ac : otp[i] ? p.a2t : p.sep, alignItems: 'center', justifyContent: 'center' }, { transitionProperty: ['borderColor', 'backgroundColor'], transitionDuration: 160 } as any]}>
             {otp[i] ? <Rise key={i + otp[i]} kind="bump" duration={220}><T c={err ? 'ne' : 'tx'} style={{ fontFamily: fonts.bold, fontSize: 24, lineHeight: 28 }}>{otp[i]}</T></Rise>
-              : i === otp.length && !err ? <Loop name="caret" duration={1000} easing="steps(1)"><View style={{ width: 2, height: 22, borderRadius: 1, backgroundColor: p.ac }} /></Loop> : null}
+              : i === otp.length && !err ? <Loop name="caret" duration={1000} easing="linear"><View style={{ width: 2, height: 22, borderRadius: 1, backgroundColor: p.ac }} /></Loop> : null}
           </View>
           </Rise>
         ))}
@@ -285,7 +285,7 @@ export function LockScreen({ navigation }: ScreenProps) {
 export function JoinScreen({ navigation, route }: ScreenProps<'Join'>) {
   const p = useColors(); const { showToast } = useApp();
   const code = route.params?.code ?? 'GT-7Q4K';
-  const { data, error, loading } = useQuery(() => invitesApi.get(code), [code]);
+  const { data, error, loading } = useQuery(() => invitesApi.get(code), [code], 'invite:' + code);
   const [accept, busy] = useMutation(invitesApi.accept);
   useEffect(() => { if (error?.code === 'INVITE_EXPIRED') navigation.replace('Expired', { code }); }, [error, navigation, code]);
   const inv: Invite | undefined = data ? { ...data, status: route.params?.member ? 'member' : data.status } : undefined;

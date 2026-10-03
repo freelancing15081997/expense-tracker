@@ -1,5 +1,6 @@
 // Books, entries, splits, invites, members & roles.
 import { api, ApiError, upload } from '../client';
+import { invalidateQueries } from '../../hooks/useApi';
 import * as M from '../mocks';
 import type { Balance, BookDetail, BookKind, BookSummary, Category, Entry, Invite, Person, Role, RoleConfig } from '../types';
 
@@ -59,7 +60,24 @@ export const entriesApi = {
   get: (id: string) => api<Entry>('GET', `/v1/entries/${id}`, { mock: M.entries.find(e => e.id === id) ?? M.entries[0] }),
 
   /** PLACEHOLDER: POST /v1/entries */
-  create: (e: NewEntry) => api<Entry>('POST', '/v1/entries', { body: e, mock: { ...M.entries[0], id: 'new', amount: e.amount, category: e.category } }),
+  create: (e: NewEntry) => api<Entry>('POST', '/v1/entries', { body: e, mock: () => {
+    const members = e.split.members.length ? e.split.members : ['AK'];
+    const share = e.amount / members.length;
+    const entry: Entry = {
+      id: 'e' + Date.now(), bookId: e.bookId, dayLabel: 'Today', daySub: 'Now',
+      title: e.title || e.category, category: e.category, icon: 'receipt', paidBy: e.paidBy,
+      amount: e.amount, splitWith: members, time: 'now', yourNet: e.paidBy === 'AK' ? e.amount - share : -share,
+    };
+    M.entries.unshift(entry);
+    M.home.today.unshift({
+      id: entry.id, title: entry.title, sub: 'Saved just now',
+      amount: (e.flow === 'in' ? '+' : '−') + '₹' + Math.round(e.amount).toLocaleString('en-IN'),
+      note: 'You paid', tone: 'tx', mono: entry.title.slice(0, 1).toUpperCase(), monoBg: '#1A1E25', monoFg: '#F2F5F7',
+    });
+    M.home.spent += e.flow === 'in' ? -e.amount : e.amount;
+    invalidateQueries();
+    return entry;
+  } }),
 
   /** PLACEHOLDER: PATCH /v1/entries/:id */
   update: (id: string, p: Partial<NewEntry>) => api<Entry>('PATCH', `/v1/entries/${id}`, { body: p, mock: { ...M.entries[0], ...p } as Entry }),

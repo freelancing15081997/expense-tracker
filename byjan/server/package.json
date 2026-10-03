@@ -6,7 +6,7 @@
     "dev": "tsx watch src/app.ts",
     "start": "tsx src/app.ts",
     "seed": "tsx src/seed.ts",
-    "test": "tsx --test src/money.test.ts src/routes.test.ts"
+    "test": "tsx --test --test-concurrency=1 src/money.test.ts src/routes.test.ts src/matrix.test.ts"
   },
   "dependencies": {
     "@fastify/multipart": "^9.0.3",

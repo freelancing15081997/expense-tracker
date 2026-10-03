@@ -37,7 +37,7 @@ function SpaceHead({ kicker, title, right }: { kicker: string; title: string; ri
 export function BooksScreen() {
   const p = useColors(); const { showToast } = useApp(); const navigation = useNavigation<any>();
   const route = useRoute<any>();
-  const { data, error, reload } = useQuery(booksApi.list);
+  const { data, error, reload } = useQuery(booksApi.list, [], 'books');
   const [f, setF] = useState('All'); const [q, setQ] = useState('');
   const [sheet, setSheet] = useState(!!route.params?.newBook);
   const list = (data ?? []).filter(b => (f === 'All' || b.filter === f) && (!q || b.name.toLowerCase().includes(q.toLowerCase())));
@@ -163,7 +163,7 @@ export function SettleScreen() {
 /* ---------- 07 Insights ---------- */
 export function InsightsScreen() {
   const p = useColors(); const [month, setMonth] = useState('Sep');
-  const { data, error, reload } = useQuery(() => dashboardApi.insights(month), [month]);
+  const { data, error, reload } = useQuery(() => dashboardApi.insights(month), [month], 'insights:' + month);
   const [wk, setWk] = useState(2);
   const max = Math.max(...(data?.weeks.map(w => w.amount) ?? [1]));
   const MonthSel = (

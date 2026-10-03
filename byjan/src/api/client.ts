@@ -2,7 +2,7 @@
  * HTTP client for the Byjan backend.
  *
  * Every service function in ./services calls `api()` with a real method + path AND a mock.
- * - While EXPO_PUBLIC_API_URL is unset (or EXPO_PUBLIC_USE_MOCKS=1) the mock is returned after a small delay.
+ * - While EXPO_PUBLIC_API_URL is unset (or EXPO_PUBLIC_USE_MOCKS=1) the mock is returned immediately.
  * - Set EXPO_PUBLIC_API_URL=https://api.byjan.app to hit the real backend; mocks are then ignored.
  *
  * Search the codebase for `PLACEHOLDER` to find every endpoint that needs a real implementation.
@@ -79,17 +79,14 @@ interface Options<T> {
   query?: Record<string, string | number | boolean | undefined>;
   /** Mock response used until the real endpoint is wired up. */
   mock: T | (() => T);
-  /** Mock latency in ms. */
+  /** Unused. Mocks return immediately so save and load are not padded. */
   delay?: number;
   /** Error to raise in mock mode when the dev "Simulate failures" switch is on. */
   mockError?: ApiError;
 }
 
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
-
 export async function api<T>(method: Method, path: string, opts: Options<T>): Promise<T> {
   if (USE_MOCKS) {
-    await sleep(opts.delay ? Math.min(opts.delay, 450) : 120); // short mock latency; flows that show progress (UPI, checkout) keep a brief wait
     if (simulateFailure) throw opts.mockError ?? new ApiError(503, 'SERVER_UNAVAILABLE', "Server didn't respond");
     const m = opts.mock;
     return typeof m === 'function' ? (m as () => T)() : structuredCloneSafe(m);
@@ -132,7 +129,6 @@ export async function api<T>(method: Method, path: string, opts: Options<T>): Pr
 /** Multipart upload (receipts, documents, voice clips, import files). */
 export async function upload<T>(path: string, file: { uri: string; name: string; type: string }, fields: Record<string, string>, mock: T): Promise<T> {
   if (USE_MOCKS) {
-    await sleep(700);
     if (simulateFailure) throw new ApiError(413, 'FILE_TOO_LARGE', 'Files must be under 10 MB');
     return mock;
   }
