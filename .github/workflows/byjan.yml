@@ -1,0 +1,33 @@
+name: byjan
+on:
+  pull_request:
+  push:
+    branches: [byjan-app]
+jobs:
+  app:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: byjan
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npx tsc --noEmit
+      - run: npx expo lint
+      - run: npx jest --ci --forceExit
+  server:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: byjan/server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npx tsc --noEmit
+      - run: npm test

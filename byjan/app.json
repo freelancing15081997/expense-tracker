@@ -1,0 +1,88 @@
+{
+  "expo": {
+    "name": "byjan",
+    "slug": "byjan",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "scheme": "byjan",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.byjan.ios",
+      "infoPlist": {
+        "CADisableMinimumFrameDurationOnPhone": true,
+        "NSCameraUsageDescription": "Byjan uses the camera to read receipts and UPI QR codes.",
+        "NSMicrophoneUsageDescription": "Byjan uses the microphone so you can say an expense instead of typing it.",
+        "NSPhotoLibraryUsageDescription": "Byjan uses your photos when you attach a receipt or bill.",
+        "NSFaceIDUsageDescription": "Byjan uses Face ID to unlock the app. It never sees your UPI PIN.",
+        "LSApplicationQueriesSchemes": [
+          "upi",
+          "gpay",
+          "phonepe",
+          "paytmmp",
+          "tez"
+        ]
+      }
+    },
+    "android": {
+      "package": "app.byjan.android",
+      "adaptiveIcon": {
+        "backgroundColor": "#0A0C0F",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "byjan.app",
+              "pathPrefix": "/j"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-font",
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Byjan uses the camera to read receipts and UPI QR codes.",
+          "microphonePermission": "Byjan uses the microphone so you can say an expense instead of typing it.",
+          "recordAudioAndroid": true
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Byjan uses your photos when you attach a receipt or bill.",
+          "cameraPermission": "Byjan uses the camera to photograph a receipt."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#5EE6B5"
+        }
+      ],
+      "expo-audio",
+      "./plugins/withUpiQueries",
+      "expo-asset"
+    ],
+    "backgroundColor": "#0A0C0F"
+  }
+}
